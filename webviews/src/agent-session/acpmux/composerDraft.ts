@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * A new chat's inherited draft (a terminal selection, a page's URL), or undefined when
  * the handshake carries none. It is shown in the composer, never sent by itself.
@@ -6,17 +8,110 @@ export function composerDraft(draft: unknown): string | undefined {
   return typeof draft === "string" && draft.trim() ? draft : undefined;
 }
 
+function daemonDraft(result: unknown): string | undefined {
+  if (result && typeof result === "object" && "draft" in result) {
+    return composerDraft((result as { draft?: unknown }).draft);
+  }
+  return composerDraft(result);
+}
+
 /** The composer text once a draft arrives: the draft, unless the user already typed something. */
 export function seededText(current: string, draft: string | undefined): string {
   return draft && !current ? draft : current;
 }
 
 const PERSISTED_DRAFT_PREFIX = "cmux.acpmux.composer-draft.";
-let nativeWrite: Promise<void> = Promise.resolve();
+
+type DraftAction = (params: Record<string, unknown>) => Promise<unknown>;
+
+const DRAFT_ACTIONS_CHANGED = "cmux.acpmux.actions-changed";
+const draftActionSubscribers = new Set<() => void>();
+let draftActionsVersion = 0;
+let draftWriteSequence = 0;
+let flushingDraftWrites = false;
+const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
+
+function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftAction | undefined {
+  const page = (
+    globalThis as typeof globalThis & {
+      window?: { cmuxAcpmuxActions?: Record<string, DraftAction> };
+    }
+  ).window;
+  return page?.cmuxAcpmuxActions?.[name];
+}
 
 function persistedDraftKey(sessionId: string | undefined): string | undefined {
   if (!sessionId?.trim()) return undefined;
   return `${PERSISTED_DRAFT_PREFIX}${encodeURIComponent(sessionId)}`;
+}
+
+function draftActionsChanged(): void {
+  draftActionsVersion += 1;
+  for (const subscriber of draftActionSubscribers) subscriber();
+}
+
+function draftActionsChangedAndFlush(): void {
+  draftActionsChanged();
+}
+
+/** Notifies the composer that the native action map was installed or replaced. */
+export function notifyDraftActionsChanged(): void {
+  draftActionsChangedAndFlush();
+}
+
+/** Re-renders a composer when a reconnect installs the native action map. */
+export function useDraftActionsVersion(): number {
+  return useSyncExternalStore(
+    (subscriber) => {
+      draftActionSubscribers.add(subscriber);
+      const page = (globalThis as typeof globalThis & { window?: Window }).window;
+      page?.addEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+      return () => {
+        draftActionSubscribers.delete(subscriber);
+        page?.removeEventListener(DRAFT_ACTIONS_CHANGED, draftActionsChangedAndFlush);
+      };
+    },
+    () => draftActionsVersion,
+    () => 0,
+  );
+}
+
+async function flushDraftWrites(): Promise<void> {
+  if (flushingDraftWrites || !pageDraftAction("chat.writeDraft")) return;
+  flushingDraftWrites = true;
+  try {
+    while (pendingDraftWrites.size) {
+      const action = pageDraftAction("chat.writeDraft");
+      if (!action) break;
+      const next = pendingDraftWrites.entries().next().value as
+        | [string, { sessionId: string; text: string; sequence: number }]
+        | undefined;
+      if (!next) break;
+      const [sessionId, write] = next;
+      pendingDraftWrites.delete(sessionId);
+      try {
+        await action({ sessionId: write.sessionId, text: write.text });
+      } catch {
+        // A disconnect can invalidate the action while it is in flight. Keep the newest value
+        // for the next connection, while preserving a later keystroke already in the queue.
+        const current = pendingDraftWrites.get(sessionId);
+        if (!current || current.sequence === write.sequence) pendingDraftWrites.set(sessionId, write);
+        break;
+      }
+    }
+  } finally {
+    flushingDraftWrites = false;
+  }
+}
+
+/** Flushes writes after the composer has completed its durable restore. */
+export function flushPendingDraftWrites(): void {
+  void flushDraftWrites();
+}
+
+/** Returns whether a queued write already owns the session's newest value. */
+export function hasPendingDraftWrite(sessionId: string | undefined): boolean {
+  return Boolean(sessionId && pendingDraftWrites.has(sessionId));
 }
 
 /// Reads the last unsent prompt from the page's synchronous remount cache.
@@ -31,34 +126,28 @@ export function readPersistedDraft(sessionId: string | undefined): string | unde
   }
 }
 
-/// Stores or clears an unsent prompt in the remount cache and app-owned native store.
+/// Stores or clears an unsent prompt in the remount cache and daemon session state.
 export function writePersistedDraft(sessionId: string | undefined, text: string): void {
   const key = persistedDraftKey(sessionId);
-  if (!key) return;
+  if (!key || !sessionId?.trim()) return;
   try {
     if (text.trim()) globalThis.localStorage?.setItem(key, text);
     else globalThis.localStorage?.removeItem(key);
   } catch {
     // A storage failure must never interrupt typing or sending.
   }
-  // The app-owned bridge is the durable store. Keep writes ordered because each keystroke queues
-  // an async page-host call, while localStorage remains the synchronous remount cache.
-  void import("./native")
-    .then(({ postNative }) => {
-      nativeWrite = nativeWrite
-        .catch(() => undefined)
-        .then(() => postNative("chat.writeDraft", { sessionId, text }).then(() => undefined));
-      return nativeWrite;
-    })
-    .catch(() => undefined);
+  // Keep only the newest value per session. This preserves clear-after-type ordering when a
+  // connection is down, without dropping the final clear or sending stale keystrokes on repair.
+  pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
+  flushPendingDraftWrites();
 }
 
-/// Reads the app-owned draft; a missing bridge is expected in browser-only and test hosts.
-export async function readNativePersistedDraft(sessionId: string | undefined): Promise<string | undefined> {
+/// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.
+export async function readDurableDraft(sessionId: string | undefined): Promise<string | undefined> {
   if (!sessionId?.trim()) return undefined;
   try {
-    const { postNative } = await import("./native");
-    return composerDraft(await postNative("chat.readDraft", { sessionId }));
+    const action = pageDraftAction("chat.readDraft");
+    return action ? daemonDraft(await action({ sessionId })) : undefined;
   } catch {
     return undefined;
   }

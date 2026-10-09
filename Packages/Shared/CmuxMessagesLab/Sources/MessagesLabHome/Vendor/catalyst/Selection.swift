@@ -65,23 +65,24 @@ struct SelState: Equatable {
 /// other part is one atomic unit (length 1) that copies as a placeholder (SELECTION.md).
 enum SelText {
     /// Markdown text parts count in their DISPLAY string (MarkdownStore `Markdown.displayText`).
-    static func length(_ part: Part, message: ID? = nil) -> Int {
-        if case let .text(t, _) = part { return ((Markdown.displayText(t, message: message) ?? t) as NSString).length }
+    /// `format`: the message's (Message.format); plain unless marked markdown.
+    static func length(_ part: Part, message: ID? = nil, format: MessageFormat? = nil) -> Int {
+        if case let .text(t, _) = part { return ((Markdown.displayText(t, message: message, format: format) ?? t) as NSString).length }
         return 1
     }
     static func isText(_ part: Part) -> Bool { if case .text = part { return true }; return false }
 
-    static var photo: String { String(localized: "selection.copy.photo", defaultValue: "[Photo]") }
-    static var video: String { String(localized: "selection.copy.video", defaultValue: "[Video]") }
-    static var audio: String { String(localized: "selection.copy.audio", defaultValue: "[Audio Message]") }
-    static var contact: String { String(localized: "selection.copy.contact", defaultValue: "[Contact]") }
+    static var photo: String { MessagesLabLocalization.string("selection.copy.photo", "[Photo]") }
+    static var video: String { MessagesLabLocalization.string("selection.copy.video", "[Video]") }
+    static var audio: String { MessagesLabLocalization.string("selection.copy.audio", "[Audio Message]") }
+    static var contact: String { MessagesLabLocalization.string("selection.copy.contact", "[Contact]") }
     /// "[Attachment: %@]"
-    static var attachmentFormat: String { String(localized: "selection.copy.attachment", defaultValue: "[File: %@]") }
+    static var attachmentFormat: String { MessagesLabLocalization.string("selection.copy.attachment", "[File: %@]") }
     /// "[Location: %@]"
-    static var locationFormat: String { String(localized: "selection.copy.location", defaultValue: "[Location: %@]") }
-    static var location: String { String(localized: "selection.copy.locationBare", defaultValue: "[Location]") }
+    static var locationFormat: String { MessagesLabLocalization.string("selection.copy.location", "[Location: %@]") }
+    static var location: String { MessagesLabLocalization.string("selection.copy.locationBare", "[Location]") }
     /// Sender header before each sender's run when a selection spans several senders: "%@:".
-    static var senderFormat: String { String(localized: "selection.copy.sender", defaultValue: "%@:") }
+    static var senderFormat: String { MessagesLabLocalization.string("selection.copy.sender", "%@:") }
 
     /// Placeholder of a non-text part.
     static func placeholder(_ part: Part) -> String {
@@ -261,7 +262,7 @@ extension PartRow {
         if let g = markdownGeometry { return g }
         if let text { return ShortTextGeometry(tl: text) }
         guard case let .text(t, _) = part else { return nil }
-        let l = LongTextStore.shared.layout(t, width: width, message: ref.messageId)
+        let l = LongTextStore.shared.layout(t, width: width, message: ref.messageId, markdown: markdownFormat)
         return LongTextGeometry(layout: l, folded: LongTextFold.isFolded(ref.messageId, l))
     }
 }
@@ -315,11 +316,11 @@ enum SelectionCopy {
         for (seq, m) in msgs where seq >= sel.lo.seq && seq <= sel.hi.seq {
             guard m.deletedAt == nil, m.retractedAt == nil else { continue }
             for (pi, part) in m.parts.enumerated() {
-                let len = SelText.length(part, message: m.id)
+                let len = SelText.length(part, message: m.id, format: m.format)
                 guard let r = sel.range(seq: seq, part: pi, length: len) else { continue }
                 if case let .text(t, _) = part {
                     // Offsets are in the display string (markdown: no markers, tables as TSV).
-                    let shown = Markdown.displayText(t, message: m.id) ?? t
+                    let shown = Markdown.displayText(t, message: m.id, format: m.format) ?? t
                     out.append(Piece(seq: seq, sender: m.senderId, text: (shown as NSString).substring(with: r), isText: true))
                 } else {
                     var isFile = false, name = ""

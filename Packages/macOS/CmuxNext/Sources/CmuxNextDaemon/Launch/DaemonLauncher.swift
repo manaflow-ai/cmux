@@ -370,9 +370,8 @@ public struct DaemonLauncher: Sendable {
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
-        guard let open = version.firstIndex(of: "(") else { return nil }
-        let rest = version[version.index(after: open)...]
-        let commit = rest.prefix { $0.isHexDigit }
+        guard version.contains("(") else { return nil }
+        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
         return commit.count >= 7 ? String(commit) : nil
     }
 

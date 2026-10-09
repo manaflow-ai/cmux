@@ -5,7 +5,8 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 ## Landings
 
 - 2026-10-09 0fd87fc2d979 refactor-app-rs: app.rs OrderedSession -> app/ordered_session.rs + app/ordered_session/{attach,mutations,sizing,commands}.rs; app.rs 47140 -> 45278; Testbox fmt/clippy/cmux-tui tests 2327/Windows check, 7 min.
-- 2026-10-09 (see git log) refactor-app-rs: app.rs session mutation, surface sync claims, remote attach executor -> app/{session_mutation,surface_sync,remote_attach}.rs; app.rs 45278 -> 44525; Testbox fmt/clippy/cmux-tui tests 2342/Windows check, 6 min.
+- 2026-10-09 4dad88cac4f9 refactor-app-rs: app.rs session mutation, surface sync claims, remote attach executor -> app/{session_mutation,surface_sync,remote_attach}.rs; app.rs 45278 -> 44525; Testbox fmt/clippy/cmux-tui tests 2342/Windows check, 6 min.
+- 2026-10-09 (see git log) refactor-app-rs: app.rs host input, app events, frontend journal, mux ingress -> app/{host_input,events,frontend_journal,mux_ingress}.rs; app.rs 44525 -> 43325.
 
 ## Target module map for cmux-tui/crates/cmux-tui/src/app.rs (2026-10-09)
 

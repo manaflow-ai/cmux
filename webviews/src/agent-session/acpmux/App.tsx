@@ -26,13 +26,15 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
+import { TemplateDots } from "./newtab/TemplateDots";
+import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
-import { composerDraft } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
@@ -83,7 +85,13 @@ import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
-import { canFork, latestForkSeq, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import {
+  canFork,
+  latestForkSeq,
+  messageMenuTarget,
+  openReportedImage,
+  setMessageMenuSource,
+} from "./conversation/messageMenu";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -1818,6 +1826,9 @@ function AcpmuxPane() {
             composerHandle.current?.focus();
           },
           "chat.history": () => client.loadOlder(),
+          // Composer drafts belong to the daemon session so every host can restore them.
+          "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
+          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -1830,6 +1841,8 @@ function AcpmuxPane() {
             await client.adoptLive(choice === "fork" ? "fork" : "open");
             return persistSession(client.adopted);
           },
+          // The native context menu's Open Image: the image the page reported under the pointer.
+          "chat.menu.openImage": async () => openReportedImage(),
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -1876,6 +1889,7 @@ function AcpmuxPane() {
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
         };
+        notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
           restore: restorePrompt,
           opened: (sessionId) => {
@@ -1955,6 +1969,7 @@ function AcpmuxPane() {
       directClient.current?.close();
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
+      notifyDraftActionsChanged();
     };
     // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
   }, [harnessSwitch, queryClient, toggleInspector]);
@@ -2427,9 +2442,26 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.layout === "b" ? (
+          {showNewTab && (
+            <TemplateDots
+              current={shownTemplate(newTab)}
+              onPick={(template) =>
+                pickNewTabTemplate(template, {
+                  callNative,
+                  cwd: newTab.cwd,
+                  show: (next) => {
+                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
+                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                  },
+                })
+              }
+            />
+          )}
+          {showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
@@ -2497,7 +2529,15 @@ function AcpmuxPane() {
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
-                      summary={<SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />}
+                      summary={
+                        <SummaryButton
+                          // Another chat closes its summary and gallery, as it does the image viewer.
+                          key={snapshot.sessionId}
+                          rows={snapshot.rows}
+                          onOpenOutput={quick ? undefined : openOutput}
+                          onOpenImage={quick ? undefined : openImage}
+                        />
+                      }
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}

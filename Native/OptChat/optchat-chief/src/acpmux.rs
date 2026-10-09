@@ -822,8 +822,9 @@ impl AgentPort for Acpmux {
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
         );
         match answer.recv() {
-            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
-            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+            // acpmux answers a steer only once its harness took it (Claude
+            // Code: `steered` at its echo; codex-acp: its own answer).
+            Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),
             Err(_) => Err("steer: the acpmux connection closed".into()),
         }
