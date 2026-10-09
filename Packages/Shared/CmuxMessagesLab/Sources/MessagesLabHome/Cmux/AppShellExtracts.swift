@@ -9,6 +9,7 @@ import AppKit
 /// from the catalyst catalog.
 enum NativeStrings {
     static var attach: String { String(localized: "compose.attach", defaultValue: "Add Attachment", table: "AppKitNative", bundle: .module) }
+    static var copy: String { String(localized: "menu.copy", defaultValue: "Copy", table: "AppKitNative", bundle: .module) }
     static var emoji: String { String(localized: "compose.emoji", defaultValue: "Emoji", table: "AppKitNative", bundle: .module) }
     static var video: String { String(localized: "header.video", defaultValue: "FaceTime Video", table: "AppKitNative", bundle: .module) }
     /// The name pill: "Contact details for %@".

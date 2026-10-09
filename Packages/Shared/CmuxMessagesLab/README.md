@@ -17,14 +17,17 @@ and render-server field animation, blurred header and native scrolling.
     tiles), LinkPreviews; `Resources/springs.json`.
   - appkit-port shim: UIKitNames, RoundedRect, LayerViews.
   - appkit-native: Compose, Materials, NativeScroll, HeaderBar,
-    HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
+    HeaderBackdrop, TranscriptAccess (the transcript's accessibility and
+    MessagesLab's text selection, over catalyst's Selection; MarkdownAccess
+    gives Markdown messages their structure), SwipeReply (installed only when the
     owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
     frame, never Release or RC).
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
-    tools/diff-harness, PagedSource, Pager.
+    tools/diff-harness, PagedSource, Pager, SelectionCheck (`Cmux/SelectionSeams.swift`:
+    a no-op log, and no pager: a copy reads the loaded HomeStore window).
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
@@ -76,6 +79,7 @@ and render-server field animation, blurred header and native scrolling.
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
+| TranscriptAccess | the pane's window and store are optional |
 | ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
 | Compose, FlightRecorder, SwipeReply, HeaderBar, UIKitNames, ComposeAttachments, Engine, Fixture, Header, Layout, LinkPreviews, LongText, MarkdownParser, Model, Shapes, Springs, TiledBubble, Transcript, WindowView, Sidebar{Drawing,Model,View} | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs; named color spaces and UI fonts through `CrashSafeGraphics`/`SidebarCrashSafe` with stated fallbacks, an optional gradient draws nothing, a fixture that cannot load is an empty conversation |
 
@@ -133,8 +137,8 @@ collapse above 3 screens ("Show all N lines", EN and JA from upstream), header g
 and scroll indicator timing measured from Messages, resize anchoring like Messages, the
 grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
-track click, compose hover only over the field) except SwipeReply at 0c8147b and TranscriptAccess at bd65bbf (d5d6a18's rewrite needs
-unvendored drivers: SelectionCheck, MarkdownAccess, the pager; a `cmux:` line speaks custom parts)
+track click, compose hover only over the field) except SwipeReply at 0c8147b (TranscriptAccess follows the pin since
+its stand-ins exist, `Cmux/SelectionSeams.swift`)
 (not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.
@@ -167,7 +171,11 @@ pane in the cmux-next window, whose layout has one global minimum pane width
 (`layout.minimumPaneWidth`) and no per-content minimum. A narrower pane scales
 the text column (Layout patch above).
 
-Host.swift is not vendored: 7f1a811's press and
+Host.swift is not vendored: 2579028's clicks over the Selection (shift-click, double and
+triple press, a press on the highlight drags the text out, a click selects the bubble, text
+drops into the field) are in Cmux/PaneClicks.swift with cmux's seams (a tapback hold clears
+the selection; links and attachments go through PaneLinks and HomeStore intents; a click on
+empty space focuses the field), and the text menu comes first in PaneMenu; 7f1a811's press and
 hold, picker dim and Esc, double-click word and menu tapback rows are carried
 in Cmux/PaneInteractions.swift and PaneHost, and 69f4256's menu (Tapback
 Details…, Attach Sticker…, Share… for text and links), target highlight,

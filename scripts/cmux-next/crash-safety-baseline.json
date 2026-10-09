@@ -55,7 +55,7 @@
    "CmuxNextControl": 18,
    "CmuxNextDaemon": 54,
    "CmuxNextMobile": 1,
-   "MessagesLabHome": 270
+   "MessagesLabHome": 267
   },
   "int_conversion": {
    "CMUXMobileCore": 18,
@@ -64,7 +64,7 @@
    "CmuxNextControl": 5,
    "CmuxNextDaemon": 3,
    "CmuxNextMobile": 1,
-   "MessagesLabHome": 48
+   "MessagesLabHome": 47
   },
   "render_font": {
    "CmuxHomeRender": 4,

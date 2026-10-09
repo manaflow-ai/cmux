@@ -65,7 +65,9 @@ import Testing
         c.mouseDragged(at: CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2), event(.leftMouseDragged))
         c.mouseDragged(at: to, event(.leftMouseDragged))
         c.mouseUp(at: to, event(.leftMouseUp))
-        #expect(c.selection.selectedText == "First reply here\nSecond one mine")
+        // MessagesLab's Selection copies across bubbles in Messages' format: a "Name:" line per
+        // sender run, each part on its own tab-indented line, runs apart by a blank line, CR line ends.
+        #expect(c.selection.selectedText == "Chief:\r\tFirst reply here\r\rMe:\r\tSecond one mine")
     }
 
     @Test func aDoubleClickSelectsTheWord() throws {

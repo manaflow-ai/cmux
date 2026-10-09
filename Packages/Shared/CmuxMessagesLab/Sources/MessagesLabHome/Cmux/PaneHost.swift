@@ -69,8 +69,9 @@ final class HostView: NSView {
         // cmux: the pane's fill shows through (the window view paints the
         // themed background); a pane has no black window behind it.
         layer?.backgroundColor = nil
-        registerForDraggedTypes([.fileURL, .png, .tiff])
-        scrollView.document.registerForDraggedTypes([.fileURL, .png, .tiff])
+        // Files and pictures for the host's intake; text for the field (a text drag out of the transcript).
+        registerForDraggedTypes([.fileURL, .png, .tiff, .string])
+        scrollView.document.registerForDraggedTypes([.fileURL, .png, .tiff, .string])
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
@@ -90,7 +91,7 @@ final class HostView: NSView {
         addSubview(scrollView)
         addSubview(headerBackdrop)
         addSubview(selectionHost)
-        if let c = controller { selectionHost.root.addSublayer(c.selection.layer) }
+        if let c = controller { for l in [c.selection.bubbleLayer, c.selection.atomLayer, c.selection.atomOutLayer, c.selection.layer, c.selection.outLayer] { selectionHost.root.addSublayer(l) } }
         addSubview(morphHost)
         morphHost.root.addSublayer(demo.morphView.layer)
         addSubview(fieldChrome)
@@ -219,6 +220,7 @@ final class HostView: NSView {
     // MARK: Drop
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
@@ -236,6 +238,7 @@ extension FieldChrome {
 
 extension TranscriptDocumentView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { controller?.performDrop(sender) ?? false }
 }
 
@@ -288,7 +291,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
     /// Press and hold on a message (MessagesLab 7f1a811).
-    private let hold = PressHold()
+    let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`); HomeOp has no
@@ -399,8 +402,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let window, let demo else { return }
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false); self?.selection.windowActive = true })
+            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true); self?.selection.windowActive = false })
             demo.setInactive(!window.isKeyWindow)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
@@ -539,80 +542,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if picker != nil { closePicker(); return }
     }
 
-    // MARK: Drops
-
-    // cmux: the host's intake reads the pasteboard (types only while dragging).
-    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
-    }
-    func performDrop(_ sender: NSDraggingInfo) -> Bool {
-        intents?.takeAttachments(from: sender.draggingPasteboard) ?? false
-    }
+    // Drops and clicks: PaneClicks.swift (MessagesLab 2579028 Host.swift over its Selection).
 
     func showEmojiPicker() {
         focusCompose()
         NSApp.orderFrontCharacterPalette(nil)
-    }
-
-    // MARK: Clicks
-
-    func mouseDown(at p: CGPoint, _ e: NSEvent) {
-        if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
-        if e.clickCount == 1 {
-            selection.mouseDown(p)
-            // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
-            if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
-                hold.start(at: p) { [weak self] in
-                    self?.selection.clear()
-                    self?.showPicker(for: hit)
-                }
-            }
-        }
-    }
-    func mouseDragged(at p: CGPoint, _ e: NSEvent) {
-        hold.moved(to: p)
-        let doc = host.scrollView.document
-        if selection.mouseDragged(p) {
-            if window?.firstResponder !== doc { window?.makeFirstResponder(doc) }
-            // AppKit's drag autoscroll near the edges.
-            doc.autoscroll(with: e)
-        }
-    }
-    func mouseUp(at p: CGPoint, _ e: NSEvent) {
-        let held = hold.fired
-        hold.cancel()
-        if held { return }
-        if selection.mouseUp() { return }
-        if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
-    }
-
-    func clicked(_ p: CGPoint) {
-        guard let demo else { return }
-        if picker != nil { closePicker(); return }
-        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
-        guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
-        if let hit = demo.hit(p) {
-            // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
-            if openLink(hit, at: p) { return }
-            switch hit.row.part {
-            // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
-            // cmux: a video plays or pauses in its bubble (opening it in an
-            // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
-            case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
-            default: break
-            }
-            return
-        }
-        // cmux: a click on empty transcript space gives the field the keyboard.
-        focusCompose()
-    }
-
-    /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
-    /// the word under the cursor; the picker is press and hold.
-    func doubleClicked(_ p: CGPoint) {
-        guard demo?.hit(p) != nil else { return }
-        if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker

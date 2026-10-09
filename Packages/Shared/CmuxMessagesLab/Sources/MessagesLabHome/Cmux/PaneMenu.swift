@@ -10,10 +10,15 @@ extension ChatController {
     // MARK: Context menu
 
     func menu(at p: CGPoint) -> NSMenu? {
+        // A right-click on selected text: the text menu (MessagesLab 2579028, SELECTION.md:
+        // the system's Look Up, Translate, Copy, Share…, Speech, Services), not the message menu.
+        if let m = selection.textMenu(at: p) { return m }
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
+        // No Services lookup on the message menu (6-8 ms of main-thread work per open, MessagesLab 2579028).
+        menu.allowsContextMenuPlugIns = false
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
         // incoming 59 -> 91, outgoing (72,147,247) -> (45,89,192), in about 0.22 s after
         // 0.08 s; back when the menu closes).
