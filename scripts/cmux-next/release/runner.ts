@@ -16,6 +16,9 @@ export interface Sql {
 export const connectUrl = async (url: string): Promise<Sql> => {
   const { default: pg } = await import("pg")
   const client = new pg.Client({ connectionString: url, application_name: "cmux-db-release" })
+  // An idle connection the server ends (for example a dropped rehearsal branch) must not crash the
+  // process; the next query on it still fails.
+  client.on("error", () => {})
   await client.connect()
   return {
     query: async <T>(text: string, params?: ReadonlyArray<unknown>) => (await client.query(text, params as Array<unknown> | undefined)).rows as Array<T>,
@@ -129,10 +132,12 @@ const sessionSettings = (tree: Tree, scope: "LOCAL" | "SESSION") => {
  * this transaction carry its xid in xmin, so DDL, TRUNCATE (new relfilenode), GRANT (relacl), a
  * foreign key into another schema (triggers on the referenced table) and a new schema all show up.
  */
+/** Row-write counters of tables outside `schema`. They include writes of this session not flushed yet, so the guard compares a snapshot taken before the file. */
+const WRITES_SQL = `SELECT relid::text AS relid, schemaname || '.' || relname AS name, (n_tup_ins + n_tup_upd + n_tup_del)::text AS n FROM pg_catalog.pg_stat_xact_user_tables WHERE schemaname NOT IN ($1, 'pg_toast')`
+const writesOutside = async (sql: Sql, schema: string) => new Map((await sql.query<{ relid: string; name: string; n: string }>(WRITES_SQL, [schema])).map((r) => [r.relid, { name: r.name, n: Number(r.n) }]))
+
 const OUTSIDE_SQL = `WITH me AS (SELECT (txid_current() % 4294967296)::text AS xid), allowed AS (SELECT unnest(ARRAY[$1::text, 'pg_toast']) AS nspname)
-  SELECT 'rows written in ' || schemaname || '.' || relname AS problem FROM pg_catalog.pg_stat_xact_user_tables
-   WHERE schemaname NOT IN (SELECT nspname FROM allowed) AND n_tup_ins + n_tup_upd + n_tup_del > 0
-  UNION ALL SELECT 'catalog: relation ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+  SELECT 'catalog: relation ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
    WHERE c.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
   UNION ALL SELECT 'catalog: column of ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
    WHERE a.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
@@ -155,8 +160,11 @@ const OUTSIDE_SQL = `WITH me AS (SELECT (txid_current() % 4294967296)::text AS x
   UNION ALL SELECT 'catalog: schema ' || n.nspname FROM pg_catalog.pg_namespace n, me
    WHERE n.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)`
 
-export const outsideProblems = async (sql: Sql, schema: string): Promise<Array<string>> =>
-  [...new Set((await sql.query<{ problem: string }>(OUTSIDE_SQL, [schema])).map((r) => r.problem))]
+export const outsideProblems = async (sql: Sql, schema: string, writesBefore: Map<string, { name: string; n: number }>): Promise<Array<string>> => {
+  const problems = (await sql.query<{ problem: string }>(OUTSIDE_SQL, [schema])).map((r) => r.problem)
+  for (const [relid, after] of await writesOutside(sql, schema)) if (after.n > (writesBefore.get(relid)?.n ?? 0)) problems.push(`rows written in ${after.name}`)
+  return [...new Set(problems)]
+}
 
 const indexNameOf = async (f: MigrationFile): Promise<string | undefined> => {
   const [stmt] = await parseSql(f.sql)
@@ -208,9 +216,10 @@ export const applyPending = async (
         await sql.query("BEGIN")
         try {
           for (const q of sessionSettings(tree, "LOCAL")) await sql.query(q)
+          const writesBefore = tree.name === "cmux-vm" ? await writesOutside(sql, tree.schema) : new Map()
           await sql.query(f.sql)
           if (tree.name === "cmux-vm") {
-            const outside = await outsideProblems(sql, tree.schema)
+            const outside = await outsideProblems(sql, tree.schema, writesBefore)
             if (outside.length) throw new Error(`wrote outside schema ${tree.schema} (cmux-old shares this database): ${outside.join("; ")}; rolled back`)
           }
           await record(sql, tree, f, options.by)

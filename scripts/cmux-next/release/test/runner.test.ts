@@ -44,26 +44,35 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
   for (const [what, body, probe] of outside) {
     it(`refuses ${what} and leaves the database as it was`, async () => {
       const sql = await fresh()
-      const before = (await sql.query<{ v: string }>(probe))[0]?.v
-      await expect(applyPending(sql, vm, [...base, file("0009_x.sql", body)], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
-      expect((await sql.query<{ v: string }>(probe))[0]?.v).toBe(before)
-      expect((await applied(sql)).length).toBe(8)
-      await sql.end()
+      try {
+        const before = (await sql.query<{ v: string }>(probe))[0]?.v
+        await expect(applyPending(sql, vm, [...base, file("0009_x.sql", body)], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
+        expect((await sql.query<{ v: string }>(probe))[0]?.v).toBe(before)
+        expect((await applied(sql)).length).toBe(8)
+      } finally {
+        await sql.end()
+      }
     })
   }
 
   it("refuses CREATE INDEX CONCURRENTLY on a table outside cmux_vm before running it", async () => {
     const sql = await fresh()
-    await expect(applyPending(sql, vm, [...base, file("0009_i.sql", "CREATE INDEX CONCURRENTLY users_name ON public.users (name);")], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
-    expect((await sql.query<{ v: string | null }>("SELECT to_regclass('public.users_name')::text AS v"))[0]?.v).toBeNull()
-    await sql.end()
+    try {
+      await expect(applyPending(sql, vm, [...base, file("0009_i.sql", "CREATE INDEX CONCURRENTLY users_name ON public.users (name);")], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
+      expect((await sql.query<{ v: string | null }>("SELECT to_regclass('public.users_name')::text AS v"))[0]?.v).toBeNull()
+    } finally {
+      await sql.end()
+    }
   })
 
   it("an unqualified name lands in cmux_vm (search_path = cmux_vm, pg_catalog)", async () => {
     const sql = await fresh()
-    await applyPending(sql, vm, [...base, file("0009_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })
-    expect((await sql.query<{ a: string | null; b: string | null }>("SELECT to_regclass('cmux_vm.things')::text AS a, to_regclass('public.things')::text AS b"))[0]).toEqual({ a: "cmux_vm.things", b: null })
-    await sql.end()
+    try {
+      await applyPending(sql, vm, [...base, file("0009_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })
+      expect((await sql.query<{ a: string | null; b: string | null }>("SELECT to_regclass('cmux_vm.things')::text AS a, to_regclass('public.things')::text AS b"))[0]).toEqual({ a: "cmux_vm.things", b: null })
+    } finally {
+      await sql.end()
+    }
   })
 })
 

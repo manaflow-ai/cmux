@@ -70,7 +70,21 @@ export const dbUrl = (name: string) => {
 const quote = (s: string) => `"${s.replace(/"/g, '""')}"`
 
 let admin: Sql | undefined
-export const adminSql = async () => (admin ??= await connectUrl(SCRATCH_URL))
+/** One superuser connection shared by the test files of this process; ending it lets the next caller reconnect. */
+export const adminSql = async (): Promise<Sql> => {
+  if (!admin) {
+    const inner = await connectUrl(SCRATCH_URL)
+    const wrapped: Sql = {
+      query: (text, params) => inner.query(text, params),
+      end: async () => {
+        if (admin === wrapped) admin = undefined
+        await inner.end()
+      },
+    }
+    admin = wrapped
+  }
+  return admin
+}
 
 export const createDb = async (name: string, template?: string) => {
   const sql = await adminSql()
