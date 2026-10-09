@@ -18,10 +18,8 @@ enum CloudWelcomeNextStep: Equatable {
     }
 }
 
-/// "Introducing cmux cloud": shown once on launch (new users, and existing
-/// users after the update that ships it). A glass window with the title, a
-/// Cloud tree built from the sidebar's own rows, and a solid panel with the
-/// reasons and the next step.
+/// "Your work, wherever you go": shown once on the 0.65.1 launch for users who
+/// can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
 /// in a standalone lab; ``CloudWelcomeWindowController`` feeds it the account.
@@ -29,22 +27,38 @@ struct CloudWelcomeView: View {
     let nextStep: CloudWelcomeNextStep
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
+    /// Where each slide's clip lives (the lab points this at a folder).
+    var mediaURL: (CloudWelcomeSlide) -> URL? = CloudWelcomeMediaCarousel.bundledMediaURL
+    // Lab toggles while the slider is designed.
+    var showsMedia = true
+    var showsReasons = true
+    var sliderAutoplays = true
+    var sliderShowsFeatureList = true
+    var sliderListUsesDots = false
 
     static let windowWidth: CGFloat = 580
-    private static let panelCornerRadius: CGFloat = 16
+    /// The list layouts put the features beside the clip, so they need more room.
+    static let listWindowWidth: CGFloat = 680
 
     var body: some View {
-        VStack(spacing: 0) {
-            title
-                .frame(maxWidth: .infinity)
-                .padding(.top, 26)
-                .padding(.bottom, 2)
-            CloudWelcomeHero()
-            panel
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+        let hasMedia = showsMedia && CloudWelcomeSlide.all.contains { mediaURL($0) != nil }
+        return VStack(spacing: 0) {
+            CloudWelcomeHeader()
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .padding(.bottom, 22)
+            if hasMedia {
+                CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
+                    .padding(.bottom, 24)
+            } else {
+                CloudWelcomeHero()
+            }
+            panel(hasMedia: hasMedia)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 22)
         }
-        .frame(width: Self.windowWidth)
+        .frame(width: sliderShowsFeatureList && hasMedia ? Self.listWindowWidth : Self.windowWidth)
         .background(windowBackground)
         .accessibilityIdentifier("CloudWelcomeWindow")
     }
@@ -69,14 +83,9 @@ struct CloudWelcomeView: View {
         #endif
     }
 
-    private var panel: some View {
+    private func panel(hasMedia: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The title is above the hero, so the subtitle leads the panel.
-            Text(String(
-                localized: "cloud.enable.subtitle",
-                defaultValue: "Persistent cloud computers that open as regular cmux workspaces."
-            ))
-            .cmuxFont(size: 15, weight: .medium)
+            if showsReasons && !hasMedia {
             VStack(alignment: .leading, spacing: 12) {
                 CloudWelcomeReasonRow(
                     symbol: "terminal",
@@ -100,42 +109,13 @@ struct CloudWelcomeView: View {
                     )
                 )
             }
-            .padding(.top, 16)
-            footer
-                .padding(.top, 20)
-        }
-        .padding(EdgeInsets(top: 22, leading: 24, bottom: 16, trailing: 24))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Self.panelCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.panelCornerRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
-    }
-
-    /// "Introducing" over "cmux cloud" and a "new" badge. The name is the
-    /// product, not a sentence, so it is the same in every language.
-    private var title: some View {
-        VStack(spacing: 2) {
-            Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "Introducing"))
-                .cmuxFont(size: 13, weight: .medium)
-                .foregroundStyle(.secondary)
-            HStack(alignment: .center, spacing: 10) {
-                Text(verbatim: "cmux cloud")
-                    .cmuxFont(size: 30, weight: .bold)
-                Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New").lowercased(with: .current))
-                    .cmuxFont(size: 12, weight: .medium)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 8)
-                    .frame(height: 20)
-                    .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.18)))
+            .padding(.bottom, 20)
             }
+            Divider()
+            footer
+                .padding(.top, 16)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var footer: some View {
@@ -198,6 +178,37 @@ struct CloudWelcomeView: View {
         case .signIn, .upgrade, .openCloud:
             return [available]
         }
+    }
+}
+
+private struct CloudWelcomeHeader: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "cloud.fill")
+                    .cmuxFont(size: 11, weight: .semibold)
+                Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud"))
+                    .cmuxFont(size: 12, weight: .semibold)
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 0.5)
+            }
+            Text(String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go"))
+                .cmuxFont(size: 30, weight: .bold)
+                .tracking(-0.35)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
