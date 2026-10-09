@@ -42,6 +42,6 @@ import Testing
     /// opt in; Show Chats in Settings brings it back).
     @Test func hidingChatsTurnsOffShowChats() {
         #expect(SidebarHiddenSections.hidePath == SidebarSectionsSetting.showChatsPath)
-        #expect(SidebarHiddenSections.showHiddenPaths == [SidebarSectionsSetting.showProjectsPath])
+        #expect(SidebarHiddenSections.showHiddenPaths == [SidebarSectionsSetting.showProjectsPath, SidebarSectionsSetting.showChatsPath])
     }
 }

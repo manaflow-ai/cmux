@@ -29,14 +29,32 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
-    @Test func chatsAreHiddenByDefaultAndOptIn() throws {
-        #expect(try !parse("{}").sidebarSections.showChats)
-        #expect(try parse(#"{"sidebar": {"showChats": true}}"#).sidebarSections.showChats)
+    /// cx-xub5 (Lawrence 2026-10-09): All chats shows by default; the setting hides it.
+    @Test func allChatsShowByDefaultAndHide() throws {
+        #expect(try parse("{}").sidebarSections.showChats)
+        #expect(try !parse(#"{"sidebar": {"showChats": false}}"#).sidebarSections.showChats)
         let bad = try parse(#"{"sidebar": {"showChats": "yes"}}"#)
         #expect(bad.sidebarSections == .defaults)
         #expect(bad.diagnostics.map(\.path) == ["sidebar.showChats"])
         let descriptor = try #require(SettingsSchema.all.first { $0.path == ["sidebar", "showChats"] })
         #expect(descriptor.section == .appearance)
+        #expect(SettingsSchema.agentSettable(descriptor) == true)
+        #expect(descriptor.defaultValue == .bool(true), "the Settings default matches the parsed default")
+    }
+
+    /// `sidebar.allChatsRows`: how many chats All chats shows before it scrolls (default 8, 1 to 50).
+    @Test func allChatsRowsReadsANumberInRange() throws {
+        #expect(try parse("{}").sidebarSections.allChatsRows == 8)
+        #expect(try parse(#"{"sidebar": {"allChatsRows": 3}}"#).sidebarSections.allChatsRows == 3)
+        #expect(try parse(#"{"sidebar": {"allChatsRows": 25.5}}"#).sidebarSections.allChatsRows == 26, "the schema accepts any number in range")
+        for bad in ["0", "51", "\"many\""] {
+            let snapshot = try parse(#"{"sidebar": {"allChatsRows": "# + bad + "}}")
+            #expect(snapshot.sidebarSections == .defaults, "\(bad)")
+            #expect(snapshot.diagnostics.map(\.path) == ["sidebar.allChatsRows"], "\(bad)")
+        }
+        let descriptor = try #require(SettingsSchema.all.first { $0.path == ["sidebar", "allChatsRows"] })
+        #expect(descriptor.section == .appearance)
+        #expect(descriptor.defaultValue == .number(8))
         #expect(SettingsSchema.agentSettable(descriptor) == true)
     }
 
