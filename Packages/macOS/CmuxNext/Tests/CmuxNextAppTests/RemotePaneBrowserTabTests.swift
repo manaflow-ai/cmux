@@ -125,6 +125,23 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
+    /// cx-whr7: the page notice sits under a Chromium page's child window,
+    /// so the omnibar carries it: a "This Mac" chip on a tab of another
+    /// machine's tree that runs here (never on this Mac's own tabs, never on
+    /// a machine browser record, which runs there).
+    @Test func theOmnibarSaysThisMacForATabOfAnotherMachine() throws {
+        let f = try Self.fixture()
+        let remoteTab = try #require(f.remotePane.tabs.first)
+        let localTab = try #require(f.localPane.tabs.first)
+        let badge = try #require(f.services.browserMachineBadge(key: remoteTab.id, url: URL(string: "https://www.google.com/")))
+        #expect(badge.text == MachineBrowserStrings.thisMac)
+        #expect(badge.help == RemoteStrings.browserRunsOnThisMac(f.machine.host.label))
+        #expect(f.services.browserMachineBadge(key: localTab.id, url: URL(string: "https://www.google.com/")) == nil)
+        let record = MachineBrowserRecord(machine: f.machine.machineID, initialURL: nil).url
+        #expect(f.services.browserMachineBadge(key: remoteTab.id, url: record) == nil)
+        withExtendedLifetime(f.services) {}
+    }
+
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))
