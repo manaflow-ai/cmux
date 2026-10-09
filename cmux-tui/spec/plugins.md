@@ -159,6 +159,28 @@ writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
 the previous child instead of leaving stale detection active.
 
+#### Bundled default
+
+Without an `agents.plugin` entry, the daemon supervises the screen detector
+that ships beside it: an executable file named `cmux-agent-screen-detection`
+in the directory of the daemon's own executable (symlinks resolved; the
+cmux-next app bundles it in `Contents/Resources/bin`). It runs with producer
+ID `cmux_screen_detection`, `command` set to that absolute path, no `cwd`, and
+the daemon's version string as `revision`, so a replaced daemon restarts it.
+Hook producers still win over it in the roster reducer.
+
+```json
+{ "agents": { "screen_detection": false } }
+```
+
+`agents.screen_detection: false` turns the bundled default off; it defaults to
+`true`. An explicit `agents.plugin` always replaces the default, even when
+`screen_detection` is `false`. An explicit entry that is invalid (no ID, empty
+or relative command, reserved ID) disables agent plugins and never falls back
+to the bundled default. Removing the explicit entry (`cmux agent plugin remove`)
+restores the default. The bundled default is Unix-only; other platforms never
+start it, and a daemon without the sibling file starts nothing.
+
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 `CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
 `CMUX_PLUGIN_REVISION`,

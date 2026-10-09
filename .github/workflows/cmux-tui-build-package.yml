@@ -397,10 +397,28 @@ jobs:
           export CMUX_BUILD_SHA
           cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$BROWSER_HOST_TARGET"
 
+      - name: Build the bundled agent screen-detection plugin (macOS)
+        # The cmux-next app bundles it as Contents/Resources/bin/cmux-agent-screen-detection
+        # and the daemon runs that sibling by default (cmux-tui spec/plugins.md,
+        # "Bundled default"). It rides the cmux-tui artifact as
+        # cmux-tui-agent-screen-detection-<target>. macOS only for now, like
+        # cmux-browser-host; scripts/ci/macos-cross.sh hosts builds it on Linux.
+        if: runner.os == 'macOS'
+        env:
+          AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Its own Cargo workspace; the common target dir gives staging one path.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+            --release --locked --target "$AGENT_PLUGIN_TARGET"
+
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook,
         # cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
-        # cmux-browser-host), with the same stamps, into the same target
+        # cmux-browser-host, cmux-agent-screen-detection), with the same stamps, into the same target
         # directory, so "Stage binary" is unchanged. scripts/ci/macos-cross.sh
         # says how; the cmux-tui-artifacts shadow job proves parity.
         if: matrix.darwin_on_linux
@@ -479,6 +497,14 @@ jobs:
             browser_host_binary="dist/cmux-tui-browser-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
           fi
+          # The bundled agent screen detector rides the same way as
+          # cmux-tui-agent-screen-detection-<target> and installs as
+          # cmux-agent-screen-detection beside cmux-tui. macOS only for now.
+          agent_detector_binary=""
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+            agent_detector_binary="dist/cmux-tui-agent-screen-detection-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection" "$agent_detector_binary"
+          fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -499,6 +525,9 @@ jobs:
             fi
             if [[ -n "$browser_host_binary" ]]; then
               cp "$browser_host_binary" "dist/cmux-tui-browser-host-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$agent_detector_binary" ]]; then
+              cp "$agent_detector_binary" "dist/cmux-tui-agent-screen-detection-${{ matrix.compatibility_target }}"
             fi
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi

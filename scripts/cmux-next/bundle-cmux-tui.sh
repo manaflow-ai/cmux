@@ -42,7 +42,12 @@
 # looks for first-party native servers. The browser host goes beside bin/cmux as
 # bin/cmux-browser-host by the same rules (CMUX_NEXT_BROWSER_HOST_BIN; pin fields
 # browser_host_*; tree state cmux-browser-host.sha256): the daemon runs the
-# sibling of its own executable. Release signing (sign-cmux-bundle-helpers.sh)
+# sibling of its own executable. The agent screen-detection plugin goes beside
+# bin/cmux as bin/cmux-agent-screen-detection by the same rules
+# (CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN; tree state
+# cmux-agent-screen-detection.sha256), in tree mode only for now: the daemon
+# runs that sibling by default (cmux-tui spec/plugins.md, "Bundled default"); a
+# build without it bundles none and the daemon runs no default. Release signing (sign-cmux-bundle-helpers.sh)
 # signs every Mach-O in bin/ the same way as bin/cmux, and
 # check-bundled-browser-host.sh checks the placed copy.
 set -euo pipefail
@@ -223,6 +228,14 @@ companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha25
 cloud_server_src="$companion_src"
 companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256
 browser_host_src="$companion_src"
+# Pin mode (Release) bundles no screen detector until its third-party notices
+# are mapped (notices/bundle-map.json; check_bundle_notices.py fails a release
+# on an unmapped Mach-O) and the pin carries agent_screen_detection_* fields.
+agent_screen_detection_src=""
+if [[ "$mode" == tree ]]; then
+  companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
+  agent_screen_detection_src="$companion_src"
+fi
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode
@@ -236,6 +249,7 @@ version=$version_line
 app_host_sha256=${app_host_src:+$(sha256_of "$app_host_src")}
 cloud_server_sha256=${cloud_server_src:+$(sha256_of "$cloud_server_src")}
 browser_host_sha256=${browser_host_src:+$(sha256_of "$browser_host_src")}
+agent_screen_detection_sha256=${agent_screen_detection_src:+$(sha256_of "$agent_screen_detection_src")}
 "
 
 mkdir -p "$dest_dir"
@@ -268,6 +282,7 @@ place_companion() {
 place_companion "$app_host_src" cmux-app-host
 place_companion "$cloud_server_src" cmux-cloud
 place_companion "$browser_host_src" cmux-browser-host
+place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

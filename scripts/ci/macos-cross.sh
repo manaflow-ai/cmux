@@ -17,7 +17,8 @@
 #   toolchain <sdk-version>        sysroot + clang wrappers under $XC_ROOT
 #   fetch-refs <sha>               Mac-built binaries of <sha> from files.cmux.com (checksums verified)
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
-#   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud for both macOS targets
+#   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
+#                                  agent screen-detection plugin for both macOS targets
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   parity-bins                    compare the daemon family with the Mac references
@@ -227,10 +228,14 @@ cmd_hosts() {
         cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target "$t"
       CMUX_BUILD_SHA=$sha cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$t")
     (cd "$repo_root/first-party-apps/cloud/server" && cargo build --bin cmux-cloud --release --locked --target "$t")
+    # The agent screen-detection plugin is its own Cargo workspace (own Cargo.lock).
+    (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
+      --release --locked --target "$t")
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
+    cp "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
   done
 }
 

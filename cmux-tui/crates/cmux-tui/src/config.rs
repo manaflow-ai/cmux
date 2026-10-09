@@ -46,6 +46,7 @@
 //!     }
 //!   },
 //!   "agents": {
+//!     "screen_detection": true,
 //!     "plugin": {
 //!       "id": "example_agent_screen_detection",
 //!       "command": ["/path/to/agent-plugin"],
@@ -185,7 +186,7 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
-    agents: RawAgents,
+    agents: crate::agent_plugin_config::RawAgents,
     #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
@@ -628,22 +629,6 @@ struct RawSidebarColumn {
 struct RawSidebarPlugin {
     command: Option<Vec<String>>,
     cwd: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgents {
-    /// Optional background process that reports generic agent journal events.
-    plugin: Option<RawAgentPlugin>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawAgentPlugin {
-    id: Option<String>,
-    command: Option<Vec<String>>,
-    cwd: Option<String>,
-    revision: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3486,39 +3471,9 @@ pub fn load() -> Config {
             });
         }
     }
-    if let Some(plugin) = raw.agents.plugin {
-        if let Some(id) = plugin.id {
-            // Do not filter later argv entries. An empty value can be meaningful
-            // to a plugin, while an empty executable must still disable config.
-            let command = plugin.command.unwrap_or_default();
-            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
-                crate::client_log::stderr_log!(
-                    "config",
-                    "{BIN}: ignoring agents.plugin with empty command"
-                );
-            } else {
-                let options = cmux_tui_core::JournalPluginOptions {
-                    id,
-                    command,
-                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
-                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
-                };
-                if let Err(error) = options.validate() {
-                    crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid agents.plugin: {error}"
-                    );
-                } else {
-                    config.agents.plugin = Some(options);
-                }
-            }
-        } else {
-            crate::client_log::stderr_log!(
-                "config",
-                "{BIN}: ignoring agents.plugin without an explicit id"
-            );
-        }
-    }
+    // An explicit agents.plugin wins; otherwise the bundled screen detector
+    // beside this daemon runs unless agents.screen_detection is false.
+    config.agents.plugin = crate::agent_plugin_config::agent_plugin_for_this_daemon(raw.agents);
     if let Some(enabled) = raw.machine_sidebar.enabled {
         config.machine_sidebar.enabled = enabled;
     }

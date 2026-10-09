@@ -110,6 +110,7 @@ from the sidebar plugin and never replace the sidebar view.
 | `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
+| `agents.screen_detection` | boolean | `true` | Runs the bundled `cmux-agent-screen-detection` beside the daemon (producer `cmux_screen_detection`, Unix only) when `agents.plugin` is unset; `false` turns it off. An explicit `agents.plugin` always replaces it, and an invalid one disables agent plugins without falling back |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
