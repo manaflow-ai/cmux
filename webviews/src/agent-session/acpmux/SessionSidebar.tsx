@@ -13,6 +13,7 @@ import { type StringKey, useT } from "./i18n";
 
 import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
+import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -42,37 +43,6 @@ const PLACE_LABELS = {
   worktree: "sidebar.worktree",
   branch: "sidebar.branch",
 } as const satisfies Record<string, StringKey>;
-
-/** Move between the visible session rows without leaving the sidebar. */
-function moveSessionFocus(event: React.KeyboardEvent<HTMLButtonElement>, onSelect: (sessionId: string) => void) {
-  if (
-    !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) ||
-    event.altKey ||
-    event.ctrlKey ||
-    event.metaKey ||
-    event.shiftKey
-  ) {
-    return;
-  }
-  const sidebar = event.currentTarget.closest<HTMLElement>(".acpmux-sidebar");
-  const rows = sidebar ? [...sidebar.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")] : [];
-  const current = rows.indexOf(event.currentTarget);
-  if (current < 0 || rows.length === 0) return;
-  const next =
-    event.key === "ArrowUp"
-      ? Math.max(0, current - 1)
-      : event.key === "ArrowDown"
-        ? Math.min(rows.length - 1, current + 1)
-        : event.key === "Home"
-          ? 0
-          : rows.length - 1;
-  event.preventDefault();
-  if (next === current) return;
-  const target = rows[next];
-  target.focus();
-  const sessionId = target.dataset.sessionId;
-  if (sessionId) onSelect(sessionId);
-}
 
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
@@ -123,7 +93,7 @@ export function SessionSidebar({
   );
   return (
     <OpenSessions.Provider value={openIds}>
-      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label={t("sidebar.label")}>
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
         <div className="acpmux-rail">
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
@@ -435,12 +405,17 @@ const SessionRow = memo(function SessionRow({
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
+  const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
+    const sessionId = row.dataset.sessionId;
+    if (sessionId) onSelect(sessionId);
+  });
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
   return (
     <li>
       <button
+        {...keyboard}
         type="button"
         data-session-id={session.sessionId}
         className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
@@ -453,7 +428,6 @@ const SessionRow = memo(function SessionRow({
             : undefined
         }
         title={placeLabel ? `${title}\n${placeLabel}` : title}
-        onKeyDown={(event) => moveSessionFocus(event, onSelect)}
         onClick={() => onSelect(session.sessionId)}
       >
         <span className="acpmux-session-row-title">{title}</span>
