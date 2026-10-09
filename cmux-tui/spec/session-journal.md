@@ -616,6 +616,12 @@ cmux --session main --jsonl session current journal segment seal \
 cmux --session main --jsonl session current journal segment list
 ```
 
+Checkpoint and segment list responses are bounded to the catalog-safe result
+size (4,096 entries), with checkpoints ordered newest first and segments in
+their existing sequence order. The active journal remains the source of truth;
+the list operations are inspection surfaces and do not attempt to materialize
+an unbounded history in one protocol response.
+
 ## Retention and storage
 
 Append-only does not require one SQLite table to grow forever. The active tail
