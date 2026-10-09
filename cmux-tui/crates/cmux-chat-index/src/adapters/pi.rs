@@ -1,13 +1,18 @@
-//! Pi: `<sessions dir>/--<encoded cwd>--/<time>_<uuid>.jsonl`. Line 1 is the
-//! session header; `session_info` records rename (last wins, empty clears).
-//! A version migration rewrites the file, which the stamp sees as a rewrite.
+//! Pi: `<sessions dir>/--<encoded cwd>--/<time>_<uuid>.jsonl`, or flat in a
+//! custom session dir (`--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
+//! `sessionDir`). Line 1 is the session header in every format version
+//! (v1 without `version`, v2 tree ids, v3 current); `message` and
+//! `session_info` records keep their shape across them. `session_info`
+//! renames (last wins, empty clears). Opening an old file migrates it in
+//! place, which the stamp and head print see as a rewrite. v0.30.0 wrote
+//! sessions into the agent dir itself; those strays are listed too.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{argv, files_one_level_down};
+use super::{PathRole, argv, files_one_level_down, role};
 use crate::entry::{AdapterKind, ChatEntry, Resume, TitleSource};
 use crate::lines::{contains, fold_lines, read_first_record};
 use crate::scan::FileRead;
@@ -16,7 +21,27 @@ use crate::text::{prompt_text, title_line};
 use crate::time::parse_rfc3339_ms;
 
 pub(super) fn list(root: &Path) -> io::Result<Vec<PathBuf>> {
-    files_one_level_down(root, |name| name.ends_with(".jsonl"))
+    let mut out = files_one_level_down(root, |name| name.ends_with(".jsonl"))?;
+    out.extend(jsonl_in(root));
+    // Only a real Pi agent dir: a custom `.../sessions` root must not list
+    // its parent folder.
+    if root.file_name().is_some_and(|name| name == "sessions")
+        && let Some(agent_dir) = root.parent()
+        && (agent_dir.ends_with(".pi/agent") || agent_dir.ends_with(".coding-agent"))
+    {
+        out.extend(jsonl_in(agent_dir));
+    }
+    Ok(out)
+}
+
+fn jsonl_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(children) = std::fs::read_dir(dir) else { return Vec::new() };
+    children
+        .flatten()
+        .filter(|child| child.file_type().is_ok_and(|kind| kind.is_file()))
+        .map(|child| child.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .collect()
 }
 
 pub(super) fn read(
@@ -32,7 +57,7 @@ pub(super) fn read(
             state: FileState { stamp, offset: stamp.size, ..FileState::default() },
         });
     };
-    let (from, mut tally) = FileState::resume_point(prev, &stamp);
+    let (from, mut tally) = FileState::resume_point(prev, &stamp, path);
     let offset = fold_lines(path, from, |line| {
         if contains(line, br#""type":"message""#) {
             tally.messages += 1;
@@ -80,5 +105,10 @@ pub(super) fn read(
             cwd_needed: false,
         },
     });
-    Ok(FileRead { entry, state: FileState { stamp, offset, tally } })
+    Ok(FileRead { entry, state: FileState::folded(path, stamp, offset, tally) })
+}
+
+pub(super) fn classify(parts: &[&str]) -> PathRole {
+    let name = parts.last().copied().unwrap_or_default();
+    role(matches!(parts.len(), 1 | 2) && name.ends_with(".jsonl"), false)
 }

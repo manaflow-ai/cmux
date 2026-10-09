@@ -8,7 +8,7 @@ enum Canvas {
 
     static func image(size: CGSize, scale: CGFloat = Canvas.scale, opaque: Bool = false,
                       _ draw: (CGContext) -> Void) -> CGImage? {
-        let w = max(1, Int((size.width * scale).rounded(.up))), h = max(1, Int((size.height * scale).rounded(.up)))
+        let w = max(1, CrashGuard.int((size.width * scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * scale).rounded(.up)))
         let info = CGBitmapInfo.byteOrder32Little.rawValue
             | (opaque ? CGImageAlphaInfo.noneSkipFirst.rawValue : CGImageAlphaInfo.premultipliedFirst.rawValue)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),

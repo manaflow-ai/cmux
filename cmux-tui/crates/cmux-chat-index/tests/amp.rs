@@ -33,3 +33,28 @@ fn local_thread_files_give_folderless_chats() {
     let argv = ["amp", "threads", "continue", id].map(String::from).to_vec();
     assert_eq!(entry.resume, Resume::Argv { argv, cwd_needed: false });
 }
+
+#[test]
+fn thread_titles_folders_archive_flags_and_subagent_threads() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        &dir.path().join("T-titled.json"),
+        &json!({"v":3,"id":"T-titled","created":1,"title":"Amp title","archived":true,
+                "env":{"initial":{"trees":[{"uri":"file:///Users/me/my%20app"}]}},
+                "messages":[{"role":"user","content":[{"type":"text","text":"prompt"}]}]})
+        .to_string(),
+    );
+    write(
+        &dir.path().join("T-sub.json"),
+        &json!({"id":"T-sub","mainThreadID":"T-titled","messages":[]}).to_string(),
+    );
+    let scan = scan(AdapterKind::Amp, dir.path());
+    assert_eq!(ids(&scan), ["T-titled".to_owned()].into());
+    let entry = &by_id(&scan)["T-titled"];
+    assert_eq!(
+        (entry.title.as_deref(), entry.title_source),
+        (Some("Amp title"), Some(TitleSource::Ai))
+    );
+    assert_eq!(entry.cwd.as_deref(), Some("/Users/me/my app"));
+    assert!(entry.archived);
+}
