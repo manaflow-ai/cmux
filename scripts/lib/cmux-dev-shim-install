@@ -220,7 +220,7 @@ app_cli_bundle() {
 }
 
 APP_CLI_FILE="\${HOME:-}/Library/Application Support/cmux/last-app-cli"
-APP_CLI_OWNER="\$(stat -f '%u' "\$APP_CLI_FILE" 2>/dev/null || stat -c '%u' "\$APP_CLI_FILE" 2>/dev/null || echo -1)"
+APP_CLI_OWNER="\$(stat -c '%u' "\$APP_CLI_FILE" 2>/dev/null || stat -f '%u' "\$APP_CLI_FILE" 2>/dev/null || echo -1)"
 if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -n "\${HOME:-}" && -f "\$APP_CLI_FILE" && -r "\$APP_CLI_FILE" ]] && [[ ! -L "\$APP_CLI_FILE" ]] && [[ "\$APP_CLI_OWNER" == "\$(id -u)" ]]; then
   APP_CLI_PATH="\$(LC_ALL=C head -c 4097 "\$APP_CLI_FILE" 2>/dev/null | head -n 1 || true)"
   if app_cli_bundle "\$APP_CLI_PATH" >/dev/null; then
@@ -228,7 +228,7 @@ if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -n "\${HOME:-}" && -f "\$APP_CLI_FILE" &
   fi
 fi
 
-CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
+CLI_PATH_OWNER="\$(stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
 if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
   CLI_PATH="\$(cat "\$CLI_PATH_FILE" 2>/dev/null || true)"
   if live_cli_bundle "\$CLI_PATH" >/dev/null; then

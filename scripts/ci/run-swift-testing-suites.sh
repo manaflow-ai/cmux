@@ -49,9 +49,11 @@ lock_args=()
 # CMUX_SWIFT_TEST_DIRECT=1 runs each suite from the built test bundle the way
 # `swift test` runs it (run_swift_test_bundle.py), without a SwiftPM process per
 # suite: that process cost 1-2 s of startup per suite and opened .build/build.db,
-# where 8 parallel suites hit "database is locked". 0 keeps one
-# `swift test --skip-build --filter` per suite (fallback until 2026-10-16).
-direct="${CMUX_SWIFT_TEST_DIRECT:-0}"
+# where 8 parallel suites hit "database is locked". Fleet 2026-10-09
+# (CmuxNext at 2914cce3af0e, 1339 suites): the same suites passed both ways and
+# the summed suite time halved. 0 keeps one `swift test --skip-build --filter`
+# per suite (fallback until 2026-10-16).
+direct="${CMUX_SWIFT_TEST_DIRECT:-1}"
 if [ "$direct" != 0 ] && [ "$direct" != 1 ]; then
   echo "CMUX_SWIFT_TEST_DIRECT must be 0 or 1 (got '$direct')" >&2
   exit 2
