@@ -82,7 +82,7 @@ export function SessionSidebar({
   onShowMoreSettled,
 }: {
   sessions: AcpmuxSessionEntry[];
-  /** Read-only history from the `_acpmux/settled` seam. */
+  /** Read-only history from the `_acpmux/chat_settled` seam. */
   settledSessions?: AcpmuxSessionEntry[];
   selectedId?: string;
   /** Sessions already open in a tab; their rows say so, and opening one jumps to it. */
@@ -376,6 +376,7 @@ function SessionsView({
                 onSelect={onSelect}
                 section="active"
                 onSettle={onSettle}
+                flat
               />
             ))}
           </ul>
@@ -463,7 +464,11 @@ function SessionsView({
           {t("sidebar.settled")}
         </div>
         {settled.length === 0 ? (
-          <div className="acpmux-sidebar-empty">{t("sidebar.noSettled")}</div>
+          <div className="acpmux-sidebar-empty">
+            {settledSessions.length > 0 && query.trim()
+              ? t("sidebar.noMatches")
+              : t("sidebar.noSettled")}
+          </div>
         ) : (
           <ul>
             {settled.map((session) => (

@@ -52940,25 +52940,25 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الجلسات"
+            "value": "نشطة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sesije"
+            "value": "Aktivne"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessioner"
+            "value": "Aktive"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sitzungen"
+            "value": "Aktiv"
           }
         },
         "en": {
@@ -52970,97 +52970,97 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sesiones"
+            "value": "Activas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessions"
+            "value": "Actives"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessioni"
+            "value": "Attive"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッション"
+            "value": "アクティブ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សម័យ"
+            "value": "សកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "세션"
+            "value": "활성"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Økter"
+            "value": "Aktive"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sesje"
+            "value": "Aktywne"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessões"
+            "value": "Ativas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансы"
+            "value": "Активные"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เซสชัน"
+            "value": "ใช้งานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oturumlar"
+            "value": "Etkin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеанси"
+            "value": "Активні"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phiên"
+            "value": "Đang hoạt động"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "会话"
+            "value": "活跃"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作階段"
+            "value": "使用中"
           }
         }
       }
@@ -53072,25 +53072,25 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "السجل"
+            "value": "مُستقرة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historija"
+            "value": "Završene"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historik"
+            "value": "Afsluttede"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verlauf"
+            "value": "Erledigt"
           }
         },
         "en": {
@@ -53102,97 +53102,97 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historial"
+            "value": "Resueltas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historique"
+            "value": "Terminées"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cronologia"
+            "value": "Concluse"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "履歴"
+            "value": "完了済み"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រវត្តិ"
+            "value": "បានបញ្ចប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기록"
+            "value": "정리됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Logg"
+            "value": "Avsluttede"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historia"
+            "value": "Uporządkowane"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Histórico"
+            "value": "Resolvidas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "История"
+            "value": "Завершённые"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ประวัติ"
+            "value": "เสร็จสิ้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Geçmiş"
+            "value": "Tamamlanan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Історія"
+            "value": "Завершені"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lịch sử"
+            "value": "Đã hoàn tất"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "历史记录"
+            "value": "已完成"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "歷史記錄"
+            "value": "已完成"
           }
         }
       }
@@ -53204,25 +53204,25 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد جلسات بعد"
+            "value": "لا توجد محادثات محفوظة بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema sesija"
+            "value": "Još nema završenih razgovora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen sessioner endnu"
+            "value": "Ingen afsluttede chats endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Sitzungen"
+            "value": "Noch keine erledigten Chats"
           }
         },
         "en": {
@@ -53234,97 +53234,97 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay sesiones"
+            "value": "Aún no hay chats resueltos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune session pour le moment"
+            "value": "Aucun chat terminé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessuna sessione"
+            "value": "Nessuna chat conclusa"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッションはまだありません"
+            "value": "完了したチャットはまだありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានសម័យនៅឡើយ"
+            "value": "មិនទាន់មានការជជែកដែលបានបញ្ចប់ទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 세션 없음"
+            "value": "정리된 채팅이 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen økter ennå"
+            "value": "Ingen avsluttede chatter ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak sesji"
+            "value": "Nie ma jeszcze zakończonych czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sessão ainda"
+            "value": "Nenhum chat resolvido ainda"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансов пока нет"
+            "value": "Завершённых чатов пока нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีเซสชัน"
+            "value": "ยังไม่มีแชตที่เสร็จสิ้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz oturum yok"
+            "value": "Henüz tamamlanan sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансів ще немає"
+            "value": "Завершених чатів ще немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có phiên nào"
+            "value": "Chưa có cuộc trò chuyện đã hoàn tất"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有会话"
+            "value": "还没有已完成的聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚無工作階段"
+            "value": "尚無已完成的聊天"
           }
         }
       }
@@ -53336,25 +53336,25 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "السجل"
+            "value": "متابعة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historija"
+            "value": "Nastavi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historik"
+            "value": "Fortsæt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verlauf"
+            "value": "Fortsetzen"
           }
         },
         "en": {
@@ -53366,97 +53366,97 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historial"
+            "value": "Continuar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historique"
+            "value": "Continuer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cronologia"
+            "value": "Continua"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "履歴"
+            "value": "続ける"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រវត្តិ"
+            "value": "បន្ត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기록"
+            "value": "계속"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Logg"
+            "value": "Fortsett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Historia"
+            "value": "Kontynuuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Histórico"
+            "value": "Continuar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "История"
+            "value": "Продолжить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ประวัติ"
+            "value": "ดำเนินการต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Geçmiş"
+            "value": "Devam et"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Історія"
+            "value": "Продовжити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lịch sử"
+            "value": "Tiếp tục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "历史记录"
+            "value": "继续"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "歷史記錄"
+            "value": "繼續"
           }
         }
       }
@@ -53468,25 +53468,25 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الجلسات المغلقة"
+            "value": "حفظ"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvorene sesije"
+            "value": "Završi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lukkede sessioner"
+            "value": "Afslut"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Geschlossene Sitzungen"
+            "value": "Erledigen"
           }
         },
         "en": {
@@ -53498,97 +53498,97 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sesiones cerradas"
+            "value": "Resolver"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessions fermées"
+            "value": "Terminer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessioni chiuse"
+            "value": "Concludi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "閉じたセッション"
+            "value": "完了にする"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សម័យដែលបានបិទ"
+            "value": "បញ្ចប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "닫힌 세션"
+            "value": "정리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lukkede økter"
+            "value": "Avslutt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknięte sesje"
+            "value": "Zakończ"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sessões fechadas"
+            "value": "Resolver"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрытые сеансы"
+            "value": "Завершить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เซสชันที่ปิดแล้ว"
+            "value": "ทำให้เสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kapatılan oturumlar"
+            "value": "Tamamla"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закриті сеанси"
+            "value": "Завершити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phiên đã đóng"
+            "value": "Hoàn tất"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已关闭的会话"
+            "value": "完成"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已關閉的工作階段"
+            "value": "完成"
           }
         }
       }
