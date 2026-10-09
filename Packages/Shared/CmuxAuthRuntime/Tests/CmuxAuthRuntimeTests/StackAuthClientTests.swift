@@ -15,7 +15,7 @@ struct StackAuthClientTests {
             publishableClientKey: "test-key",
             baseUrl: "https://cmux-stack-auth.test",
             tokenStore: .explicit(
-            accessToken: "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.signature",
+                accessToken: "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.signature",
                 refreshToken: "refresh-token"
             ),
             noAutomaticPrefetch: true
@@ -68,6 +68,7 @@ private final class StackAuthClientURLProtocol: URLProtocol, @unchecked Sendable
 }
 
 private final class StackAuthClientURLProtocolRecorder: @unchecked Sendable {
+    // The lock protects the synchronous URLProtocol callback and test snapshot.
     private let lock = NSLock()
     private var storedPaths: [String] = []
 
