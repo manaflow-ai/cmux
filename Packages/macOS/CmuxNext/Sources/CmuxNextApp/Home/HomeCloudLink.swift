@@ -294,7 +294,7 @@ final class HomeCloudLink {
     /// earlier calls started ended (tests). A timer deadline that passed is
     /// not covered: wait for it with `timersFired(atLeast:)`.
     func settle() async {
-        repeat {
+        repeat {  // wakeup-allow: DEBUG test settle; each pass awaits the probe and the lease, and it ends once no hop is pending
             await probe.wait { hops, _ in hops == 0 }
             await lease.settle()
         } while probe.hops > 0
