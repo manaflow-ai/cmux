@@ -186,6 +186,14 @@ public struct DiagnosticEventPresentation: Sendable {
                 value: validTraceID.stringValue
             ))
         }
+        if let sequence = event.sequence, sequence > 0 {
+            let isViewportReport = event.code == .appFeatureAction
+                && event.a == DiagnosticAppEventKind.terminalViewportReportPublished.rawValue
+            fields.append(Field(
+                key: isViewportReport ? "report_id" : "sequence",
+                value: String(sequence)
+            ))
+        }
         if let a = event.a {
             fields.append(decodeA(a, code: event.code))
         }
@@ -234,7 +242,8 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private static func carriesFailureInB(_ event: DiagnosticEvent) -> Bool {
         if event.code == .appFeatureAction,
-           event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue {
+           (event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue
+            || event.a == DiagnosticAppEventKind.terminalViewportReportPublished.rawValue) {
             return false
         }
         return codesWithFailureB.contains(event.code)
@@ -523,6 +532,9 @@ public struct DiagnosticEventPresentation: Sendable {
         case .discoverySucceeded:
             return Field(key: "bindings", value: String(raw))
         case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.terminalViewportReportPublished.rawValue {
+                return Field(key: "columns", value: String(raw))
+            }
             if event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
                let provider = DiagnosticTaskModelProvider(rawValue: raw) {
                 return Field(key: "provider", value: taskModelProviderName(provider))
@@ -609,6 +621,9 @@ public struct DiagnosticEventPresentation: Sendable {
         case .simulatorCoordinateMapped:
             return Field(key: "mapping", value: simulatorCoordinateStateName(raw))
         case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.terminalViewportReportPublished.rawValue {
+                return Field(key: "rows", value: String(raw))
+            }
             if let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)) {
                 switch kind {
                 case .terminalToolbarActionUsed:

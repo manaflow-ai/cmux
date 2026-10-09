@@ -173,9 +173,10 @@ import Testing
           "vms": [],
           "limits": {
             "maxActiveVms": 50,
-            "activeVmCount": 3,
-            "planId": "pro",
-            "memoryOptionsMb": [4096, 8192, 16384, 24576],
+          "activeVmCount": 3,
+          "planId": "pro",
+          "canCreateMachines": true,
+          "memoryOptionsMb": [4096, 8192, 16384, 24576],
             "lockedMemoryOptionsMb": [32768, 65536],
             "memoryUpgradePlanId": "max",
             "memoryUpgradePlansByMb": {"32768": "max", "65536": "max"}
@@ -187,11 +188,27 @@ import Testing
             maxActiveMachines: 50,
             activeMachineCount: 3,
             planID: "pro",
+            canCreateMachines: true,
             memoryOptionsMb: [4096, 8192, 16384, 24576],
             lockedMemoryOptionsMb: [32768, 65536],
             memoryUpgradePlanID: "max",
             memoryUpgradePlansByMb: ["32768": "max", "65536": "max"]
         ))
+    }
+
+    @Test func decodesCreationAccessReasons() throws {
+        let requiresPlan = try decoding.catalog(from: Data("""
+        {"vms":[],"limits":{"planId":"free","maxActiveVms":0,"activeVmCount":0,
+         "canCreateMachines":false,"createAccessReason":"requires_plan","createUpgradePlanId":"pro"}}
+        """.utf8)).limits
+        #expect(requiresPlan?.creationAccess == .requiresPlan)
+        #expect(requiresPlan?.createUpgradePlanID == "pro")
+
+        let limitReached = try decoding.catalog(from: Data("""
+        {"vms":[],"limits":{"planId":"go","maxActiveVms":1,"activeVmCount":1,
+         "canCreateMachines":false,"createAccessReason":"limit_reached"}}
+        """.utf8)).limits
+        #expect(limitReached?.creationAccess == .limitReached)
     }
 
     @Test func decodesTheSharedResourcePoolAndMachineShapes() throws {
