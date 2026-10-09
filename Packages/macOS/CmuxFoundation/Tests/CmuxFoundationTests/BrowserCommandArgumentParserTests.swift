@@ -33,6 +33,15 @@ struct BrowserCommandArgumentParserTests {
         #expect(result.positionals == ["id-token"])
     }
 
+    @Test("Preserves multiple positionals for commands that join them")
+    func preservesMultiplePositionals() throws {
+        let parser = BrowserCommandArgumentParser()
+
+        let result = try parser.parse(["https://example.com/search", "two", "words"])
+
+        #expect(result.positionals == ["https://example.com/search", "two", "words"])
+    }
+
     @Test("Treats arguments after the terminator as positionals")
     func honorsTerminator() throws {
         let parser = BrowserCommandArgumentParser(allowedFlags: ["--snapshot-after"])

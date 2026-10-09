@@ -18830,7 +18830,6 @@ struct CMUXCLI {
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
                 let url = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
