@@ -117,7 +117,7 @@ enum SettingsHandlers {
     /// then writes cmux-next.json; the watcher reapplies the same value.
     private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) throws {
         try AppearanceHandlers.requireUnmanaged(BrowserDefaultEngine.configPath, context)
-        context.services.cache.browserTabs?.preference.defaultEngine = engine
+        context.services.cache.browserTabs.preference.defaultEngine = engine
         if engine == .chromium { context.services.chromiumWarmup.chromiumLikely(.defaultEngine) }
         guard let settings = context.services.settings else { return }
         Task {

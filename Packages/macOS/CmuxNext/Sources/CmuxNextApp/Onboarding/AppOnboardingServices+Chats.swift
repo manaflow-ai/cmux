@@ -19,7 +19,7 @@ extension AppOnboardingServices {
                 continue
             }
             waitingChats[path, default: []] += chats
-            guard !openingFolders.contains(path), let windows = services.windows else { continue }
+            guard !openingFolders.contains(path), case let windows = services.windows else { continue }
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             let folder = URL(fileURLWithPath: path, isDirectory: true)
             let spawn = folderSpawn(folder)

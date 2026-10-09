@@ -16,7 +16,7 @@ struct PageTypeAheadTests {
     static let loading = KeyRouter.Facts(pageInputPending: true)
 
     @Test func printableKeysOnALoadingPageAreQueuedAndChordsStillResolve() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let letter = try K.key("h", keyCode: 4, [])
         for focus in [M.focused(.agent, tab: "local-agent:1"), M.focused(.page, tab: "local-page:keybindings:1")] {
             #expect(router.decide(letter, focus: focus, keyWindow: .content, facts: Self.loading) == .typeAhead)
