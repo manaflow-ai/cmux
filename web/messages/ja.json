@@ -2037,7 +2037,8 @@
     },
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
-    "manageInAppStore": "App Store で管理"
+    "manageInAppStore": "App Store で管理",
+    "resumePlan": "{plan} を再開"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
