@@ -119,9 +119,10 @@ describe("T3 model picker", () => {
     await act(async () => modelButton().click());
     expect(menu()).not.toBeNull();
     expect(menu()!.querySelectorAll(".acpmux-mp-harness")).toHaveLength(2);
+    // The menu grows up from the chip: the running harness is the bottom row, nearest it.
     expect([...menu()!.querySelectorAll(".acpmux-mp-harness")].map((row) => row.textContent)).toEqual([
-      "Claude Code",
       "Codex",
+      "Claude Code",
     ]);
   });
 
@@ -142,16 +143,19 @@ describe("T3 model picker", () => {
     expect(labels()).toEqual(first);
   });
 
-  test("number keys pick within the open model section and Ctrl-N/P moves the active row", async () => {
+  test("number keys count up from the chip and Ctrl-N/P moves the active row", async () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    // The running model is the active row when the menu opens.
+    expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
     await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await ctrlKey(input, "n");
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
+    // 1 is the bottom row, nearest the chip.
     await key(input, "1");
-    expect(calls).toEqual(["model claude-opus-4-1"]);
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
 
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
@@ -216,36 +220,106 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["config fast-mode on"]);
   });
 
-  test("rows are one line with stable command hotkeys and a star on the row", async () => {
+  test("rows are one line with hotkeys counted from the chip and a star on the row", async () => {
     await render();
     await act(async () => modelButton().click());
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
-    const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
+    const rows = modelRows();
+    expect(rows[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
+    expect(rows.map((row) => row.querySelector(".acpmux-mp-hotkey")?.textContent ?? "")).toEqual(["⌘3", "⌘2", "⌘1"]);
+    const favorite = rows[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
     expect(favorite.getAttribute("aria-pressed")).toBe("false");
     await act(async () => favorite.click());
-    expect(modelRows()[0]!.parentElement!.querySelector(".acpmux-mp-favorite")!.getAttribute("aria-pressed")).toBe(
-      "true",
-    );
+    const starred = modelRows().find((row) => row.textContent?.includes("Opus 4.1"))!;
+    expect(starred.parentElement!.querySelector(".acpmux-mp-favorite")!.getAttribute("aria-pressed")).toBe("true");
+    expect(starred.parentElement!.querySelector(".acpmux-mp-favorite")!.textContent).toBe("★");
   });
 
-  // Leo (dogfood 2026-10-08, A1): the lone star in a big left column filtered every harness down to
-  // "No matching models". Starred models get their own section on top instead; nothing filters.
-  test("starred models sit in a Starred section on top, and no toggle hides the other models", async () => {
+  // Leo (dogfood 2026-10-08, picker v2): "why are there even sections; a highlight shows you it is
+  // selected". One flat list per harness: starred models sort to the bottom, nearest the chip, and
+  // the running model is highlighted and checked. No headers anywhere.
+  test("one flat list per harness: starred models sink to the bottom, the running one is highlighted", async () => {
     await render();
     await act(async () => modelButton().click());
     expect(menu()!.querySelector(".acpmux-mp-harness-favorites")).toBeNull();
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
-    const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
-    await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
-    expect(labels()).toEqual(["Sonnet 5.5", "Opus 4.1", "Opus 5.5"]);
-    const sections = [...menu()!.querySelectorAll(".acpmux-mp-models .acpmux-mp-section")].map((s) => s.textContent);
-    expect(sections[0]).toBe("Starred");
+    const current = modelRows().find((row) => row.getAttribute("aria-checked") === "true")!;
+    expect(current.textContent).toContain("Opus 5.5");
+    expect(current.classList.contains("acpmux-mp-current")).toBe(true);
+    expect(current.querySelector("svg")).not.toBeNull();
+    const opus41 = modelRows().find((row) => row.textContent?.includes("Opus 4.1"))!;
+    await act(async () => opus41.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(menu()!.querySelector(".acpmux-mp-section")).toBeNull();
     const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
       (row) => row.textContent === "Codex",
     )!;
     await act(async () => codex.click());
     expect(labels()).toEqual(["o3", "GPT-6-Astra"]);
+    expect(menu()!.querySelector(".acpmux-mp-section")).toBeNull();
+  });
+
+  test("resting on a harness branches its models out beside it, without a click", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const codex = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
+    await act(async () => codex.dispatchEvent(new dom.window.Event("pointerenter")));
+    expect(doc.querySelector(".acpmux-mp-models")!.getAttribute("aria-label")).toBe("Codex");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
+  });
+
+  test("typing searches every harness, and a pick in another harness starts it", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "astra");
+    await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    const rows = modelRows();
+    expect(rows.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
+    // A match names its harness by its mark.
+    expect(rows[0]!.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
+    await key(input, "Enter");
+    expect(calls).toEqual(["harness codex"]);
+  });
+
+  test("no empty footer band: refresh and fast mode sit in the search row", async () => {
+    await render({
+      ...snapshot(),
+      summary: {
+        ...snapshot().summary!,
+        configOptions: [
+          effort,
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      },
+    });
+    await act(async () => modelButton().click());
+    expect(menu()!.querySelector(".acpmux-mp-footer")).toBeNull();
+    expect(menu()!.querySelector(".acpmux-mp-search .acpmux-mp-fast")).not.toBeNull();
+  });
+
+  test("the menu sizes to its content, never truncates a harness name, and takes the shared popup shadow", async () => {
+    const css = await Bun.file(new URL("./modelPicker.css", import.meta.url)).text();
+    const rule = (selector: string) => {
+      const at = css.indexOf(`${selector} {`);
+      return at < 0 ? "" : css.slice(at, css.indexOf("}", at));
+    };
+    expect(rule(".acpmux-menu.acpmux-mp-t3")).toContain("width: max-content");
+    expect(rule(".acpmux-mp-harness-name")).toContain("white-space: nowrap");
+    expect(rule(".acpmux-mp-harness-name")).not.toContain("ellipsis");
+    expect(rule(".acpmux-menu.acpmux-mp-t3")).toContain("var(--ui-popup-shadow");
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
