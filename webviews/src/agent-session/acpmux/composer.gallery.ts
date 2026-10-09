@@ -226,6 +226,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "add-menu": {
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
     "context-breakdown": {
       note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
       snapshot: chat(finished, {
