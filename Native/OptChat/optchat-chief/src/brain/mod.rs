@@ -249,6 +249,14 @@ struct Queued {
     conversation: Option<String>,
 }
 
+impl Queued {
+    /// It starts a turn (and stops a working one); a stopped subagent's
+    /// report does not, and waits for the next turn.
+    fn wakes(&self) -> bool {
+        !matches!(&self.source, Source::Spawn(r) if r.quiet)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
     /// A human message of the Chief conversation; `remote` names the paired
@@ -263,7 +271,7 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
-    /// Subagents' reports (section 9): all of one spawn's, or a later one.
+    /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
 }
 
@@ -482,7 +490,7 @@ impl Brain {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.phase == Phase::Idle && self.queue.is_empty()
+        self.phase == Phase::Idle && !self.queue.iter().any(Queued::wakes)
     }
 
     /// When the outbox timer fires, if armed.
@@ -707,13 +715,15 @@ impl Brain {
         // tool calls; on acpmux that is a stop like a human message's.
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
-        self.queue.push_back(Queued {
+        let item = Queued {
             text,
             source,
             images,
             conversation,
-        });
-        if human && same {
+        };
+        let wakes = item.wakes();
+        self.queue.push_back(item);
+        if human && same && wakes {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();

@@ -104,7 +104,8 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
-    /// New events that matter for the log (not text chunks): fetch them.
+    /// New events that matter for the log (not text chunks, but for a
+    /// prompt's first, which says its response started): fetch them.
     Changed,
     /// The prompt's answer: the turn ended (or never started, on an error).
     Done(Result<Value, String>),
@@ -237,7 +238,7 @@ pub struct Preset {
 pub struct Acpmux {
     socket: PathBuf,
     client: Mutex<Option<Arc<RpcClient>>>,
-    turns: Arc<Mutex<HashMap<String, Sender<TurnSignal>>>>,
+    turns: Arc<Mutex<HashMap<String, TurnRoute>>>,
     /// The turn sessions' preset, used when installed (else a turn runs with
     /// the harness's own configuration, and host.log says so).
     preset: Option<Preset>,
@@ -390,13 +391,13 @@ impl Acpmux {
                         .client
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                    for (_, tx) in this
+                    for (_, turn) in this
                         .turns
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .drain()
                     {
-                        let _ = tx.send(TurnSignal::Lost);
+                        let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
                     if linked && !crate::acpmux_daemon::reachable(&this.socket) {
@@ -468,7 +469,23 @@ impl Acpmux {
 }
 
 /// Sends a notification to the turn that owns its session, or to the brain.
-fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Notification) {
+/// A running prompt's signals.
+struct TurnRoute {
+    tx: Sender<TurnSignal>,
+    /// The harness streamed output in this prompt already.
+    spoke: bool,
+}
+
+/// The first streamed output of a prompt: its response has started (the
+/// API's `message_start` came, so the request's cache entry exists).
+pub(crate) fn is_output(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "usage_update"
+    )
+}
+
+fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
     let session = n
         .params
         .get("sessionId")
@@ -483,13 +500,17 @@ fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Not
                 .or_else(|| n.params.get("kind"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !is_noise(kind)
-                && let Some(tx) = turns
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(session)
-            {
-                let _ = tx.send(TurnSignal::Changed);
+            let mut turns = turns
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(turn) = turns.get_mut(session) {
+                // Chunks are noise but for the first one, which says the
+                // response started (the compactor's single-flight waits for it).
+                let first = is_output(kind) && !turn.spoke;
+                turn.spoke |= is_output(kind);
+                if first || !is_noise(kind) {
+                    let _ = turn.tx.send(TurnSignal::Changed);
+                }
             }
         }
         "_acpmux/session_changed" => {
@@ -634,7 +655,13 @@ impl AgentPort for Acpmux {
         self.turns
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session.to_owned(), signals.clone());
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
         let answer = client.start(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
