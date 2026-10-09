@@ -69,7 +69,17 @@
      /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
      /// commit asked for one).
      private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
-@@ -485,11 +500,11 @@
+@@ -305,7 +320,8 @@
+             l.actions = none; l.contentsScale = DisplayScale.current
+         }
+         buttons.isUserInteractionEnabled = false
+-        buttons.drawer = { [unowned self] ctx, _ in self.drawButtons(ctx) }
++        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
++        buttons.drawer = { [weak self] ctx, _ in self?.drawButtons(ctx) }
+         addSubview(buttons)
+         glass.anchorPoint = CGPoint(x: 0.5, y: 1)
+         layer.addSublayer(glass)
+@@ -485,11 +501,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -83,7 +93,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -550,7 +565,7 @@
+@@ -550,7 +566,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -92,7 +102,7 @@
          let old = fieldHeight
          fieldHeight = h
          if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
-@@ -630,7 +645,7 @@
+@@ -630,7 +646,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect
