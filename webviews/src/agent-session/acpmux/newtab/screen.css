@@ -46,7 +46,7 @@
 .nt-tool-menu>button{width:28px;height:30px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font-size:18px;cursor:pointer}
 .nt-tool-menu>button:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-tool-menu-popover{display:none;position:absolute;z-index:var(--layer-dropdown);top:36px;right:0;min-width:150px;padding:5px;border-radius:10px;background:var(--acpmux-composer-bg);box-shadow:0 8px 24px rgb(0 0 0/.3),inset 0 0 0 .5px var(--acpmux-composer-edge)}
-.nt-tool-menu:focus-within .nt-tool-menu-popover,.nt-tool-menu:hover .nt-tool-menu-popover{display:grid}
+.nt-tool-menu[data-open] .nt-tool-menu-popover{display:grid}
 .nt-tool-menu-popover button{border:0;padding:7px 9px;border-radius:6px;background:none;color:var(--agent-soft);font:12px system-ui;text-align:left;cursor:pointer}
 .nt-tool-menu-popover button:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 @container (max-width:520px){.nt-tools-grid{grid-template-columns:minmax(0,1fr)}}

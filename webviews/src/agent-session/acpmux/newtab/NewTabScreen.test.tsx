@@ -141,6 +141,43 @@ test("Tools cards use host shortcuts and run their catalog action", async () => 
   await act(async () => root.unmount());
 });
 
+test("tool overflow menus expose disclosure state and dismiss on Escape or outside press", async () => {
+  const { container, root } = await mount({
+    tools: [{ id: "newSurface", title: "Terminal", symbol: "terminal", menu: ["splitRight"] }],
+  });
+  const trigger = container.querySelector<HTMLButtonElement>(".nt-tool-menu > button")!;
+  const menu = container.querySelector<HTMLElement>(".nt-tool-menu-popover")!;
+  expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(menu.getAttribute("role")).toBe("menu");
+  expect(menu.hidden).toBe(true);
+
+  await act(async () => trigger.click());
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(menu.hidden).toBe(false);
+  const item = menu.querySelector<HTMLButtonElement>("[role=menuitem]")!;
+  expect(item).not.toBeNull();
+  expect(dom.window.document.activeElement).toBe(item);
+
+  await act(async () => {
+    item.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(dom.window.document.activeElement).toBe(trigger);
+
+  await act(async () => {
+    trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(dom.window.document.activeElement).toBe(item);
+
+  await act(async () => {
+    dom.window.document.body.dispatchEvent(new dom.window.PointerEvent("pointerdown", { bubbles: true }));
+  });
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => root.unmount());
+});
+
 test("! puts the field in shell mode in place: no terminal, no rows, the cards stay", async () => {
   const { container, root, field, type, calls } = await mount();
   await type("!");
