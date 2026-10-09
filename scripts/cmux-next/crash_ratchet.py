@@ -35,11 +35,13 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       traps. Use a checked accessor (`rows[checked: i]` does not count).
                       A dictionary subscript cannot trap: a subscript on a name the module
                       declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
-                      and never as an array, or with a `default:` argument, does not count
+                      and never otherwise (the file's own declarations decide when it has
+                      any; else the module's), or with a `default:` argument, does not count
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
-                      `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
-                      compiler) do not count
+                      `UInt8(ascii:)`, a pure integer literal (`UInt8(0)`, checked by the
+                      compiler) and a string parse with `radix:` (`Int(text, radix: 10)`
+                      returns nil instead of trapping) do not count
     objc_observer     a selector-based NotificationCenter registration `addObserver(<target>, selector:`
                       (the call may span lines). The target method is @objc; when it is also
                       @MainActor, a post off the main thread traps in Swift's dynamic isolation
@@ -127,8 +129,9 @@ INT_CONVERSION = re.compile(
 DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
 # Parameters (`func f(m: [K: V])`, `init(_ m: [K: V])`): only on func/init lines, so call
 # labels (`reduce(into: [:])`) are not read as declarations.
-PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(?:Dictionary|Array)\s*<.*)")
-FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
+# The type is read from the match end, so a later parameter on the same line is found too.
+PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(?=\[|(?:Dictionary|Array)\s*<)")
+FUNC_OR_INIT = re.compile(r"\bfunc\s+\w+\s*(?:<[^>]*>)?\s*\(|(?<![.\w])init\??\s*(?:<[^>]*>)?\s*\(")
 
 
 BOUND_BEFORE = re.compile(r"(?:\b(?:if|guard|while)\s+|,\s*)(?:let|var)\s+\w+(?:\s*:\s*[^=,]+)?\s*=\s*$")
@@ -141,6 +144,23 @@ def is_bound_value(code, start, end):
     it cannot trap. A subscript or conversion elsewhere on a binding line still counts
     (`guard let c = CGContext(width: Int(w * scale), ...)` traps on NaN)."""
     return bool(BOUND_BEFORE.search(code[:start]) and BOUND_AFTER.match(code[end:]))
+
+
+RADIX_ARGUMENT = re.compile(r",\s*radix\s*:")
+
+
+def top_level(arguments):
+    """ARGUMENTS with every nested (...) or [...] group removed, so a label inside a
+    nested call (`UInt8(String(v, radix: 2).count)`) is not read as the outer one's."""
+    out, depth = [], 0
+    for ch in arguments:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
 
 
 def int_conversion_hits(code):
@@ -161,6 +181,8 @@ def int_conversion_hits(code):
         after = code[end:].lstrip() if end else ""
         if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
+        if end and RADIX_ARGUMENT.search(top_level(code[match.end():end - 1])):
+            continue  # `Int(text, radix: 10)`: the failable string parse, never a trap
         hits += 1
     return hits
 
@@ -194,11 +216,26 @@ def collection_names(lines):
     as an array, or with an inferred or other type (`let rows = text.split(...)`), is
     in the second set, so its subscripts keep counting."""
     dicts, others = set(), set()
+    signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for line in lines:
         code = swift_code(line)
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
-        if FUNC_OR_INIT.search(code):
-            found += [(m.group(1), m.group(2).strip()) for m in PARAMETER_TYPE.finditer(code)]
+        head = FUNC_OR_INIT.search(code)
+        if head or signature_depth > 0:
+            # Only the parameter list: up to the parenthesis that closes it.
+            text = code[head.end() - 1:] if head else code
+            depth, stop = (0 if head else signature_depth), len(text)
+            for pos, ch in enumerate(text):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth <= 0:
+                        stop = pos + 1
+                        break
+            params = text[:stop] if head else "(" + text[:stop]
+            found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
+            signature_depth = max(depth, 0) if stop == len(text) else 0
         for name, text in found:
             (dicts if bracket_kind(text) == "dict" else others).add(name)
     return dicts, others
@@ -215,8 +252,13 @@ def index_hits(code, dictionaries=frozenset()):
             continue
         if re.match(r"checked\s*:", inner) or re.search(r",\s*default\s*:", inner):
             continue  # a checked accessor, or a dictionary subscript with a default
-        base = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")]).split(".")[-1]
-        if base in dictionaries:
+        chain = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")])
+        base = chain.split(".")[-1]
+        # A file's own declarations decide only for a bare name (or self.name); a
+        # member of another value (`transport.pending[i]`) uses the module rule.
+        local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
+        qualified = chain not in (base, "self." + base)
+        if base in (module if qualified else local):
             continue
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
             continue  # a type: [String], [Key: Value]
@@ -462,6 +504,18 @@ def module_dictionaries(repo):
     return {module: frozenset(d - a) for module, (d, a) in declared.items()}
 
 
+def file_dictionaries(lines, module_dicts):
+    """Names that LINES (one file) subscript as dictionaries: a name the file declares
+    only as a dictionary, or one it does not declare at all that its module declares only
+    as a dictionary (a property from the type's main file used in an extension file). A
+    same-named array or inferred local in another file of the module no longer hides a
+    dictionary declared in this one; one declared any other way in this file still counts."""
+    dicts, others = collection_names(lines)
+    declared = dicts | others
+    return (frozenset((dicts - others) | {name for name in module_dicts if name not in declared}),
+            frozenset(module_dicts))
+
+
 def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
@@ -476,11 +530,12 @@ def scan_swift(repo, counts, banned_files=None):
                 continue
             rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
             lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+            file_dicts = file_dictionaries(lines, dictionaries.get(rel, frozenset())) if rel in INDEX_MODULES else frozenset()
             for index, line in enumerate(lines):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
+                for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
                     if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
