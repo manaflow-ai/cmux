@@ -31,10 +31,25 @@ extension SidebarView {
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
             }
             aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = below
+            belowFade.animator().alphaValue = belowBandAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
+    }
+
+    /// The band below the list while minimal mode hides the bottom: faded,
+    /// unless it holds All chats, whose rows stay and whose header alone
+    /// fades with the hover (cx-xub5; only the footer row then hides).
+    func belowBandAlpha(hiddenByMode: Bool) -> CGFloat {
+        hiddenByMode && !belowRegion.appViews.values.contains(where: { $0 is SidebarHoverRevealing }) ? 0 : 1
+    }
+
+    /// After the bands change (All chats mounted or removed) the band below
+    /// takes its alpha for the current hover state at once.
+    func syncBelowBandAlpha() {
+        guard !isChromeRevealed else { return }
+        let alpha = belowBandAlpha(hiddenByMode: minimalHiddenBands.bottom)
+        if belowFade.alphaValue != alpha { belowFade.alphaValue = alpha }
     }
 
     /// The spaces strip's opacity: shown while the sidebar is hovered, or
