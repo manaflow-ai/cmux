@@ -88,10 +88,12 @@ struct WorkspaceProgramStatusTests {
         #expect(workspace.programStatusStoresByPanelId[blockedPanel.id] == nil)
     }
 
-    @Test func promptStartWithoutRecordsDoesNotCreateState() throws {
+    @Test func promptStartOrClearWithoutRecordsDoesNotCreateState() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         workspace.applyProgramStatus(ProgramStatusReport(event: .promptStart, state: .idle), panelId: panelId)
+        #expect(workspace.programStatusStoresByPanelId[panelId] == nil)
+        workspace.applyProgramStatus(ProgramStatusReport(state: .clear), panelId: panelId)
         #expect(workspace.programStatusStoresByPanelId[panelId] == nil)
         #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
     }

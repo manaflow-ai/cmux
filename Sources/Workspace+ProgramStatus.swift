@@ -7,8 +7,9 @@ extension Workspace {
     func applyProgramStatus(_ report: ProgramStatusReport, panelId: UUID) {
         guard panels[panelId] != nil else { return }
         // Every shell prompt emits a prompt-start event; panes that never
-        // reported program status have nothing to drop.
-        if report.event == .promptStart, programStatusStoresByPanelId[panelId] == nil { return }
+        // reported program status have nothing to drop. A clear has nothing to remove either.
+        if report.event == .promptStart || report.state == .clear,
+           programStatusStoresByPanelId[panelId] == nil { return }
         updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
     }
 

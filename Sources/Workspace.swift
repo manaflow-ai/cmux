@@ -11911,7 +11911,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focusIntent: PanelFocusIntent? = nil,
         focusTransactionId: UUID? = nil
     ) {
-        dismissCompletedProgramStatus(panelId: panelId)
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
@@ -13968,6 +13967,8 @@ extension Workspace: BonsplitDelegate {
         let activationIntent = focusIntent ?? activationPanel.preferredFocusIntentForActivation()
         activationPanel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
+        // The user reached this pane, so its finished OSC 7501 records have been seen.
+        dismissCompletedProgramStatus(panelId: panelId)
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
