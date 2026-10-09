@@ -126,6 +126,31 @@ describe("turn footer", () => {
     expect(offline.container.querySelector('button[aria-label="Retry"]')).toBeNull();
     await offline.unmount();
   });
+
+  test("groups compact actions, uses small glyphs, and forks from the latest turn", async () => {
+    const forked: number[] = [];
+    const { container, unmount } = await render(
+      createElement(TurnFooter, { row: { ...summary, seq: 7, prompt: "fix it" } }),
+      { fork: (throughSeq) => forked.push(throughSeq), forkSeq: 7, retry: () => {} },
+    );
+    const group = container.querySelector<HTMLElement>(".cv-turn-action-group");
+    expect(group).not.toBeNull();
+    expect([...group!.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Copy",
+      "Retry",
+      "Fork from here",
+    ]);
+    expect(group!.querySelectorAll(".cv-iconbtn--compact")).toHaveLength(3);
+    expect([...group!.querySelectorAll("svg")].map((svg) => [svg.getAttribute("width"), svg.getAttribute("height")])).toEqual([
+      ["14", "14"],
+      ["14", "14"],
+      ["14", "14"],
+    ]);
+    expect(group!.nextElementSibling?.tagName).toBe("TIME");
+    await act(async () => group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
+    expect(forked).toEqual([7]);
+    await unmount();
+  });
 });
 
 describe("a failed revert send", () => {
