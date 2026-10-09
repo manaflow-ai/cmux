@@ -28,11 +28,11 @@ extension HomeStore {
     /// owner at the deadline. A send in flight or committed by then is
     /// decided by its answer instead.
     private func scheduleOfflineDeadline(_ key: IdempotencyKey) {
-        let clock = self.clock
-        let deadline = Self.offlineSendDeadline
+        // The deadline counts from the send, not from when the task runs.
+        let sleep = Self.sleeper(clock, until: Self.offlineSendDeadline)
         offlineDeadlines[key]?.cancel()
         offlineDeadlines[key] = Task { [weak self] in
-            do { try await clock.sleep(for: deadline) } catch { return }
+            do { try await sleep() } catch { return }
             guard !Task.isCancelled, let self, !self.stopped else { return }
             self.offlineDeadlines[key] = nil
             guard let entry = self.log.entries.first(where: { $0.intent.key == key }), entry.state == .unconfirmed else { return }
@@ -42,6 +42,12 @@ extension HomeStore {
             self.offlineQueued.remove(key)
             self.giveUp(key, .ownerUnreachable, reachedOwner: reachedOwner)
         }
+    }
+
+    /// A sleep until `duration` after now on `clock`, now taken at once.
+    private static func sleeper<C: Clock<Duration>>(_ clock: C, until duration: Duration) -> @Sendable () async throws -> Void {
+        let deadline = clock.now.advanced(by: duration)
+        return { try await clock.sleep(until: deadline, tolerance: nil) }
     }
 
     /// The send goes to the owner now: it is no longer only queued.
