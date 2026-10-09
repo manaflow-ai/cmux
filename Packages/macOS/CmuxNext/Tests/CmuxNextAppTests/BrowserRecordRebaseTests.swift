@@ -21,7 +21,7 @@ struct BrowserRecordRebaseTests {
         store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: Self.tab(url: "https://a.test/")))
         let browserTabs = try #require(services.cache.browserTabs)
         var sent: [BrowserRecordUpdate] = []
-        browserTabs.update = { _, update in
+        browserTabs.update = { _, _, update in
             sent.append(update)
             return true
         }
@@ -56,8 +56,8 @@ struct BrowserRecordStateTests {
         store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
         let browserTabs = try #require(services.cache.browserTabs)
         var saved: [(ResourceID, BrowserRecordUpdate)] = []
-        browserTabs.update = { _, _ in true }
-        browserTabs.updateState = { tab, update in
+        browserTabs.update = { _, _, _ in true }
+        browserTabs.updateState = { _, tab, update in
             saved.append((tab, update))
             return true
         }

@@ -118,14 +118,14 @@ enum WorkspaceHandlers {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
         let browserTabs = context.services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-        let fallbacks = browserTabs.fallbacks
+        let fallbacks = browserTabs.fallbacks, machine = context.services.activeDaemon.machineID
         let address = context.services.newTabAddress(for: choice)
         createAndShow(context) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).
             let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
             if let reason = choice.fallback {
-                await fallbacks.record(reason, source: .newTab, surface: created.surface)
+                await fallbacks.record(reason, source: .newTab, machine: machine, surface: created.surface)
             }
             if let surface = terminal.surface { try await connection.closeTab(surface) }
         }
