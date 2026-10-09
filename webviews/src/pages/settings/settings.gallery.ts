@@ -323,6 +323,35 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
     note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
   }),
+  // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
+  "agents-harnesses": variant("agents", {
+    steps: [wait("[data-agent-harness]")],
+    note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
+  }),
+  "agents-add-custom": variant("agents", {
+    focus: "agents.add",
+    steps: [wait("[data-agents-custom]")],
+    note: "Add ACP Agent… (palette, the model picker's +): the custom command form.",
+  }),
+  "agents-add-registry": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait("[data-registry-agent]")],
+    note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-doctor": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
+    note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
+  }),
+  "agents-removed": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button:last-of-type'), wait("output")],
+    note: "Remove moves the profile aside: Removed with Undo.",
+  }),
+  "agents-cli": variant("agents", {
+    agents: { manages: false },
+    steps: [wait("[data-agents-cli]")],
+    note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
+  }),
+  "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
@@ -446,6 +475,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/HarnessesCard.tsx",
+    "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",

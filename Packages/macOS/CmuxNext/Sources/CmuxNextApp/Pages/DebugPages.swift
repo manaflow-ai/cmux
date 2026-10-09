@@ -20,6 +20,8 @@ import Foundation
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
 // - `connected` (`value` bool): the owner link state on the page's connection stream;
+// - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
+//   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-FOLLOW-MACOS audit);
 // - `click` (`selector`): clicks the first element matching the CSS selector (live proofs);
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
@@ -79,6 +81,8 @@ enum DebugPages {
             let path = params["path"]?.stringValue ?? "/tmp/cmux-page-\(page.pageID).png"
             let written = await page.debugSnapshot(to: URL(fileURLWithPath: path))
             return written ? ["path": .string(path)] : ["error": "snapshot failed"]
+        case "scrollers":
+            return await page.debugScrollers()
         case "command":
             let command = params["command"]?.stringValue ?? "find"
             var arguments: [String: JSONValue] = [:]

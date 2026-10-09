@@ -174,6 +174,7 @@ final class OnboardingService {
         // window's (Import and Sync, a single step) leaves it as it is.
         let firstRun = controller?.model.isFirstRun ?? true
         if firstRun { markDone(completed: completed) }
+        restoreMainWindow()
         land(firstRun: firstRun)
     }
 
@@ -184,6 +185,15 @@ final class OnboardingService {
     func landOnFirstWorkspace() {
         guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
         _ = services.windows.reveal(workspaceID: fresh)
+    }
+
+    /// A minimized main window comes back in place and to the front
+    /// (`OnboardingLanding.restoresMainWindow`).
+    private func restoreMainWindow() {
+        guard let controller = services.windows.active, let window = controller.window,
+              OnboardingLanding.restoresMainWindow(minimized: window.isMiniaturized) else { return }
+        window.deminiaturize(nil)
+        services.windows.bringToFront(controller)
     }
 
     /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue

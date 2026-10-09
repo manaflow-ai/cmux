@@ -1036,3 +1036,23 @@ fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
     assert_eq!(subs[0].effort.as_deref(), Some("high"));
     assert_eq!(subs[1].effort, turn, "as hard as the turn");
 }
+
+/// Lawrence 2026-10-09: the user's first message in a subagent's pane must not
+/// ask "trust this folder": the host trusts the folder it made for its
+/// subagents (optchat/subagent) before it starts them, and never a folder of
+/// the user's (a spawn's cwd), which the pane still asks about.
+#[test]
+fn the_host_trusts_its_own_subagent_folder_and_no_other() {
+    let mut s = setup();
+    spawn(&mut s, &["one"]).unwrap();
+    let own = s.h.dir.path().join("subagent");
+    assert_eq!(s.h.agents.inner.lock().unwrap().trusted, vec![own]);
+    let theirs = tempfile::tempdir().unwrap();
+    let dir = theirs.path().display().to_string();
+    call(&mut s, move |sp| sp.spawn(vec!["two".into()], Some(dir))).unwrap();
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().trusted.len(),
+        1,
+        "the user's folder is not trusted"
+    );
+}

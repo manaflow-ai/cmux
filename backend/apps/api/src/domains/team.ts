@@ -135,7 +135,7 @@ export const teamDomain: Domain<TeamState> = {
           state: a.state,
           writes: orphaned.flatMap((h) => hostUpsert(h)),
           value: { orphaned: orphaned.map((h) => h.id) },
-          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, rejoined ? undefined : v.cert_valid_before)]
+          outbox: [...orphaned.map((h) => ({ kind: "host.upsert", entity: h.id, payload: { ...h, team: state.team?.id } })), a.outbox, ...vmTaintNotice(state.team?.id, user, at, v.cert_valid_before, rejoined)]
         }
       }
       case "team.ensure_personal": {
@@ -349,10 +349,10 @@ const withAudit = (r: Audited<TeamState>, team: string, ctx: import("@cmux/owner
   return { ok: true as const, state: a.state, value: r.value, outbox: [a.outbox] }
 }
 
-/** The removal's notice to the team VM record (cx-q4f3), when the member ever held a team SSH certificate. */
-const vmTaintNotice = (team: string | undefined, user: string, at: number, certValidBefore: unknown) =>
-  team && typeof certValidBefore === "number"
-    ? [{ kind: "team_vm.member_removed", entity: `vm-taint:${team}:${user}:${at}`, payload: { user, at, cert_valid_before: certValidBefore }, target: { class: "TeamVmDO", name: team } }]
+/** The removal's notice to the team VM record: it ends the member's wake leases, and taints when they ever held a team SSH certificate (cx-q4f3). */
+const vmTaintNotice = (team: string | undefined, user: string, at: number, certValidBefore: unknown, rejoined: boolean) =>
+  team && !rejoined
+    ? [{ kind: "team_vm.member_removed", entity: `vm-taint:${team}:${user}:${at}`, payload: { user, at, ...(typeof certValidBefore === "number" ? { cert_valid_before: certValidBefore } : {}) }, target: { class: "TeamVmDO", name: team } }]
     : []
 
 /** The head without a legacy host entry (a head before team.rows_migrate). */

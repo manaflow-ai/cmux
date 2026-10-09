@@ -30,6 +30,11 @@ export const stackWorld = () => {
       calls++
       return teams.has(t) ? { display_name: teams.get(t)! } : null
     },
+    listTeamMembers: async (t: string) => {
+      calls++
+      if (!teams.has(t)) return "team_gone" as const
+      return [...members.entries()].filter(([k]) => k.startsWith(`${t}:`)).map(([k, name]) => ({ user_id: k.slice(t.length + 1), display_name: name }))
+    },
     getTeamMember: async (t: string, u: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const
@@ -50,9 +55,11 @@ export interface Delivery {
   ts?: number
   secret?: string
   signatures?: (good: string) => string
+  /** The exact body to sign and send instead of {type, data}. */
+  rawBody?: string
 }
 export const deliver = async (type: string, data: unknown, o: Delivery = {}) => {
-  const body = JSON.stringify({ type, data })
+  const body = o.rawBody ?? JSON.stringify({ type, data })
   const id = o.id ?? `msg_${crypto.randomUUID().replace(/-/g, "")}`
   const ts = String(o.ts ?? Math.floor(Date.now() / 1000))
   const good = `v1,${await signSvixContent(o.secret ?? SECRET, `${id}.${ts}.${body}`)}`

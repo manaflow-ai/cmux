@@ -25,7 +25,7 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
 
     /// Canonical text (`inet_ntop`), usable as a connect target.
     public var text: String {
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         switch self {
         case .v4(let bytes):
             var address = in_addr()

@@ -224,6 +224,33 @@ struct DockColumnViewTests {
         #expect(screen.scrollbar?.isShown != true)
     }
 
+    /// "system" (the default) follows the macOS "Show scroll bars" setting, live: overlay
+    /// scrollers keep the overflowing strip's thumb hidden at rest; legacy ones ("Always", or
+    /// "Automatically" with a mouse) show it at once, with no relaunch.
+    @Test func theSystemModeFollowsTheMacOSSettingLive() {
+        let saved = SystemScrollers.preferredStyleOverride
+        defer {
+            SystemScrollers.preferredStyleOverride = saved
+            SystemScrollers.systemStyleDidChange()
+        }
+        SystemScrollers.preferredStyleOverride = .overlay
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked), scrollbar: .system)
+        defer { window.close() }
+        view.context.reduceMotionOverride = true
+        let screen = view.screenViews["s"]!
+        runToRest(view)
+        #expect(screen.scrollbar?.isShown == false)
+
+        SystemScrollers.preferredStyleOverride = .legacy
+        SystemScrollers.systemStyleDidChange()
+        #expect(screen.scrollbar?.isShown == true)
+
+        SystemScrollers.preferredStyleOverride = .overlay
+        SystemScrollers.systemStyleDidChange()
+        // Overlay again: "auto" fades out after its idle deadline (makeRoot's manual clock).
+        #expect(screen.scrollbar?.isHidden == false)
+    }
+
     @Test func noScrollbarWhenTheColumnsFit() {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
             LayoutColumn(id: "ca", width: 0.5, root: .leaf("a")),

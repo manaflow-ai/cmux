@@ -46,6 +46,19 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
+# CMUX_SWIFT_TEST_SHARD=i/n (1-based) splits one package's suites across n
+# fleet steps: each shard builds, then runs every n-th suite of the sorted list,
+# starting at the i-th. Round-robin over a sorted list is deterministic and keeps
+# shard sizes within one suite of each other.
+shard_index=1 shard_count=1
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SHARD" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] \
+    || [ "${BASH_REMATCH[1]}" -gt "${BASH_REMATCH[2]}" ]; then
+    echo "CMUX_SWIFT_TEST_SHARD must be i/n with 1 <= i <= n (got '$CMUX_SWIFT_TEST_SHARD')" >&2
+    exit 2
+  fi
+  shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
+fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
@@ -54,6 +67,25 @@ trap 'rm -rf "$evidence_dir"' EXIT
 case "$(cd "$package_path" && pwd -P)" in
   */Packages/macOS/CmuxNext)
     (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
+    # The live-daemon suites find this tree's hosted cmux-tui through
+    # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s) and fetch a
+    # missing build (20-50 s for an unpublished tree), once in every suite
+    # process. Resolve and fetch once for the run, in the background while
+    # the suites are listed; the tests read CMUX_NEXT_TUI_TREE_PATH and
+    # never fetch again. They never wait for an unpublished tree.
+    if [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ]; then
+      (
+        cd "$script_dir/../.." || exit 0
+        export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
+          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
+            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        fi
+        printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
+      ) &
+      tree_path_job=$!
+    fi
     ;;
 esac
 # Keep process-global test state inside one suite. Some packages otherwise
@@ -68,16 +100,28 @@ if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/
   compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
   (cd "$package_path" && "$compile_catalogs")
 fi
+if [ -n "${tree_path_job:-}" ]; then
+  wait "$tree_path_job" || true
+  tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
+  [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
 suites=()
+position=0
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
-  suites+=("$suite")
-done < "$evidence_dir/filters.txt"
+  if [ $((position % shard_count + 1)) -eq "$shard_index" ]; then
+    suites+=("$suite")
+  fi
+  position=$((position + 1))
+done < <(if [ "$shard_count" -eq 1 ]; then cat "$evidence_dir/filters.txt"; else LC_ALL=C sort -u "$evidence_dir/filters.txt"; fi)
 suite_count=${#suites[@]}
+if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
+  echo "Swift test shard $shard_index/$shard_count: $suite_count of $position suites"
+fi
 
 # attempt_suite SUITE EXECUTION_LOG SINK...: one watchdog-guarded swift test of
 # SUITE. The output replaces EXECUTION_LOG (the --log check reads the last
