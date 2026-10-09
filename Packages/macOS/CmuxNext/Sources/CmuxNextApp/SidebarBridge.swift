@@ -156,7 +156,7 @@ final class SidebarBridge {
     /// window ids, the most recently used window's. Loading sections with
     /// nothing saved show placeholder rows.
     private func seedFromSnapshot(_ state: WindowState) {
-        let windows = services.windows!
+        let windows = services.windows
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [])

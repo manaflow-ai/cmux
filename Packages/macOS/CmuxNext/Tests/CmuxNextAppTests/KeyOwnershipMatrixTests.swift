@@ -167,7 +167,7 @@ struct KeyOwnershipMatrixTests {
         let services = Self.services()
         let composing = KeyRouter.Facts(hasMarkedText: true)
         let agent = Self.focused(.agent, tab: "local-agent:1")
-        let router = services.keyRouter!
+        let router = services.keyRouter
         #expect(router.decide(try K.key("\t", keyCode: 48, [.control]), focus: agent, keyWindow: .content, facts: composing) == .deliver)
         #expect(router.decide(try K.key("k", keyCode: 40, [.control]), focus: agent, keyWindow: .content, facts: composing) == .deliver)
         guard case .run(let candidate) = router.decide(try K.key("w", keyCode: 13, [.command]), focus: agent, keyWindow: .content,
