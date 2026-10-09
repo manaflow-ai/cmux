@@ -153,6 +153,25 @@ enum BrowserReplHostName {
     /// (`127.0.0.1`). A name that only starts with `127.` is any host its
     /// domain's owner points it at, and another spelling of an address
     /// (`0177.0.0.1`) is read differently by the system resolver.
+    /// Whether a connection to `host` (normalized) reaches this machine's
+    /// loopback listeners, however it is spelled: `localhost` and any
+    /// `.localhost` name, any 127/8 or the unspecified IPv4 address (which
+    /// connects to this machine), `[::1]`, `[::]` and IPv4 of those written
+    /// as IPv6. Wider than ``isLoopback(_:)``, which names the spellings a
+    /// policy may grant; this one decides what to refuse.
+    static func reachesLoopback(_ host: String) -> Bool {
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        if name == "localhost" || name.hasSuffix(".localhost") { return true }
+        if name.hasPrefix("[") || name.contains(":") {
+            guard let bytes = ipv6Address(name) else { return false }
+            if bytes[0..<15].allSatisfy({ $0 == 0 }), bytes[15] <= 1 { return true }
+            guard bytes[0..<10].allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff else { return false }
+            return bytes[12] == 127 || bytes[12...15].allSatisfy { $0 == 0 }
+        }
+        guard isIPAddress(name), let address = ipv4Address(name) else { return false }
+        return address >> 24 == 127 || address == 0
+    }
+
     static func isLoopback(_ host: String) -> Bool {
         if host == "localhost" || host == "[::1]" { return true }
         guard let address = ipv4Address(host), ipv4Text(address) == host else { return false }

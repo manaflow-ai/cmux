@@ -68,6 +68,52 @@
     ]);
   };
 
+  // Where pressing `el` sends the form's fields, read in the agent's world
+  // through the DOM's own getters (a form's named controls shadow its
+  // properties, `<input name="action">`): "ok" only when every submission
+  // the press can start goes to `a.origin` in the same browsing context.
+  // A click submits with `el` as the submitter (its formaction, formtarget
+  // and formmethod over the form's); Enter in a field submits with the
+  // form's default button, so the form itself and each of its submit
+  // controls must qualify. A dialog-method submission sends nothing.
+  // Otherwise the reason, and nothing is filled or pressed.
+  const SUBMIT_DESTINATION = (el, a) => {
+    const get = (proto, name, x) => Object.getOwnPropertyDescriptor(proto, name).get.call(x);
+    const attr = (x, name) => Element.prototype.getAttribute.call(x, name);
+    const has = (x, name) => Element.prototype.hasAttribute.call(x, name);
+    const protoOf = (x) => (x instanceof HTMLButtonElement ? HTMLButtonElement.prototype : x instanceof HTMLInputElement ? HTMLInputElement.prototype : null);
+    const isSubmit = (x) => (x instanceof HTMLButtonElement && get(HTMLButtonElement.prototype, "type", x) === "submit") || (x instanceof HTMLInputElement && ["submit", "image"].includes(get(HTMLInputElement.prototype, "type", x)));
+    const ownProto = protoOf(el);
+    const form = ownProto && get(ownProto, "form", el);
+    if (!form) return "no_form";
+    const F = HTMLFormElement.prototype;
+    const base = Array.prototype.find.call(Document.prototype.querySelectorAll.call(document, "base"), (b) => has(b, "target"));
+    const baseTarget = base ? attr(base, "target") : "";
+    const judge = (submitter) => {
+      const proto = submitter && protoOf(submitter);
+      const method = proto && has(submitter, "formmethod") ? get(proto, "formMethod", submitter) : get(F, "method", form);
+      if (String(method).toLowerCase() === "dialog") return null;
+      const action = proto && has(submitter, "formaction") ? get(proto, "formAction", submitter) : get(F, "action", form);
+      let origin;
+      try {
+        origin = new URL(action).origin;
+      } catch {
+        return "destination";
+      }
+      if (origin !== a.origin || !/^https?:$/.test(new URL(action).protocol)) return "destination";
+      const target = (proto && has(submitter, "formtarget") ? attr(submitter, "formtarget") : has(form, "target") ? attr(form, "target") : baseTarget) || "";
+      if (target.trim() && target.trim().toLowerCase() !== "_self") return "target";
+      return null;
+    };
+    if (a.action !== "press_enter") return judge(el) || "ok";
+    const controls = Array.prototype.filter.call(get(F, "elements", form), isSubmit);
+    for (const c of [null, ...controls]) {
+      const reason = judge(c);
+      if (reason) return reason;
+    }
+    return "ok";
+  };
+
   S.register(
     "browserAuth",
     (t) => ({
@@ -77,6 +123,10 @@
       // submit must be a submit button or input of the form that holds the
       // fields ("click"), or one of the fields ("press_enter"); anything
       // else is locator_invalid with field_id "submit", before the sheet.
+      // The form must submit to the page's own origin in the same tab
+      // (action, formaction, target, formtarget, <base target>); otherwise
+      // locator_invalid with reason "unsafe_destination", before the sheet,
+      // or "submission_failed" when it changed while the sheet was up.
       async request(page, options) {
         if (!page || typeof page.url !== "function") {
           options = page;
@@ -97,6 +147,10 @@
         if (!o.origin || o.origin !== current) return { status: "origin_changed" };
         const locate = (sel) => (typeof sel === "string" ? page.locator(sel) : sel);
         const readSubmitIdentity = (el) => el._pinnedFrame._call("agent", functionSource(SUBMIT_IDENTITY), [], [el._handle], "browserAuth submit");
+        // The submission stays on the origin the sheet is asked for (the
+        // policy keeps the session's tabs on exactly its host, as for a
+        // typed secret), in the same tab.
+        const readSubmitDestination = (el, action) => el._pinnedFrame._call("agent", functionSource(SUBMIT_DESTINATION), [{ origin: current, action }], [el._handle], "browserAuth submit").catch(() => "unreadable");
         const marked = [];
         const formMarker = `form-${Math.floor(Math.random() * 1e12).toString(36)}`;
         let frameId;
@@ -143,6 +197,7 @@
             if (!ok) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
             submitIdentity = await readSubmitIdentity(submitLoc).catch(() => null);
             if (!submitIdentity) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
+            if ((await readSubmitDestination(submitLoc, action)) !== "ok") return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "unsafe_destination" } };
           }
           // The user should see the page they are signing in to under the sheet.
           await page.bringToFront().catch(() => {});
@@ -167,6 +222,10 @@
               // still submitting the form marked before the sheet, to the
               // same place.
               if ((await readSubmitIdentity(submitLoc)) !== submitIdentity || !(await submitLoc.evaluate(SUBMITS_FORM, { action, formMarker }))) return { status: "submission_failed" };
+              // And still to the page's own origin, in the same tab, read
+              // last before the press (a new <base target> is not in the
+              // identity).
+              if ((await readSubmitDestination(submitLoc, action)) !== "ok") return { status: "submission_failed" };
               if (action === "press_enter") await submitLoc.press("Enter");
               else await submitLoc.click();
             } catch (e) {

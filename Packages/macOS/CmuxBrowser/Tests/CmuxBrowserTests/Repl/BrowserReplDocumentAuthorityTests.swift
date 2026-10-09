@@ -159,6 +159,29 @@ struct BrowserReplDocumentAuthorityTests {
     /// Its origin, once the app registers it, is a local page as the custom
     /// scheme is: refused in any tab, also as a frame of a web page, and to
     /// the session's own navigations. Another loopback server is a web page.
+    /// The diff viewer's server listens on a loopback port; every spelling
+    /// of a loopback host reaches the same listener (`localhost`, any
+    /// 127/8 address in any notation, `0.0.0.0`, `[::1]`, IPv4 written as
+    /// IPv6, a `.localhost` name), so each is that app-served origin too.
+    @Test("Every loopback spelling of a registered app-served port is refused")
+    func appServedLoopbackPortIsRefusedUnderEveryLoopbackSpelling() throws {
+        let origin = URL(string: "http://127.0.0.1:59873/0123456789abcdef0123456789abcdef/index.html")!
+        BrowserReplFileSandbox.registerAppServedOrigin(of: origin)
+        defer { BrowserReplFileSandbox.unregisterAppServedOrigin(of: origin) }
+        for alias in [
+            "http://localhost:59873/x", "http://LOCALHOST.:59873/x", "http://[::1]:59873/x", "http://[0:0:0:0:0:0:0:1]:59873/x",
+            "http://127.0.0.2:59873/x", "http://2130706433:59873/x", "http://0x7f.1:59873/x", "http://0.0.0.0:59873/x",
+            "http://[::ffff:127.0.0.1]:59873/x", "http://[::]:59873/x", "http://app.localhost:59873/x", "https://localhost:59873/x",
+        ] {
+            #expect(BrowserReplFileSandbox.appServedRefusal(url: alias, documentOrigin: nil) != nil, "\(alias) reached the app-served port")
+            #expect(BrowserReplFileSandbox.navigationRefusal(alias, roots: roots) != nil, "a session could navigate to \(alias)")
+        }
+        // Another port, or a host that is not loopback, is a web page.
+        for other in ["http://localhost:59874/x", "http://example.com:59873/x", "http://10.0.0.1:59873/x"] {
+            #expect(BrowserReplFileSandbox.appServedRefusal(url: other, documentOrigin: nil) == nil, "\(other)")
+        }
+    }
+
     @Test("The diff viewer's loopback HTTP origin is judged as a local file outside the session's directories")
     func appServedLoopbackOriginsAreLocalFilesOutsideTheRoots() throws {
         let origin = URL(string: "http://127.0.0.1:59871/0123456789abcdef0123456789abcdef/index.html#cmux-diff-viewer")!

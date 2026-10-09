@@ -264,11 +264,17 @@ public struct BrowserReplFileSandbox: Sendable {
         appServedOrigins.remove(origin)
     }
 
-    /// `scheme://host:port` of an http(s) URL, the port always written.
+    /// `scheme://host:port` of an http(s) URL, the port always written and
+    /// the host normalized. A host that reaches this machine's loopback
+    /// listeners (``BrowserReplHostName/reachesLoopback(_:)``) is
+    /// `loopback:port` whatever its spelling and scheme: a server the app
+    /// runs on a loopback port answers every one of them.
     private static func webOrigin(of url: URL) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return nil }
-        return "\(scheme)://\(host):\(url.port ?? (scheme == "https" ? 443 : 80))"
+              let host = BrowserReplHostName.host(of: url) else { return nil }
+        let port = url.port ?? (scheme == "https" ? 443 : 80)
+        if BrowserReplHostName.reachesLoopback(host) { return "loopback:\(port)" }
+        return "\(scheme)://\(host):\(port)"
     }
 
     private static let appServedOrigins = BrowserReplAppServedOrigins()

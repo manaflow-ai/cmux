@@ -40,6 +40,76 @@ struct BrowserReplFrameGatePolicyChangeTests {
         #expect(error?.code == "blocked", "a read that finished after the policy blocked its frame was handed on: \(String(describing: error))")
     }
 
+    /// The gate's checks before a script await WebKit (the frame tree its
+    /// reach check reads); the user can move the tab out of the session's
+    /// workspace, or the session can set its policy, meanwhile. The script
+    /// is then never dispatched: its side effects would come before the
+    /// check that only discards its result.
+    @Test func aScriptIsNotDispatchedWhenTheTabMovedWhileTheGateCheckedIt() async throws {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let frame = try #require(page.frame(host: "allowed.test"))
+        let own = UUID()
+        let tabID = UUID()
+        let place = WorkspaceBox(own)
+        gate.scope = { _ in
+            .init(sessionID: "s", fileRoots: nil, tab: BrowserReplTabFacts(id: tabID, attachedSessionIDs: ["s"], workspaceID: place.id), workspaceID: own)
+        }
+        gate.frameTree = { webView in
+            // The user moves the tab while the gate reads the tree.
+            place.id = UUID()
+            return await BrowserReplFrame.readTree(of: webView)
+        }
+        let error = await BrowserReplFrameGateTests.error {
+            try await gate.callAsyncJavaScript("window.__cmuxDispatched = true; return 1", arguments: [:], in: page.webView, frame: frame, contentWorld: .page)
+        }
+        #expect(error?.code == "denied", "\(String(describing: error))")
+        #expect(try await page.run("return typeof window.__cmuxDispatched", in: frame) as? String == "undefined", "the script ran in a tab the session no longer may use")
+    }
+
+    @Test func aScriptIsNotDispatchedWhenThePolicyChangedWhileTheGateCheckedIt() async throws {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let frame = try #require(page.frame(host: "allowed.test"))
+        gate.frameTree = { webView in
+            // The session sets its policy again while the gate reads the
+            // tree (one the reach check alone would not refuse: the checks
+            // before judged the frames under the old one).
+            gate.policy = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://other.test").policy
+            return await BrowserReplFrame.readTree(of: webView)
+        }
+        let error = await BrowserReplFrameGateTests.error {
+            try await gate.callAsyncJavaScript("window.__cmuxDispatched = true; return 1", arguments: [:], in: page.webView, frame: frame, contentWorld: .page)
+        }
+        #expect(error?.code == "stale", "a script checked under the old policy was handed on: \(String(describing: error))")
+        #expect(try await page.run("return typeof window.__cmuxDispatched", in: frame) as? String == "undefined", "the script ran after the policy blocked its frame")
+    }
+
+    /// A screenshot or PDF taken while the session sets its policy again
+    /// (published at once to the board, put on the gate after its rules
+    /// compile) is not handed on: its frames were judged under the old one.
+    @Test func aCaptureTakenWhileThePolicyChangedIsNotHandedOn() async throws {
+        let gate = BrowserReplFrameGateTests.gate()
+        let board = WorkspaceBox(UUID())
+        var published = 1
+        let onGate = await BrowserReplFrameGateTests.error {
+            try await gate.capturing(policyGeneration: { published }) {
+                gate.policy = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://allowed.test").policy
+                return 1
+            }
+        }
+        #expect(onGate?.code == "stale", "a capture taken across a policy change on the gate was handed on: \(String(describing: onGate))")
+        let onBoard = await BrowserReplFrameGateTests.error {
+            try await gate.capturing(policyGeneration: { published }) {
+                published += 1
+                return 1
+            }
+        }
+        #expect(onBoard?.code == "stale", "a capture taken across a published policy was handed on: \(String(describing: onBoard))")
+        let unchanged = try await gate.capturing(policyGeneration: { published }) { board.id.uuidString }
+        #expect(unchanged == board.id.uuidString)
+    }
+
     @Test func anInputInFlightWhenThePolicyNarrowsSendsNoFurtherStep() async throws {
         let page = try await FramePage.load()
         let gate = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://other.test")
@@ -70,4 +140,10 @@ struct BrowserReplFrameGatePolicyChangeTests {
         }
         #expect(step == nil, "an input that started under the current policy was refused: \(String(describing: step))")
     }
+}
+
+@MainActor
+private final class WorkspaceBox {
+    var id: UUID
+    init(_ id: UUID) { self.id = id }
 }
