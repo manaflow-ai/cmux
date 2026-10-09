@@ -32,6 +32,9 @@ struct DebugPageTargetTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        // WebKit does not load or paint an occluded window; the probe must see the page that is
+        // visible in this test rather than an unpainted live instance with an empty hash.
+        window.orderFrontRegardless()
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
