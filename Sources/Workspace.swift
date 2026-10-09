@@ -12632,8 +12632,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // every visible application window here made each workspace retry
         // perform unrelated AppKit layout work (and multiplied the cost when
         // several workspaces were converging at once).
-        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-        guard let window = manager?.window,
+        let window = AppDelegate.shared?.mainWindowContainingWorkspace(id)
+            ?? owningTabManager?.window
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)?.window
+        guard let window,
               window.isVisible else { return }
         window.contentView?.layoutSubtreeIfNeeded()
     }
