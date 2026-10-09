@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
 use std::thread;
 
 use cmux_tasks_core::ids::Principal;
@@ -52,9 +52,69 @@ fn line(value: &ServerLine) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned())
 }
 
-/// Bind the socket and serve until the process exits. `on_ready` runs once
-/// the socket accepts connections.
-pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io::Result<()> {
+/// Why [`serve`] stopped.
+#[derive(Debug)]
+pub enum ServeError {
+    /// Binding the socket, accepting or starting a thread failed.
+    Io(io::Error),
+    /// The op log write failed: memory is ahead of disk. The process must
+    /// exit and restart from disk (crash-only); the CLI exits 70.
+    LogWrite(io::Error),
+}
+
+impl std::fmt::Display for ServeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => error.fmt(formatter),
+            Self::LogWrite(error) => write!(formatter, "log write failed, exiting: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ServeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) | Self::LogWrite(error) => Some(error),
+        }
+    }
+}
+
+impl From<io::Error> for ServeError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+/// Sends `Err(stopped)` when its thread ends without a result (it
+/// unwound), so [`serve`] never waits on a thread that is gone.
+struct StopReport {
+    tx: Option<Sender<Result<(), ServeError>>>,
+    stopped: &'static str,
+}
+
+impl StopReport {
+    fn send(mut self, result: Result<(), ServeError>) {
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(result);
+        }
+    }
+}
+
+impl Drop for StopReport {
+    fn drop(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(Err(ServeError::Io(io::Error::other(self.stopped))));
+        }
+    }
+}
+
+/// Bind the socket and serve until the writer or the accept loop stops.
+/// `on_ready` runs once the socket accepts connections.
+pub fn serve(
+    owner: &LocalOwner,
+    engine: Engine,
+    on_ready: impl FnOnce(),
+) -> Result<(), ServeError> {
     // We hold the store lock, so any socket file left here is stale.
     let _ = std::fs::remove_file(&owner.socket);
     let listener = UnixListener::bind(&owner.socket)?;
@@ -63,10 +123,25 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
         std::fs::set_permissions(&owner.socket, std::fs::Permissions::from_mode(0o600))?;
     }
     let (tx, rx) = mpsc::sync_channel::<Msg>(REQUEST_QUEUE);
-    let writer = thread::Builder::new()
+    // The writer and the accept loop each report here when they stop; the
+    // first report ends `serve`.
+    let (stopped_tx, stopped_rx) = mpsc::channel::<Result<(), ServeError>>();
+    let writer_report =
+        StopReport { tx: Some(stopped_tx.clone()), stopped: "tasks writer stopped" };
+    thread::Builder::new()
         .name("tasks-writer".to_owned())
-        .spawn(move || writer_loop(engine, rx))?;
+        .spawn(move || writer_report.send(writer_loop(engine, rx)))?;
+    let accept_report = StopReport { tx: Some(stopped_tx), stopped: "tasks accept loop stopped" };
+    thread::Builder::new()
+        .name("tasks-accept".to_owned())
+        .spawn(move || accept_report.send(accept_loop(&listener, &tx).map_err(ServeError::Io)))?;
     on_ready();
+    stopped_rx
+        .recv()
+        .unwrap_or_else(|_| Err(ServeError::Io(io::Error::other("tasks server stopped"))))
+}
+
+fn accept_loop(listener: &UnixListener, tx: &SyncSender<Msg>) -> io::Result<()> {
     let mut next_conn = 0u64;
     for stream in listener.incoming() {
         let stream = match stream {
@@ -79,9 +154,6 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
         thread::Builder::new()
             .name(format!("tasks-conn-{conn}"))
             .spawn(move || connection(conn, stream, tx))?;
-        if writer.is_finished() {
-            return Err(io::Error::other("tasks writer stopped"));
-        }
     }
     Ok(())
 }
@@ -139,7 +211,7 @@ fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>) {
     let _ = pump.join();
 }
 
-fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
+fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) -> Result<(), ServeError> {
     let mut outs: BTreeMap<u64, SyncSender<String>> = BTreeMap::new();
     let mut subscribers: BTreeMap<u64, SyncSender<String>> = BTreeMap::new();
     while let Ok(first) = rx.recv() {
@@ -179,10 +251,10 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
             match engine.handle_batch(requests.into_iter().map(|(_, a, r)| (a, r)).collect()) {
                 Ok(outcomes) => outcomes,
                 Err(e) => {
-                    // The log write failed: memory is ahead of disk. Exit and
-                    // let the supervisor restart from disk (crash-only).
-                    eprintln!("cmux-tasks: log write failed, exiting: {e}");
-                    std::process::exit(70);
+                    // The log write failed: memory is ahead of disk. Stop;
+                    // the process exits and the supervisor restarts it from
+                    // disk (crash-only).
+                    return Err(ServeError::LogWrite(e));
                 }
             };
         for (conn, outcome) in conns.into_iter().zip(outcomes) {
@@ -215,6 +287,7 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
             subscribe(&engine, &outs, &mut subscribers, conn, &actor, &request);
         }
     }
+    Ok(())
 }
 
 /// Queue a line without blocking the writer; false when the client is gone

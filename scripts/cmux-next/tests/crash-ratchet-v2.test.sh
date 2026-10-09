@@ -123,4 +123,18 @@ printf 'func f() -> NSFont { .systemFont(ofSize: 10) }\n' > "$app/Sources/M/A.sw
 out="$(ratchet)" || fail "a static let font or a font outside the render modules counted: $out"
 reset
 
+# 8. Rust inline test modules: cfg(test) and cfg(all(..., test, ...)) are cut;
+#    any(test, ...) and all(not(test), ...) also build outside tests and count.
+rs="$tmp/cmux-tui/crates/x/src/lib.rs"
+printf 'pub fn f() {}\n#[cfg(all(test, unix))]\nmod tests {\n    fn t() { x.unwrap(); }\n}\n' > "$rs"
+out="$(ratchet)" || fail "an unwrap in a cfg(all(test, unix)) module counted: $out"
+printf 'pub fn f() {}\n#[cfg(all(unix, not(windows), test))]\nmod tests {\n    fn t() { x.unwrap(); }\n}\n' > "$rs"
+out="$(ratchet)" || fail "an unwrap in a cfg(all(unix, not(windows), test)) module counted: $out"
+printf 'pub fn f() {}\n#[cfg(any(test, feature = "x"))]\nmod m {\n    fn t() { x.unwrap(); }\n}\n' > "$rs"
+if out="$(ratchet)"; then fail "an unwrap in a cfg(any(test, ...)) module passed: $out"; fi
+[[ "$out" == *"rust x: unwrap 0 -> 1"* ]] || fail "the any(test) hit is not reported: $out"
+printf 'pub fn f() {}\n#[cfg(all(not(test), unix))]\nmod m {\n    fn t() { x.unwrap(); }\n}\n' > "$rs"
+if out="$(ratchet)"; then fail "an unwrap in a cfg(all(not(test), unix)) module passed: $out"; fi
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
