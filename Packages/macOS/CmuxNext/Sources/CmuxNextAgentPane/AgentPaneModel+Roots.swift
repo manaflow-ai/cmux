@@ -26,7 +26,7 @@ extension AgentPaneModel {
     func primaryRoot() -> String? {
         // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
         if let startFolder { return chosenFolder ?? startFolder.folder }
-        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-nn3e-compat.
+        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
         return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
     }
@@ -86,7 +86,7 @@ extension AgentPaneModel {
             case .missing, nil: return Self.transportFailure(.pathInvalid)
             }
         }
-        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-nn3e-compat.
+        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let (canonical, home) = await Task.detached {
             (AcpmuxPathPolicy.canonical(path).flatMap { AcpmuxPathPolicy.isDirectory($0) ? $0 : nil },
              homeFolder.flatMap(AcpmuxPathPolicy.canonical))

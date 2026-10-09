@@ -110,7 +110,7 @@ public final class AgentPaneModel {
     /// Asks the store where a new chat starts, with the folder this pane proposes (a seed, the
     /// New Tab page's folder, a pick): `workspace.agent_start.get` (cx-9aps). Nil, or a nil
     /// answer, means a daemon without it; the pane then decides as before (compatibility only,
-    /// removed with bead cx-nn3e-compat once every bundled daemon serves workspace-agent-start-v1).
+    /// removed with bead cx-6bf9 once every bundled daemon serves workspace-agent-start-v1).
     @ObservationIgnored public var resolveStartFolder: (@MainActor (_ proposed: String?) async -> AgentPaneStartFolder?)?
     /// The store's last answer for this pane's new chat: the handshake's folder, the relay's fill.
     @ObservationIgnored public internal(set) var startFolder: AgentPaneStartFolder?
@@ -243,7 +243,7 @@ public final class AgentPaneModel {
                     if answer.kind == .agentHome, onChooseFolder != nil { handshake.chooseFolder = true }
                 } else {
                     // Compatibility only (a daemon without workspace-agent-start-v1): the pane's own
-                    // rules. Remove with bead cx-nn3e-compat.
+                    // rules. Remove with bead cx-6bf9.
                     // An inherited or default `~`, or an agent-home folder, is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
                     if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) || isAgentHome(cwd) { handshake.cwd = nil }
                     if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() {

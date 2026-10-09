@@ -75,7 +75,7 @@ extension AgentTabStore {
 
     /// The store's answer on `daemon` (`workspace.agent_start.get`); nil from a daemon without
     /// `workspace-agent-start-v1` or when the read fails, so the pane keeps its own rules
-    /// (compatibility only, cx-nn3e-compat).
+    /// (compatibility only, cx-6bf9).
     static func agentStart(_ cwd: String?, workspace: ResourceID, on daemon: DaemonService) async -> AgentPaneStartFolder? {
         guard daemon.supports(DaemonCapabilities.shared.workspaceAgentStart), let connection = daemon.connection else { return nil }
         do {
