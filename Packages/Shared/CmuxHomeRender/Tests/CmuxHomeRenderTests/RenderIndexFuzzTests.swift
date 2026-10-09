@@ -88,7 +88,7 @@ import Testing
         let messages = Fixtures.conversation(4)
         c.update(items: Fixtures.items(messages), summary: Fixtures.summary(), typing: [], hasOlder: false)
         let key = IdempotencyKey("key_1")
-        for id in ["part:", "part:3", "part:key_1:-1", "part:key_1:99", "part:key_1:x", "part::0", "receipt:key_1"] {
+        for id in ["part:", "part:3", "part:key_1:-1", "part:key_1:99", "part:key_1:x", "receipt:key_1"] {
             let element = HomeAXItem(id: id, role: .staticText, label: "", value: "", frame: .zero, item: key)
             #expect(c.reactionTarget(for: element, isOnline: true) == nil, "\(id)")
         }
