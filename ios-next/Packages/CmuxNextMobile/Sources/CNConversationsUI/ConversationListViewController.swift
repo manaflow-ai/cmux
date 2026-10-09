@@ -234,7 +234,10 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
                 store.setMuted(id, !c.muted)
             },
         ]
-        let preview = c.lastMessage.map { m in m.sender.isMe || c.kind != .group ? m.text : "\(m.sender.name): \(m.text)" } ?? (c.subtitle ?? "")
+        let preview = c.lastMessage.map { m in
+            let text = ConvMarkdown.plain(m.text, foldNewlines: true)
+            return m.sender.isMe || c.kind != .group ? text : "\(m.sender.name): \(text)"
+        } ?? (c.subtitle ?? "")
         cell.configure(c, unread: unread, preview: preview, date: dates.listLabel(c.updatedDate), hideAvatar: hiddenAvatars.contains(id),
                        leading: leading, trailing: trailing)
     }

@@ -171,8 +171,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
     private func rebuild() {
         guard isViewLoaded else { return }
         let messages = store.histories[conversation.id] ?? []
+        // One line under the header (Messages' "iMessage / Encrypted" slot), never
+        // repeating the name already shown in the header pill.
+        let subtitle = conversation.subtitle.flatMap { $0.isEmpty || $0 == conversation.title ? nil : $0 } ?? introTitle
         let builder = TranscriptBuilder(width: view.bounds.width, isGroup: conversation.kind == .group,
-                                        introTitle: introTitle, introSubtitle: conversation.subtitle ?? conversation.title)
+                                        introTitle: "", introSubtitle: subtitle)
         let (rows, height) = builder.build(messages: messages, typing: store.isTyping(conversation.id))
         let old = rowsById
         let wasAtBottom = !didInitialLoad || isNearBottom
@@ -526,7 +529,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
         let snapshot = target.snapshotView(afterScreenUpdates: false)
         let overlay = TapbackOverlay(frame: view.bounds, bubbleFrame: body, outgoing: row.outgoing, snapshot: snapshot, safeTop: view.safeAreaInsets.top,
                                      safeBottom: view.bounds.height - composer.frame.minY)
-        overlay.onCopy = { UIPasteboard.general.string = message.text }
+        overlay.onCopy = { UIPasteboard.general.string = ConvMarkdown.plain(message.text) }
         overlay.onShare = { [weak self] in
             let vc = UIActivityViewController(activityItems: [message.text], applicationActivities: nil)
             self?.present(vc, animated: true)

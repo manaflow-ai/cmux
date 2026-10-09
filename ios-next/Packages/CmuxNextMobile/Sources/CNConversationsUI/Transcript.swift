@@ -87,10 +87,10 @@ struct TranscriptMetrics {
         p.maximumLineHeight = s.bubbleLine
         p.lineBreakMode = .byWordWrapping
         let font = s.bubbleFont
-        return NSAttributedString(string: text, attributes: [
+        return ConvMarkdown.attributed(text, base: [
             .font: font, .foregroundColor: color, .paragraphStyle: p,
             .baselineOffset: (s.bubbleLine - font.lineHeight) / 2,
-        ])
+        ], font: font)
     }
 
     static func textSize(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
@@ -402,7 +402,7 @@ final class TranscriptCell: UICollectionViewCell {
             text.text = title
             text.textAlignment = .center
             subtext.text = subtitle
-            accessibilityLabel = "\(title), \(subtitle)"
+            accessibilityLabel = [title, subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
         case .time(let date):
             text.isHidden = false
             let sep = NSMutableAttributedString(attributedString: ConvDates().separator(date))

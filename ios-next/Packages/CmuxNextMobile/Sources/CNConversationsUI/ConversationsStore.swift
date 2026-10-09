@@ -24,6 +24,9 @@ final class ConversationsStore {
     private(set) var typing: [String: Set<String>] = [:]
     /// Local "Mark as Unread" (the protocol has only `conv.read`).
     private(set) var markedUnread: Set<String> = []
+    /// Agent session status by session id. An agent conversation
+    /// (`agent:<sessionId>`) shows the typing indicator while its session runs.
+    private(set) var agentStatus: [String: AgentSessionStatus] = [:]
     private var me: MessageSender?
     private var lastGeneration = -1
     private var pushTask: Task<Void, Never>?
@@ -76,7 +79,13 @@ final class ConversationsStore {
 
     func isUnread(_ c: Conversation) -> Bool { c.unread > 0 || markedUnread.contains(c.id) }
 
-    func isTyping(_ conversationId: String) -> Bool { !(typing[conversationId]?.isEmpty ?? true) }
+    func isTyping(_ conversationId: String) -> Bool {
+        if !(typing[conversationId]?.isEmpty ?? true) { return true }
+        guard conversationId.hasPrefix(Self.agentPrefix) else { return false }
+        return agentStatus[String(conversationId.dropFirst(Self.agentPrefix.count))] == .running
+    }
+
+    static let agentPrefix = "agent:"
 
     // MARK: Loading
 
@@ -98,6 +107,10 @@ final class ConversationsStore {
             do {
                 let list = try await client.listConversations()
                 conversations = list
+                if let sessions = try? await client.listAgentSessions() {
+                    agentStatus = Dictionary(sessions.map { ($0.id, $0.status) }, uniquingKeysWith: { _, b in b })
+                    for s in sessions where s.status == .running { emit(.typing(Self.agentPrefix + s.id)) }
+                }
                 loaded = true
                 emit(.list)
                 // Refresh histories the UI already holds; a reconnect may have
@@ -146,6 +159,12 @@ final class ConversationsStore {
             if t.typing { set.insert(t.senderId) } else { set.remove(t.senderId) }
             typing[t.conversationId] = set
             emit(.typing(t.conversationId))
+        case .agentSession(let session):
+            let old = agentStatus[session.id]
+            agentStatus[session.id] = session.status
+            if old != session.status { emit(.typing(Self.agentPrefix + session.id)) }
+        case .agentRemoved(let sessionId):
+            if agentStatus.removeValue(forKey: sessionId) != nil { emit(.typing(Self.agentPrefix + sessionId)) }
         case .conversationRemoved(let id):
             conversations.removeAll { $0.id == id }
             histories[id] = nil

@@ -131,11 +131,19 @@ final class ConvNavigationController: UINavigationController, UINavigationContro
 
     // MARK: UINavigationControllerDelegate
 
+    /// Reports whether a thread (not the list) is on screen, so the SwiftUI
+    /// root can hide the tab shell's tab bar only while a thread is visible
+    /// (`toolbarVisibility(_:for: .tabBar)` is scoped to this tab, so
+    /// switching tabs or popping always brings the bar back).
+    var onThreadVisibilityChange: ((Bool) -> Void)?
+
     func navigationController(_ nav: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
-        // Messages hides the tab bar inside a thread; the composer owns the bottom edge.
-        guard let tabs = tabBarController else { return }
-        let hide = viewController !== list
-        if tabs.isTabBarHidden != hide { tabs.setTabBarHidden(hide, animated: animated) }
+        onThreadVisibilityChange?(viewController !== list)
+    }
+
+    func navigationController(_ nav: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
+        // A cancelled interactive pop ends here with the thread still on top.
+        onThreadVisibilityChange?(viewController !== list)
     }
 
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,

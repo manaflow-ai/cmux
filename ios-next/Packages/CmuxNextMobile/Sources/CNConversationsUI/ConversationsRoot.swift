@@ -17,10 +17,16 @@ public struct ConversationsRoot: View {
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var route
     @Environment(\.cnHostedInTabBar) private var hostedInTabBar
+    @State private var threadVisible = false
 
     public var body: some View {
-        ConversationsContainer(connection: connection, leadingItem: leadingItem, route: route, hostedInTabBar: hostedInTabBar)
+        ConversationsContainer(connection: connection, leadingItem: leadingItem, route: route, hostedInTabBar: hostedInTabBar,
+                               threadVisible: $threadVisible)
             .ignoresSafeArea(.all)
+            // Messages hides the tab bar inside a thread. Scoped to this tab:
+            // the bar returns on pop and whenever another tab is selected.
+            .toolbarVisibility(threadVisible ? .hidden : .automatic, for: .tabBar)
+            .animation(.spring(response: 0.28, dampingFraction: 1), value: threadVisible)
     }
 }
 
@@ -29,6 +35,7 @@ private struct ConversationsContainer: UIViewControllerRepresentable {
     let leadingItem: AnyView?
     let route: CNShellRoute?
     let hostedInTabBar: Bool
+    @Binding var threadVisible: Bool
 
     func makeUIViewController(context: Context) -> ConvNavigationController {
         let store = ConversationsStore(connection: connection)
@@ -36,6 +43,10 @@ private struct ConversationsContainer: UIViewControllerRepresentable {
         store.start()
         nav.list.setLeadingItem(leadingItem)
         nav.hostedInTabBarHint = hostedInTabBar
+        let visible = $threadVisible
+        nav.onThreadVisibilityChange = { v in
+            Task { @MainActor in if visible.wrappedValue != v { visible.wrappedValue = v } }
+        }
         nav.handle(route)
         return nav
     }
