@@ -1,4 +1,4 @@
-import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 
 // `cloud.machines` `creations`: New Cloud Workspace runs in flight, from the click (cx-lu8f).
