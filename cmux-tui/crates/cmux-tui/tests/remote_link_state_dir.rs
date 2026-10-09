@@ -8,6 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn bin() -> &'static str {
@@ -20,11 +21,17 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// A directory and session of its own. The clock alone does not make the
+    /// key unique: macOS `SystemTime` has microsecond resolution, so tests
+    /// that start together shared one fixture and one session daemon.
     fn new() -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let dir = PathBuf::from("/tmp").join(format!("cmux-rlsd-{}-{stamp}", std::process::id()));
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let index = NEXT.fetch_add(1, Ordering::Relaxed);
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() % 1_000_000;
+        let key = format!("{}-{index}-{stamp}", std::process::id());
+        let dir = PathBuf::from("/tmp").join(format!("cmux-rlsd-{key}"));
         fs::create_dir_all(&dir).unwrap();
-        Self { session: format!("rlsd-{}-{}", std::process::id(), stamp % 1_000_000), dir }
+        Self { session: format!("rlsd-{key}"), dir }
     }
 
     fn default_state(&self) -> PathBuf {
