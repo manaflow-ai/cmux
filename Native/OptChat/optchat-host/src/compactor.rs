@@ -47,6 +47,19 @@ impl State {
         !self.closed && self.fatal.is_none()
     }
 
+    /// Whether a turn may start (section 6): every view line is built, or
+    /// stuck (its call fails with a request error that repeats on every
+    /// try; the turn reads it unbuilt, `PLACEHOLDER`, which `zoom` opens),
+    /// or imported (`Memory::turn_ready`).
+    pub fn turn_ready(&self) -> bool {
+        self.memory.turn_ready()
+            || self.memory.view().iter().all(|p| {
+                self.memory.is_built(*p)
+                    || self.stuck.contains(p)
+                    || self.memory.is_imported(p.end() - 1)
+            })
+    }
+
     /// Saves where the memory stands (`db::checkpoint`); a failure costs
     /// only a longer fold at the next start, so it is reported, not fatal.
     pub fn save_checkpoint(&mut self) {
@@ -464,6 +477,7 @@ pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
 /// compactor cannot build anything instead of every turn waiting silently.
 pub fn probe(model: &dyn CompactModel, system: &str) -> Result<String, ModelError> {
     let request = CompactRequest {
+        imported: false,
         node: PROBE_NODE,
         system: system.to_owned(),
         context: "<chat>\n</chat>".to_owned(),

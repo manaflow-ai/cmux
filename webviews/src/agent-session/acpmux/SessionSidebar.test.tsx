@@ -161,6 +161,39 @@ test("session rows follow the visible list with arrow, Home, and End keys", asyn
   await act(async () => root.unmount());
 });
 
+test("the sidebar rail follows vertical arrow and Home/End navigation, skipping disabled controls", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions, onSelect: () => undefined, preview: true })),
+  );
+
+  const railButtons = () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button")];
+  const press = async (button: HTMLButtonElement, key: string) =>
+    act(async () => button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true })));
+  // New chat has no handler in this fixture, so it is disabled and excluded from rail movement.
+  const sessionsButton = railButtons()[1]!;
+  sessionsButton.focus();
+
+  // The disabled New chat button is skipped when moving from Sessions to History.
+  await press(sessionsButton, "ArrowDown");
+  expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("History");
+  expect(container.querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("History");
+
+  const historyButton = dom.window.document.activeElement as HTMLButtonElement;
+  await press(historyButton, "ArrowDown");
+  expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("Pull requests");
+
+  const pullsButton = dom.window.document.activeElement as HTMLButtonElement;
+  await press(pullsButton, "End");
+  expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("Closed sessions");
+
+  const closedButton = dom.window.document.activeElement as HTMLButtonElement;
+  await press(closedButton, "Home");
+  expect(dom.window.document.activeElement?.getAttribute("aria-label")).toBe("Sessions, needs input");
+  await act(async () => root.unmount());
+});
+
 test("an empty list says so", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);

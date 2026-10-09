@@ -132,8 +132,9 @@ fn the_most_due_pair_at_t_10_is_8_and_9() {
 }
 
 /// Spec 3.2, when: each message only appends its line; once the view passes
-/// the budget, one batch merges down to half of it. Building a node never
-/// merges.
+/// the budget, one batch merges down to half of it. Building a node merges
+/// only a view past its budget, and only as one whole batch down to half,
+/// as the reference client fits its views after each stored node.
 #[test]
 fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
     let budget = 20_000;
@@ -157,11 +158,15 @@ fn the_view_is_a_sawtooth_from_the_budget_down_to_half() {
         }
         let view = memory.view().to_vec();
         drain(&mut memory, &store);
-        assert_eq!(
-            memory.view(),
-            &view[..],
-            "building nodes changed the view at {k}"
-        );
+        // Building turns placeholders into lines, so the view can pass its
+        // budget while nodes are built; a merge then is one whole batch.
+        if memory.view() != &view[..] {
+            assert!(
+                memory.view_size() <= budget / 2,
+                "building nodes merged less than a whole batch at {k}: {}",
+                memory.view_size()
+            );
+        }
     }
     assert!(batches >= 10, "only {batches} batches");
 }
@@ -441,7 +446,12 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         .unwrap();
     let (a, b) = merge.children().unwrap();
     let request = compact_request(&memory, &store, merge, "SYSTEM".into()).unwrap();
-    let line = |n: NodeId| view_line(n, store.node(n).as_deref());
+    // The two lines' texts as they are, without their `id+n|` heads, as the
+    // reference client sends them (Memory.flat): with the heads, the model
+    // copied the first input (head and all) and cut the second, and facts
+    // of the right half were lost (context slices: kestrel kept to 32, 16, 8
+    // with heads; 128, 128, 32 without).
+    let line = |n: NodeId| store.node(n).unwrap().replace('\n', " ");
     assert_eq!(
         request.step,
         format!(

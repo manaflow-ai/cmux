@@ -65,4 +65,29 @@ import Testing
         #expect(!bar.isHidden)
         #expect(Self.content(of: view).frame.height == 360)
     }
+
+    /// cx-e2aa: a chat a chip pick started behind a New Tab page, never sent, is discarded when the
+    /// page closes (the page's harness switch drops it); a page that became a chat keeps its chat.
+    @Test func closingANewTabPageAsksThePageToDiscardItsUnsentChat() async throws {
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: SilentHost(), newTab: AgentPaneNewTab(kind: .agent))))
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.topBar.discardUnsentChat()
+        #expect(scripts == ["window.dispatchEvent(new Event('acpmux-newtab-close'))"])
+        _ = await view.model.respond(to: .persistSession("s1"))
+        scripts.removeAll()
+        view.topBar.discardUnsentChat()
+        #expect(scripts.isEmpty)
+    }
+
+    /// Cmd-L's page (cx-e2aa): the handshake tells the page to leave its field unfocused, so the
+    /// omnibar keeps the keyboard; any other page focuses its field (the key absent).
+    @Test func aPageOpenedForTheOmnibarTellsThePageNotToFocusItsField() throws {
+        var page = AgentPaneNewTab(kind: .agent)
+        let plain = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(plain?["focusesField"] == nil)
+        page.focusesField = false
+        let omnibar = try JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any]
+        #expect(omnibar?["focusesField"] as? Bool == false)
+    }
 }

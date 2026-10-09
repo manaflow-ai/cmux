@@ -522,6 +522,7 @@ impl Inner {
         );
         if !shell {
             self.intercept_choosers_on(target_id, session_id);
+            self.seed_load_state(target_id, session_id);
         }
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];

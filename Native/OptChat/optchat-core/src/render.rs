@@ -22,8 +22,19 @@ fn flatten(text: &str) -> String {
 }
 
 /// `<chat>`, one `id+n|text` line per part (newlines shown as spaces), `</chat>`.
+/// An unbuilt imported line is left out, as the reference client's turn
+/// view shows built lines only: during an import the view then ends at the
+/// build front, and a turn's cached prefix holds from one turn to the next
+/// (`zoom` still opens the left-out messages). An unbuilt line of the chat's
+/// own side (a stuck node) shows the placeholder.
 pub fn render_view(memory: &Memory, store: &dyn Store) -> RenderedView {
-    render_parts(memory.view(), store)
+    let parts: Vec<NodeId> = memory
+        .view()
+        .iter()
+        .copied()
+        .filter(|p| memory.is_built(*p) || !memory.is_imported(p.end() - 1))
+        .collect();
+    render_parts(&parts, store)
 }
 
 /// The view whose parts are `parts`, rendered as `render_view` does: a past

@@ -109,6 +109,11 @@ esac
 # routines", CmuxNext under thread, 2026-10-09). The test binary keeps DWARF unwind instead.
 sanitize_link_flags=(-Xlinker -no_compact_unwind)
 
+# CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): debug info of the test builds; the
+# builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
+# shellcheck source=scripts/ci/swift-test-debug-info.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
@@ -300,7 +305,7 @@ package_args() {
     echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
-  swift_test_args=(--package-path "$pkgdir")
+  swift_test_args=(--package-path "$pkgdir" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
     swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
@@ -532,7 +537,7 @@ run_suite() {
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.

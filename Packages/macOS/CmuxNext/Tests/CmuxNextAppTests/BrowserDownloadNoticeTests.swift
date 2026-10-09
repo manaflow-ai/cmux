@@ -56,4 +56,21 @@ import Testing
         add(.blocked("Blocked"), site: nil, tab: "tab-4")
         #expect(list.latestBlocked?.site == "https://two.example")
     }
+
+    /// Every download the list takes is reported once with its tab (the
+    /// browser host's `download.started`), and its end once (the saved file,
+    /// or why it failed), so an agent driving the tab sees it.
+    @Test func eachDownloadReportsItsStartAndEndWithItsTab() {
+        let list = BrowserDownloadList()
+        var events: [String] = []
+        list.onDownload = { item, tab in
+            events.append("start \(tab) \(item.filename)")
+            item.onFinish { events.append("end \(tab) \($0.status == .finished ? "ok" : "failed")") }
+        }
+        let item = BrowserDownload(sourceURL: URL(string: "https://files.example/a.zip"), filename: "a.zip")
+        list.add(item, tab: "t1") { _ in }
+        list.add(item, tab: "t1") { _ in }
+        item.complete(.failed("x"))
+        #expect(events == ["start t1 a.zip", "end t1 failed"])
+    }
 }
