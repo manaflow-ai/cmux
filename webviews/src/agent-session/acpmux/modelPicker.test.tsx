@@ -473,13 +473,13 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const classes = (element: Element | null | undefined) => element?.getAttribute("class")?.split(/\s+/) ?? [];
-    expect(classes(menu())).toContain("rounded-[var(--ui-popup-radius)]");
+    expect(classes(menu())).toContain("rounded-[var(--ui-popup-radius,8px)]");
     expect(classes(menu())).toContain("shadow-menu");
     const tailwind = await Bun.file(new URL("./tailwind.css", import.meta.url)).text();
-    expect(/--shadow-menu:[^;]*var\(--ui-popup-shadow\)/.test(tailwind)).toBe(true);
+    expect(/--shadow-menu:[^;]*var\(--ui-popup-shadow[,)]/.test(tailwind)).toBe(true);
     for (const row of modelRows()) {
-      expect(classes(row)).toContain("h-[var(--ui-row-height)]");
-      expect(classes(row)).toContain("rounded-[var(--ui-row-radius)]");
+      expect(classes(row)).toContain("h-[var(--ui-row-height,28px)]");
+      expect(classes(row)).toContain("rounded-[var(--ui-row-radius,5px)]");
     }
     for (const tab of menu()!.querySelectorAll(".acpmux-mp-harness")) expect(classes(tab)).toContain("size-8");
     expect(classes(menu()!.querySelector(".acpmux-mp-search"))).toContain("h-9");
