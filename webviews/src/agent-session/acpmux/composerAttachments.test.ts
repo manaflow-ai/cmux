@@ -65,12 +65,15 @@ describe("composer attachments", () => {
     expect(box["border-radius"]).toBe("var(--acpmux-composer-radius)");
   });
 
-  test("the remove button is inside the thumbnail, at least 20px, in theme colors", () => {
+  // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): the × was oversized and sat over the
+  // corner. It is a small (16px) × inside the corner, shown while the chip is hovered or focused.
+  test("the remove button is a small × inside the thumbnail's corner, in theme colors", () => {
     const remove = rule(".acpmux-composer .acpmux-attachment-remove");
-    expect(px(remove.top, box)).toBeGreaterThanOrEqual(0);
-    expect(px(remove.right, box)).toBeGreaterThanOrEqual(0);
+    expect(px(remove.top, box)).toBeGreaterThanOrEqual(3);
+    expect(px(remove.right, box)).toBeGreaterThanOrEqual(3);
     const size = px(remove.width, box);
-    expect(size).toBeGreaterThanOrEqual(20);
+    expect(size).toBe(16);
+    expect(px(remove.height, box)).toBe(16);
     expect(px(remove.top, box) + size).toBeLessThanOrEqual(56);
     for (const property of ["background", "color"]) {
       expect(`${property}: ${remove[property]}`).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
@@ -78,6 +81,28 @@ describe("composer attachments", () => {
     }
     expect(rule(".acpmux-composer .acpmux-attachment-remove:hover").background).toMatch(/var\(--(agent|acpmux)-/);
     expect(rule(".acpmux-composer .acpmux-attachment-remove:focus-visible").outline).toContain("var(--agent-text)");
+  });
+
+  test("the × shows only while the chip is hovered or holds the focus", () => {
+    expect(rule(".acpmux-composer .acpmux-attachment-remove").opacity).toBe("0");
+    expect(rule(".acpmux-attachment:hover .acpmux-attachment-remove").opacity).toBe("1");
+    expect(rule(".acpmux-attachment:focus-within .acpmux-attachment-remove").opacity).toBe("1");
+  });
+
+  // Leo (dogfood 2026-10-08): the caret drew over the top of the preview. The row is its own band
+  // above the field: in the composer's column it neither grows (a 100% basis is the box's height)
+  // nor shrinks under its thumbnails, and it never scrolls vertically.
+  test("the row is a fixed band above the prompt, never squeezed under the field", () => {
+    expect(row.flex).toBe("none");
+    expect(row["flex-basis"]).toBeUndefined();
+    expect(row["overflow-y"]).toBe("hidden");
+  });
+
+  test("a thumbnail fills its square: the image is cropped, not letterboxed", () => {
+    const image = rule(".acpmux-attachment-image img");
+    expect(image["object-fit"]).toBe("cover");
+    expect(image.width).toBe("100%");
+    expect(image.height).toBe("100%");
   });
 
   test("a file chip leaves room for the remove button", () => {

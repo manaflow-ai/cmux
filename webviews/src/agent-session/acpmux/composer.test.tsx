@@ -33,6 +33,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
+const { ImageViewerContext } = await import("./conversation/imageViewerContext");
 const { readPersistedDraft, writePersistedDraft } = await import("./composerDraft");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
@@ -554,6 +555,53 @@ describe("acpmux composer slash menu", () => {
       expect(sent).toEqual([""]);
       expect(sentAttachments).toEqual([[{ name: "shot.png", kind: "image" }]]);
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
+    });
+
+    // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): the image chip could not be opened and
+    // drew as an empty dark square.
+    const renderWithViewer = async (opened: [string, string][]) => {
+      await act(async () =>
+        root.render(
+          createElement(
+            ImageViewerContext.Provider,
+            { value: (src: string, alt: string) => opened.push([src, alt]) },
+            createElement(Composer, {
+              snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: true } } },
+              chips: () => null,
+              onSend: () => {},
+              onStop: () => {},
+            }),
+          ),
+        ),
+      );
+      await ready();
+    };
+
+    test("clicking an image chip opens it in the chat's image viewer", async () => {
+      const opened: [string, string][] = [];
+      await renderWithViewer(opened);
+      await paste([png()]);
+      const open = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Open image shot.png"]');
+      expect(open).not.toBeNull();
+      await act(async () => open!.click());
+      expect(opened).toEqual([["data:image/png;base64,iVBORw==", "shot.png"]]);
+      // Removing is its own control and opens nothing.
+      await act(async () =>
+        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click(),
+      );
+      expect(opened).toHaveLength(1);
+    });
+
+    test("an image the pane cannot draw shows its name, never an empty square", async () => {
+      await renderWithViewer([]);
+      await paste([png()]);
+      const image = dom.window.document.querySelector(".acpmux-attachment img")!;
+      expect(image).not.toBeNull();
+      await act(async () => image.dispatchEvent(new dom.window.Event("error")));
+      const chip = dom.window.document.querySelector(".acpmux-attachment")!;
+      expect(chip.querySelector("img")).toBeNull();
+      expect(chip.textContent).toContain("shot.png");
+      expect(chip.querySelector('[aria-label="Remove shot.png"]')).not.toBeNull();
     });
 
     test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
