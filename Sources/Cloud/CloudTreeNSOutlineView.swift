@@ -103,8 +103,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     private func pointerHitTargetBelongsToOutline(at point: NSPoint) -> Bool {
         guard let window, let contentView = window.contentView else { return false }
         let windowPoint = convert(point, to: nil)
-        let contentPoint = contentView.convert(windowPoint, from: nil)
-        guard let hit = contentView.hitTest(contentPoint) else { return false }
+        guard let hit = contentView.cmuxHitTest(windowPoint: windowPoint) else { return false }
         return hit === self || hit.isDescendant(of: self)
     }
 
