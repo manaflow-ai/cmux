@@ -128,11 +128,12 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             }),
             None => crate::prompt::Mark::last_whole(view_text, ttl),
         };
-        let l = crate::prompt::cached_layout_marked(
+        let l = crate::prompt::turn_layout(
             system_text,
             view_text,
             &tail,
             mark.filter(|_| marker),
+            start["layout"]["head_mark"] == true,
         );
         (l.system, l.blocks)
     } else {

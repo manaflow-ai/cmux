@@ -29,6 +29,7 @@ Each message has a kind:
 - tool: {agent}'s tool calls
 - echo: tool results
 - work: an agent's report, starting \"[id]\" (logged as a user message)
+- ai: another AI's replies and tool calls, from an imported chat; not yours
 - note: memories from before this chat
 
 The summaries form a binary tree: each message is compressed into a line (a
@@ -285,8 +286,11 @@ pub fn compact_request(
                 b.name(),
                 node.start(),
                 node.end() - 1,
-                view_line(a, Some(&ta)),
-                view_line(b, Some(&tb))
+                // The texts alone, as the reference client sends them
+                // (Memory.flat): with `id+n|` heads the model copied the
+                // first input, head and all, and cut the second.
+                ta.replace('\n', " "),
+                tb.replace('\n', " ")
             )
         }
     };

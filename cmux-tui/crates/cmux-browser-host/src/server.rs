@@ -111,6 +111,37 @@ pub fn inherited_listener(fd: std::os::fd::RawFd) -> io::Result<UnixListener> {
     Ok(unsafe { UnixListener::from_raw_fd(fd) })
 }
 
+/// Sets close-on-exec on every descriptor above stderr that this process
+/// inherited. A launcher can leak descriptors (a terminal, an SSH session, a
+/// CI runner, a parent that opened a file without `O_CLOEXEC`); without this
+/// the host would pass each one to every browser it starts and to that
+/// browser's renderers. The host still reads and uses its named descriptors
+/// (`--provider-secret-fd`, `--agent-listen-fd`, `--provider-listen-fd`):
+/// close-on-exec only keeps them out of children. Call it before any thread
+/// starts, so no other thread opens or closes a descriptor meanwhile.
+pub fn seal_inherited_descriptors() -> io::Result<()> {
+    let listing = if cfg!(target_os = "linux") { "/proc/self/fd" } else { "/dev/fd" };
+    let fds: Vec<std::os::fd::RawFd> = std::fs::read_dir(listing)?
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .filter(|fd| *fd > 2)
+        .collect();
+    for fd in fds {
+        // SAFETY: fcntl(2) F_GETFD/F_SETFD only change this process's
+        // descriptor flags. The listing's own handle is closed by now and
+        // fails with EBADF, which is skipped.
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFD);
+            if flags >= 0
+                && flags & libc::FD_CLOEXEC == 0
+                && libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) != 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The app's provider socket, next to the agent socket.
 pub fn provider_socket_path(agent_socket: &Path) -> PathBuf {
     agent_socket.with_file_name("browser-host-provider.sock")
@@ -283,6 +314,21 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
 mod inherited_listener_tests {
     use super::*;
     use std::os::fd::AsRawFd;
+
+    #[test]
+    fn sealing_sets_close_on_exec_on_every_inherited_descriptor() {
+        let file = std::fs::File::open("/dev/null").unwrap();
+        // A leaked copy without close-on-exec, as a launcher would pass it.
+        // SAFETY: fcntl(2) and close(2) on our own fds.
+        let leaked = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 3) };
+        assert!(leaked >= 3);
+        assert_eq!(unsafe { libc::fcntl(leaked, libc::F_GETFD) } & libc::FD_CLOEXEC, 0);
+        seal_inherited_descriptors().unwrap();
+        let flags = unsafe { libc::fcntl(leaked, libc::F_GETFD) };
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "the leaked descriptor closes on exec");
+        assert!(unsafe { libc::fcntl(0, libc::F_GETFD) } >= 0, "stdin stays open");
+        unsafe { libc::close(leaked) };
+    }
 
     #[test]
     fn an_inherited_listener_closes_on_exec_again() {

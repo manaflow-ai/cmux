@@ -302,8 +302,9 @@ turn when the Chief is idle.
 `import-claude-code` reads Claude Code transcripts (`--projects`, default
 `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`) and turns each session
 into a `note` (session id and working directory), then per turn the user's
-message (`user`), one `tool` line with the turn's tool names, counts and the
-files they named, and the final reply (`talk`), each with its transcript
+message (`user`), one `ai` line with the turn's tool names, counts and the
+files they named, and the final reply (`ai`: another AI's, not the Chief's
+own, as the reference client logs them), each with its transcript
 date (section 10: "the user's messages and the agent's final replies,
 without repeated pastes and tool noise"). Thinking, intermediate replies,
 tool inputs and outputs (which can hold secrets), meta lines, slash
@@ -317,6 +318,13 @@ Old history must not land after live messages: on a memory that already
 holds messages, `write` refuses and writes nothing unless
 `--append-after-live` accepts that the history appears after the current
 messages, and `dry-run` warns about it.
+
+Known limit: only imports made since the `ai` kind (cbc26745fac5) log
+replies and tool lines as `ai`. Memories imported before keep `talk` and
+`tool`: there is no migration and no read-time mapping, because the summary
+lines built from them already say `talk`, and an imported `talk` line cannot
+be told from the Chief's own (a legacy home's import is the Chief's own
+replies).
 
 ## Environment
 
