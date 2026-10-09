@@ -5,7 +5,7 @@
 // Only changes the snapshot NEW VMs boot; never touches a running VM.
 // Implementation: scripts/cmux-next/release/promote-lib.ts.
 import { hostname, userInfo } from "node:os";
-import { promote, runImageSmoke } from "../../scripts/cmux-next/release/promote-lib.ts";
+import { freestyleResolve, promote, runImageSmoke } from "../../scripts/cmux-next/release/promote-lib.ts";
 import { REPO_ROOT } from "../../scripts/cmux-next/release/trees.ts";
 
 process.exit(
@@ -13,6 +13,7 @@ process.exit(
     root: REPO_ROOT,
     now: () => new Date(),
     smoke: runImageSmoke,
+    resolve: (name) => freestyleResolve(name),
     log: (line) => console.log(line),
     error: (line) => console.error(`promote: ${line}`),
     by: `${userInfo().username}@${hostname()}`,

@@ -1,4 +1,13 @@
-/** Statement rules of the migration linter (lint.ts): expand-only, grants, cmux-vm schema confinement. */
+/**
+ * Statement rules of the migration linter (lint.ts). Three layers:
+ *   alwaysProblems       refused even with a contract header (DO, functions, TRUNCATE,
+ *                        roles, ownership, schema moves, RLS, triggers, rules, policies,
+ *                        session or database settings, COPY, top-level SELECT, grants
+ *                        beyond role-contract.json, REVOKE);
+ *   expandProblems       an ALLOWLIST of expand statements and ALTER TABLE subcommands;
+ *                        anything else needs `-- contract: <reason>`;
+ *   confinementProblems  cmux-vm: every name in schema cmux_vm (cmux-old shares the database).
+ */
 import type { TreeRoleContract } from "./lint.ts"
 
 export type Node = Record<string, any>
@@ -19,7 +28,7 @@ export const parseSql = async (sql: string): Promise<Array<ParsedStatement>> => 
 
 export const grantProblems = (b: Node, contract: TreeRoleContract): Array<string> => {
   const problems: Array<string> = []
-  if (!b.is_grant) return ["REVOKE narrows what deployed code may do"]
+  if (!b.is_grant) return ["REVOKE narrows what deployed code may do (operators revoke with pscale, not migrations)"]
   if (b.grant_option) problems.push("GRANT ... WITH GRANT OPTION widens beyond the role contract")
   if (b.targtype !== "ACL_TARGET_OBJECT") problems.push(`GRANT ON ALL ... IN SCHEMA widens beyond the role contract`)
   for (const g of b.grantees ?? []) {
@@ -44,23 +53,140 @@ export const grantProblems = (b: Node, contract: TreeRoleContract): Array<string
   return problems
 }
 
-/** Non-expand problems of one file's statements (empty: an expand file). */
-export const expandProblems = (stmts: ReadonlyArray<ParsedStatement>, contract: TreeRoleContract): Array<string> => {
+/** Statements no migration may contain, with or without a contract header. */
+const ALWAYS: Readonly<Record<string, string>> = {
+  DoStmt: "DO block (its statements are not checked)",
+  CreateFunctionStmt: "CREATE FUNCTION/PROCEDURE (its body is not checked)",
+  TruncateStmt: "TRUNCATE",
+  GrantRoleStmt: "GRANT/REVOKE of role membership",
+  AlterDefaultPrivilegesStmt: "ALTER DEFAULT PRIVILEGES",
+  CreateRoleStmt: "CREATE ROLE (roles are managed with pscale)",
+  AlterRoleStmt: "ALTER ROLE",
+  AlterRoleSetStmt: "ALTER ROLE ... SET",
+  DropRoleStmt: "DROP ROLE",
+  ReassignOwnedStmt: "REASSIGN OWNED",
+  DropOwnedStmt: "DROP OWNED",
+  AlterOwnerStmt: "OWNER TO",
+  AlterObjectSchemaStmt: "SET SCHEMA",
+  SelectStmt: "a top-level SELECT (it can call any function: setval, set_config, pg_terminate_backend)",
+  VariableSetStmt: "SET (session settings belong to the runner)",
+  AlterDatabaseStmt: "ALTER DATABASE",
+  AlterDatabaseSetStmt: "ALTER DATABASE ... SET",
+  AlterSystemStmt: "ALTER SYSTEM",
+  CopyStmt: "COPY",
+  CreateTrigStmt: "CREATE TRIGGER",
+  RuleStmt: "CREATE RULE",
+  CreatePolicyStmt: "CREATE POLICY",
+  AlterPolicyStmt: "ALTER POLICY",
+  CreateEventTrigStmt: "CREATE EVENT TRIGGER",
+  AlterEventTrigStmt: "ALTER EVENT TRIGGER",
+  LoadStmt: "LOAD",
+  CallStmt: "CALL",
+  ExecuteStmt: "EXECUTE",
+  PrepareStmt: "PREPARE",
+  CreatedbStmt: "CREATE DATABASE",
+  DropdbStmt: "DROP DATABASE",
+  AlterExtensionStmt: "ALTER EXTENSION",
+  CreateFdwStmt: "a foreign data wrapper",
+  CreateForeignServerStmt: "a foreign server",
+  CreateForeignTableStmt: "a foreign table",
+  CreateUserMappingStmt: "a user mapping",
+  ImportForeignSchemaStmt: "IMPORT FOREIGN SCHEMA",
+  CreatePublicationStmt: "a publication",
+  AlterPublicationStmt: "a publication",
+  CreateSubscriptionStmt: "a subscription",
+  AlterSubscriptionStmt: "a subscription",
+  SecLabelStmt: "SECURITY LABEL",
+  LockStmt: "LOCK",
+  ClusterStmt: "CLUSTER",
+  ReindexStmt: "REINDEX",
+  VacuumStmt: "VACUUM/ANALYZE",
+  RefreshMatViewStmt: "REFRESH MATERIALIZED VIEW",
+  ListenStmt: "LISTEN",
+  NotifyStmt: "NOTIFY",
+}
+
+/** ALTER TABLE subcommands no migration may contain. */
+const ALWAYS_SUBTYPES: ReadonlyArray<string> = [
+  "AT_ChangeOwner",
+  "AT_EnableRowSecurity",
+  "AT_DisableRowSecurity",
+  "AT_ForceRowSecurity",
+  "AT_NoForceRowSecurity",
+  "AT_EnableTrig",
+  "AT_EnableAlwaysTrig",
+  "AT_EnableReplicaTrig",
+  "AT_DisableTrig",
+  "AT_EnableTrigAll",
+  "AT_DisableTrigAll",
+  "AT_EnableTrigUser",
+  "AT_DisableTrigUser",
+  "AT_EnableRule",
+  "AT_EnableAlwaysRule",
+  "AT_EnableReplicaRule",
+  "AT_DisableRule",
+  "AT_ReplicaIdentity",
+  "AT_SetTableSpace",
+  "AT_GenericOptions",
+]
+
+/** Problems no contract header lifts. */
+export const alwaysProblems = (stmts: ReadonlyArray<ParsedStatement>, contract: TreeRoleContract, tree: string): Array<string> => {
+  const problems: Array<string> = []
+  for (const { kind, node: b } of stmts) {
+    if (ALWAYS[kind]) problems.push(ALWAYS[kind]!)
+    if (kind === "GrantStmt") problems.push(...grantProblems(b, contract))
+    if (kind === "CreateExtensionStmt" && tree === "cmux-vm") problems.push("CREATE EXTENSION (extensions are database-wide; cmux-old shares this database)")
+    if (kind === "RenameStmt" && b.renameType === "OBJECT_SCHEMA") problems.push("ALTER SCHEMA ... RENAME")
+    if (kind === "AlterTableStmt") for (const c of b.cmds ?? []) if (ALWAYS_SUBTYPES.includes(c.AlterTableCmd?.subtype)) problems.push(`ALTER TABLE ... ${String(c.AlterTableCmd.subtype).replace("AT_", "")}`)
+  }
+  return problems
+}
+
+/** A DEFAULT that needs no table rewrite: constants, casts of constants, CURRENT_* and now(). */
+const stableDefault = (e: Node | undefined): boolean => {
+  if (!e) return true
+  if (e.A_Const || e.SQLValueFunction) return true
+  if (e.TypeCast) return stableDefault(e.TypeCast.arg)
+  if (e.A_ArrayExpr) return (e.A_ArrayExpr.elements ?? []).every(stableDefault)
+  if (e.FuncCall) return (e.FuncCall.funcname ?? []).map((n: Node) => n.String?.sval).join(".").replace(/^pg_catalog\./, "") === "now" && !(e.FuncCall.args ?? []).length
+  return false
+}
+
+/** `WHERE true` (and no WHERE) touch every row. */
+const everyRow = (where: Node | undefined) => !where || where.A_Const?.boolval?.boolval === true
+
+const EXTENSIONS = new Set(["pg_trgm", "btree_gin"])
+
+/** Expand allowlist: problems a contract header lifts (empty: an expand file). */
+export const expandProblems = (stmts: ReadonlyArray<ParsedStatement>, tree: string): Array<string> => {
   const problems: Array<string> = []
   const created = new Set<string>()
   for (const { kind, node: b } of stmts) {
+    if (ALWAYS[kind] || kind === "GrantStmt") continue // alwaysProblems reports these
     switch (kind) {
       case "CreateStmt":
         created.add(relKey(b.relation))
         break
-      case "DropStmt":
-        problems.push(`DROP ${String(b.removeType).replace("OBJECT_", "")}`)
+      case "CreateSchemaStmt":
+      case "CommentStmt":
+      case "InsertStmt":
+      case "CreateEnumStmt":
+      case "CreateSeqStmt":
+      case "CompositeTypeStmt":
+      case "CreateDomainStmt":
         break
-      case "RenameStmt":
-        problems.push(`RENAME (${String(b.renameType).replace("OBJECT_", "")})`)
+      case "CreateExtensionStmt":
+        if (tree === "backend" && !(b.if_not_exists && EXTENSIONS.has(b.extname))) problems.push(`CREATE EXTENSION must be IF NOT EXISTS and one of ${[...EXTENSIONS].join(", ")}`)
         break
       case "AlterEnumStmt":
         if (b.oldVal !== undefined) problems.push("ALTER TYPE ... RENAME VALUE")
+        break
+      case "UpdateStmt":
+        if (everyRow(b.whereClause)) problems.push(`UPDATE ${relName(b.relation)} without a WHERE that limits rows`)
+        break
+      case "DeleteStmt":
+        if (everyRow(b.whereClause)) problems.push(`DELETE FROM ${relName(b.relation)} without a WHERE that limits rows`)
         break
       case "IndexStmt": {
         const existing = !created.has(relKey(b.relation))
@@ -69,14 +195,38 @@ export const expandProblems = (stmts: ReadonlyArray<ParsedStatement>, contract: 
         break
       }
       case "AlterTableStmt": {
-        const existing = !created.has(relKey(b.relation))
         if (b.objtype && b.objtype !== "OBJECT_TABLE") {
           problems.push(`ALTER ${String(b.objtype).replace("OBJECT_", "")}`)
           break
         }
+        const existing = !created.has(relKey(b.relation))
         for (const c of b.cmds ?? []) {
           const cmd = c.AlterTableCmd ?? {}
+          if (ALWAYS_SUBTYPES.includes(cmd.subtype)) continue
+          if (!existing) continue // a table created in this file may be shaped freely
           switch (cmd.subtype) {
+            case "AT_AddColumn": {
+              const col = cmd.def?.ColumnDef ?? {}
+              const cons: Array<Node> = (col.constraints ?? []).map((x: Node) => x.Constraint ?? {})
+              const types = new Set(cons.map((x) => x.contype))
+              if ((types.has("CONSTR_NOTNULL") || types.has("CONSTR_PRIMARY")) && !types.has("CONSTR_DEFAULT")) problems.push(`ADD COLUMN ${col.colname} NOT NULL without DEFAULT`)
+              if (types.has("CONSTR_UNIQUE") || types.has("CONSTR_PRIMARY")) problems.push(`ADD COLUMN ${col.colname} UNIQUE/PRIMARY KEY on an existing table`)
+              if (types.has("CONSTR_IDENTITY") || types.has("CONSTR_GENERATED")) problems.push(`ADD COLUMN ${col.colname} IDENTITY/GENERATED rewrites the table`)
+              for (const d of cons.filter((x) => x.contype === "CONSTR_DEFAULT")) if (!stableDefault(d.raw_expr)) problems.push(`ADD COLUMN ${col.colname} with a DEFAULT that may be volatile rewrites the table`)
+              break
+            }
+            case "AT_ColumnDefault":
+              if (cmd.def === undefined) problems.push(`ALTER COLUMN ${cmd.name} DROP DEFAULT`)
+              break
+            case "AT_DropNotNull":
+            case "AT_ValidateConstraint":
+              break
+            case "AT_AddConstraint": {
+              const con = cmd.def?.Constraint ?? {}
+              const notValid = con.skip_validation === true && (con.contype === "CONSTR_CHECK" || con.contype === "CONSTR_FOREIGN")
+              if (!notValid) problems.push(`ADD CONSTRAINT ${con.conname ?? "(unnamed)"} validated on an existing table (use CHECK or FOREIGN KEY ... NOT VALID)`)
+              break
+            }
             case "AT_DropColumn":
               problems.push(`DROP COLUMN ${cmd.name}`)
               break
@@ -89,88 +239,58 @@ export const expandProblems = (stmts: ReadonlyArray<ParsedStatement>, contract: 
             case "AT_SetNotNull":
               problems.push(`ALTER COLUMN ${cmd.name} SET NOT NULL`)
               break
-            case "AT_ColumnDefault":
-              if (cmd.def === undefined) problems.push(`ALTER COLUMN ${cmd.name} DROP DEFAULT`)
-              break
-            case "AT_AddColumn": {
-              const types = new Set((cmd.def?.ColumnDef?.constraints ?? []).map((x: Node) => x.Constraint?.contype))
-              if (existing && (types.has("CONSTR_NOTNULL") || types.has("CONSTR_PRIMARY")) && !types.has("CONSTR_DEFAULT")) problems.push(`ADD COLUMN ${cmd.def?.ColumnDef?.colname} NOT NULL without DEFAULT`)
-              if (existing && (types.has("CONSTR_UNIQUE") || types.has("CONSTR_PRIMARY"))) problems.push(`ADD COLUMN ${cmd.def?.ColumnDef?.colname} UNIQUE/PRIMARY KEY on an existing table`)
-              break
-            }
-            case "AT_AddConstraint": {
-              const con = cmd.def?.Constraint ?? {}
-              const notValid = con.skip_validation === true && (con.contype === "CONSTR_CHECK" || con.contype === "CONSTR_FOREIGN")
-              if (existing && !notValid) problems.push(`ADD CONSTRAINT ${con.conname ?? ""} validated on an existing table (use CHECK or FOREIGN KEY ... NOT VALID)`.replace("  ", " "))
-              break
-            }
             default:
-              break
+              problems.push(`ALTER TABLE ... ${String(cmd.subtype).replace("AT_", "")} is not in the expand allowlist`)
           }
         }
         break
       }
-      case "UpdateStmt":
-        if (!b.whereClause) problems.push(`UPDATE ${relName(b.relation)} without WHERE`)
+      case "DropStmt":
+        problems.push(`DROP ${String(b.removeType).replace("OBJECT_", "")}`)
         break
-      case "DeleteStmt":
-        if (!b.whereClause) problems.push(`DELETE FROM ${relName(b.relation)} without WHERE`)
-        break
-      case "TruncateStmt":
-        problems.push("TRUNCATE")
-        break
-      case "DoStmt":
-      case "CreateFunctionStmt":
-        problems.push(`${kind === "DoStmt" ? "DO block" : "CREATE FUNCTION/PROCEDURE"} (the statements inside are not checked)`)
-        break
-      case "GrantStmt":
-        problems.push(...grantProblems(b, contract))
-        break
-      case "GrantRoleStmt":
-        problems.push("GRANT <role> TO ... (role membership) widens beyond the role contract")
-        break
-      case "AlterDefaultPrivilegesStmt":
-        problems.push("ALTER DEFAULT PRIVILEGES widens beyond the role contract")
-        break
-      case "CreateRoleStmt":
-      case "AlterRoleStmt":
-      case "DropRoleStmt":
-        problems.push(`${kind.replace("Stmt", "")}: roles are managed with pscale, not migrations`)
+      case "RenameStmt":
+        problems.push(`RENAME (${String(b.renameType).replace("OBJECT_", "")})`)
         break
       default:
-        break
+        problems.push(`${kind.replace(/Stmt$/, "")} is not in the expand allowlist`)
     }
   }
   return problems
 }
 
+/** Keys whose value is a name list that CREATES an object (it must be <schema>.<name>). */
+const CREATING_NAME = new Set(["CreateEnumStmt.typeName", "CreateDomainStmt.domainname", "DefineStmt.defnames", "CreateConversionStmt.conversion_name", "CreateStatsStmt.defnames"])
+/** Keys whose value is a (possibly qualified) name list of an existing object. */
+const NAME_LISTS = new Set(["names", "funcname", "typeName", "domainname", "defnames", "objname", "opname"])
+
 /**
  * cmux-vm only: every object a statement names is in schema `schema`. cmux-old
  * (web/, schema public) shares the cmux-prod database, so this holds even with
- * a contract header. Refused: a relation outside the schema or unqualified
- * (search_path would pick public), a qualified type or function of another
- * schema (pg_catalog is allowed), another schema's CREATE/DROP/GRANT, and SET.
+ * a contract header. Any node with a relname (table, view, sequence, CTAS
+ * target, policy table, composite type) must name the schema; a qualified type
+ * or function must be in the schema or pg_catalog; created types and domains
+ * must be qualified; another schema's CREATE/DROP/GRANT is refused.
  */
 export const confinementProblems = (stmts: ReadonlyArray<ParsedStatement>, schema: string): Array<string> => {
   const problems = new Set<string>()
   const allowed = new Set([schema, "pg_catalog"])
-  const firstName = (list: unknown): string | undefined => (Array.isArray(list) && list.length >= 2 ? (list[0] as Node)?.String?.sval : undefined)
-  const visit = (node: unknown, key?: string): void => {
+  const visit = (node: unknown, key: string, parentKind: string): void => {
     if (Array.isArray(node)) {
-      if (key === "names" || key === "funcname" || key === "typeName") {
-        const first = firstName(node)
-        if (first !== undefined && !allowed.has(first)) problems.add(`${node.map((n: Node) => n.String?.sval).join(".")} is in schema ${first}`)
+      const parts = node.map((n: Node) => n?.String?.sval)
+      if (CREATING_NAME.has(`${parentKind}.${key}`)) {
+        if (parts.length !== 2 || parts[0] !== schema) problems.add(`${parts.join(".")} is created outside ${schema} (name it ${schema}.${parts.at(-1)})`)
+      } else if (NAME_LISTS.has(key) && parts.length >= 2 && parts.every((p) => typeof p === "string") && !allowed.has(parts[0]!)) {
+        problems.add(`${parts.join(".")} is in schema ${parts[0]}`)
       }
-      for (const item of node) visit(item)
+      for (const item of node) visit(item, "", parentKind)
       return
     }
     if (!node || typeof node !== "object") return
-    for (const [k, v] of Object.entries(node as Node)) {
-      if ((k === "relation" || k === "pktable" || k === "RangeVar") && v && typeof v === "object" && "relname" in v) {
-        if ((v as Node).schemaname !== schema) problems.add(`${relName(v as Node)} is ${(v as Node).schemaname ? `in schema ${(v as Node).schemaname}` : "unqualified (name it " + schema + "." + (v as Node).relname + ")"}`)
-      }
+    const n = node as Node
+    if (typeof n.relname === "string" && n.schemaname !== schema) problems.add(`${relName(n)} is ${n.schemaname ? `in schema ${n.schemaname}` : `unqualified (name it ${schema}.${n.relname})`}`)
+    for (const [k, v] of Object.entries(n)) {
+      const kind = /^[A-Z]/.test(k) ? k : parentKind
       if (k === "CreateSchemaStmt" && (v as Node).schemaname !== schema) problems.add(`CREATE SCHEMA ${(v as Node).schemaname}`)
-      if (k === "VariableSetStmt") problems.add(`SET ${(v as Node).name ?? ""}`.trim())
       if (k === "DropStmt") {
         for (const o of ((v as Node).objects ?? []) as Array<Node>) {
           const items = (o.List?.items ?? (o.String ? [o] : [])) as Array<Node>
@@ -184,10 +304,11 @@ export const confinementProblems = (stmts: ReadonlyArray<ParsedStatement>, schem
       if (k === "GrantStmt" && (v as Node).objtype === "OBJECT_SCHEMA") {
         for (const o of ((v as Node).objects ?? []) as Array<Node>) if (o.String?.sval !== schema) problems.add(`GRANT on schema ${o.String?.sval}`)
       }
-      visit(v, k)
+      if (k === "VariableSetStmt") problems.add(`SET ${(v as Node).name ?? ""}`.trim())
+      if (k === "RenameStmt" && (v as Node).renameType === "OBJECT_SCHEMA") problems.add(`ALTER SCHEMA ${(v as Node).subname} RENAME TO ${(v as Node).newname}`)
+      visit(v, k, kind)
     }
   }
-  for (const s of stmts) visit({ [s.kind]: s.node })
+  for (const s of stmts) visit({ [s.kind]: s.node }, "", s.kind)
   return [...problems]
 }
-

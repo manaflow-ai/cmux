@@ -34,10 +34,11 @@
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { REPO_ROOT, TREE_NAMES, TREES, treeOf, type Tree, type TreeName } from "./trees.ts"
-import { confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
-export { confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
+import { alwaysProblems, confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
+export { alwaysProblems, confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
 
 export const LOCK_PATH = "scripts/cmux-next/release/migrations.lock.json"
 export const CONTRACT_PATH = "scripts/cmux-next/release/role-contract.json"
@@ -155,8 +156,9 @@ export const lintFile = async (tree: Tree, name: string, sql: string, contract: 
   if (tree.name === "cmux-vm") {
     for (const problem of confinementProblems(stmts, tree.schema)) errors.push(`${name}: ${problem}; cmux-vm migrations touch only schema ${tree.schema} (cmux-old shares this database), even with a contract header`)
   }
+  for (const problem of alwaysProblems(stmts, contract, tree.name)) errors.push(`${name}: ${problem}; never allowed in a migration, even with a contract header`)
   if (reason === undefined) {
-    for (const problem of expandProblems(stmts, contract)) errors.push(`${name}: ${problem}; this is a contract change: add "-- contract: <reason>" and ship it in a later release`)
+    for (const problem of expandProblems(stmts, tree.name)) errors.push(`${name}: ${problem}; this is a contract change: add "-- contract: <reason>" and ship it in a later release`)
   }
   return { name, errors, ...(reason !== undefined ? { contract: reason } : {}), concurrent }
 }
@@ -177,6 +179,22 @@ const gitList = (root: string, rev: string, dir: string): Array<string> => {
     return []
   }
 }
+
+/**
+ * `root`'s own workers/cmux-vm/src/db/schema-requirements.ts (it has no imports), loaded from a
+ * content-addressed copy so a changed file is never served from the module cache. undefined when
+ * the root has none.
+ */
+export const requirementsModuleAt = async (root: string): Promise<{ REQUIRED_SCHEMA: ReadonlyArray<{ table: string; column?: string; privileges?: ReadonlyArray<"SELECT" | "INSERT" | "UPDATE" | "DELETE">; migration: string }>; requiredMigration: () => string } | undefined> => {
+  const path = join(root, "workers/cmux-vm/src/db/schema-requirements.ts")
+  if (!existsSync(path)) return undefined
+  const text = readFileSync(path, "utf8")
+  const copy = join(tmpdir(), `cmux-schema-requirements-${sha256(text).slice(0, 16)}.ts`)
+  if (!existsSync(copy)) writeFileSync(copy, text)
+  return import(copy)
+}
+
+export const requiredMigrationAt = async (root: string): Promise<string | undefined> => (await requirementsModuleAt(root))?.requiredMigration()
 
 export interface LintOptions {
   readonly root: string
@@ -236,6 +254,15 @@ export const lintTree = async (tree: Tree, options: LintOptions): Promise<TreeRe
       }
       if (baseLock && baseLock.grandfatheredThrough !== lock.grandfatheredThrough) errors.push(`${tree.name}: grandfatheredThrough moved from ${baseLock.grandfatheredThrough} to ${lock.grandfatheredThrough}; it never moves`)
     }
+  }
+
+  // cmux-vm: the Worker's schema check names the newest migration, so the deploy gate can tell
+  // whether a database is ready for this build (requirements from this root's own module).
+  if (tree.name === "cmux-vm" && files.length) {
+    const required = await requiredMigrationAt(options.root)
+    const newest = files.at(-1)!.name.slice(0, 4)
+    if (required !== undefined && required !== newest)
+      errors.push(`${tree.name}: workers/cmux-vm/src/db/schema-requirements.ts requires migration ${required} but the newest file is ${newest}; add what ${newest} creates to REQUIRED_SCHEMA (a table, column or index name)`)
   }
 
   // Rules for every file after the grandfathered ones.

@@ -4,7 +4,7 @@
  * backend/db/migrate.ts: `version` = file name, `checksum` = sha256 of the file.
  */
 import { REQUIRED_SCHEMA, SCHEMA_CHECK_SQL, schemaCheckParams, requiredMigration, type Requirement } from "../../../workers/cmux-vm/src/db/schema-requirements.ts"
-import { parseSql, type MigrationFile } from "./lint.ts"
+import { parseSql, requirementsModuleAt, type MigrationFile } from "./lint.ts"
 import type { Tree } from "./trees.ts"
 
 /** The few things the runner needs from a Postgres connection (pg.Client in production, a scratch database in tests). */
@@ -111,6 +111,53 @@ export const withLock = async <T>(sql: Sql, tree: Tree, body: () => Promise<T>):
   }
 }
 
+/** Per-file limits: a migration waiting for a lock fails fast instead of queueing every query behind it. */
+export const LOCK_TIMEOUT = process.env.CMUX_RELEASE_LOCK_TIMEOUT || "3s"
+export const STATEMENT_TIMEOUT = process.env.CMUX_RELEASE_STATEMENT_TIMEOUT || "10min"
+
+const sessionSettings = (tree: Tree, scope: "LOCAL" | "SESSION") => {
+  const set = scope === "LOCAL" ? "SET LOCAL" : "SET"
+  const statements = [`${set} lock_timeout = '${LOCK_TIMEOUT}'`, `${set} statement_timeout = '${STATEMENT_TIMEOUT}'`]
+  // cmux-vm shares cmux-prod with cmux-old: an unqualified name must never resolve into public.
+  if (tree.name === "cmux-vm") statements.push(`${set} search_path = ${quoteIdent(tree.schema)}, pg_catalog`)
+  return statements
+}
+
+/**
+ * Rows or catalog entries this transaction wrote outside `schema` (pg_toast holds the new tables'
+ * TOAST storage). Run just before COMMIT; any finding rolls the file back. Catalog rows written by
+ * this transaction carry its xid in xmin, so DDL, TRUNCATE (new relfilenode), GRANT (relacl), a
+ * foreign key into another schema (triggers on the referenced table) and a new schema all show up.
+ */
+const OUTSIDE_SQL = `WITH me AS (SELECT (txid_current() % 4294967296)::text AS xid), allowed AS (SELECT unnest(ARRAY[$1::text, 'pg_toast']) AS nspname)
+  SELECT 'rows written in ' || schemaname || '.' || relname AS problem FROM pg_catalog.pg_stat_xact_user_tables
+   WHERE schemaname NOT IN (SELECT nspname FROM allowed) AND n_tup_ins + n_tup_upd + n_tup_del > 0
+  UNION ALL SELECT 'catalog: relation ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE c.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: column of ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE a.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: default of ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_attrdef d JOIN pg_catalog.pg_class c ON c.oid = d.adrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE d.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: constraint ' || n.nspname || '.' || co.conname FROM pg_catalog.pg_constraint co JOIN pg_catalog.pg_namespace n ON n.oid = co.connamespace, me
+   WHERE co.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: index on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid = i.indrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE i.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: trigger on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE t.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: policy on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid = p.polrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE p.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: rule on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_rewrite r JOIN pg_catalog.pg_class c ON c.oid = r.ev_class JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE r.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: function ' || n.nspname || '.' || p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace, me
+   WHERE p.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: type ' || n.nspname || '.' || t.typname FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace, me
+   WHERE t.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: schema ' || n.nspname FROM pg_catalog.pg_namespace n, me
+   WHERE n.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)`
+
+export const outsideProblems = async (sql: Sql, schema: string): Promise<Array<string>> =>
+  [...new Set((await sql.query<{ problem: string }>(OUTSIDE_SQL, [schema])).map((r) => r.problem))]
+
 const indexNameOf = async (f: MigrationFile): Promise<string | undefined> => {
   const [stmt] = await parseSql(f.sql)
   if (stmt?.kind !== "IndexStmt" || !stmt.node.concurrent || !stmt.node.idxname) return undefined
@@ -147,14 +194,25 @@ export const applyPending = async (
     for (const f of plan.pending) {
       const index = await indexNameOf(f)
       if (index) {
-        await sql.query(f.sql)
+        if (tree.name === "cmux-vm" && !index.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: CREATE INDEX CONCURRENTLY on a table outside schema ${tree.schema}; refused before it ran`)
+        for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
+        try {
+          await sql.query(f.sql)
+        } finally {
+          await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
+        }
         const valid = (await sql.query<{ v: boolean | null }>("SELECT (SELECT indisvalid FROM pg_catalog.pg_index WHERE indexrelid = to_regclass($1)) AS v", [index]))[0]?.v
         if (valid !== true) throw new Error(`${f.name}: index ${index} is not valid after CREATE INDEX CONCURRENTLY; drop it (DROP INDEX CONCURRENTLY) in a new migration and retry`)
         await record(sql, tree, f, options.by)
       } else {
         await sql.query("BEGIN")
         try {
+          for (const q of sessionSettings(tree, "LOCAL")) await sql.query(q)
           await sql.query(f.sql)
+          if (tree.name === "cmux-vm") {
+            const outside = await outsideProblems(sql, tree.schema)
+            if (outside.length) throw new Error(`wrote outside schema ${tree.schema} (cmux-old shares this database): ${outside.join("; ")}; rolled back`)
+          }
           await record(sql, tree, f, options.by)
           await sql.query("COMMIT")
         } catch (e) {
@@ -167,8 +225,11 @@ export const applyPending = async (
     return { applied }
   })
 
-/** The requirements of this tree's current Worker build (cmux-vm only; backend checks the exact applied set instead). */
-export const requirementsOf = (tree: Tree): ReadonlyArray<Requirement> => (tree.name === "cmux-vm" ? REQUIRED_SCHEMA : [])
+/** The requirements of `root`'s Worker build (cmux-vm only; backend checks the exact applied set instead). */
+export const requirementsOf = async (tree: Tree, root?: string): Promise<ReadonlyArray<Requirement>> => {
+  if (tree.name !== "cmux-vm") return []
+  return (root ? (await requirementsModuleAt(root))?.REQUIRED_SCHEMA : undefined) ?? REQUIRED_SCHEMA
+}
 
 /** The Worker's own schema check: missing tables, columns or privileges (for `role`, '' = the connected role). */
 export const schemaProblems = async (sql: Sql, requirements: ReadonlyArray<Requirement>, role = ""): Promise<Array<string>> => {
@@ -199,14 +260,14 @@ export const smokeProblems = async (sql: Sql, tree: Tree): Promise<Array<string>
  * 0001-0008). Refuses unless the tracking table is absent or empty and the
  * Worker's schema check passes for every requirement up to `through`.
  */
-export const adopt = async (sql: Sql, tree: Tree, files: ReadonlyArray<MigrationFile>, through: string, by: string): Promise<Array<string>> =>
+export const adopt = async (sql: Sql, tree: Tree, files: ReadonlyArray<MigrationFile>, through: string, by: string, root?: string): Promise<Array<string>> =>
   withLock(sql, tree, async () => {
     const { tracking, applied } = await trackingState(sql, tree)
     if (tracking === "unreadable") throw new Error(`this role cannot read ${tree.trackingTable}; use the owner credentials`)
     if (applied.size > 0) throw new Error(`${tree.trackingTable} already has ${applied.size} rows; adopt only records a database that was never tracked`)
     const chosen = files.filter((f) => f.name.slice(0, 4) <= through)
     if (chosen.length === 0) throw new Error(`no migration up to ${through}`)
-    const requirements = requirementsOf(tree).filter((r) => r.migration <= through)
+    const requirements = (await requirementsOf(tree, root)).filter((r) => r.migration <= through)
     const missing = (await schemaProblems(sql, requirements)).filter((p) => !p.includes(" privilege"))
     if (missing.length) throw new Error(`the database lacks what migrations up to ${through} add: ${missing.join(", ")}; apply them instead of adopting`)
     await ensureTrackingTable(sql, tree)
@@ -227,7 +288,7 @@ export interface GateResult {
  * another checksum), or when the Worker's schema check finds anything missing
  * for the connected role (privileges included).
  */
-export const gate = async (sql: Sql, tree: Tree, files: ReadonlyArray<MigrationFile>, target: string): Promise<GateResult> => {
+export const gate = async (sql: Sql, tree: Tree, files: ReadonlyArray<MigrationFile>, target: string, root?: string): Promise<GateResult> => {
   const errors: Array<string> = []
   const warnings: Array<string> = []
   const plan = await planOf(sql, tree, files)
@@ -244,7 +305,7 @@ export const gate = async (sql: Sql, tree: Tree, files: ReadonlyArray<MigrationF
     if (tree.name === "cmux-vm") warnings.push(`${why}: the Worker schema check alone decides; run db-release.ts adopt to track this database`)
     else errors.push(`${why}: backend databases are always tracked`)
   }
-  const requirements = requirementsOf(tree)
+  const requirements = await requirementsOf(tree, root)
   const latest = files.length ? files[files.length - 1]!.name.slice(0, 4) : "0000"
   if (tree.name === "cmux-vm" && requiredMigration(requirements) > latest) errors.push(`the Worker requires migration ${requiredMigration(requirements)} but this commit's newest is ${latest}`)
   for (const p of await schemaProblems(sql, requirements)) errors.push(`${tree.name}/${target}: ${p} (the Worker would answer 503)`)

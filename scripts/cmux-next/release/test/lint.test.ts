@@ -146,6 +146,8 @@ describe("tree rules: numbering, lock, base revision", () => {
   it("--update-lock adds a passing new file and refuses a failing one", async () => {
     const root = tempRoot()
     writeMigration(root, "cmux-vm", "0009_new.sql", "CREATE TABLE cmux_vm.n (id text);")
+    const { addRequirement } = await import("./helpers.ts")
+    addRequirement(root, '{ table: "cmux_vm.n", migration: "0009" }')
     const ok = await updateLock([vm], optionsFor(root))
     expect(ok.errors).toEqual([])
     expect(ok.added).toEqual(["cmux-vm/0009_new.sql"])

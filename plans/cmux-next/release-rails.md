@@ -14,23 +14,46 @@ Targets: `development`, `staging`, `production` (PlanetScale branch `main`).
 
 ## What each gate refuses
 
-**Migration lint** (`lint.ts`; runs in `cmux-vm.yml` check, `backend.yml` test and push
-guard, and before every rehearse and apply). Without `-- contract: <reason>` (10+
-characters) in the leading comment block, refused on the parsed SQL: any DROP; DROP
-COLUMN / DROP CONSTRAINT / ALTER TYPE / SET NOT NULL / DROP DEFAULT; ADD COLUMN NOT
-NULL without DEFAULT; a validated ADD CONSTRAINT (or UNIQUE/PK) on an existing table;
-RENAME; RENAME VALUE; CREATE INDEX on an existing table without CONCURRENTLY, and any
-unique index on one; UPDATE/DELETE without WHERE; TRUNCATE; DO and functions; REVOKE;
-GRANT beyond `role-contract.json` (ALL, PUBLIC, GRANT OPTION, role membership, default
-privileges, roles, unlisted grantee/privilege/schema); BEGIN/COMMIT. A CONCURRENTLY
-index must be alone in its file. **cmux-vm only, even with a header:** every object in
-schema `cmux_vm` (unqualified names, public, other schemas, `SET` are refused), because
-cmux-old shares the database. Every tree: `NNNN_lower_snake.sql`, numbered from 0001
-without gaps; every file in `migrations.lock.json` with its sha256; a landed file never
-changes or disappears; lock entries are append-only; `--base <previous head>` also
-compares that revision's files and lock and requires new numbers above its highest.
-Files up to `grandfatheredThrough` (cmux-vm 0008, backend 0006) predate the rules and are
-hash-checked only. backend files keep `-- phase: contract` and `-- contract:` together.
+**Migration lint** (`lint.ts` + `lint-rules.ts`; runs in `cmux-vm.yml` check, `backend.yml`
+test and push guard, and before every rehearse and apply). Three layers on the parsed SQL:
+1. *Never*, even with a header: DO, functions/procedures, TRUNCATE, roles and role
+   membership, default privileges, OWNER TO, SET SCHEMA, schema RENAME, RLS
+   enable/disable/force, triggers, rules, policies, a top-level SELECT (setval, set_config,
+   pg_terminate_backend), SET, ALTER DATABASE/SYSTEM, COPY, LOCK, CLUSTER, REINDEX, VACUUM,
+   REFRESH, LISTEN/NOTIFY, foreign data, publications, REVOKE, GRANT beyond
+   `role-contract.json` (ALL, PUBLIC, GRANT OPTION, ON ALL IN SCHEMA, unlisted
+   grantee/privilege/schema), BEGIN/COMMIT; for cmux-vm also CREATE EXTENSION.
+2. *Expand allowlist*; anything else needs `-- contract: <reason>` (10+ characters) in the
+   leading comment block: CREATE TABLE/SCHEMA/SEQUENCE/TYPE/DOMAIN, COMMENT, INSERT,
+   UPDATE/DELETE with a WHERE that limits rows (`WHERE true` does not), ALTER TYPE ADD
+   VALUE, CREATE INDEX (CONCURRENTLY and non-unique on an existing table, alone in its
+   file), and on an existing table only ADD COLUMN (nullable or NOT NULL with a stable
+   DEFAULT: constants, casts, CURRENT_*, now(); no IDENTITY, GENERATED, UNIQUE or PRIMARY
+   KEY), SET DEFAULT, DROP NOT NULL, ADD CONSTRAINT CHECK/FOREIGN KEY NOT VALID, VALIDATE.
+   A table created in the same file may be shaped freely (except layer 1).
+3. *cmux-vm confinement*, even with a header: every name (any node with a relname: tables,
+   views, CTAS targets, sequences, policy tables, composite types; qualified types and
+   functions; created types and domains, which must be qualified) is in schema `cmux_vm`
+   (pg_catalog allowed for types and functions), because cmux-old shares the database.
+
+Every tree: `NNNN_lower_snake.sql`, numbered from 0001 without gaps; every file in
+`migrations.lock.json` with its sha256; a landed file never changes or disappears; lock
+entries are append-only; `--base <previous head>` also compares that revision's files and
+lock and requires new numbers above its highest. cmux-vm: `REQUIRED_SCHEMA` in
+`workers/cmux-vm/src/db/schema-requirements.ts` must name the newest file's number (add the
+table, column or index it creates). Files up to `grandfatheredThrough` (cmux-vm 0008,
+backend 0006) predate the rules and are hash-checked only. backend files keep
+`-- phase: contract` and `-- contract:` together.
+
+**Runner guards** (`runner.ts`, independent of the lint). Each file runs in its own
+transaction with `lock_timeout = 3s` and `statement_timeout = 10min` (env
+`CMUX_RELEASE_LOCK_TIMEOUT`, `CMUX_RELEASE_STATEMENT_TIMEOUT`); cmux-vm files also with
+`search_path = cmux_vm, pg_catalog`. Before COMMIT a cmux-vm file is rolled back when this
+transaction wrote rows outside cmux_vm (`pg_stat_xact_user_tables`) or catalog rows outside
+cmux_vm (pg_class, pg_attribute, pg_attrdef, pg_constraint, pg_index, pg_trigger, pg_policy,
+pg_rewrite, pg_proc, pg_type, pg_namespace with this transaction's xid): DDL, TRUNCATE, GRANT,
+a foreign key into public and a new schema all show up. A CONCURRENTLY file must name a
+cmux_vm table and leave a valid index.
 
 **Rehearse** (`db-release.ts rehearse`) refuses to start when the lint fails, the target
 has a changed applied file, or (backend) rows the tree lacks. It fails when the throwaway
@@ -39,12 +62,19 @@ pending, the Worker schema check finds a missing table or column, or a table doe
 answer a read. It always deletes its branch by exact name (`rh-<tree>-<target>-<time>-<hex>`;
 nothing else is ever deleted) and writes a receipt.
 
-**Apply** (`db-release.ts apply`) refuses without `--url-env` (owner credentials whose user
-belongs to the target's branch), without a passing rehearsal of the same set (applied rows
-+ pending files, by hash) against that target in the last 24 h, for production without
-`--confirm-production` or while staging lacks a pending file with the same checksum (read
-from staging), for a contract file without `--allow-contract <file>`, and while another
-run holds the database advisory lock or a local lock. Nothing pending is a no-op pass.
+**Apply** (`db-release.ts apply`) takes the target's advisory lock first (one run at a time;
+backend shares migrate.ts's key) and a local lock, then refuses: credentials (`--url-env`)
+whose user is not on the target's branch or is not the target's owner role (fail closed when
+pscale cannot name it); for cmux-vm an owner role with power outside cmux_vm (superuser,
+member of postgres, CREATE on public, write on any public table, owning anything there) —
+staging alone may pass `--allow-broad-owner-on-staging` until a cmux_vm-only owner exists
+(logged, recorded in the receipt), production never; a contract file without
+`--allow-contract <file>`; for production: no `--confirm-production`, `--root`, a checkout
+that is not clean or whose HEAD is not on origin/feat-cmux-next (the lint then runs with that
+`--base`), no cmux-old compat receipts, or a pending file staging lacks (same checksum, read
+from staging). Then it rehearses this exact set on a throwaway copy in the same run (a
+rehearsal receipt from elsewhere is never trusted), and only after that applies. Nothing
+pending is a no-op pass.
 
 **Deploy ordering gate** (`db-release.ts gate`, cmux-vm `deploy-staging` step; backend
 already runs `migrate.ts --verify` in `deploy-worker.sh`) reads the database with the
@@ -74,15 +104,14 @@ R=scripts/cmux-next/release
 # 1. Write workers/cmux-vm/migrations/NNNN_x.sql (or backend/db/migrations); expand-only,
 #    or a "-- contract: <reason>" header for a reviewed non-expand change.
 bun $R/lint.ts && bun $R/lint.ts --update-lock          # adds the file to the lock
-# 2. Rehearse against staging (read role via pscale, throwaway branch, deleted after).
+# 2. Plan and (optional dry run) rehearse against staging (throwaway branch, deleted after).
 bun $R/db-release.ts plan     --tree cmux-vm --target staging
 bun $R/db-release.ts rehearse --tree cmux-vm --target staging [--allow-contract NNNN_x.sql]
-# 3. Apply to staging with the owner credentials (env var only; never print it).
+# 3. Apply to staging with the owner credentials (env var only; never print it). It rehearses again itself.
 bun $R/db-release.ts apply --tree cmux-vm --target staging --url-env OWNER_URL [--allow-contract NNNN_x.sql]
 # 4. Land the code that needs it; the staging deploy gate passes, deploys, smokes.
-# 5. Production: rehearse against production, then apply (staging must already have it).
-bun $R/db-release.ts rehearse --tree cmux-vm --target production
-bun $R/db-release.ts apply --tree cmux-vm --target production --url-env PROD_OWNER_URL --confirm-production
+# 5. Production, from a clean checkout landed on feat-cmux-next, after the compat gate:
+bun $R/db-release.ts apply --tree cmux-vm --target production --url-env PROD_OWNER_URL --staging-url-env STAGING_READ_URL --confirm-production
 ```
 
 Credentials: plan and rehearse against development or staging may mint a 2 h read-only pscale
@@ -105,6 +134,42 @@ cmux-vm staging was migrated by hand (0001-0008, no tracking table). Once:
 --target staging --url-env OWNER_URL --through 0008` (records rows only; refuses unless
 the Worker schema check finds those migrations' tables and columns). The tracking table
 `cmux_vm.schema_migrations` is owned by the migration role; the Worker role gets no grant.
+
+## cmux_vm-only owner role (plan; waits for Lawrence's go via the chief)
+
+Finding 2026-10-09 (read-only check): staging's `cmux-vm-owner` (pscale_api_34v1zavjpy82)
+is a member of `postgres`, has CREATEROLE, CREATE on public and INSERT/UPDATE/DELETE/TRUNCATE
+on all 101 public tables. Until a narrow role exists, apply refuses that role (staging needs
+`--allow-broad-owner-on-staging`; production refuses), and agents use it for nothing new.
+
+1. Prove the mechanism on a throwaway copy first (`rh-` branch of staging, deleted after):
+   can a role created in SQL log in through PlanetScale as `<role>.<branch id>`? If yes,
+   step 2 uses SQL; if not, `pscale role create cmux-prod <branch> cmux-vm-migrator` (no
+   `--inherited-roles`, so no postgres membership) and the old owner is made a member of
+   it with `GRANT cmux_vm_migrator TO <old owner>` from an admin SQL session.
+2. As the old owner (CREATEROLE): `CREATE ROLE cmux_vm_migrator LOGIN NOINHERIT` (password
+   from pscale or SQL, into the secrets store only), `GRANT CONNECT ON DATABASE postgres TO
+   cmux_vm_migrator`, and `GRANT cmux_vm_migrator TO <old owner>` (ALTER ... OWNER TO needs
+   the giver to be a member of the receiver; revoke it after step 5). Nothing on public.
+3. Ownership: `ALTER SCHEMA cmux_vm OWNER TO cmux_vm_migrator`; for every relation, sequence
+   and type in cmux_vm `ALTER TABLE|SEQUENCE|TYPE cmux_vm.<x> OWNER TO cmux_vm_migrator`
+   (generated from pg_class/pg_type, reviewed); owned sequences and indexes follow their
+   table. `cmux_vm.schema_migrations` too. Not `REASSIGN OWNED` (it would also move anything
+   else the old role owns).
+4. Worker grants re-issued by the new owner, exactly `REQUIRED_SCHEMA` privileges plus the
+   README's (USAGE on cmux_vm, SELECT on its tables, INSERT/UPDATE on api_keys,
+   SELECT/INSERT/UPDATE on stack_webhook_events and the mesh tables the Worker writes);
+   `ALTER DEFAULT PRIVILEGES FOR ROLE cmux_vm_migrator IN SCHEMA cmux_vm GRANT SELECT ON
+   TABLES TO <worker>` (run by hand, not a migration).
+5. Verify: `broadPrivileges` (guards.ts) returns nothing for the new role; the Worker role
+   passes the schema check (`db-release.ts gate` with its URL); vm-staging `/healthz` 200,
+   `/v1/vms` 401, `POST /v1/webhooks/stack` 401; `db-release.ts plan` as the new role reads
+   the tracking table.
+6. Rollback: ownership back with the same `ALTER ... OWNER TO <old owner>` list (run as the
+   new owner, a member path set up in step 1), Worker grants unchanged (they name the
+   Worker, not the owner); the old role is never deleted before production has the new one.
+7. Production: the same steps on `main` before its first apply (the old owner role does not
+   exist there; create the narrow role directly).
 
 ## Rollback
 

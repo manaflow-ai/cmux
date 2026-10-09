@@ -345,6 +345,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: bun ../../scripts/cmux-next/release/worker-release.ts previous --worker cmux-vm-staging --wrangler node_modules/.bin/wrangler --out "$RUNNER_TEMP/cmux-vm-previous-version"
       - name: Deploy and set secrets
+        id: deploy
         if: steps.gate.outputs.enabled == 'true'
         env:
           TARGET: staging
@@ -355,8 +356,10 @@ jobs:
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh
+      # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
+      # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured").
       - name: Smoke health and changed routes; roll back on red
-        if: steps.gate.outputs.enabled == 'true'
+        if: ${{ !cancelled() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

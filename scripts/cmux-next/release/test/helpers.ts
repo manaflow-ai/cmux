@@ -92,6 +92,8 @@ export interface FakeProvider extends BranchProvider {
   staleFrom?: string
   /** Next create fails after creating the database. */
   failCreate?: boolean
+  /** The repository root whose migration files a replayed copy runs (set by the test world). */
+  root?: string
 }
 
 /** Creates a database the owner role may create schemas in (public stays owned by the database owner). */
@@ -129,7 +131,16 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
       provider.calls.push(`create ${database}/${name} from ${from}`)
       const template = provider.staleFrom ?? dbOf(database, from)
       provider.staleFrom = undefined
-      await createOwnedDb(dbOf(database, name), owner, template)
+      try {
+        await createOwnedDb(dbOf(database, name), owner, template)
+      } catch (e) {
+        // Postgres cannot TEMPLATE-copy a database another session uses (apply holds its lock
+        // connection during the rehearsal; a PlanetScale point-in-time branch has no such limit).
+        // Then the copy is rebuilt: the source's recorded files from the root, then its tracking rows.
+        if (!/being accessed by other users/.test((e as Error).message) || !provider.root) throw e
+        await dropDb(dbOf(database, name))
+        await replayCopy(template, dbOf(database, name), owner, ownerUrl, provider.root)
+      }
       if (provider.failCreate) {
         provider.failCreate = false
         throw new Error("fake create failed after the branch appeared")
@@ -163,6 +174,32 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
     },
   }
   return provider
+}
+
+const replayCopy = async (source: string, copy: string, owner: string, ownerUrl: (db: string) => string, root: string) => {
+  const src = await connectUrl(dbUrl(source))
+  let rows: Array<{ version: string; checksum: string; adopted: boolean }> = []
+  try {
+    if ((await src.query<{ t: string | null }>("SELECT to_regclass('cmux_vm.schema_migrations')::text AS t"))[0]?.t != null)
+      rows = await src.query("SELECT version, checksum, adopted FROM cmux_vm.schema_migrations ORDER BY version")
+  } finally {
+    await src.end()
+  }
+  await createOwnedDb(copy, owner)
+  const dst = await connectUrl(ownerUrl(copy))
+  try {
+    for (const r of rows) {
+      const sql = readFileSync(join(root, "workers/cmux-vm/migrations", r.version), "utf8")
+      if (createHash("sha256").update(sql).digest("hex") !== r.checksum) throw new Error(`replay: ${r.version} differs from the source's row`)
+      await dst.query(sql)
+    }
+    if (rows.length) {
+      await dst.query("CREATE TABLE cmux_vm.schema_migrations (version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now(), applied_by text, adopted boolean NOT NULL DEFAULT false)")
+      for (const r of rows) await dst.query("INSERT INTO cmux_vm.schema_migrations (version, checksum, adopted) VALUES ($1, $2, $3)", [r.version, r.checksum, r.adopted])
+    }
+  } finally {
+    await dst.end()
+  }
 }
 
 export const uniquePrefix = () => `rr${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`

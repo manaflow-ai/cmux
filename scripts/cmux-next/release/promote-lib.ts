@@ -47,8 +47,10 @@ export interface HistoryEntry {
   readonly source_sha?: string
   readonly baked_at?: string
   readonly smoke?: { readonly result: string; readonly at?: string; readonly detail?: string }
-  /** Per-channel snapshot names when a promotion bake copied the image (cmuxnp-stg-vmimg-..., cmuxnp-prod-vmimg-...). */
-  readonly names?: Partial<Record<Channel, string>>
+  /** The per-channel copy a promotion bake made (cmuxnp-stg-vmimg-..., cmuxnp-prod-vmimg-...), with its own id. */
+  readonly names?: Partial<Record<Channel, { readonly snapshot: string; readonly snapshot_id: string }>>
+  /** Fresh-clone smokes promote ran, per channel copy. */
+  readonly promotion_smokes?: ReadonlyArray<{ channel: Channel; snapshot_id: string; result: string; at: string; clones: ReadonlyArray<string> }>
 }
 
 export interface Pointer {
@@ -66,8 +68,10 @@ export interface SmokeOutcome {
 export interface PromoteDeps {
   readonly root: string
   readonly now: () => Date
-  /** Runs the image smoke on fresh clones of exactly this snapshot id. The only provider call promote makes. */
+  /** Runs the image smoke on fresh clones of exactly this snapshot id. */
   readonly smoke: (snapshotId: string, tag: string) => Promise<SmokeOutcome>
+  /** The id a snapshot name (slug) resolves to now, or undefined. Read-only; promote makes no other provider call. */
+  readonly resolve: (name: string) => Promise<string | undefined>
   readonly log: (line: string) => void
   readonly error: (line: string) => void
   readonly by: string
@@ -111,7 +115,9 @@ export const setVar = (text: string, env: string, name: SnapshotVar, value: stri
   return out
 }
 
-const nameFor = (entry: HistoryEntry, channel: Channel) => entry.names?.[channel] ?? entry.snapshot
+/** The snapshot a channel boots for a history entry: the entry itself for dev, its recorded per-channel copy otherwise. */
+const pointerFor = (entry: HistoryEntry, channel: Channel): Pointer | undefined =>
+  channel === "dev" ? { snapshot: entry.snapshot, snapshot_id: entry.snapshot_id } : entry.names?.[channel]
 
 const getSection = (doc: Json, v: SnapshotVar): Json => (SECTION[v] ? ((doc[SECTION[v]!] as Json | undefined) ?? {}) : doc)
 
@@ -142,17 +148,26 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
   const doc: Json = existsSync(file) ? readJson(file) : { schema: 1, env: channel }
   const section = getSection(doc, v)
   const current: Pointer | undefined = serving
-    ? { snapshot: serving, snapshot_id: typeof section.snapshot_id === "string" && section.snapshot === serving ? section.snapshot_id : (history.find((h) => nameFor(h, channel) === serving)?.snapshot_id ?? null) }
+    ? { snapshot: serving, snapshot_id: typeof section.snapshot_id === "string" && section.snapshot === serving ? section.snapshot_id : (history.map((h) => pointerFor(h, channel)).find((p) => p?.snapshot === serving)?.snapshot_id ?? null) }
     : undefined
 
   let next: Pointer
   let smokeRecord: Json | undefined
+  /** The name must resolve to the recorded id right now (a re-baked slug would boot something else). */
+  const resolves = async (p: Pointer): Promise<boolean> => {
+    if (!p.snapshot_id) return true
+    const id = await deps.resolve(p.snapshot)
+    if (id === p.snapshot_id) return true
+    deps.error(`${p.snapshot} resolves to ${id ?? "nothing"}, not the recorded ${p.snapshot_id}; refusing`)
+    return false
+  }
   if (rollback) {
     const previous = section.previous as Pointer | null | undefined
     if (!previous || typeof previous !== "object" || typeof previous.snapshot !== "string") {
       deps.error(`channels/${channel}.json has no previous ${v} to roll back to`)
       return 1
     }
+    if (!(await resolves(previous))) return 1
     next = previous
   } else {
     const entry = history.find((h) => h.snapshot_id === snapshotId)
@@ -164,9 +179,13 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
       deps.error(`${snapshotId} smoke is ${entry.smoke?.result ?? "not recorded"} in channels/dev.json history; promotion needs PASSED`)
       return 1
     }
-    const name = nameFor(entry, channel)
-    if (v === "CLOUD_FREESTYLE_SNAPSHOT" && !name.startsWith(CHANNEL_PREFIX[channel])) {
-      deps.error(`${snapshotId} is named ${name}; the ${env} Worker boots only ${CHANNEL_PREFIX[channel]}* Cloud snapshots (bake it for ${channel} and record names.${channel})`)
+    const pointer = pointerFor(entry, channel)
+    if (!pointer) {
+      deps.error(`${snapshotId} has no ${channel} copy recorded (names.${channel} with its snapshot and snapshot_id); the ${env} Worker boots only ${CHANNEL_PREFIX[channel]}* Cloud snapshots: bake it for ${channel} first`)
+      return 1
+    }
+    if (v === "CLOUD_FREESTYLE_SNAPSHOT" && !pointer.snapshot.startsWith(CHANNEL_PREFIX[channel])) {
+      deps.error(`${snapshotId} is named ${pointer.snapshot}; the ${env} Worker boots only ${CHANNEL_PREFIX[channel]}* Cloud snapshots (bake it for ${channel} and record names.${channel})`)
       return 1
     }
     if (channel === "production") {
@@ -178,19 +197,28 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
         return 1
       }
     }
-    if (current?.snapshot === name) {
-      deps.log(`${env} ${v} is already ${name}; nothing to do`)
+    if (current?.snapshot === pointer.snapshot) {
+      deps.log(`${env} ${v} is already ${pointer.snapshot}; nothing to do`)
       return 0
     }
+    if (!(await resolves(pointer))) return 1
     const tag = `promote${deps.now().toISOString().replace(/[-:T]/g, "").slice(0, 12)}`
-    deps.log(`smoke ${snapshotId} on fresh cmuxnp-dev clones (tag ${tag})`)
-    const outcome = await deps.smoke(snapshotId!, tag)
+    deps.log(`smoke ${pointer.snapshot_id} (${pointer.snapshot}) on fresh cmuxnp-dev clones (tag ${tag})`)
+    const outcome = await deps.smoke(pointer.snapshot_id!, tag)
     const foreign = outcome.created.filter((c) => !c.name.startsWith("cmuxnp-dev-"))
     if (foreign.length) deps.error(`smoke created clones outside the cmuxnp-dev- prefix: ${foreign.map((c) => `${c.id} ${c.name}`).join(", ")}`)
     if (outcome.live.length) deps.error(`smoke left clones running: ${outcome.live.map((c) => `${c.id} ${c.name}`).join(", ")}; delete them by exact id`)
-    if (!outcome.passed) deps.error(`smoke FAILED for ${snapshotId}: ${outcome.detail}`)
-    if (!outcome.passed || outcome.live.length || foreign.length) return 1
-    next = { snapshot: name, snapshot_id: entry.snapshot_id }
+    if (!outcome.passed) deps.error(`smoke FAILED for ${pointer.snapshot_id}: ${outcome.detail}`)
+    const ok = outcome.passed && !outcome.live.length && !foreign.length
+    // The fresh-clone result goes into the bake history, pass or fail.
+    const devPath = channelPath(deps.root, "dev")
+    const dev = readJson(devPath)
+    dev.history = (dev.history as Array<HistoryEntry>).map((h) =>
+      h.snapshot_id === entry.snapshot_id ? { ...h, promotion_smokes: [...(h.promotion_smokes ?? []), { channel, snapshot_id: pointer.snapshot_id!, result: ok ? "PASSED" : "FAILED", at: deps.now().toISOString(), clones: outcome.created.map((c) => c.id) }] } : h,
+    )
+    writeJson(devPath, dev)
+    if (!ok) return 1
+    next = pointer
     smokeRecord = { result: "PASSED", at: deps.now().toISOString(), clones: outcome.created.map((c) => c.id), detail: outcome.detail }
   }
 
@@ -206,7 +234,8 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     promoted_by: deps.by,
     promotion: rollback ? { rollback: true } : { smoke: smokeRecord },
   })
-  writeJson(file, SECTION[v] ? { ...doc, [SECTION[v]!]: written } : { ...doc, ...written })
+  const latest = existsSync(file) ? readJson(file) : doc // dev.json may have gained a promotion_smokes entry
+  writeJson(file, SECTION[v] ? { ...latest, [SECTION[v]!]: written } : { ...latest, ...written })
   const worker = WORKER_OF[channel]
   const version = value("--worker-version")
   const undo = [
@@ -246,6 +275,30 @@ export const ledgerClones = (tsv: string) => {
   return { created, live }
 }
 
+/**
+ * The id a Freestyle snapshot slug resolves to (`GET /v5/snapshots/{slug}`), or undefined on 404.
+ * Key from FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE (read here, never printed).
+ */
+export const freestyleResolve = async (name: string, env: Record<string, string | undefined> = process.env): Promise<string | undefined> => {
+  const key = env.FREESTYLE_API_KEY || (env.FREESTYLE_API_KEY_FILE ? readFileSync(env.FREESTYLE_API_KEY_FILE, "utf8").trim() : "")
+  if (!key) throw new Error("set FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE to resolve snapshot names")
+  const base = env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh"
+  const response = await fetch(`${base}/v5/snapshots/${encodeURIComponent(name)}`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) })
+  if (response.status === 404) return undefined
+  if (!response.ok) throw new Error(`Freestyle GET /v5/snapshots/${name}: HTTP ${response.status}`)
+  return ((await response.json()) as { id?: string }).id
+}
+
+/** The outcome of a smoke run from its out dir: a run without a ledger never passes (its clones are unknown). */
+export const readSmokeOutcome = (out: string, status: number | null, tag: string): SmokeOutcome => {
+  const ledgerFile = join(out, "resources.tsv")
+  if (!existsSync(ledgerFile)) return { passed: false, created: [], live: [], detail: `exit ${status}; no ledger at ${ledgerFile}: the smoke's clones are unknown, look for cmuxnp-dev-vmimg-${tag}-smoke-* by hand` }
+  const ledger = ledgerClones(readFileSync(ledgerFile, "utf8"))
+  const reportFile = join(out, `smoke-${tag}.json`)
+  const report = existsSync(reportFile) ? (JSON.parse(readFileSync(reportFile, "utf8")) as { passed?: boolean; error?: string }) : undefined
+  return { passed: status === 0 && report?.passed === true, ...ledger, detail: `exit ${status}; report ${reportFile}${report?.error ? `; ${report.error}` : ""}` }
+}
+
 /** The real smoke: `bun ../images/cmux-vm/smoke.ts` from web/ (Freestyle key from FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE). */
 export const runImageSmoke = async (snapshotId: string, tag: string): Promise<SmokeOutcome> => {
   const out = mkdtempSync(join(tmpdir(), `cmux-promote-${tag}-`))
@@ -254,8 +307,5 @@ export const runImageSmoke = async (snapshotId: string, tag: string): Promise<Sm
     stdio: ["ignore", "inherit", "inherit"],
     env: process.env,
   })
-  const ledger = existsSync(join(out, "resources.tsv")) ? ledgerClones(readFileSync(join(out, "resources.tsv"), "utf8")) : { created: [], live: [] }
-  const reportFile = join(out, `smoke-${tag}.json`)
-  const report = existsSync(reportFile) ? (JSON.parse(readFileSync(reportFile, "utf8")) as { passed?: boolean; error?: string }) : undefined
-  return { passed: run.status === 0 && report?.passed === true, ...ledger, detail: `exit ${run.status}; report ${reportFile}${report?.error ? `; ${report.error}` : ""}` }
+  return readSmokeOutcome(out, run.status, tag)
 }

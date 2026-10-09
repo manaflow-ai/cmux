@@ -52,6 +52,7 @@ const world = async (): Promise<World> => {
     created.push(db)
   }
   const root = tempRoot()
+  provider.root = root
   const receipts = mkdtempSync(join(tmpdir(), "rails-receipts-"))
   const logs: Array<string> = []
   const errors: Array<string> = []

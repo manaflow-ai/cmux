@@ -1,8 +1,9 @@
 /**
  * Post-deploy rail for a Cloudflare Worker (plans/cmux-next/release-rails.md).
  *
- *   bun worker-release.ts previous --worker NAME [--wrangler BIN] [--out FILE]
+ *   bun worker-release.ts previous --worker NAME [--wrangler BIN] [--out FILE] [--allow-first-deploy]
  *       Prints (and writes to FILE) the version id serving 100% now. Run BEFORE the deploy.
+ *       Refuses (exit 1) when wrangler cannot name it, unless --allow-first-deploy.
  *   bun worker-release.ts verify --worker NAME --url BASE --routes FILE --previous-file FILE
  *       [--changed-since REV] [--source-dir DIR] [--wrangler BIN] [--attempts N] [--interval-ms MS]
  *       Smokes every route of FILE without `sources`, and each route whose
@@ -74,8 +75,10 @@ export const smoke = async (base: string, routes: ReadonlyArray<Route>, attempts
 
 /** The version serving 100% of traffic, from `wrangler deployments status --json`. */
 export const currentVersion = (statusJson: string): string | undefined => {
-  const status = JSON.parse(statusJson) as { versions?: Array<{ version_id?: string; percentage?: number }> } | Array<{ versions?: Array<{ version_id?: string; percentage?: number }> }>
-  const deployment = Array.isArray(status) ? status.at(-1) : status
+  type Deployment = { created_on?: string; versions?: Array<{ version_id?: string; percentage?: number }> }
+  const status = JSON.parse(statusJson) as Deployment | Array<Deployment>
+  // A list is ordered by nothing we rely on: the newest deployment by created_on is the serving one.
+  const deployment = Array.isArray(status) ? [...status].sort((a, b) => Date.parse(b.created_on ?? "") - Date.parse(a.created_on ?? ""))[0] : status
   const versions = deployment?.versions ?? []
   if (versions.length !== 1 || (versions[0]?.percentage ?? 100) !== 100) {
     if (versions.length > 1) throw new Error(`a gradual deployment is in progress (${versions.length} versions); finish or roll it back by hand first`)
@@ -132,7 +135,16 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
         io.error((e as Error).message)
         return 1
       }
-    } else io.log(`no current deployment of ${worker} (wrangler exit ${run.status}); a red smoke cannot roll back`)
+    }
+    if (!version) {
+      // Without the serving version a red smoke could not roll back: refuse the deploy, except a Worker's first one.
+      const why = run.status === 0 ? "wrangler reported no serving version" : `wrangler deployments status failed (exit ${run.status}): ${(run.stderr || run.stdout).trim().slice(0, 300)}`
+      if (!rest.includes("--allow-first-deploy")) {
+        io.error(`${why}; no rollback target for ${worker}, so the deploy is refused (pass --allow-first-deploy only for a Worker's first deploy)`)
+        return 1
+      }
+      io.log(`${why}; --allow-first-deploy: a red smoke cannot roll back`)
+    }
     const out = value("--out")
     if (out) writeFileSync(out, version ?? "")
     io.log(`previous version of ${worker}: ${version ?? "none"}`)
