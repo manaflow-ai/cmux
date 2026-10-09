@@ -151,9 +151,9 @@ def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     assert 'require_exact_test()' in job
     assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
     for test_name in (
-        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
-        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
-        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+        "config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit",
     ):
         assert test_name in job
 
