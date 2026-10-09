@@ -170,17 +170,12 @@ enum GroupEditorStrings {
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }
     static var expand: String { String(localized: "sidebar.group.expand", defaultValue: "Expand group", bundle: .module) }
 
+    /// A dot's spoken name: none, or its slot in the theme's palette (the
+    /// color itself follows the theme, so no fixed color word is used).
     static func colorName(_ color: GroupColor) -> String {
-        switch color {
-        case .grey: String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
-        case .blue: String(localized: "sidebar.groupColor.blue", defaultValue: "Blue", bundle: .module)
-        case .red: String(localized: "sidebar.groupColor.red", defaultValue: "Red", bundle: .module)
-        case .yellow: String(localized: "sidebar.groupColor.yellow", defaultValue: "Yellow", bundle: .module)
-        case .green: String(localized: "sidebar.groupColor.green", defaultValue: "Green", bundle: .module)
-        case .pink: String(localized: "sidebar.groupColor.pink", defaultValue: "Pink", bundle: .module)
-        case .purple: String(localized: "sidebar.groupColor.purple", defaultValue: "Purple", bundle: .module)
-        case .cyan: String(localized: "sidebar.groupColor.cyan", defaultValue: "Cyan", bundle: .module)
-        case .orange: String(localized: "sidebar.groupColor.orange", defaultValue: "Orange", bundle: .module)
+        guard color != .grey, let slot = GroupColor.editorOrder.firstIndex(of: color) else {
+            return String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
         }
+        return String(format: String(localized: "sidebar.groupColor.slot", defaultValue: "Theme color %d", bundle: .module), slot)
     }
 }
