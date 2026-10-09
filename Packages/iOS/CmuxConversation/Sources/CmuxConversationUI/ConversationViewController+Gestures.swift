@@ -41,8 +41,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         if let pan = gestureRecognizer as? UIPanGestureRecognizer, pan.name == "conversation.horizontalPan" {
             guard !isSelecting, !touchBelongsToTextSelection(pan.location(in: collectionView)) else { return false }
             let velocity = pan.velocity(in: collectionView)
-            // Only a clearly horizontal drag; vertical scrolling stays native.
-            return abs(velocity.x) > abs(velocity.y) * 1.3
+            // Only a rightward drag on a bubble within 18 degrees of
+            // horizontal is a reply (ChatKit's CKSwipeToReplyRules); a left
+            // drag belongs to the transcript's scroll pan (send times).
+            return velocity.x > 0 && replySwipeCell(at: pan.location(in: collectionView), velocity: velocity) != nil
         }
         if gestureRecognizer is UILongPressGestureRecognizer {
             return !isSelecting && !touchBelongsToTextSelection(gestureRecognizer.location(in: collectionView))
@@ -69,17 +71,16 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         let translation = pan.translation(in: collectionView).x
         switch pan.state {
         case .began:
-            if translation > 0, let cell = messageCell(at: pan.location(in: collectionView), requireContentHit: false), let model = cell.model {
+            if translation > 0, let cell = replySwipeCell(at: pan.location(in: collectionView), velocity: pan.velocity(in: collectionView)), let model = cell.model {
                 replyDragRowID = model.rowID
                 replyHapticFired = false
             } else {
                 replyDragRowID = nil
-                beginTimestampReveal()
             }
             // Recognition already consumed some travel; apply it at once.
-            updateHorizontalPan(translation)
+            updateHorizontalPan(translation, velocity: pan.velocity(in: collectionView).x)
         case .changed:
-            updateHorizontalPan(translation)
+            updateHorizontalPan(translation, velocity: pan.velocity(in: collectionView).x)
         case .ended, .cancelled, .failed:
             endHorizontalPan(committed: pan.state == .ended)
         default:
@@ -87,88 +88,16 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         }
     }
 
-    private func updateHorizontalPan(_ translation: CGFloat) {
+    private func updateHorizontalPan(_ translation: CGFloat, velocity: CGFloat) {
         if let rowID = replyDragRowID {
-            let raw = max(0, translation)
-            // Rubber band beyond the commit threshold.
-            let threshold: CGFloat = 60
-            let offset = raw <= threshold ? raw : threshold + (raw - threshold) * 0.35
-            replyDragOffset = min(offset, 110)
-            if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
-                cell.replyDrag = replyDragOffset
-            }
-            if replyDragOffset >= threshold, !replyHapticFired {
-                replyHapticFired = true
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            } else if replyDragOffset < threshold {
-                replyHapticFired = false
-            }
-        } else {
-            // Messages: the transcript follows at 0.4x the finger past a short
-            // dead zone and stops dead once the widest time is fully shown
-            // (no rubber band; measured on iOS 26 Messages).
-            let raw = max(0, -translation - Self.timestampRevealDeadZone)
-            let shift = min(raw * Self.timestampRevealRatio, timestampRevealDistance)
-            setTimestampReveal(shift / timestampRevealDistance, animated: false)
+            updateReplySwipe(rowID: rowID, translation: translation, velocity: velocity)
         }
     }
 
     private func endHorizontalPan(committed: Bool) {
         if let rowID = replyDragRowID {
-            let commit = replyDragOffset >= 60 && committed
-            let releasedAt = replyDragOffset
-            let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                cell?.replyDrag = 0
-            }
-            replyDragRowID = nil
-            replyDragOffset = 0
-            if commit, case let .message(model)? = row(for: rowID) {
-                enterReplyMode(for: model.message, dragOffset: releasedAt)
-            }
-        } else {
-            setTimestampReveal(0, animated: true)
+            endReplySwipe(rowID: rowID, ended: committed)
         }
-    }
-
-    /// Finger travel before the transcript starts to follow.
-    private static let timestampRevealDeadZone: CGFloat = 14
-    /// Transcript travel per point of finger travel.
-    private static let timestampRevealRatio: CGFloat = 0.4
-    /// Sizes the reveal for this swipe: the widest visible time ends at the
-    /// 16 pt margin, 17 pt clear of the outgoing bubbles.
-    private func beginTimestampReveal() {
-        timestampSettleAnimator?.stopAnimation(true)
-        timestampSettleAnimator = nil
-        let widest = collectionView.visibleCells.compactMap { ($0 as? MessageCell)?.timeLabelWidth }.max() ?? 40
-        timestampRevealDistance = MessageCell.timestampRevealDistance(forTimeWidth: widest)
-        for case let cell as MessageCell in collectionView.visibleCells {
-            cell.timestampRevealDistance = timestampRevealDistance
-        }
-    }
-
-    func setTimestampReveal(_ reveal: CGFloat, animated: Bool) {
-        timestampReveal = reveal
-        let apply = {
-            for cell in self.collectionView.visibleCells {
-                (cell as? MessageCell)?.timestampReveal = reveal
-            }
-        }
-        guard animated else {
-            apply()
-            return
-        }
-        // 1 - e^(-t/0.114 s) over 0.6 s, fitted to within 0.7%.
-        let curve = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.18, y: 0.95), controlPoint2: CGPoint(x: 0.45, y: 1))
-        let animator = UIViewPropertyAnimator(duration: 0.6, timingParameters: curve)
-        animator.isUserInteractionEnabled = true
-        animator.addAnimations(apply)
-        animator.addCompletion { [weak self, weak animator] _ in
-            if self?.timestampSettleAnimator === animator { self?.timestampSettleAnimator = nil }
-        }
-        timestampSettleAnimator?.stopAnimation(true)
-        timestampSettleAnimator = animator
-        animator.startAnimation()
     }
 
     // MARK: Long press

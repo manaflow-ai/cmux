@@ -120,6 +120,11 @@ enum ConversationTheme {
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     static var timestampBoldFont: UIFont { font(11, .semibold, style: .caption2) }
+    /// Swipe-left send times: the timestamp size with tabular digits, as
+    /// ChatKit's `transcriptDrawerFont` (monospaced digits, iOS 26 and 27).
+    static var timestampDrawerFont: UIFont {
+        .monospacedDigitSystemFont(ofSize: timestampFont.pointSize, weight: .regular)
+    }
     /// Separator, swipe-time and status gray: Messages draws these in the
     /// system secondary label color (138,138,142 on white).
     static let timestampText = UIColor { traits in

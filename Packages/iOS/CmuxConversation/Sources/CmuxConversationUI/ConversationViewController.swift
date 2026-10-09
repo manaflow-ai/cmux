@@ -103,7 +103,12 @@ public final class ConversationViewController: UIViewController {
     var timestampReveal: CGFloat = 0
     /// How far outgoing bubbles travel at a full swipe-left reveal.
     var timestampRevealDistance: CGFloat = 58
-    var timestampSettleAnimator: UIViewPropertyAnimator?
+    /// Swipe-left send times (see +TimestampDrawer).
+    var timestampDrawer = TimestampDrawerPhysics(maxOffset: 58)
+    var timestampDrawerEnabled = false
+    var timestampDrawerRelease: TimestampDrawerPhysics.Release?
+    var timestampDrawerReleaseStart: CFTimeInterval?
+    var timestampDrawerLink: CADisplayLink?
     var replyDragRowID: String?
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
@@ -240,6 +245,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        installTimestampDrawer()
         installMentions()
         installAudio()
         installEffects()
@@ -915,6 +921,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
+            applyReplyBacking(to: cell, model: model)
             cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"
             configureAccessibility(cell, model: model)
             return cell
@@ -1183,6 +1190,28 @@ final class TranscriptCollectionView: UICollectionView {
         var insets = super.safeAreaInsets
         insets.bottom = max(insets.bottom, edgeBottomInset)
         return insets
+    }
+
+    /// As in Messages (`CKTranscriptCollectionViewController loadView`), the
+    /// scroll pan may move sideways so a left drag reaches the send-time
+    /// drawer with the scroll view's own slop and no directional lock; the
+    /// content itself never scrolls sideways (the drawer draws the offset).
+    override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
+        super.init(frame: frame, collectionViewLayout: layout)
+        alwaysBounceHorizontal = true
+        showsHorizontalScrollIndicator = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set { super.contentOffset = CGPoint(x: 0, y: newValue.y) }
+    }
+
+    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
+        super.setContentOffset(CGPoint(x: 0, y: contentOffset.y), animated: animated)
     }
 }
 
