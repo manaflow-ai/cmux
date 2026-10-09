@@ -25,6 +25,7 @@ use cmux_layout_reducer::LayoutOpKind;
 mod batch_close;
 mod column_update;
 mod emptied_workspace;
+mod end_terminals_batch;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
