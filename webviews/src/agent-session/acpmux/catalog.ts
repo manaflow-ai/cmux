@@ -92,6 +92,13 @@ export function harnessCatalogKey(clientId: number, cwd?: string) {
   return cwd ? (["acpmux", "harnesses", clientId, cwd] as const) : (["acpmux", "harnesses", clientId] as const);
 }
 
+/// The catalog of a direct client follows the daemon's `_acpmux/harnesses_changed`.
+export function followHarnessChanges(
+  _client: { onHarnessesChanged?: () => void },
+  _queryClient: QueryClient,
+  _clientId: number,
+): void {}
+
 /// Whether a folder profile from `folder` applies to a chat in `cwd` (the folder or inside it).
 export function profileCovers(folder: string, cwd: string | undefined): boolean {
   if (!cwd) return false;

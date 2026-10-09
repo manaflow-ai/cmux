@@ -499,6 +499,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
+  /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
+  /// followHarnessChanges).
+  onHarnessesChanged?: () => void;
 
   private constructor(
     host: AcpmuxHostConfig,
