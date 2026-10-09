@@ -9,11 +9,11 @@ import Testing
     @Test func aBackgroundWindowsSelectedTabHasNoFill() {
         let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
         let selected = h.strip.cells[TabID("t0")]!
-        h.strip.windowMainChanged(isMain: true)
+        h.strip.windowMain.changed(isMain: true)
         #expect(selected.fillsSelection)
-        h.strip.windowMainChanged(isMain: false)
+        h.strip.windowMain.changed(isMain: false)
         #expect(!selected.fillsSelection)
-        h.strip.windowMainChanged(isMain: true)
+        h.strip.windowMain.changed(isMain: true)
         #expect(selected.fillsSelection)
     }
 
@@ -29,7 +29,7 @@ import Testing
     @Test func aLiftedTabKeepsItsFillInABackgroundWindow() {
         let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
         let selected = h.strip.cells[TabID("t0")]!
-        h.strip.windowMainChanged(isMain: false)
+        h.strip.windowMain.changed(isMain: false)
         selected.isLifted = true
         #expect(selected.fillsSelection)
     }

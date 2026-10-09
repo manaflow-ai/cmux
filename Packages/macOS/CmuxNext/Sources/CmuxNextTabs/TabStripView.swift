@@ -69,9 +69,7 @@ public final class TabStripView: NSView {
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
-    /// The window is main; its cells fill the selected tab (`windowMainChanged`).
-    var windowIsMain = true
-    var windowMainObservers: [NSObjectProtocol] = []
+    let windowMain = WindowMainObserver()
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
@@ -228,15 +226,14 @@ public final class TabStripView: NSView {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this strip's card only.
         hoverCards.unregister(hoverCard)
+        windowMain.observe(window) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         if window != nil {
             hoverCards.register(hoverCard)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
-            observeWindowMain()
             sync(fromModel: true)
         } else {
-            stopObservingWindowMain()
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()

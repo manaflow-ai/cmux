@@ -101,33 +101,6 @@ extension TabStripView {
         hasSynced = true
     }
 
-    /// The strip's window became or stopped being main: only the main
-    /// window's selected tab is filled (dogfood 2026-10-08, 08).
-    func windowMainChanged(isMain: Bool) {
-        windowIsMain = isMain
-        for cell in cells.values { cell.isWindowMain = isMain }
-    }
-
-    /// Follows the window's main status; main, not key, so a dialog or
-    /// palette panel taking the keyboard leaves the strip as it is.
-    func observeWindowMain() {
-        stopObservingWindowMain()
-        guard let window else { return }
-        windowMainChanged(isMain: window.isMainWindow)
-        windowMainObservers = [NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                let isMain = note.name == NSWindow.didBecomeMainNotification
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.windowMainChanged(isMain: isMain) }
-            }
-        }
-    }
-
-    func stopObservingWindowMain() {
-        for observer in windowMainObservers { NotificationCenter.default.removeObserver(observer) }
-        windowMainObservers = []
-    }
-
     /// Creates the layers for a new tab and returns its id.
     func makeCell(_ item: TabItem, animated: Bool) -> TabID {
         let cell = TabCell(item: item)
@@ -136,7 +109,7 @@ extension TabStripView {
         cell.titleFont = Typography.body
         cell.themeScope = themeScope
         cell.scale = window?.backingScaleFactor ?? 2
-        cell.isWindowMain = windowIsMain
+        cell.isWindowMain = windowMain.isMain
         let id = item.id
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
