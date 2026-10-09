@@ -297,20 +297,39 @@ export default agentPaneEntry({
         const picker = ".acpmux-model .acpmux-picker-button";
         await ctx.click({ selector: picker });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.waitFor(() => ctx.document.activeElement === search);
+        const previous = search.getAttribute("aria-activedescendant");
         await ctx.press("ArrowDown");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+        await ctx.waitFor(() => {
+          const current = search.getAttribute("aria-activedescendant");
+          return current !== previous && Boolean(current && ctx.document.getElementById(current));
+        });
       },
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
+        const { translate } = await import("./i18n");
+        const starred = { role: "option", name: translate("picker.starred") };
+        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
-        await ctx.click({ selector: '.acpmux-mp [title="Starred"]' });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-mp-models [aria-label="Starred"], .acpmux-mp-models .acpmux-mp-row'),
+        // A full provider catalog places Sonnet below the visible rows. Filter it into view
+        // before pointer input, then reveal the row's hover-only favorite control.
+        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.hover(favorite);
+        // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
+        if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
+        // Tooltips consume title on hover; the translated accessible name stays available.
+        await ctx.click(starred);
+        await ctx.waitFor(
+          () =>
+            ctx.find(starred).getAttribute("aria-selected") === "true" &&
+            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
+              row.textContent?.endsWith("Sonnet 5.5"),
+            ),
         );
       },
     },

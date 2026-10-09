@@ -116,7 +116,7 @@ final class UIGraphicsImageRenderer {
 
     func image(actions: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
         let s = format.scale
-        let pw = max(1, Int((size.width * s).rounded(.up))), ph = max(1, Int((size.height * s).rounded(.up)))
+        let pw = max(1, CrashGuard.int((size.width * s).rounded(.up))), ph = max(1, CrashGuard.int((size.height * s).rounded(.up))) // cmux: no trap on NaN
         let info = CGBitmapInfo.byteOrder32Little.rawValue | (format.opaque ? CGImageAlphaInfo.noneSkipFirst.rawValue : CGImageAlphaInfo.premultipliedFirst.rawValue)
         guard let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: info) else { return UIImage() }

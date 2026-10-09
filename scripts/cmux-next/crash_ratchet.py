@@ -40,6 +40,12 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
                       `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
                       compiler) do not count
+    objc_observer     a selector-based NotificationCenter registration `addObserver(<target>, selector:`
+                      (the call may span lines). The target method is @objc; when it is also
+                      @MainActor, a post off the main thread traps in Swift's dynamic isolation
+                      check (PointerHover's KeyWindowObserver trapped CmuxNextAppTests on a
+                      willClose posted from a detached thread). Use the block form with
+                      `queue: .main` and keep the token
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -56,7 +62,7 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     exit              process::exit / process::abort
 
 BAN mode (crash-allowlist.json next to this script): a class named in "banned"
-("swift.<class>"; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
+("swift.<class>", or "swift.<class>@<Module>" for one module; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
 crash-allow does not waive it; only an "allow" entry {path, class, count, reason,
 reviewer} passes that many hits in that file. Flip a class to banned in the commit
 that brings it to zero (moving its reviewed crash-allow lines into the allowlist).
@@ -91,7 +97,7 @@ SWIFT = {
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font", "index_subscript", "int_conversion"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "objc_observer", "render_font", "index_subscript", "int_conversion"]
 # Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
 # the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
 RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
@@ -200,6 +206,8 @@ def index_hits(code, dictionaries=frozenset()):
             continue
         hits += 1
     return hits
+ADD_OBSERVER = re.compile(r"\baddObserver\(")
+SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -356,6 +364,16 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
+def objc_observer_hits(lines, index, code):
+    """Selector-based addObserver calls that start in LINE; the arguments may continue
+    on the next two lines."""
+    starts = [m.start() for m in ADD_OBSERVER.finditer(code)]
+    if not starts:
+        return 0
+    follow = " ".join(swift_code(l).strip() for l in lines[index + 1:index + 3])
+    return sum(1 for start in starts if SELECTOR_OBSERVER.match(code[start:] + " " + follow))
+
+
 def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
@@ -374,6 +392,9 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    found = objc_observer_hits(lines, index, code)
+    if found:
+        hits["objc_observer"] = found
     if module in INDEX_MODULES:
         found = index_hits(code, dictionaries)
         if found:
@@ -408,6 +429,7 @@ def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    banned_modules = banned_in("swift")
     dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
@@ -422,7 +444,7 @@ def scan_swift(repo, counts, banned_files=None):
                     continue
                 is_allowed = allowed(lines, index)
                 for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
-                    if kind in banned:
+                    if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))
                             banned_files[key] = banned_files.get(key, 0) + hits
@@ -443,7 +465,17 @@ def load_allowlist():
 
 
 def banned_kinds(lang):
-    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"] if entry.startswith(lang + ".")}
+    """Classes banned everywhere ("swift.<class>"); a "swift.<class>@<Module>" entry bans
+    the class in that module only (see banned_in)."""
+    return {entry.split(".", 1)[1] for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" not in entry}
+
+
+def banned_in(lang):
+    """{(class, module)} of per-module bans: a module that reached zero keeps zero while
+    the class stays a ratchet elsewhere."""
+    return {tuple(entry.split(".", 1)[1].split("@", 1)) for entry in load_allowlist()["banned"]
+            if entry.startswith(lang + ".") and "@" in entry}
 
 
 def module_of(path):
@@ -557,6 +589,7 @@ def main():
         for kind, files in baseline.get(lang, {}).items():
             if kind in banned_kinds(lang):
                 continue
+            files = {m: n for m, n in files.items() if (kind, m) not in banned_in(lang)}
             for rel, hits in files.items():
                 if counts[lang].get(kind, {}).get(rel, 0) < hits:
                     shrunk += 1

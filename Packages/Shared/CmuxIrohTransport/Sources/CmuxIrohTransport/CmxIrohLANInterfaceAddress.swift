@@ -95,7 +95,7 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
         var cursor = first
         while let current = cursor?.pointee {
             defer { cursor = current.ifa_next }
-            let flags = Int32(current.ifa_flags)
+            let flags = Int32(bitPattern: current.ifa_flags)
             guard flags & IFF_UP != 0,
                   flags & IFF_RUNNING != 0,
                   flags & IFF_MULTICAST != 0,

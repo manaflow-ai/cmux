@@ -18,8 +18,13 @@ final class AppPageNativeProvider: PageProvider {
     var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
     /// The page view the sheet attaches to.
     var anchor: () -> NSView? = { nil }
-    /// The pasteboard `cmux.app.clipboard.write` writes (tests use a private one).
-    var pasteboard: NSPasteboard = .general
+    /// Writes the text `cmux.app.clipboard.write` puts on the clipboard: the general
+    /// pasteboard. Tests record it instead, so they run without a pasteboard server
+    /// (a headless CI session has none, and a private NSPasteboard reads back nil there).
+    var writeClipboard: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 
     init(services: AppServices, page: PageDescriptor) {
         self.services = services
@@ -63,8 +68,7 @@ final class AppPageNativeProvider: PageProvider {
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
             }
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            writeClipboard(text)
             return .object([:])
         default:
             throw PageError.unknownOp(op)

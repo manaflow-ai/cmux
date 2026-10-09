@@ -181,7 +181,7 @@ final class SwipeReply {
         let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
             .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
         guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
-        let px = Int(Tuning.arrowSize * scale)
+        let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // cmux: no trap on NaN
         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil } // cmux: no force unwrap
         NSGraphicsContext.saveGraphicsState()
@@ -203,17 +203,17 @@ final class SwipeReply {
 enum SwipeCheck {
     static func fromArguments() -> String? {
         let a = ProcessInfo.processInfo.arguments
-        guard let i = a.firstIndex(of: "--swipe-check"), i + 1 < a.count else { return nil }
-        return a[i + 1]
+        guard let i = a.firstIndex(of: "--swipe-check") else { return nil }
+        return a.dropFirst(i + 1).first // cmux: no index math
     }
     // cmux: optional, no force unwraps (crash program); `run` records a FAIL for a nil event.
     static func event(dx: CGFloat, dy: CGFloat, phase: Int64) -> NSEvent? {
-        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) else { return nil }
+        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(clamping: CrashGuard.int(dy)), wheel2: Int32(clamping: CrashGuard.int(dx)), wheel3: 0) /* cmux: no trap on NaN or a huge delta */ else { return nil }
         cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: dy)
         cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: dx)
-        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
-        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
+        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(truncatingIfNeeded: CrashGuard.int(dy))) /* cmux: Int is 64-bit */
+        cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(truncatingIfNeeded: CrashGuard.int(dx))) /* cmux */
         cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         return NSEvent(cgEvent: cg)
     }

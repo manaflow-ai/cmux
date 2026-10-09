@@ -162,7 +162,7 @@ final class ControlConnection: @unchecked Sendable {
     /// then suspends reading.
     private func emitLines() {
         while queuedLines < limits.maxQueuedLines, let newline = inbound.firstIndex(of: 0x0A) {
-            let lineData = inbound[inbound.startIndex..<newline]
+            let lineData = inbound.prefix(upTo: newline)
             inbound.removeSubrange(inbound.startIndex...newline)
             queuedLines += 1
             continuation?.yield(String(decoding: lineData, as: UTF8.self))

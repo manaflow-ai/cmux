@@ -65,23 +65,24 @@ struct SelState: Equatable {
 /// other part is one atomic unit (length 1) that copies as a placeholder (SELECTION.md).
 enum SelText {
     /// Markdown text parts count in their DISPLAY string (MarkdownStore `Markdown.displayText`).
-    static func length(_ part: Part, message: ID? = nil) -> Int {
-        if case let .text(t, _) = part { return ((Markdown.displayText(t, message: message) ?? t) as NSString).length }
+    /// `format`: the message's (Message.format); plain unless marked markdown.
+    static func length(_ part: Part, message: ID? = nil, format: MessageFormat? = nil) -> Int {
+        if case let .text(t, _) = part { return ((Markdown.displayText(t, message: message, format: format) ?? t) as NSString).length }
         return 1
     }
     static func isText(_ part: Part) -> Bool { if case .text = part { return true }; return false }
 
-    static var photo: String { String(localized: "selection.copy.photo", defaultValue: "[Photo]") }
-    static var video: String { String(localized: "selection.copy.video", defaultValue: "[Video]") }
-    static var audio: String { String(localized: "selection.copy.audio", defaultValue: "[Audio Message]") }
-    static var contact: String { String(localized: "selection.copy.contact", defaultValue: "[Contact]") }
+    static var photo: String { MessagesLabLocalization.string("selection.copy.photo", "[Photo]") }
+    static var video: String { MessagesLabLocalization.string("selection.copy.video", "[Video]") }
+    static var audio: String { MessagesLabLocalization.string("selection.copy.audio", "[Audio Message]") }
+    static var contact: String { MessagesLabLocalization.string("selection.copy.contact", "[Contact]") }
     /// "[Attachment: %@]"
-    static var attachmentFormat: String { String(localized: "selection.copy.attachment", defaultValue: "[File: %@]") }
+    static var attachmentFormat: String { MessagesLabLocalization.string("selection.copy.attachment", "[File: %@]") }
     /// "[Location: %@]"
-    static var locationFormat: String { String(localized: "selection.copy.location", defaultValue: "[Location: %@]") }
-    static var location: String { String(localized: "selection.copy.locationBare", defaultValue: "[Location]") }
+    static var locationFormat: String { MessagesLabLocalization.string("selection.copy.location", "[Location: %@]") }
+    static var location: String { MessagesLabLocalization.string("selection.copy.locationBare", "[Location]") }
     /// Sender header before each sender's run when a selection spans several senders: "%@:".
-    static var senderFormat: String { String(localized: "selection.copy.sender", defaultValue: "%@:") }
+    static var senderFormat: String { MessagesLabLocalization.string("selection.copy.sender", "%@:") }
 
     /// Placeholder of a non-text part.
     static func placeholder(_ part: Part) -> String {
@@ -126,22 +127,25 @@ struct ShortTextGeometry: RowTextGeometry {
             attr = tl.attributed(color: .white, linkColor: .white)
             Self.attrCache.setObject(attr, forKey: key)
         }
-        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
+        // cmux: a line outside the text (or measured for another text) is an empty line.
+        guard let range = lines[checked: i]?.range, NSMaxRange(range) <= attr.length else { return CTLineCreateWithAttributedString(NSAttributedString()) }
+        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
     }
     func offset(at p: CGPoint) -> Int {
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
         if y < 0 { return x <= 0 ? 0 : offsetInLine(0, x: x) }
         if y >= CGFloat(lines.count) * Fixture.lineHeight { return length }
-        return offsetInLine(min(lines.count - 1, Int(floor(y / Fixture.lineHeight))), x: x)
+        return offsetInLine(min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)), x: x) // cmux
     }
     /// The character UNDER a body-local point (AppKit's characterIndex: a double-click on the
     /// right half of a glyph is still that glyph), not the nearest caret position.
     func characterIndex(at p: CGPoint) -> Int {
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
         guard y >= 0, y < CGFloat(lines.count) * Fixture.lineHeight else { return offset(at: p) }
-        let i = min(lines.count - 1, Int(floor(y / Fixture.lineHeight)))
-        let r = lines[i].range
+        let i = min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)) // cmux: no trap on NaN
+        guard let r = lines[checked: i]?.range else { return 0 } // cmux: checked
         guard r.length > 0 else { return r.location }
+        guard NSMaxRange(r) <= length else { return min(r.location, length) } // cmux: a line measured for another text (NSRangeException)
         let ct = ctLine(i)
         let ns = text as NSString
         // The composed character whose glyph span holds x (both directions: RTL runs too).
@@ -156,7 +160,7 @@ struct ShortTextGeometry: RowTextGeometry {
         return offsetInLine(i, x: x)
     }
     private func offsetInLine(_ i: Int, x: CGFloat) -> Int {
-        let r = lines[i].range
+        guard let r = lines[checked: i]?.range else { return 0 } // cmux: checked
         guard r.length > 0 else { return r.location }
         let idx = CTLineGetStringIndexForPosition(ctLine(i), CGPoint(x: max(0, x), y: 0))
         return idx == kCFNotFound ? r.location : r.location + min(max(0, idx), r.length)
@@ -240,7 +244,7 @@ struct LongTextGeometry: RowTextGeometry {
         var end = NSMaxRange(p) + base
         while NSMaxRange(p) == s.length, s.length > 0, s.character(at: s.length - 1) != 10, b + 1 < layout.blockCount {
             b += 1
-            s = layout.selectionString(b); base = layout.index.selStarts[b]
+            s = layout.selectionString(b); base = layout.index.selStarts[checked: b] ?? base // cmux: checked
             p = SelWords.paragraph(in: s, at: 0)
             end = base + NSMaxRange(p)
         }
@@ -261,7 +265,7 @@ extension PartRow {
         if let g = markdownGeometry { return g }
         if let text { return ShortTextGeometry(tl: text) }
         guard case let .text(t, _) = part else { return nil }
-        let l = LongTextStore.shared.layout(t, width: width, message: ref.messageId)
+        let l = LongTextStore.shared.layout(t, width: width, message: ref.messageId, markdown: markdownFormat)
         return LongTextGeometry(layout: l, folded: LongTextFold.isFolded(ref.messageId, l))
     }
 }
@@ -315,11 +319,11 @@ enum SelectionCopy {
         for (seq, m) in msgs where seq >= sel.lo.seq && seq <= sel.hi.seq {
             guard m.deletedAt == nil, m.retractedAt == nil else { continue }
             for (pi, part) in m.parts.enumerated() {
-                let len = SelText.length(part, message: m.id)
+                let len = SelText.length(part, message: m.id, format: m.format)
                 guard let r = sel.range(seq: seq, part: pi, length: len) else { continue }
                 if case let .text(t, _) = part {
                     // Offsets are in the display string (markdown: no markers, tables as TSV).
-                    let shown = Markdown.displayText(t, message: m.id) ?? t
+                    let shown = Markdown.displayText(t, message: m.id, format: m.format) ?? t
                     out.append(Piece(seq: seq, sender: m.senderId, text: (shown as NSString).substring(with: r), isText: true))
                 } else {
                     var isFile = false, name = ""
@@ -339,7 +343,7 @@ enum SelectionCopy {
             if p.sender != last { runs.append([(String(format: SelText.senderFormat, names(p.sender)), false)]); last = p.sender }
             // Messages: text parts get a tab; an attachment is its own (empty) line. Other parts
             // (a link card: its URL; locations, custom rows) copy their text with a tab like text.
-            runs[runs.count - 1].append(p.isAttachment ? (p.text, true) : ("\t" + p.text, false))
+            runs.update(at: runs.count - 1) { $0.append(p.isAttachment ? (p.text, true) : ("\t" + p.text, false)) } // cmux: checked
         }
         return runs
     }
