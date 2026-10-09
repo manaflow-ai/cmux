@@ -62,6 +62,18 @@ pub enum Family {
     Other,
 }
 
+/// The codex-acp mode without codex's workspace-write sandbox. Its
+/// sandbox denies connect(2) to the cmux app and daemon sockets, so a
+/// codex session the Chief runs under approve-all (the posture of its
+/// Claude sessions, which run unsandboxed) takes this mode (E6).
+pub const CODEX_FULL_ACCESS_MODE: &str = "agent-full-access";
+
+/// The mode a fresh Chief session (a turn or a subagent) takes on `family`
+/// under `policy`: full access for codex under approve-all, else its own.
+pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> {
+    (family == Family::Codex && policy == "approve-all").then_some(CODEX_FULL_ACCESS_MODE)
+}
+
 impl Family {
     pub fn from_name(family: &str) -> Family {
         match family {
@@ -163,6 +175,10 @@ pub trait AgentPort: Send + Sync {
     /// interrupt). The turn then ends with stop reason `cancelled`.
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
+    }
+    /// Sets `session`'s harness mode (`session/set_mode`).
+    fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
+        Err("set_mode is not supported".into())
     }
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
@@ -805,6 +821,16 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        self.client()?
+            .request(
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": mode}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("set_mode {mode}: {e}"))
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {
