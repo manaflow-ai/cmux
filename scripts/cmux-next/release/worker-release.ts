@@ -10,6 +10,11 @@
  *       `sources` match a file changed since REV (all routes when REV is
  *       unknown). On red: `wrangler rollback <previous> --name NAME -y`, smoke
  *       the always-routes again, and exit 1 either way (the job fails).
+ *   bun worker-release.ts vars --worker NAME --config wrangler.jsonc --env ENV [--wrangler BIN]
+ *       Run BEFORE a deploy that must ship code only (development: no secrets are sent). Compares
+ *       the config's env.ENV.vars with the plain-text and JSON vars of the version serving 100%
+ *       (`wrangler versions view --json`; secrets and other bindings are not compared) and
+ *       refuses (exit 1) on any added, removed or changed var, naming the vars, never their values.
  *
  * Routes file: {"routes":[{"name","method","path","expect":[status...],"body"?,
  * "bodyIncludes"?,"sources"?:[glob relative to --source-dir],"why"?}]}.
@@ -85,6 +90,92 @@ export const currentVersion = (statusJson: string): string | undefined => {
     return undefined
   }
   return versions[0]?.version_id
+}
+
+/** JSONC to JSON: drops comments and trailing commas outside strings. */
+export const stripJsonc = (text: string): string => {
+  let noComments = ""
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (c === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1
+      noComments += text.slice(i, j + 1)
+      i = j
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++
+      noComments += "\n"
+    } else if (c === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2)
+      i = end < 0 ? text.length : end + 1
+    } else noComments += c
+  }
+  let out = ""
+  for (let i = 0; i < noComments.length; i++) {
+    const c = noComments[i]!
+    if (c === '"') {
+      let j = i + 1
+      while (j < noComments.length && noComments[j] !== '"') j += noComments[j] === "\\" ? 2 : 1
+      out += noComments.slice(i, j + 1)
+      i = j
+    } else if (c === ",") {
+      let k = i + 1
+      while (k < noComments.length && /\s/.test(noComments[k]!)) k++
+      if (noComments[k] !== "}" && noComments[k] !== "]") out += c
+    } else out += c
+  }
+  return out
+}
+
+/** The `vars` of env `env` in a wrangler JSONC config ({} when the env has none). */
+export const envVars = (jsonc: string, env: string): Record<string, unknown> => {
+  const doc = JSON.parse(stripJsonc(jsonc)) as { env?: Record<string, { vars?: Record<string, unknown> }> }
+  const section = doc.env?.[env]
+  if (!section) throw new Error(`no env ${env} in the config`)
+  return section.vars ?? {}
+}
+
+export interface Binding {
+  readonly type?: string
+  readonly name?: string
+  readonly text?: unknown
+  readonly json?: unknown
+}
+
+/** JSON with sorted object keys, so two equal values always print the same. */
+const canonical = (v: unknown): string =>
+  v !== null && typeof v === "object"
+    ? Array.isArray(v)
+      ? `[${v.map(canonical).join(",")}]`
+      : `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`
+    : JSON.stringify(v)
+
+/**
+ * The vars a deploy of `config` would change on a version with `bindings`: wrangler uploads a
+ * string var as `plain_text` and any other value as `json`; secrets and other bindings are ignored.
+ */
+export const diffVars = (config: Record<string, unknown>, bindings: ReadonlyArray<Binding>) => {
+  const deployed = new Map<string, string>()
+  for (const b of bindings) {
+    if (typeof b.name !== "string") continue
+    if (b.type === "plain_text") deployed.set(b.name, canonical(String(b.text ?? "")))
+    else if (b.type === "json") deployed.set(b.name, `json:${canonical(b.json)}`)
+  }
+  const want = new Map(Object.entries(config).map(([k, v]) => [k, typeof v === "string" ? canonical(v) : `json:${canonical(v)}`] as const))
+  const added = [...want.keys()].filter((k) => !deployed.has(k)).sort()
+  const removed = [...deployed.keys()].filter((k) => !want.has(k)).sort()
+  const changed = [...want.keys()].filter((k) => deployed.has(k) && deployed.get(k) !== want.get(k)).sort()
+  return { added, removed, changed, compared: want.size }
+}
+
+/** The JSON object in wrangler's output (a banner or warning line may precede it). */
+const parseJsonOut = (out: string): unknown => {
+  try {
+    return JSON.parse(out)
+  } catch {
+    const at = out.indexOf("{")
+    return at < 0 ? undefined : JSON.parse(out.slice(at))
+  }
 }
 
 const wranglerArgs = (bin: string, args: ReadonlyArray<string>) => (bin.endsWith(".ts") || bin.endsWith(".js") ? { cmd: "bun", args: [bin, ...args] } : { cmd: bin, args: [...args] })
@@ -186,6 +277,52 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
     const after = await smoke(url, routes.filter((r) => !r.sources), attempts, interval)
     for (const r of after) io.log(`after rollback: ${r.ok ? "PASS" : "FAIL"} ${r.route.name}: ${r.last}`)
     if (after.some((r) => !r.ok)) io.error(`${worker} is still red after the rollback: fix forward now`)
+    return 1
+  }
+  if (command === "vars") {
+    const configFile = value("--config")
+    const env = value("--env")
+    if (!configFile || !env) {
+      io.error("vars needs --config and --env")
+      return 2
+    }
+    let want: Record<string, unknown>
+    try {
+      want = envVars(readFileSync(configFile, "utf8"), env)
+    } catch (e) {
+      io.error(`cannot read env.${env}.vars from ${configFile}: ${(e as Error).message}; deploy refused`)
+      return 1
+    }
+    const status = runWrangler(wrangler, ["deployments", "status", "--name", worker, "--json"])
+    let id: string | undefined
+    try {
+      id = status.status === 0 ? currentVersion(status.stdout) : undefined
+    } catch (e) {
+      io.error(`${(e as Error).message}; deploy refused`)
+      return 1
+    }
+    if (!id) {
+      io.error(`cannot name the version serving ${worker} (wrangler deployments status exit ${status.status}: ${(status.stderr || status.stdout).trim().slice(0, 300)}), so its vars cannot be compared; deploy refused`)
+      return 1
+    }
+    const view = runWrangler(wrangler, ["versions", "view", id, "--name", worker, "--json"])
+    let bindings: unknown
+    try {
+      bindings = view.status === 0 ? (parseJsonOut(view.stdout) as { resources?: { bindings?: unknown } } | undefined)?.resources?.bindings : undefined
+    } catch {
+      bindings = undefined
+    }
+    if (!Array.isArray(bindings)) {
+      io.error(`version ${id} of ${worker} answered no bindings (wrangler versions view exit ${view.status}: ${(view.stderr || "").trim().slice(0, 300)}); deploy refused`)
+      return 1
+    }
+    const d = diffVars(want, bindings as Array<Binding>)
+    if (d.added.length + d.removed.length + d.changed.length === 0) {
+      io.log(`vars unchanged: all ${d.compared} vars of env.${env} in ${configFile} match ${worker} version ${id} (secrets not compared, not sent)`)
+      return 0
+    }
+    const parts = [d.added.length ? `added: ${d.added.join(", ")}` : "", d.removed.length ? `removed: ${d.removed.join(", ")}` : "", d.changed.length ? `changed: ${d.changed.join(", ")}` : ""].filter(Boolean)
+    io.error(`vars drift between ${configFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}). This deploy ships code only, so it is refused; reconcile the vars with their owner first`)
     return 1
   }
   io.error(`unknown command ${JSON.stringify(command)}`)
