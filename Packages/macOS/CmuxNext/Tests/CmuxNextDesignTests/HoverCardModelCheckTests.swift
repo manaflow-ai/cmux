@@ -21,7 +21,8 @@ import Testing
     static let targets = [
         HoverTarget(id: HoverTargetID("tab:a"), window: 1, delay: .milliseconds(300)),
         HoverTarget(id: HoverTargetID("tab:b"), window: 1, delay: .milliseconds(800)),
-        HoverTarget(id: HoverTargetID("ws:c"), window: 2, delay: .milliseconds(600)),
+        // The workspace card shows on its first hit (no delay).
+        HoverTarget(id: HoverTargetID("ws:c"), window: 2, delay: .zero),
     ]
 
     /// Symbolic events; deadlines resolve against the state they hit.
@@ -136,6 +137,7 @@ import Testing
         case .pending(let t, let token): "pending \(t.id) \(rel(token))"
         case .shown(let t): "shown \(t.id)"
         case .pinned(let t, let token): "pinned \(t.id) \(rel(token))"
+        case .leaving(let t, let token): "leaving \(t.id) \(rel(token))"
         case .grace(let token): "grace \(rel(token))"
         }
         return Key(phase: phase, suppressions: m.suppressions, lastHit: m.lastHit?.id, quiet: m.quiet,
