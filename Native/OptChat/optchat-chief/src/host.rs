@@ -922,7 +922,7 @@ fn start(
                 )
                 .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
             Engine::Native(Arc::new(
-                Native::new(native_config, Arc::new(model), optchat_host::RETRY)
+                Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
                     .with_trace(trace.clone())
                     .with_cache_ttl(native_ttl),
             ))

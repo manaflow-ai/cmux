@@ -98,14 +98,19 @@ impl ChatModel for HttpModel {
         let response = match request.send_json(body) {
             Ok(r) => r,
             Err(ureq::Error::Status(code, r)) => {
+                let wait = r.header("retry-after").and_then(retry_after);
                 let text = r.into_string().unwrap_or_default();
-                return Err(CallError::new(
+                let error = CallError::new(
                     format!(
                         "HTTP {code}: {}",
                         optchat_core::cut_at_bytes(&text, ERROR_BODY)
                     ),
                     code == 429 || code >= 500,
-                ));
+                );
+                return Err(match wait {
+                    Some(wait) => error.with_retry_after(wait),
+                    None => error,
+                });
             }
             Err(e) => return Err(CallError::new(e.to_string(), true)),
         };
@@ -124,5 +129,25 @@ impl ChatModel for HttpModel {
         };
         // A stream cut by the network or an overload event is transient.
         message.map_err(|message| CallError::new(message, true))
+    }
+}
+
+/// A `retry-after` header in seconds (the API's form); an HTTP date or
+/// anything else is ignored (the caller's own backoff applies).
+pub fn retry_after(value: &str) -> Option<Duration> {
+    let secs: f64 = value.trim().parse().ok()?;
+    (secs.is_finite() && secs >= 0.0).then(|| Duration::from_secs_f64(secs.min(3_600.0)))
+}
+
+#[cfg(test)]
+mod retry_after_tests {
+    use super::*;
+
+    #[test]
+    fn retry_after_reads_seconds() {
+        assert_eq!(retry_after("7"), Some(Duration::from_secs(7)));
+        assert_eq!(retry_after(" 0.5 "), Some(Duration::from_millis(500)));
+        assert_eq!(retry_after("Wed, 21 Oct 2026 07:28:00 GMT"), None);
+        assert_eq!(retry_after("-1"), None);
     }
 }
