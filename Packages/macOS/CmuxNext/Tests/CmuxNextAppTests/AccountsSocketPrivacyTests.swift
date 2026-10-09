@@ -81,23 +81,30 @@ import Testing
 
     /// App reads are redacted: account data reaches apps only through the
     /// first-party CodeRouter app's ops, which the Mac serves over the app
-    /// supervisor's provider channel and which use the redacting socket
-    /// methods (acct_ handles + short labels; CodeRouterAppOpsTests covers the
-    /// rows). Every other account op is refused, and no refusal names an email.
+    /// supervisor's provider channel. Even when a control method returns an
+    /// email, the routed answer carries none; every other account op is
+    /// refused, and no refusal names an email.
     @Test func appReadsAreRedactedOrRefused() async throws {
-        let identity = ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test", processID: getpid())
-        let router = ControlRouter(identity: identity, executor: Executor())
-        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
-            try await router.appControl(method, params)
-        }
+        let leaky: CmuxNextSettings.JSONValue = [
+            "signed_in": true,
+            "providers": [["account": "acct_1", "label": "ada.lovelace@example.com"]],
+            "accounts": [["account": "acct_1", "email": "ada.lovelace@example.com", "ada@example.org": "key"]],
+        ]
+        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { _, _ in leaky }
         let capabilities = AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control)])
-        for (index, op) in ["coderouter.detect", "coderouter.accounts.list", "accounts.list", "auth.status"].enumerated() {
-            let call = try #require(AppsProviderCall(["request_id": .number(Double(index + 1)), "app": "cmux/test", "op": .string(op),
+        for (index, op) in ["coderouter.detect", "coderouter.accounts.list", "coderouter.usage.get"].enumerated() {
+            let call = try #require(AppsProviderCall(["request_id": .number(Double(index + 1)), "app": "cmux/coderouter", "op": .string(op),
                                                       "params": .object([:]), "origin": "script"]))
             let (ok, body) = await call.answer(with: capabilities)
-            #expect(!ok, "\(op) returned \(body)")
-            let code = body["code"]?.stringValue ?? ""
-            #expect(["operation.unsupported", "method_not_found"].contains(code), "\(op): \(code)")
+            #expect(ok, "\(op)")
+            let text = String(decoding: try JSONEncoder().encode(body), as: UTF8.self)
+            #expect(PrivacyScan.emails(in: text).isEmpty, "\(op) leaked: \(text)")
+        }
+        for (index, op) in ["accounts.list", "auth.status"].enumerated() {
+            let call = try #require(AppsProviderCall(["request_id": .number(Double(index + 10)), "app": "cmux/test", "op": .string(op),
+                                                      "params": .object([:]), "origin": "script"]))
+            let (ok, body) = await call.answer(with: capabilities)
+            #expect(!ok && body["code"] == "operation.unsupported", "\(op): \(body)")
             let message: String = body["message"]?.stringValue ?? ""
             #expect(PrivacyScan.emails(in: message).isEmpty)
         }

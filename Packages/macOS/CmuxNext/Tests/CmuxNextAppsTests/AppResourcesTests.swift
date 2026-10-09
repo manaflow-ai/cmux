@@ -15,30 +15,31 @@ struct AppResourcesTests {
             calls.withLock { $0.append(("samples", Thread.isMainThread)) }
             return ["test/recorded": URL(fileURLWithPath: "/tmp/recorded", isDirectory: true)]
         }
-
-        func warmScopeTable() { calls.withLock { $0.append(("scopes", Thread.isMainThread)) } }
     }
 
     @Test func preloadFromTheMainActorRunsTheLoaderOffIt() async {
         let loader = RecordingLoader()
         await AppPlatformResources.preload(using: loader)
         let calls = loader.calls.withLock { $0 }
-        #expect(calls.map(\.name) == ["scopes", "samples"])
+        #expect(calls.map(\.name) == ["samples"])
         #expect(calls.allSatisfy { !$0.onMain })
         #expect(AppBundleLocator.directory(for: "test/recorded")?.path == "/tmp/recorded")
     }
 
-    @Test func theStoreOpensFromTheMirrorWithoutTheLoader() async throws {
-        let (client, _) = await TestClient.make()
-        let loader = RecordingLoader()
-        // No preload: building and showing the store must not need one.
+    /// The store builds its listings from the mirror alone: icons come from
+    /// the supervisor's `bundle_dir`, and no bundled-resource lookup runs.
+    @Test func theStoreOpensFromTheMirrorAlone() async throws {
+        let manifest = try #require(AppManifest(json: ["id": "test/mirror-only", "name": "Mirror", "version": "1.0.0"]))
+        var record = AppRecord(manifest: manifest, tier: .unverified, installed: false, source: .user)
+        record.bundleDirectory = URL(fileURLWithPath: "/tmp/supervisor-bundle", isDirectory: true)
+        let client = AppsClient(transport: FakeAppsTransport(records: [record]))
+        client.start()
+        #expect(await eventually { await MainActor.run { client.app("test/mirror-only") != nil } })
+        #expect(AppBundleLocator.directory(for: "test/mirror-only") == nil, "nothing preloaded this app")
         let pages = AppStorePages { AppStoreModel(client: client) }
         _ = pages.makeView(for: "a")
-        pages.present("a", appID: "cmux/github-prs", installed: false)
-        let model = try #require(pages.model(for: "a"))
-        #expect(model.selectedListing?.id == "cmux/github-prs")
-        #expect(!model.listings.isEmpty)
-        #expect(AppBundleLocator.directory(for: "never/loaded") == nil)
-        #expect(loader.calls.withLock { $0.isEmpty })
+        pages.present("a", appID: "test/mirror-only", installed: false)
+        let listing = try #require(pages.model(for: "a")?.selectedListing)
+        #expect(listing.bundleDirectory?.path == "/tmp/supervisor-bundle")
     }
 }

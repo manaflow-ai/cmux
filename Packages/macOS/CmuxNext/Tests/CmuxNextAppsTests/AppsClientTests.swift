@@ -57,18 +57,28 @@ struct AppsClientTests {
         #expect(transport.mounted.isEmpty)
     }
 
-    @Test func hideAndUnhideAcceptAnyOriginButInstallNeedsAUser() async throws {
+    /// The supervisor decides which origins may change what (D55: hide
+    /// needs user); the client sends the caller's origin and shows the
+    /// refusal. It has no origin rule of its own.
+    @Test func theSupervisorDecidesOriginsAndTheClientShowsItsRefusal() async throws {
         let (client, transport) = await TestClient.make()
         let id = "cmux/agent-status"
-        try await client.set(id, .hide(true), origin: .mcp)
-        #expect(client.app(id)?.hidden == true)
-        #expect(client.app(id)?.isVisible == false)
-        #expect(client.app(id)?.isActive == true)
-        try await client.set(id, .hide(false), origin: .cli)
+        await #expect(throws: AppsClientError.refused(AppsTransportError(code: "apps.origin_forbidden", message: "needs a user gesture"))) {
+            try await client.set(id, .hide(true), origin: .mcp)
+        }
         #expect(client.app(id)?.hidden == false)
-        await #expect(throws: AppsClientError.needsUserOrigin) { try await client.set("cmux/github-prs", .install(true), origin: .mcp) }
-        await #expect(throws: AppsClientError.needsUserOrigin) { try await client.set(id, .grant("agent:read", false), origin: .script) }
-        #expect(transport.seenKeys.count == 2)
+        #expect(client.rejections[id] == "needs a user gesture")
+        try await client.set(id, .hide(true), origin: .user)
+        #expect(client.app(id)?.hidden == true && client.app(id)?.isVisible == false && client.app(id)?.isActive == true)
+        #expect(transport.seenKeys.count == 1, "the supervisor committed only the user change")
+    }
+
+    /// `apps-run` carries the caller's origin (a CLI run is not a user gesture).
+    @Test func aRunCarriesTheCallersOrigin() async throws {
+        let (client, transport) = await TestClient.make()
+        _ = try? await client.run(app: "cmux/coderouter", op: "coderouter.app.open", origin: .cli)
+        _ = try? await client.run(app: "cmux/coderouter", op: "coderouter.app.open", origin: .user)
+        #expect(transport.runs.map(\.origin) == [.cli, .user])
     }
 
     @Test func aMountRendersTheSceneStreamAndSendsUserEvents() async throws {
@@ -121,25 +131,27 @@ struct AppsClientTests {
         #expect(transport.listCalls == 1)
     }
 
-    @Test func anIntentInFlightAcrossADisconnectIsResentNotRejected() async throws {
+    /// Nothing queues: an intent whose connection drops before the reply
+    /// leaves the log (no rejection, no resend); the next connection's list
+    /// shows what the supervisor committed.
+    @Test func anIntentInFlightAcrossADisconnectIsDroppedNotQueued() async throws {
         let (client, transport) = await TestClient.make()
         transport.holdsReplies = true
         let id = "cmux/agent-status"
         // task-owner: test hide held at the fake supervisor while the connection drops
-        let change = Task { try await client.set(id, .hide(true), origin: .mcp) }
+        let change = Task { try await client.set(id, .hide(true), origin: .user) }
         #expect(await eventually { await MainActor.run { client.projection.isPending(id) } })
         transport.setAvailable(false)
         transport.releaseReplies()
         await #expect(throws: AppsClientError.unavailable(.notConnected)) { try await change.value }
-        #expect(client.projection.isPending(id))
-        #expect(client.app(id)?.hidden == true)
+        #expect(!client.projection.isPending(id))
+        #expect(client.app(id)?.hidden == false)
         #expect(client.rejections[id] == nil)
         transport.holdsReplies = false
         transport.setAvailable(true)
-        #expect(await eventually { await MainActor.run { !client.projection.isPending(id) } })
-        #expect(client.app(id)?.hidden == true)
-        #expect(transport.records.first { $0.id == id }?.hidden == true)
-        #expect(transport.seenKeys.count == 1)
+        #expect(await eventually { await MainActor.run { client.projection.revision == transport.revision } })
+        #expect(client.app(id)?.hidden == false)
+        #expect(transport.seenKeys.isEmpty, "nothing was resent")
     }
 
     @Test func aHostRestartResetsTheMountsTree() async throws {
