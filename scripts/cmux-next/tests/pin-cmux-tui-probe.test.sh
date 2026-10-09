@@ -198,4 +198,42 @@ grep -q "cmux-tui-pin-${head2_sha:0:12}.*$head2_sha" "$TMP/posts.log" || fail "(
 [[ "$(posts dispatches)" == 1 ]] || fail "(c) one dispatch: $(cat "$TMP/posts.log")"
 unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
 
+
+# (d) A pull request that changes no cmux-tui or ghostty-next path is not
+# blocked by a merge tree nothing publishes (#16614, #17551, #18605): the base
+# tip moved to a new tree whose artifacts run was cancelled. With
+# CMUX_TUI_TREE_BASE_FALLBACK=1 (path routing sets it for such a PR) the probe
+# reuses the newest published tree in the merge's history (tree_fetch_key=),
+# and the tree jobs fetch it through CMUX_TUI_TREE_KEY. Without a published
+# tree it skips the tree jobs instead of failing. A PR that changes cmux-tui
+# keeps the hard check (cases a-c: the fallback is off).
+published_key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key --rev "$sha")
+[[ -d "$TMP/cdn/cmux-tui/tree/$published_key" ]] || { echo "fixture: the app commit's tree is not published" >&2; exit 1; }
+printf '{"commit":"%s"}\n' "$sha" > "$TMP/cdn/cmux-tui/tree/$published_key/source.json"
+mkdir -p "$TMP/cdn/cmux-tui/$sha"
+printf '{"binaries":{"cmux-tui-aarch64-apple-darwin":"%064d"}}\n' 0 > "$TMP/cdn/cmux-tui/$sha/manifest.json"
+git_q -C "$TMP/src" checkout main
+echo moved > "$TMP/src/cmux-tui/c"
+git_q -C "$TMP/src" add -A
+git_q -C "$TMP/src" commit -m base-moved
+git_q -C "$TMP/src" checkout -b swift-only
+echo swift > "$TMP/src/app2.swift"
+git_q -C "$TMP/src" add -A
+git_q -C "$TMP/src" commit -m swift-only
+git_q -C "$TMP/src" checkout main
+git_q -C "$TMP/src" merge --no-ff -m merge-swift-only swift-only
+key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
+[[ "$key" != "$published_key" ]] || { echo "fixture: the moved base still has the published tree" >&2; exit 1; }
+set_runs "$cancelled"
+expect "pull request, no cmux-tui change, fallback off" pull_request failed "cancelled"
+export CMUX_TUI_TREE_BASE_FALLBACK=1
+expect "pull request, no cmux-tui change, base tree reused" pull_request ready "changes no cmux-tui"
+grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree jobs must fetch the newest published tree $published_key: $(cat "$TMP/gh-output")"
+fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
+[[ "$fetched" == */"$published_key"/cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
+mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
+expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
+mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
+unset CMUX_TUI_TREE_BASE_FALLBACK
+
 printf 'pin-cmux-tui probe tests: ok\n'
