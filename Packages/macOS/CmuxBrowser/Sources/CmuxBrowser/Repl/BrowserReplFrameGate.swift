@@ -338,8 +338,14 @@ extension BrowserReplDomainPolicy {
 /// in another document.
 @MainActor
 public final class BrowserReplFrameGate {
-    /// The session's policy; only the native session sets it.
-    public var policy = BrowserReplDomainPolicy()
+    /// The session's policy; only the native session sets it. Each change
+    /// counts in ``policyGeneration``.
+    public var policy = BrowserReplDomainPolicy() {
+        didSet { policyGeneration &+= 1 }
+    }
+    /// How many times ``policy`` was set: a guarded input that started under
+    /// an earlier one sends no further native event (``checkTab(in:)``).
+    public private(set) var policyGeneration = 0
     /// Whom the gate judges for in one web view: the session, its
     /// directories and the tab as the authority sees it.
     public struct Scope: Sendable, Equatable {
@@ -409,7 +415,8 @@ public final class BrowserReplFrameGate {
     /// A page the authority refuses fails with its refusal (`blocked`), and
     /// a main frame of another origin than when the input started with
     /// `stale`: the input's frame checks and guards judged the old document
-    /// only. WebKit names a main-frame navigation's page from its start,
+    /// only. So is a step after the session set its domain policy again
+    /// (``policyGeneration``): the guards judged the frames under the old one. WebKit names a main-frame navigation's page from its start,
     /// before it commits.
     public func checkTab(in webView: WKWebView) throws {
         if Task.isCancelled {
@@ -420,10 +427,19 @@ public final class BrowserReplFrameGate {
             throw BrowserReplDriverError(code: refusal.code, message: refusal.message)
         }
         guard let started = inputMainFrames[ObjectIdentifier(webView)], !started.isEmpty else { return }
+        // The input's frame checks and guards judged the frames under the
+        // policy it started with; one set since may block a frame they let
+        // through (a narrowed or locked policy), so nothing more is sent.
+        if started.values.contains(where: { $0.policyGeneration != policyGeneration }) {
+            throw BrowserReplDriverError(
+                code: "stale",
+                message: "the session's domain policy changed while the input was in flight, so nothing more was sent (a drag ended with no drop); run the input again"
+            )
+        }
         let live = webView.url
         try authority.verdict(BrowserReplAccess(.tabPage(live?.absoluteString ?? ""), in: tab)).check()
         let origin = Self.mainFrameOrigin(live)
-        if started.values.contains(where: { $0 != origin }) {
+        if started.values.contains(where: { $0.origin != origin }) {
             throw BrowserReplDriverError(
                 code: "stale",
                 message: "the tab's main frame navigated to \(origin.isEmpty ? "another page" : origin) while the input was in flight, so nothing more was sent (the drag ended with no drop); run the input again on the new page"
@@ -519,9 +535,9 @@ public final class BrowserReplFrameGate {
     private let prober: BrowserReplScriptProbe
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
-    /// The main frame's origin when each guarded input in flight started,
-    /// by web view and input (``checkTab(in:)``).
-    private var inputMainFrames: [ObjectIdentifier: [UUID: String]] = [:]
+    /// The main frame's origin and the ``policyGeneration`` when each
+    /// guarded input in flight started, by web view and input (``checkTab(in:)``).
+    private var inputMainFrames: [ObjectIdentifier: [UUID: (origin: String, policyGeneration: Int)]] = [:]
     /// Holds back child-frame loads while guarded input or a capture is in
     /// flight; the navigation delegate honors it.
     public let loadHold: BrowserReplSubframeLoadHold
@@ -598,6 +614,13 @@ public final class BrowserReplFrameGate {
             // The tab may have moved out of the session's workspace while
             // the script ran: its result is not handed on.
             try checkTab(in: webView)
+            // Nor when the session set a policy meanwhile that blocks the
+            // frame, or a frame its script could reach: the result is judged
+            // under the policy in force when it is handed on.
+            if isActive(in: webView) {
+                let now = try await authorize(frame, in: webView)
+                if contentWorld != world, let now { try await checkReach(from: now, frame: frame, in: webView) }
+            }
             return value
         }
         let key = key(frame, webView)
@@ -822,7 +845,7 @@ public final class BrowserReplFrameGate {
         guard isActive(in: webView) else { return try await input() }
         let key = ObjectIdentifier(webView)
         let token = UUID()
-        inputMainFrames[key, default: [:]][token] = Self.mainFrameOrigin(webView.url)
+        inputMainFrames[key, default: [:]][token] = (Self.mainFrameOrigin(webView.url), policyGeneration)
         defer {
             inputMainFrames[key]?[token] = nil
             if inputMainFrames[key]?.isEmpty == true { inputMainFrames[key] = nil }

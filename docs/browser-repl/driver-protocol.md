@@ -985,8 +985,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   page first, which WebKit names from the start of a navigation, before it
   commits: a page the authority refuses fails the input with `blocked`, and
   a main frame of another origin than when the input started (which the
-  input's checks and guards never judged) with `stale`; an `input.drag`
-  then ends with `dragend` and no drop. Then the guard comes off (an element the
+  input's checks and guards never judged) with `stale`, and so does a step
+  after the session set its domain policy again while the input was in
+  flight (its guards judged the frames under the old policy); an `input.drag`
+  then ends with `dragend` and no drop. A frame script's result is judged
+  under the policy in force when it returns, also when the session had no
+  policy when the script started. Then the guard comes off (an element the
   page made inert itself stays inert), and the call fails with `blocked`
   when the page changed a guarded element's `inert` attribute meanwhile.
   Residual: `inert` is an attribute of the page's DOM, so the page sees it.
