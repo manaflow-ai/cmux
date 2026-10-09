@@ -125,9 +125,19 @@ nonisolated struct HomeBrainHost: Sendable {
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+        // A live host reads the token file at each connect: keep its binding.
+        if runningHostHasToken { return .reusedRunningHost }
         let token = try await mintToken()
         await launch(agentToken: token)
         return .launched
+    }
+
+    /// Whether a host holds this home's lock (`state/host.lock`) and the
+    /// token file it reconnects with is there.
+    var runningHostHasToken: Bool {
+        // concurrency-allow: a small local file read, off the main actor in `start`
+        let token = (try? String(contentsOf: tokenFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !token.isEmpty && ChiefMigration.lockHeld(at: muxHome.appendingPathComponent("state/host.lock"))
     }
 
     @concurrent func launch(agentToken: String) async {

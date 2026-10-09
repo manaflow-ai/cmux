@@ -158,7 +158,7 @@ final class HomeService {
 
     /// Home opened in a window: start the Chief home's brain host once per
     /// launch. Its lock keeps one host per home, so a host another build
-    /// started keeps running and this launch's exits at once.
+    /// started keeps running, with its token: no new token revokes its binding.
     func homeDidOpen() {
         if !homeWasOpened {
             homeWasOpened = true
