@@ -51,13 +51,20 @@ final class CloudSheetWindow {
         // Some AppKit versions reset a newly attached sheet to a 1×0 content
         // rect while the host is inactive. Restore the measured first layout
         // before applying any later geometry report.
-        restoreInitialContentSizeIfNeeded()
+        let current = window.contentRect(forFrameRect: window.frame).size
+        if (current.width <= 1 || current.height <= 1), initialContentSize.width > 0, initialContentSize.height > 0 {
+            window.setContentSize(initialContentSize)
+        }
         applyPendingContentSize()
-        // The reset can happen on the next run-loop turn, after beginSheet
-        // returns. Reapply after AppKit has attached the sheet as well.
+        // AppKit may perform one more sheet-host layout on the next turn and
+        // reset the frame after beginSheet returns. Reapply after that pass so
+        // the first geometry report has a usable window to measure against.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.restoreInitialContentSizeIfNeeded()
+            let current = self.window.contentRect(forFrameRect: self.window.frame).size
+            if (current.width <= 1 || current.height <= 1), self.initialContentSize.width > 0, self.initialContentSize.height > 0 {
+                self.window.setContentSize(self.initialContentSize)
+            }
             self.applyPendingContentSize()
         }
     }
@@ -69,11 +76,6 @@ final class CloudSheetWindow {
         window.makeKeyAndOrderFront(nil)
         isOpening = false
         applyPendingContentSize()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.restoreInitialContentSizeIfNeeded()
-            self.applyPendingContentSize()
-        }
     }
 
     fileprivate func contentIdealSizeChanged(_ size: NSSize) {
@@ -100,13 +102,6 @@ final class CloudSheetWindow {
         frame.origin.x = oldFrame.midX - frame.width / 2
         frame.origin.y = oldFrame.maxY - frame.height
         window.setFrame(frame, display: window.isVisible, animate: false)
-    }
-
-    private func restoreInitialContentSizeIfNeeded() {
-        guard initialContentSize.width > 1, initialContentSize.height > 1 else { return }
-        let current = window.contentRect(forFrameRect: window.frame).size
-        guard current.width <= 1 || current.height <= 1 else { return }
-        window.setContentSize(initialContentSize)
     }
 
     private static func rounded(_ size: NSSize) -> NSSize {
