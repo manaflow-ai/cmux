@@ -54,6 +54,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics m: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
+        if o.hidesWorkspaces { return .empty }
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
