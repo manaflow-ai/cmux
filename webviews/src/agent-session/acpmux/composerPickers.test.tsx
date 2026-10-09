@@ -649,6 +649,19 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
   });
 
+  // Dogfood 2026-10-08 ("this button does not work yet"): before the first usage update the
+  // ring opened "0% used" over an empty bar. It keeps its place (no shift when usage arrives) but
+  // is disabled until there is something to show.
+  test("before its first usage the context ring holds its place but opens nothing", async () => {
+    await render(snapshot());
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    expect(ring().disabled).toBe(true);
+    await act(async () => ring().click());
+    expect(doc.querySelector(".acpmux-context-pop")).toBeNull();
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }));
+    expect(ring().disabled).toBe(false);
+  });
+
   test("a click on the context ring opens the usage details and Compact", async () => {
     let compacted = 0;
     const withCompact = (summary: Parameters<typeof snapshot>[0], isWorking = false) => ({
@@ -685,12 +698,10 @@ describe("acpmux composer pickers", () => {
     await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
     expect(compacted).toBe(1);
     expect(pop()).toBeNull();
-    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
-    await render(snapshot({}), { onCompact });
+    // Without the agent's compact command there is no Compact.
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }), { onCompact });
     await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
-    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
-    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
   });
 });
 
