@@ -451,6 +451,7 @@
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
+              "agentPane.showContextUsage",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -16536,6 +16537,55 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.showContextUsage.help",
+        "text" : "The ring beside the model that fills as the chat uses its context window."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.showContextUsage",
+      "keywords" : [
+        "context",
+        "usage",
+        "tokens",
+        "window",
+        "ring",
+        "composer",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "showContextUsage"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.agentPane.showContextUsage",
+        "text" : "Show Context Usage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
         "cmux-browser"
       ],
       "default" : true,
@@ -17304,7 +17354,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "08bda11786ad5981022f57f2e2e93a67f34d71401a41b7ffe79d633a2dae17b9",
+  "schema_hash" : "841ca976d1158e4cd474dc7a88aff575d5179efd7ab60823151a7c810325774d",
   "sections" : [
     {
       "id" : "general",
