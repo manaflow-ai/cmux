@@ -253,7 +253,16 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceProgressSet
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
-        | Op::WorkspaceStatusSet => Access::Denied(Denied::NotAllowed),
+        | Op::WorkspaceStatusSet
+        // A page never reads or writes the person's conversations.
+        | Op::ConversationList
+        | Op::ConversationGet
+        | Op::ConversationHistory
+        | Op::ConversationSearch
+        | Op::ConversationSend
+        | Op::ConversationTyping
+        | Op::ConversationDraft
+        | Op::ConversationEvents => Access::Denied(Denied::NotAllowed),
     }
 }
 

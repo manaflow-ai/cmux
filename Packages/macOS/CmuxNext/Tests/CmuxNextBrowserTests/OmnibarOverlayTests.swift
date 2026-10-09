@@ -58,4 +58,43 @@ import Testing
         #expect(handle.isDismissed)
         #expect(bar.debugCard == nil)
     }
+
+    /// The card follows the bar when the chrome lays out again while it is
+    /// open: a window resize, or a toolbar render that lands after the rows
+    /// (#17601, where the bar had moved 12 pt left and grown 32 pt by then).
+    @Test func theCardFollowsTheBarWhenTheChromeLaysOutAgain() async throws {
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let store = InMemoryBrowserHistory()
+        for _ in 0..<5 { store.recordVisit(url: URL(string: "https://github.com/")!, title: "GitHub", at: Date()) }
+        let chrome = BrowserChromeView(tab: tab, suggestionEngine: OmniboxSuggestionEngine(history: store))
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 900, height: 320), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = chrome
+        chrome.layoutSubtreeIfNeeded()
+        defer {
+            chrome.addressBar.dismissRows()
+            window.orderOut(nil)
+        }
+        let bar = chrome.addressBar
+        await bar.suggestionEngine.historySettled()
+        bar.debugType("git")
+        while let query = bar.controller.pendingQuery {
+            await query.value
+            if bar.controller.pendingQuery == query { break }
+        }
+        #expect(bar.isShowingSuggestions)
+        let before = bar.convert(bar.bounds, to: nil)
+
+        window.setContentSize(NSSize(width: 1_200, height: 360))
+        chrome.layoutSubtreeIfNeeded()
+
+        let barRect = bar.convert(bar.bounds, to: nil)
+        #expect(barRect != before, "the resize moved the bar")
+        let card = bar.suggestionPanel.cardView.convert(bar.suggestionPanel.cardView.bounds, to: nil)
+        #expect(card.maxY == barRect.minY)
+        #expect(card.minX == barRect.minX - OmnibarStyle.cardSideOutset)
+        #expect(card.width == barRect.width + 2 * OmnibarStyle.cardSideOutset)
+        #expect(bar.debugCard?.isFlushUnderBar == true)
+    }
 }

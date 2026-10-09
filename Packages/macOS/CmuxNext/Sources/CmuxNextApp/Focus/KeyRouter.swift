@@ -52,7 +52,7 @@ final class KeyRouter: BrowserKeyRouting {
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancelChord() }
+            MainActor.assumeIsolated { self?.cancelChord() } // main-proof: observer on queue: .main
         }
     }
     // MARK: Tiers
@@ -116,10 +116,10 @@ final class KeyRouter: BrowserKeyRouting {
             if facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
             return facts.primaryInputReady ? .primaryInput : .deliver
         }
-        return decide(event, focus: focus, context: keyContext(for: focus, facts: facts))
+        return decide(event, focus: focus, context: keyContext(for: focus, facts: facts), facts: facts)
     }
 
-    private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext) -> Decision {
+    private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext, facts: Facts) -> Decision {
         if let candidate = candidate(for: event, context: context, focus: focus) {
             if case .ghostty = candidate.source {
                 // A terminal runs its own Ghostty keybinds (in copy mode,
@@ -130,7 +130,12 @@ final class KeyRouter: BrowserKeyRouting {
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
         }
-        return consumesBrowserOnlyChord(event, focus: focus) ? .consume : .deliver
+        guard consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
+        // On a page with its own history, Cmd-[ / Cmd-] are Go Back / Go Forward (history.md 4.2b).
+        if facts.showsPageHistory, let id = BrowserChordTable.pageHistoryAction(for: event, registry: registry) {
+            return .run(Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil)))
+        }
+        return .consume
     }
 
     // MARK: App-wide dispatch
@@ -205,7 +210,7 @@ final class KeyRouter: BrowserKeyRouting {
             return false
         }
         // 3-5.
-        let decision = decide(event, focus: focus, context: context)
+        let decision = decide(event, focus: focus, context: context, facts: facts)
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):

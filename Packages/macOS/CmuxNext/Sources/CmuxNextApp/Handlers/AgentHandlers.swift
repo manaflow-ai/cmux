@@ -60,6 +60,13 @@ enum AgentHandlers {
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
         }
+        registry.bindAgentPaneInspector { invocation in
+            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentPane)
+            }
+            view.toggleInspector()
+        }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still

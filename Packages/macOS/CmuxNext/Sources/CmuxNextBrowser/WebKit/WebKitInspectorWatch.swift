@@ -37,7 +37,7 @@ public final class WebKitInspectorWatch: NSObject {
     public func refresh() {
         read()
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { self?.read() }
+            MainActor.assumeIsolated { self?.read() } // main-proof: a CFRunLoopGetMain() block runs on the main thread
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }

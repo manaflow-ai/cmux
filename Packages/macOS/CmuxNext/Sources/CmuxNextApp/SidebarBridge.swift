@@ -29,12 +29,16 @@ final class SidebarBridge {
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
     private var seed = SidebarSeed()
+    /// The one writer of the rows: live rows plus pending edits (cx-odqn).
+    lazy var rows = SidebarRows(model: model)
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
     private var snapshotRecorder = SidebarSnapshotRecorder()
     /// Organization intents waiting for the home session's personal state.
     let organizationQueue = SidebarOrganizationQueue()
+    /// Group name editors waiting for their group, and groups made empty (cx-rcby).
+    let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
@@ -94,16 +98,19 @@ final class SidebarBridge {
             // as the rows (cx-5k3r): a space switch reaches the sidebar as one
             // change (new space and its rows together), so the sidebar runs
             // one slide, not a slide of the old rows and then a row reload.
-            for await (sections, launching, failed, profiles, active) in Observations({
+            // The band's layout comes with the rows it projects too (cx-odqn):
+            // a pinned workspace leaves the list in the turn it joins the band.
+            for await (sections, launching, failed, profiles, active, shown) in Observations({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
-                return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue))
+                return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
+                        SidebarRows.visibleLayout(layout.document))
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
-                self.show(sections, launching: launching, failed: failed)
+                self.show(sections, layout: shown, launching: launching, failed: failed)
             }
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
@@ -164,15 +171,18 @@ final class SidebarBridge {
                                                               newTabPages: services.agentTabs.pageTabs.ids,
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue))
-        show(sections, launching: launching, failed: failed)
+        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document), launching: launching, failed: failed)
     }
 
-    /// Shows `live` with loading sections filled from the seed, then saves it.
-    private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
+    /// Shows `live` with loading sections filled from the seed, and the
+    /// band's `layout` in the same turn, then saves it.
+    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
         let sections = seed.merge(live, launching: launching, failed: failed)
         model.ungroupedFirst = !usesMixedOrder
-        model.setSections(sections)
+        if model.layout != layout { model.layout = layout }
+        rows.show(sections)
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
+        groupFlow.openPendingEditor()
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
     }

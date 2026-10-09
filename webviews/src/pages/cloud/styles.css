@@ -563,7 +563,7 @@ select {
 }
 
 .cloud-sheet-backdrop {
-  background: color-mix(in srgb, CanvasText 12%, transparent);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
 }
 
 /* The shared Sheet owns the backdrop, focus trap and Escape. Keep this page's compact card. */

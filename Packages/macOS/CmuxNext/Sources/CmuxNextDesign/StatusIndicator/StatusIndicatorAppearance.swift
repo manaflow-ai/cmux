@@ -1,5 +1,6 @@
 public import AppKit
 import Observation
+import CmuxNextWakeups
 
 /// Every input that shapes how indicators look, resolved once: the
 /// `appearance.statusIndicator.*` settings plus the Debug Settings
@@ -23,11 +24,13 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var pulsePeriod: Double?
     /// The terminal font the braille style draws in (`terminal.fontFamily`).
     public var terminalFontFamily: String?
+    /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
+    public var iconSet: StatusIconSet
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
-                terminalFontFamily: String? = nil) {
+                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -39,6 +42,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.spinnerPeriod = spinnerPeriod
         self.pulsePeriod = pulsePeriod
         self.terminalFontFamily = terminalFontFamily
+        self.iconSet = iconSet
     }
 
     /// The style for a report that asked for `hint`: the Debug Settings
@@ -60,7 +64,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             animatesLoops: Motion.animatesLoops,
             spinnerPeriod: Motion.period(.spinner),
             pulsePeriod: Motion.period(.pulse),
-            terminalFontFamily: DesignSettings.shared.terminalFontFamily)
+            terminalFontFamily: DesignSettings.shared.terminalFontFamily,
+            iconSet: StatusIconSet.tunable.value)
     }
 }
 
@@ -88,14 +93,14 @@ public final class StatusIndicatorAppearance {
         let center = NSWorkspace.shared.notificationCenter
         reduceMotionObserver = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
                                                   object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
+            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) } // main-proof: observer on queue: .main
         }
         // The override (tests) is a plain static: re-read synchronously when it
         // changes, or an appearance created before the override keeps the
         // system setting's loops (a runner with Reduce Motion on shows no spinner).
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
+            MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
         }
     }
 
