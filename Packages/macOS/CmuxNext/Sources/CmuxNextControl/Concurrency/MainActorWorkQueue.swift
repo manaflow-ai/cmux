@@ -10,7 +10,9 @@ import Synchronization
 ///   client that floods the queue delays only its own requests.
 /// - Frame-budgeted: each frame drains at most `frameBudget` of work (at
 ///   least one item), then returns to the run loop so input and rendering
-///   always get the rest of the frame.
+///   always get the rest of the frame. The first request after idle runs on
+///   the next main run loop turn instead of the next display frame
+///   (`scheduleSoon`); work left after a drain waits for frames.
 /// - Deadlined: every request carries a deadline. One that expires while
 ///   queued fails with `timeout` and is dropped without running.
 public final class MainActorWorkQueue: Sendable {
@@ -163,7 +165,8 @@ public final class MainActorWorkQueue: Sendable {
             state.framePending = true
             return (nil, true)
         }
-        if schedule { scheduleDrain() }
+        // Idle until now: run on the next run loop turn, not a frame later.
+        if schedule { frameSource.scheduleSoon { [self] in drainFrame() } }
         return rejection
     }
 
