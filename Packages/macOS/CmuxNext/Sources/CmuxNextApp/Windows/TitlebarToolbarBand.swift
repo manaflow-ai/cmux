@@ -9,8 +9,9 @@ import Observation
 /// Forward. A strip under it starts its tabs after it
 /// (`TitlebarAccessoryHosting`). With the sidebar hidden the band has 0
 /// width and is clear, so only the traffic lights show (cx-uxdr, Lawrence
-/// 2026-10-08); `presence` follows the sidebar's on-screen width, frame by
-/// frame (`WindowRootView.layout`).
+/// 2026-10-08), until the pointer is over the top-left corner
+/// (`CollapsedBandReveal`, 2026-10-09); `presence` follows the larger of the
+/// two on-screen widths, frame by frame (`WindowRootView.layout`).
 final class TitlebarToolbarBand: NSView {
     let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
     /// The toggle's glyph while the sidebar shows (the default icon).
@@ -18,15 +19,15 @@ final class TitlebarToolbarBand: NSView {
     /// The toggle's glyph while the sidebar is hidden (the default icon).
     static var expandSymbol: String { SidebarToggleIcon.currentExpandSymbol }
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
-    /// hidden, in between while the sidebar's width animates. The items
-    /// close up toward the band's origin and fade with it. Fully collapsed,
-    /// the band is hidden: its 0-width buttons leave the key view loop and
-    /// the accessibility tree, and come back as soon as it grows.
+    /// hidden, in between while the sidebar's width (or the corner hover's
+    /// `CollapsedBandReveal`) animates. The items close up toward the band's
+    /// origin and fade with it. Fully collapsed, the band is clear and 0
+    /// wide but never hidden: keyboard and VoiceOver reach its buttons with
+    /// no hover, and keyboard focus on one opens the band.
     var presence: CGFloat = 1 {
         didSet {
             guard presence != oldValue else { return }
             alphaValue = presence
-            isHidden = presence == 0
             needsLayout = true
         }
     }

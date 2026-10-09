@@ -11,11 +11,24 @@ resource allowlist). Public ids are opaque (`vm_...`, `snap_...`); the
 ownership table maps them to provider ids for the caller's tenant only, so
 another tenant's resource is always 404.
 
+A service key (cx-b4h.13; Cloud Chief's is the first) has no tenant. It is
+configured in the Worker secret `CMUX_VM_SERVICE_KEYS` (JSON array of `id`,
+`sha256`, `scopes`, `labels`, optional `teams`; hashes only), names the team it
+acts for in `X-Cmux-Team-Id` on every request (401 without, 403 outside
+`teams`), and reaches only resources that carry all of its `labels`
+(`role=chief`): it creates only such VMs, every other VM or snapshot of the
+team is 404 and missing from its lists, and its Idempotency-Keys never meet the
+team's. The `ServiceMayActFor` proof (`src/proofs/service-may-act-for.ts`) is
+the only way to build its principal; audit rows and `created_by` name it as
+`service:<id>`. The parser refuses the `admin` scope and an empty label set; a
+secret that does not parse disables service keys only. A team member can label
+a VM `role=chief` to hand it to the service.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
-`TenantOwnsResource` (carries the provider id as evidence) and
-`TenantMayCreate`. Every method of the upstream client demands proofs about its
+`TenantOwnsResource` (carries the provider id as evidence),
+`TenantMayCreate` and `ServiceMayActFor`. Every method of the upstream client demands proofs about its
 exact named arguments, and the provider id is reachable only through a
 `TenantOwnsResource` proof. `test/types/proof-misuse.ts` lists calls that must
 not compile; Oxlint's gdp-ts preset (strict) bans forging proofs.

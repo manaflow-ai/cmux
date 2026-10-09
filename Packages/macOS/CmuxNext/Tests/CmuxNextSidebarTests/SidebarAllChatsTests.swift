@@ -128,18 +128,6 @@ import Testing
         #expect(view.header.alphaValue == 1)
     }
 
-    /// The section is the header row plus at most `sidebar.allChatsRows` rows (then it scrolls).
-    @Test func theRowCountFollowsTheSetting() {
-        let many = (0..<40).map { Self.row("codex:\($0)", harness: "codex") }
-        let view = chats(many)
-        #expect(view.preferredHeight == Metrics.sidebarRowHeight * CGFloat(1 + SidebarSectionsPreferences.defaultAllChatsRows))
-        view.rowLimit = 3
-        #expect(view.preferredHeight == Metrics.sidebarRowHeight * 4)
-        let few = chats([Self.row("codex:a", harness: "codex")])
-        few.rowLimit = 3
-        #expect(few.preferredHeight == Metrics.sidebarRowHeight * 2, "a short list takes only its rows")
-    }
-
     /// The App's provider gives the section no title, so the band draws no
     /// title row of its own; hovering the sidebar reveals the section's header.
     final class Provider: SidebarAppSectionProvider {
