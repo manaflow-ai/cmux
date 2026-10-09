@@ -368,3 +368,47 @@ async fn a_model_probe_runs_its_agent_outside_the_home_folder() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A client that uses a few harnesses (the Chief: `ACPMUX_PROBE_HARNESSES`)
+/// gets model probes for those only: a Claude-only Chief never starts
+/// codex-acp at daemon start.
+#[tokio::test]
+async fn the_model_probes_start_only_the_listed_harnesses() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-probe-only-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let report = |name: &str| dir.join(format!("{name}.started"));
+    let profile = |name: &str| HarnessProfile {
+        kind: Default::default(),
+        argv: vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            format!("touch '{}'; exec python3 '{fake}'", report(name).display()),
+        ],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let agents = BTreeMap::from([("used".to_owned(), profile("used")), ("unused".to_owned(), profile("unused"))]);
+    let mut cfg = Config { harnesses: agents, default_harness: Some("used".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_probe_only(Some(["used".to_owned()].into()));
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !report("used").exists() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(report("used").exists(), "the listed harness was never probed");
+    // Both probes start at once: a moment more for one that should not.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!report("unused").exists(), "a harness outside the list was started");
+    let _ = std::fs::remove_dir_all(&dir);
+}

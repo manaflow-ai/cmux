@@ -80,6 +80,16 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     }
 }
 
+/// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts (red stub).
+pub fn probe_harnesses(
+    _chief: Option<&str>,
+    _compactor: Option<&str>,
+    _sub: Option<&str>,
+    _engine: &crate::engine::EngineChoice,
+) -> String {
+    String::new()
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
