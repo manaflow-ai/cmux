@@ -550,7 +550,10 @@ fn a_turn_says_which_subagents_are_at_work_after_the_view() {
 fn pump_until(s: &mut Setup, what: &str, done: impl Fn(&Setup) -> bool) {
     let deadline = std::time::Instant::now() + WAIT;
     while !done(s) {
-        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
         if let Ok(input) = s.h.rx.recv_timeout(std::time::Duration::from_millis(20)) {
             s.h.brain.step(input);
         }
@@ -650,16 +653,25 @@ fn after_a_restart_each_report_arrives_once() {
         let old = s.h.agents.inner.lock().unwrap();
         old.events.clone()
     };
-    let Setup { h, .. } = s;
-    let owner = h.owner.clone();
-    let dir = h.dir;
-    drop(h.brain);
+    let Setup { h, spawner, .. } = s;
+    drop(spawner);
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
     let mut h = Harness::in_dir(dir, script(), owner);
     h.agents.inner.lock().unwrap().events = events;
-    h.brain.step(optchat_chief::brain::Input::from(AgentEvent::Up(vec![
-        summary("s1", "idle", sub_tags("s1", "a1")),
-        summary("s2", "idle", sub_tags("s1", "a2")),
-    ])));
+    h.brain
+        .step(optchat_chief::brain::Input::from(AgentEvent::Up(vec![
+            summary("s1", "idle", sub_tags("s1", "a1")),
+            summary("s2", "idle", sub_tags("s1", "a2")),
+        ])));
     // The conversation owner comes up too (its acpmux Up has no sessions:
     // nothing runs any more, so nothing changes).
     h.connect();

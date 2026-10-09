@@ -813,6 +813,7 @@ fn start(
     } else {
         "this Chief host has neither a cmux app nor a cloud install, so no cmux app shows this subagent".to_owned()
     };
+    let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
             chat.clone(),
@@ -834,7 +835,9 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
-        Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
+        let spawner = Arc::new(spawner);
+        sub_starter = Some(spawner.queue_starter());
+        spawner as Arc<dyn crate::tools::Orchestrator>
     });
     log(format!(
         "subagents: {}; workspaces: {}; trace: {}",
@@ -976,6 +979,7 @@ fn start(
     ))
     .with_workspaces(workspaces);
     let mut brain = brain;
+    brain.set_sub_starter(sub_starter);
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }

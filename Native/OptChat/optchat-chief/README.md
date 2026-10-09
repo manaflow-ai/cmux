@@ -132,6 +132,19 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
+- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
+  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
+  subagent starts, with the view of that moment and its task, when another
+  finishes. The queue lives in the host's memory: a host that restarts
+  reports a still-queued subagent as not started.
+- A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
+  after the view, before its new messages (never logged).
+- `chief.stop` stops the running turn and every subagent at work
+  (`session/cancel` on each; their reports come quiet) and drops the queued
+  ones; it answers `{"stopped": true, "subagents": [...]}`.
+- A subagent prompt the harness fails ends that run with `[a<N>] (failed:
+  <error>)`, never a subagent that waits forever.
+
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
 No cache marker is added to a subagent's first message: one spawn's subagents
