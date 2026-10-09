@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useId,
   useLayoutEffect,
@@ -16,7 +17,7 @@ import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
+import { compactContext, effortWords, fitsQuery, matchRank, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -41,6 +42,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     fast?: boolean;
+    contextWindow?: number;
   }[];
   unavailable?: string;
   acpmuxHarness?: string;
@@ -58,6 +60,7 @@ type ModelChoice = {
   unavailable?: string;
   efforts?: string[];
   fast?: boolean;
+  contextWindow?: number;
 };
 
 /// A harness's models, each once, newest first: the default and each family's newest models
@@ -81,6 +84,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         unavailable: model.unavailable,
         efforts: model.efforts,
         fast: model.fast,
+        ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
       },
     ];
   });
@@ -182,6 +186,20 @@ function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   );
 }
 
+/// When the catalog was last refreshed, in the viewer's language: relative within a day ("2 hours
+/// ago"), else a medium date and time.
+function refreshedAt(date: Date, language: string): string {
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) >= 24 || Number.isNaN(seconds))
+    return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  const relative = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  if (Math.abs(minutes) < 1) return relative.format(0, "minute");
+  if (Math.abs(hours) < 1) return relative.format(minutes, "minute");
+  return relative.format(hours, "hour");
+}
+
 /// The composer model picker: one harness-and-model button opens a stable two-column picker.
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
@@ -239,8 +257,11 @@ export function ModelPicker(props: ModelPickerProps) {
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
   // A typed query searches every harness; without one, the rail's tab picks the list.
   const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
-  const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
-  const searching = query.trim() !== "";
+  // The field shows every key at once; the list filters on a deferred copy, so typing never waits on
+  // a large catalog.
+  const filterQuery = useDeferredValue(query);
+  const parsed = useMemo(() => parseQuery(filterQuery, vocabulary), [filterQuery, vocabulary]);
+  const searching = filterQuery.trim() !== "";
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
@@ -257,16 +278,21 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     return owner;
   }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView]);
-  const visible = useMemo(() => [...owners.keys()], [owners]);
+  // Searching ranks by how well the name matches (exact, prefix, word start, contains); ties keep
+  // the catalog's order, so the same query always lists the same rows.
+  const visible = useMemo(() => {
+    const rows = [...owners.keys()];
+    if (!searching) return rows;
+    const rank = new Map(rows.map((model) => [model, matchRank(model, owners.get(model)?.name ?? "", parsed)]));
+    return rows
+      .map((model, index) => ({ model, index }))
+      .sort((a, b) => rank.get(a.model)! - rank.get(b.model)! || a.index - b.index)
+      .map((row) => row.model);
+  }, [owners, parsed, searching]);
   const olderCount = searching || starredView ? 0 : sectionsFor(selected).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
-  const formattedRefreshDate = refreshDate
-    ? new Intl.DateTimeFormat(currentLanguage(), {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(refreshDate))
-    : undefined;
+  const formattedRefreshDate = refreshDate ? refreshedAt(new Date(refreshDate), currentLanguage()) : undefined;
   const refreshTitle = (() => {
     const label =
       refreshStatus === "fetching"
@@ -359,6 +385,11 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     if (active >= visible.length) setActive(Math.max(visible.length - 1, 0));
   }, [active, visible.length]);
+  // Keys move the highlight; the list scrolls the least distance that keeps it in view.
+  const activeRowId = open && visible[active] ? modelRowId(visible[active].id) : undefined;
+  useEffect(() => {
+    if (activeRowId) document.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeRowId]);
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
@@ -632,12 +663,32 @@ export function ModelPicker(props: ModelPickerProps) {
                 >
                   {refreshStatus === "fetching" ? (
                     <span className="acpmux-mp-refresh-spinner" aria-hidden="true" />
+                  ) : refreshStatus === "error" ? (
+                    <span aria-hidden="true" className="text-[13px] font-semibold leading-none">
+                      !
+                    </span>
                   ) : (
                     <Icon name="action.reload" size={14} />
                   )}
                 </button>
               )}
             </div>
+            {catalogRefresh && refreshStatus === "error" && (
+              // The failure stays visible in the menu (not only in a tooltip), with its retry.
+              <output className="acpmux-mp-refresh-error flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-1.5 text-[12px] text-muted">
+                <span aria-hidden="true" className="font-semibold text-fg">
+                  !
+                </span>
+                <span className="min-w-0 flex-1 truncate">{refreshTitle}</span>
+                <button
+                  type="button"
+                  className="flex-none cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-0.5 font-[inherit] text-fg hover:bg-hover"
+                  onClick={refreshCatalog}
+                >
+                  {t("switch.retry")}
+                </button>
+              </output>
+            )}
             <PickerOptionList
               id={`${menuId}-models`}
               className="acpmux-mp-models min-h-0 flex-1 overflow-y-auto p-1.5"
@@ -694,6 +745,11 @@ export function ModelPicker(props: ModelPickerProps) {
                           {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
                             .filter(Boolean)
                             .join(" · ")}
+                        </span>
+                      )}
+                      {compactContext(model.contextWindow, currentLanguage()) && (
+                        <span className="acpmux-mp-context flex-none text-[11px] tabular-nums text-dim">
+                          {compactContext(model.contextWindow, currentLanguage())}
                         </span>
                       )}
                       {model.unavailable && <span className="flex-none text-[12px] text-dim">{unavailableText}</span>}

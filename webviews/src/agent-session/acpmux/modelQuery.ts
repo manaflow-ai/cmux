@@ -55,12 +55,26 @@ export function modelEffort(model: QueryModel, effort: string | undefined): stri
   return model.efforts?.find((value) => value.toLowerCase() === effort) ?? effort;
 }
 
-/// How well `model` matches the query's words, lower is better (stub; ranking lands next).
-export function matchRank(_model: QueryModel, _harnessName: string, _query: ParsedQuery): number {
-  return 0;
+/// How well `model` matches the query's words, lower is better: 0 the whole name, 1 a prefix of it,
+/// 2 a word inside it starts the phrase, 3 the name contains every word, 4 only its id or harness
+/// matched. Searching sorts by it (stably), so a typed "sonnet 5.5" lands on Sonnet 5.5 itself.
+export function matchRank(model: QueryModel, _harnessName: string, query: ParsedQuery): number {
+  const phrase = query.words.join(" ");
+  if (!phrase) return 0;
+  const name = model.name.toLowerCase();
+  if (name === phrase) return 0;
+  if (name.startsWith(phrase)) return 1;
+  if (new RegExp(`(^|[\\s\\-_/().])${escapeRegExp(phrase)}`).test(name)) return 2;
+  if (query.words.every((word) => name.includes(word))) return 3;
+  return 4;
 }
 
-/// A context window as a compact count ("200K", "1M") (stub; lands next).
-export function compactContext(_tokens: number | undefined, _language: string): string | undefined {
-  return undefined;
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/// A context window as a compact count in the viewer's language ("200K", "1M").
+export function compactContext(tokens: number | undefined, language: string): string | undefined {
+  if (!tokens || tokens <= 0) return undefined;
+  return new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
 }

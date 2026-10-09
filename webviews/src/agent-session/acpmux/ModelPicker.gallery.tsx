@@ -7,8 +7,8 @@ const catalog: ModelPickerProps["catalog"] = [
     id: "claude",
     name: "Claude Code",
     models: [
-      { id: "claude-opus-5-5", name: "Opus 5.5" },
-      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+      { id: "claude-opus-5-5", name: "Opus 5.5", contextWindow: 1_000_000 },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", contextWindow: 200_000 },
       { id: "claude-opus-4-1", name: "Opus 4.1" },
       { id: "claude-haiku-4-5", name: "Haiku 4.5" },
     ],
@@ -17,7 +17,7 @@ const catalog: ModelPickerProps["catalog"] = [
     id: "codex",
     name: "Codex",
     models: [
-      { id: "gpt-6.1-sol", name: "GPT-6.1-Sol" },
+      { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", contextWindow: 400_000 },
       { id: "gpt-6-astra", name: "GPT-6-Astra" },
       { id: "gpt-6-luna", name: "GPT-6-Luna" },
       { id: "daybreak-blue", name: "Daybreak Blue" },
