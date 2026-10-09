@@ -26,6 +26,10 @@ export interface RehearsalContext {
   readonly adoptThrough?: string
   readonly allowContract: ReadonlyArray<string>
   readonly by: string
+  /** A login of the owner on the target; the copy restored the same role and password. */
+  readonly ownerUrl?: string
+  /** The owner's Postgres role when it is a SQL role (no PlanetScale record). */
+  readonly ownerPgRole?: string
 }
 
 export interface RehearsalOutcome {
@@ -51,9 +55,11 @@ export const rehearseOnCopy = async (c: RehearsalContext): Promise<RehearsalOutc
     await c.provider.create(tree.database, name, tree.branches[target])
     // Act as the copy's own owner-role record (the copy restored the parent's roles), so the
     // rehearsal meets the same ownership and privileges as the real apply.
-    const owner = await c.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole)
+    const owner = c.ownerPgRole ?? (await c.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole))
     c.log(`copy ${name} lists roles: ${(await c.provider.roleNames(tree.database, name)).join(", ") || "none"}`)
-    const asOwner = await c.provider.connectRole(tree.database, name, tree.ownerRole)
+    // In order: the owner's own login rewritten for the copy, the copy's own owner-role record, the copy's default role.
+    const copyLogin = c.ownerUrl ? await c.provider.copyUrl(tree.database, name, c.ownerUrl) : undefined
+    const asOwner = copyLogin ? { url: copyLogin, release: async () => {} } : await c.provider.connectRole(tree.database, name, tree.ownerRole)
     const conn = asOwner ?? (await c.provider.connectDefault(tree.database, name))
     const sql = await c.connect(conn.url)
     try {
@@ -61,7 +67,10 @@ export const rehearseOnCopy = async (c: RehearsalContext): Promise<RehearsalOutc
         try {
           await sql.query(`SET ROLE "${owner.replace(/"/g, '""')}"`)
         } catch (e) {
-          warnings.push(`could not act as ${tree.ownerRole} (${owner}) on the copy (${(e as Error).message}); rehearsed as an admin role, so ownership errors may differ`)
+          const why = `could not act as ${tree.ownerRole} (${owner}) on the copy (${(e as Error).message})`
+          // Production must rehearse with the real ownership; elsewhere a warning.
+          if (target === "production") throw new Error(`${why}; a production rehearsal must run as the owner`)
+          warnings.push(`${why}; rehearsed as an admin role, so ownership errors may differ`)
         }
       }
       c.log(`rehearsal acts as: ${(await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u}`)

@@ -10,7 +10,7 @@ import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
 
 export interface Receipt {
-  readonly action: "rehearse" | "apply" | "adopt" | "branch-created" | "branch-deleted" | "promote" | "compat-static" | "compat-smoke"
+  readonly action: "rehearse" | "apply" | "adopt" | "branch-created" | "branch-deleted" | "promote" | "compat-static" | "compat-smoke" | "role-change"
   /** One sentence: what this run did. */
   readonly what?: string
   readonly tree: string

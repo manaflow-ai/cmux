@@ -31,6 +31,11 @@ export interface BranchProvider {
   connectRole(database: string, branch: string, roleName: string): Promise<Connection | undefined>
   /** Role names the branch lists (names only, for the rehearsal log). */
   roleNames(database: string, branch: string): Promise<Array<string>>
+  /**
+   * `parentUrl` (a login on the parent branch) rewritten for the copy `branch`: the copy restored the
+   * parent's roles and passwords, so the same role logs in as <role>.<copy branch id>.
+   */
+  copyUrl(database: string, branch: string, parentUrl: string): Promise<string | undefined>
   /** The Postgres role of an existing PlanetScale role, if the branch has one with that name (its login user name without the `.<branch id>` routing suffix). */
   roleUser(database: string, branch: string, roleName: string): Promise<string | undefined>
   delete(database: string, name: string): Promise<void>
@@ -132,6 +137,15 @@ export const pscaleProvider = (): BranchProvider => ({
     if (!id) return undefined
     const role = JSON.parse(await must(["role", "reset", database, branch, id, "--force"])) as RoleJson
     return { url: roleUrl(role), release: async () => {} }
+  },
+  async copyUrl(database, branch, parentUrl) {
+    if (!REHEARSAL_BRANCH.test(branch)) throw new Error(`refusing a copy URL for ${branch}: rehearsal branches only`)
+    const id = (JSON.parse(await must(["branch", "show", database, branch])) as { id?: string }).id
+    if (!id) return undefined
+    const u = new URL(parentUrl)
+    u.username = encodeURIComponent(`${decodeURIComponent(u.username).replace(/\.[a-z0-9]+$/, "")}.${id}`)
+    u.port = "5432"
+    return u.toString()
   },
   async roleNames(database, branch) {
     return (JSON.parse(await must(["role", "list", database, branch])) as Array<RoleJson>).flatMap((r) => (r.name ? [r.name] : []))

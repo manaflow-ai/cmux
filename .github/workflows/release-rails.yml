@@ -74,7 +74,10 @@ jobs:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           base_args=()
-          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then base_args=(--base "$BASE"); fi
+          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
+            git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$BASE" || { echo "::error title=Migration lint::cannot resolve the base $BASE; refusing to lint without it"; exit 1; }
+            base_args=(--base "$BASE")
+          fi
           bun lint.ts "${base_args[@]}"
       - name: Rails tests (scratch Postgres, fake PlanetScale, fake wrangler, fake image provider)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

@@ -49,6 +49,12 @@ export interface Deps {
   readonly error: (line: string) => void
   /** Tests only: accept URLs that are not PlanetScale branch URLs. No CLI flag sets this. */
   readonly allowScratchUrls?: boolean
+  /** The cmux-old compat gate, run inside a production step (default: compat.ts compatNow). Tests inject it. */
+  readonly compat?: (change: import("./compat.ts").Change) => Promise<Array<string>>
+  /** Tests only: the origin URL pattern a production checkout must match (default manaflow-ai/cmux). */
+  readonly landedRemote?: RegExp
+  /** The owner's Postgres role, checked directly; null: look the PlanetScale role up (default: trees.ts). */
+  readonly ownerPgRole?: string | null
 }
 
 const defaultDeps = (): Deps => ({
@@ -94,7 +100,11 @@ interface Opened {
 
 const open = async (deps: Deps, tree: Tree, target: Target, urlVar: string | undefined, access: "read" | "admin"): Promise<Opened> => {
   if (urlVar) {
-    const sql = await deps.connect(urlFrom(deps, tree, target, urlVar))
+    const url = urlFrom(deps, tree, target, urlVar)
+    // Writes hold a session advisory lock and SET LOCAL settings: a transaction-mode pooler would not keep them.
+    if (access === "admin" && (new URL(url).port === "6432" || /pooler|bouncer/i.test(new URL(url).hostname)))
+      throw new Refused(`${urlVar} points at a pooler (port 6432); session advisory locks and SET would not hold: use the direct port 5432`)
+    const sql = await deps.connect(url)
     return { sql, close: () => sql.end() }
   }
   if (access === "admin") throw new Refused("this command needs --url-env with the owner's credentials for the target")
@@ -197,7 +207,11 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
     const files = readMigrations(deps.root, tree)
     const urlVar = value("--url-env")
     const allowContract = values(rest, "--allow-contract")
+    const ownerPgRole = deps.ownerPgRole === undefined ? (tree.ownerPgRole ?? null) : deps.ownerPgRole
+    const ownerUrl = urlVar ? (() => { try { return urlFrom(deps, tree, target, urlVar) } catch { return undefined } })() : undefined
     const rehearsalOf = (wanted: Plan, setHash: string, adoptThrough?: string): RehearsalContext => ({
+      ...(ownerUrl ? { ownerUrl } : {}),
+      ...(ownerPgRole ? { ownerPgRole } : {}),
       provider: deps.provider,
       connect: deps.connect,
       root: deps.root,
@@ -267,14 +281,14 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
 
       case "apply":
         return await withLocalLock(dir, `apply-${tree.name}-${target}`, async () => {
-          const base = target === "production" ? productionCheckout(deps.root, tree, deps.env) : undefined
+          const base = target === "production" ? productionCheckout(deps.root, tree, deps.landedRemote) : undefined
           await lintOrRefuse(deps, tree, base)
           if (!urlVar) throw new Refused("apply needs --url-env with the owner's credentials for the target")
           const db = await open(deps, tree, target, urlVar, "admin")
           try {
             // The lock comes first: the plan, the rehearsal and the apply all see one state.
             return await withLock(db.sql, tree, async () => {
-              await requireOwner(deps.provider, tree, target, db.sql, deps.log)
+              await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole)
               const warnings: Array<string> = []
               const broad = tree.name === "cmux-vm" ? await broadPrivileges(db.sql, tree.schema) : []
               if (broad.length) {
@@ -294,10 +308,9 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               }
               const setHash = await setHashOf(tree, plan)
               if (target === "production") {
-                // cmux-old shares cmux-prod: production needs the compat receipts of this exact tree (compat.ts).
-                const { changeKey, compatProblems, latestStable } = await import("./compat.ts")
-                const compat = compatProblems(dir, changeKey(deps.root, { kind: "migrations", tree }), "production", deps.now().getTime(), latestStable(deps.env))
-                if (compat.length) throw new Refused(compat.join("; "))
+                // cmux-old shares cmux-prod: the compat gate runs here, in this step (no receipt from elsewhere counts).
+                const compat = await (deps.compat ?? (async (change) => (await import("./compat.ts")).compatNow(deps.root, change, deps.env)))({ kind: "migrations", tree })
+                if (compat.length) throw new Refused(`cmux-old compat gate:\n  ${compat.join("\n  ")}`)
                 const staging = await open(deps, tree, "staging", value("--staging-url-env"), "read")
                 try {
                   const stagingPlan = await planOf(staging.sql, tree, files)
@@ -349,7 +362,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         if (tree.name !== "cmux-vm") throw new Refused("only cmux-vm has untracked databases")
         const db = await open(deps, tree, target, urlVar, "admin")
         try {
-          await requireOwner(deps.provider, tree, target, db.sql, deps.log)
+          await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole)
           const adopted = await adopt(db.sql, tree, files, through, by, deps.root)
           emit({ action: "adopt", what: `record ${adopted.join(", ")} as applied (they were applied by hand)`, tree: tree.name, target, before: [], after: adopted, rollback: [`DELETE FROM ${tree.trackingTable} WHERE adopted (only the tracking rows; no schema change)`], result: "pass", at: at(), applied: adopted, by })
           return 0

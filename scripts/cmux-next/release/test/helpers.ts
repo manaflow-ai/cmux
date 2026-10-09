@@ -172,6 +172,10 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
     async roleNames() {
       return []
     },
+    async copyUrl(database, branch) {
+      provider.calls.push(`copy url ${database}/${branch}`)
+      return ownerUrl(dbOf(database, branch))
+    },
     async roleUser(database, branch, roleName) {
       return roles[`${branch}/${roleName}`] ?? (roleName === "cmux-vm-owner" ? owner : undefined)
     },

@@ -3,13 +3,12 @@
  *
  *   bun compat.ts static --change migrations:<tree> | image:<var>:<sh-id> | deploy:<tree> --target production
  *       [--base REV] [--release TAG] [--root DIR]
- *   bun compat.ts smoke-record --change ... --target production --result pass|fail --detail TEXT
- *       (written by the cmux-old client smoke, compat-smoke.sh, after it ran against STAGING)
- *   bun compat.ts check --change ... --target production
+ *   bun compat.ts check --change ... --target production      (static + replay, now)
  *
- * Production steps (db-release apply, promote, deploy) refuse without a passing
- * `compat-static` AND a passing `compat-smoke` receipt of the same change key in
- * the last 24 h. Static checks: (1) inventory: `git grep` at the latest stable
+ * Production steps (db-release apply, promote) run compatNow themselves: the
+ * static checks and the cmux-old request replay against staging (cmux-old.ts),
+ * in the same run, against the latest stable release; no receipt written
+ * elsewhere counts. Static checks: (1) inventory: `git grep` at the latest stable
  * release tag for every host and name the change reaches (cmux-vm and cmux-next
  * API hosts, the snapshot var names and value); a hit makes the change
  * cmux-old-affecting and is reported; (2) migrations: the linter, including the
@@ -190,6 +189,33 @@ export const compatProblems = (dir: string, key: string, target: string, now = D
   return problems
 }
 
+/**
+ * The cmux-old compat gate, now: the replay spec must be the latest stable release's; the static
+ * checks (inventory, lint, API contract against origin/main) and the replay against staging must
+ * pass. Writes compat-static and compat-smoke receipts as records. Empty: compatible.
+ */
+export const compatNow = async (root: string, change: Change, env: Record<string, string | undefined> = process.env): Promise<Array<string>> => {
+  const { newestSpec, readGaps, replay } = await import("./cmux-old.ts")
+  const problems: Array<string> = []
+  const latest = latestStable(env)
+  const spec = newestSpec()
+  if (!spec || spec.tag !== latest) problems.push(`the cmux-old replay spec is ${spec?.tag ?? "missing"} but the latest stable release is ${latest}: bun scripts/cmux-next/release/cmux-old.ts generate --tag ${latest}, commit it`)
+  const sha = spawnSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim()
+  const key = changeKey(root, change, sha)
+  const stat = await staticChecks(root, change, { base: "origin/main", release: latest, gitSha: sha })
+  problems.push(...stat.errors.map((e) => `static: ${e}`))
+  const tree = change.kind === "image" ? "images" : change.tree.name
+  const dir = receiptsDir(env)
+  writeReceipt(dir, { action: "compat-static", what: `in-step cmux-old static compat of ${key}`, tree, target: "production", result: stat.errors.length ? "fail" : "pass", at: new Date().toISOString(), setHash: key, release: latest, runId: runIdOf(env), by: actor(), ...(stat.errors.length ? { errors: stat.errors } : {}), ...(stat.notes.length ? { warnings: stat.notes } : {}) })
+  if (spec) {
+    const origin = env.CMUX_OLD_STAGING_ORIGIN || "https://cmux-staging.vercel.app"
+    const result = await replay(spec, origin, readGaps())
+    problems.push(...result.failures.map((f) => `replay: ${f}`))
+    writeReceipt(dir, { action: "compat-smoke", what: `in-step replay of ${spec.requests.length} ${spec.tag} requests against ${origin}`, tree, target: "production", result: result.ok ? "pass" : "fail", at: new Date().toISOString(), setHash: key, release: spec.tag, releaseSha: spec.sha, runId: runIdOf(env), by: actor(), ...(result.failures.length ? { errors: result.failures } : {}), ...(result.warnings.length ? { warnings: result.warnings } : {}) })
+  }
+  return problems
+}
+
 /** The newest stable release for production checks (CMUX_RELEASE_LATEST_STABLE overrides; tests). */
 export const latestStable = (env: Record<string, string | undefined> = process.env): string => env.CMUX_RELEASE_LATEST_STABLE || latestRelease()
 
@@ -216,19 +242,14 @@ const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     emit("compat-static", result.errors.length ? "fail" : "pass", `cmux-old static compat of ${key} against ${base}, release ${release}`, result.errors, result.notes)
     return result.errors.length ? 1 : 0
   }
-  if (command === "smoke-record") {
-    const result = value("--result")
-    if (result !== "pass" && result !== "fail") throw new Error("--result pass|fail")
-    emit("compat-smoke", result, `cmux-old client smoke against staging for ${key}: ${value("--detail") ?? ""}`, [], [])
-    return result === "pass" ? 0 : 1
-  }
   if (command === "check") {
-    const problems = compatProblems(dir, key, target, Date.now(), target === "production" ? latestStable() : undefined)
+    // The same gate a production step runs in-process: static checks and the cmux-old replay, now.
+    const problems = await compatNow(root, change, process.env)
     for (const p of problems) console.error(`compat: ${p}`)
     if (!problems.length) console.log(`compat ok: ${key} (${target})`)
     return problems.length ? 1 : 0
   }
-  console.error("usage: compat.ts static|smoke-record|check --change ... --target ...")
+  console.error("usage: compat.ts static|check --change ... --target ...")
   return 2
 }
 

@@ -64,13 +64,19 @@ case "$env_name" in
   *) worker="" ;;
 esac
 case "$target" in preview-*) worker="" ;; esac
+# CMUX_RELEASE_VERIFY_STEP=1 (CI): the workflow runs verify as its own always() step (it must run on a
+# cancel or timeout too), from the previous version written to $RUNNER_TEMP/cmux-api-previous-version.
 if [ -n "$worker" ]; then
-  previous="$(mktemp "${TMPDIR:-/tmp}/cmux-api-previous.XXXXXX")"
-  trap 'rm -f "$secrets" "$previous"' EXIT
+  if [ "${CMUX_RELEASE_VERIFY_STEP:-}" = 1 ]; then
+    previous="${RUNNER_TEMP:?}/cmux-api-previous-version"
+  else
+    previous="$(mktemp "${TMPDIR:-/tmp}/cmux-api-previous.XXXXXX")"
+    trap 'rm -f "$secrets" "$previous"' EXIT
+  fi
   bun "$rails" previous --worker "$worker" --wrangler ./node_modules/.bin/wrangler --out "$previous"
 fi
 ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
-if [ -n "$worker" ]; then
+if [ -n "$worker" ] && [ "${CMUX_RELEASE_VERIFY_STEP:-}" != 1 ]; then
   bun "$rails" verify --worker "$worker" --url "$origin" --routes release-smoke.json --previous-file "$previous" \
     --changed-since "${CMUX_RELEASE_CHANGED_SINCE:-}" --source-dir . --wrangler ./node_modules/.bin/wrangler
 fi

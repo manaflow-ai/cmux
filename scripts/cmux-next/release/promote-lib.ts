@@ -72,6 +72,8 @@ export interface PromoteDeps {
   readonly smoke: (snapshotId: string, tag: string) => Promise<SmokeOutcome>
   /** The id a snapshot name (slug) resolves to now, or undefined. Read-only; promote makes no other provider call. */
   readonly resolve: (name: string) => Promise<string | undefined>
+  /** The cmux-old compat gate for a production promotion, run in this step (default: compat.ts compatNow). */
+  readonly compat?: (change: import("./compat.ts").Change) => Promise<Array<string>>
   readonly log: (line: string) => void
   readonly error: (line: string) => void
   readonly by: string
@@ -155,8 +157,13 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
   let smokeRecord: Json | undefined
   /** The name must resolve to the recorded id right now (a re-baked slug would boot something else). */
   const resolves = async (p: Pointer): Promise<boolean> => {
-    if (!p.snapshot_id) return true
     const id = await deps.resolve(p.snapshot)
+    if (!p.snapshot_id) {
+      // A pointer recorded before ids were kept: the name must still resolve to a snapshot.
+      if (id) return true
+      deps.error(`${p.snapshot} resolves to nothing; refusing`)
+      return false
+    }
     if (id === p.snapshot_id) return true
     deps.error(`${p.snapshot} resolves to ${id ?? "nothing"}, not the recorded ${p.snapshot_id}; refusing`)
     return false
@@ -189,9 +196,9 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
       return 1
     }
     if (channel === "production") {
-      // cmux-old shares the Freestyle production account: production needs the compat receipts (compat.ts).
-      const { compatProblems, latestStable } = await import("./compat.ts")
-      const compat = compatProblems(receiptsDir(deps.env), `image:${v}:${entry.snapshot_id}`, "production", deps.now().getTime(), latestStable(deps.env))
+      // cmux-old shares the Freestyle production account: the compat gate runs here, for the production copy's id.
+      const change = { kind: "image" as const, variable: v, snapshotId: pointer.snapshot_id! }
+      const compat = await (deps.compat ?? (async (c) => (await import("./compat.ts")).compatNow(deps.root, c, deps.env)))(change)
       if (compat.length) {
         for (const c of compat) deps.error(c)
         return 1

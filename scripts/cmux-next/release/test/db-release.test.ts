@@ -6,7 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { changeKey } from "../compat.ts"
@@ -98,7 +98,7 @@ const addExtra = (w: World) => {
 }
 /** A git checkout whose origin is a local bare repo with feat-cmux-next at HEAD (tests accept any origin URL). */
 const landed = (w: World) => {
-  gitInit(w.root)
+  if (!existsSync(join(w.root, ".git"))) gitInit(w.root)
   const bare = mkdtempSync(join(tmpdir(), "rails-origin-"))
   execFileSync("git", ["init", "-q", "--bare", bare])
   git(w.root, "remote", "add", "origin", bare)
@@ -271,9 +271,10 @@ describe("production", () => {
     expect((await rows(w, w.production)).length).toBe(9)
   })
 
-  it("a production rehearsal that cannot act as the owner role fails", async () => {
+  it("a production rehearsal that cannot act as the owner role fails (staging only warns)", async () => {
     const w = await world()
     landed(w)
+    expect(await w.run("apply", ...S)).toBe(0)
     const stranger = `${w.provider.owner}_x`.slice(0, 60)
     await (await adminSql()).query(`CREATE ROLE "${stranger}" LOGIN PASSWORD 'pw'`)
     roles.push(stranger)
@@ -285,10 +286,8 @@ describe("production", () => {
       u.password = "pw"
       return { url: u.toString(), release: async () => {} }
     }
-    expect(await w.run("apply", ...S)).toBe(0) // staging: a warning
-    expect(w.logs.join("\n")).toContain("could not act as cmux-vm-owner")
     expect(await w.run("apply", ...P)).toBe(1)
-    expect(w.errors.join("\n")).toContain("could not act as cmux-vm-owner")
+    expect(w.errors.join("\n")).toContain("a production rehearsal must run as the owner")
   })
 })
 

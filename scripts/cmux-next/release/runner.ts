@@ -115,8 +115,13 @@ export const withLock = async <T>(sql: Sql, tree: Tree, body: () => Promise<T>):
 }
 
 /** Per-file limits: a migration waiting for a lock fails fast instead of queueing every query behind it. */
-export const LOCK_TIMEOUT = process.env.CMUX_RELEASE_LOCK_TIMEOUT || "3s"
-export const STATEMENT_TIMEOUT = process.env.CMUX_RELEASE_STATEMENT_TIMEOUT || "10min"
+/** A positive Postgres duration (ms, s or min); anything else (0, quotes, words) is refused. */
+export const timeoutSetting = (value: string, name: string): string => {
+  if (!/^[1-9][0-9]{0,6}(ms|s|min)$/.test(value)) throw new Error(`${name}=${JSON.stringify(value)} is not a positive duration like 3s, 500ms or 10min`)
+  return value
+}
+export const LOCK_TIMEOUT = timeoutSetting(process.env.CMUX_RELEASE_LOCK_TIMEOUT || "3s", "CMUX_RELEASE_LOCK_TIMEOUT")
+export const STATEMENT_TIMEOUT = timeoutSetting(process.env.CMUX_RELEASE_STATEMENT_TIMEOUT || "10min", "CMUX_RELEASE_STATEMENT_TIMEOUT")
 
 const sessionSettings = (tree: Tree, scope: "LOCAL" | "SESSION") => {
   const set = scope === "LOCAL" ? "SET LOCAL" : "SET"
@@ -158,7 +163,25 @@ const OUTSIDE_SQL = `WITH me AS (SELECT (txid_current() % 4294967296)::text AS x
   UNION ALL SELECT 'catalog: type ' || n.nspname || '.' || t.typname FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace, me
    WHERE t.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
   UNION ALL SELECT 'catalog: schema ' || n.nspname FROM pg_catalog.pg_namespace n, me
-   WHERE n.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)`
+   WHERE n.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: sequence ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_sequence q JOIN pg_catalog.pg_class c ON c.oid = q.seqrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE q.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: inheritance of ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class c ON c.oid = i.inhparent JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE i.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: statistics ' || n.nspname || '.' || x.stxname FROM pg_catalog.pg_statistic_ext x JOIN pg_catalog.pg_namespace n ON n.oid = x.stxnamespace, me
+   WHERE x.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: enum value of ' || n.nspname || '.' || t.typname FROM pg_catalog.pg_enum e JOIN pg_catalog.pg_type t ON t.oid = e.enumtypid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace, me
+   WHERE e.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: comment on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_description d JOIN pg_catalog.pg_class c ON d.classoid = 'pg_catalog.pg_class'::regclass AND c.oid = d.objoid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
+   WHERE d.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: default privileges' FROM pg_catalog.pg_default_acl a, me WHERE a.xmin::text = me.xid
+  UNION ALL SELECT 'catalog: a cast' FROM pg_catalog.pg_cast k, me WHERE k.xmin::text = me.xid
+  UNION ALL SELECT 'catalog: a large object' FROM pg_catalog.pg_largeobject_metadata l, me WHERE l.xmin::text = me.xid
+  UNION ALL SELECT 'shared catalog: a role membership' FROM pg_catalog.pg_auth_members m, me WHERE m.xmin::text = me.xid
+  UNION ALL SELECT 'shared catalog: a database' FROM pg_catalog.pg_database b, me WHERE b.xmin::text = me.xid`
+// pg_depend and pg_shdepend only mirror objects whose own catalog rows are checked above (and every
+// new cmux_vm object writes them), so they are not checked; pg_db_role_setting is not readable by
+// every role, and ALTER ROLE/DATABASE ... SET is refused by the linter's never layer.
 
 export const outsideProblems = async (sql: Sql, schema: string, writesBefore: Map<string, { name: string; n: number }>): Promise<Array<string>> => {
   const problems = (await sql.query<{ problem: string }>(OUTSIDE_SQL, [schema])).map((r) => r.problem)
@@ -203,12 +226,18 @@ export const applyPending = async (
       const index = await indexNameOf(f)
       if (index) {
         if (tree.name === "cmux-vm" && !index.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: CREATE INDEX CONCURRENTLY on a table outside schema ${tree.schema}; refused before it ran`)
+        const fingerprint = async () =>
+          (await sql.query<{ f: string | null }>(`SELECT md5(string_agg(c.oid::text || ':' || c.relfilenode || ':' || coalesce(c.relacl::text, '') || ':' || c.relowner, ',' ORDER BY c.oid)) AS f
+              FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname NOT IN ($1, 'pg_toast') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'`, [tree.schema]))[0]?.f
+        const before = tree.name === "cmux-vm" ? await fingerprint() : undefined
         for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
         try {
           await sql.query(f.sql)
         } finally {
           await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
         }
+        if (tree.name === "cmux-vm" && (await fingerprint()) !== before) throw new Error(`${f.name}: relations outside schema ${tree.schema} changed during CREATE INDEX CONCURRENTLY (it cannot be rolled back); stop and inspect`)
         const valid = (await sql.query<{ v: boolean | null }>("SELECT (SELECT indisvalid FROM pg_catalog.pg_index WHERE indexrelid = to_regclass($1)) AS v", [index]))[0]?.v
         if (valid !== true) throw new Error(`${f.name}: index ${index} is not valid after CREATE INDEX CONCURRENTLY; drop it (DROP INDEX CONCURRENTLY) in a new migration and retry`)
         await record(sql, tree, f, options.by)

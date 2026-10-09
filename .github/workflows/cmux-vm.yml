@@ -113,7 +113,10 @@ jobs:
         run: |
           bun install --frozen-lockfile
           base_args=()
-          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]] && git fetch --quiet --no-tags --depth=1 origin "$BASE" 2>/dev/null; then base_args=(--base "$BASE"); fi
+          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
+            git fetch --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot fetch the base $BASE; refusing to lint without it"; exit 1; }
+            base_args=(--base "$BASE")
+          fi
           bun lint.ts --tree cmux-vm "${base_args[@]}"
       - name: Typecheck (includes compile-time proof misuse cases)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
@@ -289,7 +292,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-staging')
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 25
     environment: cmux-vm-staging
     concurrency:
       group: cmux-vm-deploy-staging
@@ -357,9 +360,10 @@ jobs:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
-      # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured").
+      # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
+      # on a cancel or timeout (always()).
       - name: Smoke health and changed routes; roll back on red
-        if: ${{ !cancelled() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
+        if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
