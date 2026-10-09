@@ -42,8 +42,8 @@ import Observation
 
     /// The signed-in user, starting their picture's fetch.
     private var account: SidebarAccount? {
-        AccountAvatarImages.shared.load(services.cloud?.auth.user?.profileImageURL)
-        return SidebarAccount(services.cloud?.auth)
+        AccountAvatarImages.shared.load(services.cloud.auth.user?.profileImageURL)
+        return SidebarAccount(services.cloud.auth)
     }
 
     func menu(workspace: String?) -> NSMenu {

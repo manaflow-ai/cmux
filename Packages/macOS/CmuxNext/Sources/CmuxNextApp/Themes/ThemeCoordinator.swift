@@ -167,11 +167,11 @@ final class ThemeCoordinator {
     /// Re-reads every theme. `forceSurfaces` re-applies surface configs
     /// even when unchanged (after a Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
-        for controller in services.windows?.controllers ?? [] {
+        for controller in services.windows.controllers {
             windowDidChange(controller)
             for content in controller.mountedContents { contentDidShow(content) }
         }
-        for entry in services.cache?.terminals.values.map({ $0 }) ?? [] {
+        for entry in services.cache.terminals.values.map({ $0 }) {
             entry.themeBinding.coordinator = self
             setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
             if forceSurfaces { entry.themeBinding.syncSurface(force: true) }

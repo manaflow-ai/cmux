@@ -147,7 +147,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func canImportPasswords() async -> Bool {
-        await services.cache?.cef.canImportPasswords() ?? false
+        await services.cache.cef.canImportPasswords()
     }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with

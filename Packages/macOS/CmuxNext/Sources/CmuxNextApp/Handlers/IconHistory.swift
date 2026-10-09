@@ -43,7 +43,7 @@ struct IconHistory {
     /// picker panel, key while it closes, is never a toast's window).
     static func inActiveWindow(_ ctx: AppActionContext, apply: @escaping @MainActor (String, FieldUpdate<String>) throws -> Bool) -> Self {
         IconHistory(apply: apply, offerUndo: { message, undo in
-            guard let window = ctx.services.windows?.active?.window ?? NSApp.mainWindow else { return }
+            guard let window = ctx.services.windows.active?.window ?? NSApp.mainWindow else { return }
             let handle = CmuxToastCenter.shared.show(CmuxToast(id: undoToastID, message: message, action: .undo()), in: window)
             handle.onAction = { undo() }
         })

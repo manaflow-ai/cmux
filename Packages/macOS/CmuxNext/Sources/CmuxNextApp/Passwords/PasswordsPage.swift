@@ -37,7 +37,7 @@ final class PasswordsPageService: InternalPageProvider {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_PASSWORDS_SAMPLE"] == "1" { return SamplePasswordStore() }
         #endif
-        return ChromiumPasswordStore(engine: { [weak services] in services?.cache?.cef })
+        return ChromiumPasswordStore(engine: { [weak services] in services?.cache.cef })
     }
 
     func open(focus: Bool) throws {

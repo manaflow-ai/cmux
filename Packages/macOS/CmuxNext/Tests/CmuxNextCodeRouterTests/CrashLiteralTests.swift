@@ -7,6 +7,6 @@ import Testing
     @Test func localServerDefaultsParse() {
         #expect(ProviderDetector.ollamaDefault.absoluteString == "http://127.0.0.1:11434")
         #expect(ProviderDetector.lmStudioDefault.absoluteString == "http://127.0.0.1:1234")
-        #expect(ProviderKeyStore.service(bundleID: "") == "com.cmuxterm.app.ai-provider-keys")
+        #expect(KeychainProviderKeyStore.service(bundleID: "") == "com.cmuxterm.app.ai-provider-keys")
     }
 }

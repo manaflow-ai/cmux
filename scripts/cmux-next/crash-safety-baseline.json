@@ -98,14 +98,13 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextApp": 98,
+   "CmuxNextApp": 71,
    "CmuxNextBookmarks": 1,
    "CmuxNextSidebar": 8,
    "MessagesLabHome": 5,
    "MessagesLabSidebar": 3
   },
   "iuo": {
-   "CmuxNextApp": 27,
    "CmuxNextSidebar": 5
   },
   "precondition": {

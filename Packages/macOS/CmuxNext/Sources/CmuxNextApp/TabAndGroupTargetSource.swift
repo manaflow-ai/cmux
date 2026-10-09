@@ -31,7 +31,7 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
         case .tabGroup:
             name = panes.flatMap(\.tabGroups).first { $0.id.rawValue == target.id }?.name
         case .workspaceGroup:
-            let nodes = (services.windows?.active?.sidebar.model.sections ?? []).flatMap(\.nodes)
+            let nodes = (services.windows.active?.sidebar.model.sections ?? []).flatMap(\.nodes)
             name = nodes.compactMap { node -> String? in
                 guard case .group(let group) = node, group.id.rawValue == target.id else { return nil }
                 return group.name

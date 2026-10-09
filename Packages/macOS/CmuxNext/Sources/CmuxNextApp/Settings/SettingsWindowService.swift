@@ -63,7 +63,7 @@ final class SettingsWindowService: InternalPageProvider {
         // A user run in a window whose workspace has no pane to hold a tab (an empty workspace,
         // or Home standing for the home workspace) shows Settings as the window's top page
         // (nxdog70: Cmd-, on Home with an empty workspace showed nothing).
-        if focus, let window = services.windows?.active, !Self.holdsTab(window, services) {
+        if focus, let window = services.windows.active, !Self.holdsTab(window, services) {
             waiting = nil
             showTopPage(in: window, route: route)
             return
@@ -82,7 +82,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// A window installed its workspace content or mounted a pane: a show that waited for a window
     /// with a pane runs now.
     func windowDidShowContent() {
-        guard let request = waiting, let window = services.windows?.active, Self.hasPane(window) else { return }
+        guard let request = waiting, let window = services.windows.active, Self.hasPane(window) else { return }
         waiting = nil
         try? show(section: request.section, setting: request.setting, focus: request.focus)
     }

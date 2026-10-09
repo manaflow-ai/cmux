@@ -101,7 +101,7 @@ final class AppControl {
                 guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
                 // Every workspace the app closed or kept after it lost its
                 // last pane, with the cause (EmptyWorkspaceRepair).
-                report["emptied_workspaces"] = .array((services.emptyWorkspaces?.decisions ?? []).map {
+                report["emptied_workspaces"] = .array(services.emptyWorkspaces.decisions.map {
                     .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
                 })
                 return .value(.object(report))

@@ -10,7 +10,7 @@ import CmuxNextTerminal
 /// resolved window and content backgrounds as `#RRGGBB`.
 enum DebugThemes {
     static func report(services: AppServices) -> JSONValue {
-        let windows = (services.windows?.controllers ?? []).map { controller -> JSONValue in
+        let windows = services.windows.controllers.map { controller -> JSONValue in
             var object = scope(controller.themeScope)
             object["window_number"] = .number(Double(controller.window?.windowNumber ?? 0))
             object["room"] = .string(controller.state.profileID.rawValue)
@@ -24,7 +24,7 @@ enum DebugThemes {
             })
             return .object(object)
         }
-        let terminals = (services.cache?.terminals ?? [:]).sorted { $0.key < $1.key }.map { key, entry -> JSONValue in
+        let terminals = services.cache.terminals.sorted { $0.key < $1.key }.map { key, entry -> JSONValue in
             var object = scope(entry.themeScope)
             object["tab"] = .string(key)
             object["surface_theme"] = entry.session.theme.map { .string($0.themeName) } ?? .null

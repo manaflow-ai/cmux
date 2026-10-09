@@ -34,38 +34,38 @@ final class AppServices {
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
-    private(set) var cloud: CloudService!
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) var feed: FeedService!
+    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    private(set) var ssh: SSHService!
+    private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
-    private(set) var updateSheet: UpdateSheetController!
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
-    private(set) var cache: TabContentCache!
-    private(set) var windows: WindowManager!
-    private(set) var dragSession: TabDragSession!
-    private(set) var palette: PaletteController!
-    private(set) var previews: TabPreviewSource!
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
+    private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
+    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
+    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
-    private(set) var resources: AppResourceSource!
+    private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
-    private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
+    private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
@@ -118,15 +118,15 @@ final class AppServices {
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) var configActions: ConfigActionsController!
+    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
-    private(set) var keyRouter: KeyRouter!
-    private(set) var chromiumWarmup: ChromiumWarmup!
+    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
@@ -141,9 +141,9 @@ final class AppServices {
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// Room, workspace and terminal themes.
-    private(set) var themes: ThemeCoordinator!
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
-    private(set) var remoteLocalhost: RemoteLocalhostService!
+    private(set) lazy var remoteLocalhost: RemoteLocalhostService = RemoteLocalhostService(machines: machines)  // first read in init (no IUO)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
@@ -179,7 +179,7 @@ final class AppServices {
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
-    private(set) var remoteTerminals: RemoteTerminalService!
+    private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -192,15 +192,15 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
-        cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
-        feed = FeedService(auth: cloud.auth, showcase: environment.showcase)
-        ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
+        _ = cloud  // built here, as before
+        _ = feed  // built here, as before
+        _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
-        cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
-        themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
-        remoteLocalhost = RemoteLocalhostService(machines: machines)
+        _ = cache  // built here, as before
+        _ = themes  // built here, as before
+        _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
@@ -232,11 +232,11 @@ final class AppServices {
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
         cache.browserTabs.isIncognitoTab = { [weak self] key in
-            guard let self, let windows, let workspace = workspaceID(ofTab: key) else { return false }
+            guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
         }
         cache.browserTabs.isIncognitoPane = { [weak self] pane in
-            guard let self, let windows, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
+            guard let self, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
             return windows.isIncognito(workspace: workspace)
         }
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
@@ -250,10 +250,10 @@ final class AppServices {
             guard let self else { return explicit }
             return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
         }
-        emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
+        _ = emptyWorkspaces  // built here, as before
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self
-        keyRouter = KeyRouter(registry: registry)
+        _ = keyRouter  // built here, as before
         keyRouter.services = self
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
@@ -277,24 +277,23 @@ final class AppServices {
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
         cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
-        resources = AppResourceSource(services: self)
-        windows = WindowManager(services: self)
+        _ = resources  // built here, as before
+        _ = windows  // built here, as before
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
         }
-        dragSession = TabDragSession(services: self)
-        previews = TabPreviewSource(cache: cache)
-        remoteTerminals = RemoteTerminalService(services: self)
+        _ = dragSession  // built here, as before
+        _ = previews  // built here, as before
+        _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
-        palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
+        _ = palette  // built here, as before
         terminalDelegate.services = self
-        configActions = ConfigActionsController(context: AppActionContext(services: self))
-        let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
-        self.updateSheet = updateSheet
+        _ = configActions  // built here, as before
+        let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
@@ -303,7 +302,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         input.start(services: self)
-        chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
         notifications.start(services: self)

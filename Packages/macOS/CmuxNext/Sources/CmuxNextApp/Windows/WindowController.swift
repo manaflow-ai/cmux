@@ -20,7 +20,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's focus state machine (plans/cmux-next/focus.md); it
     /// lives in the window's `WindowState`.
     var focus: FocusCoordinator { state.focus }
-    private(set) var focusApplier: FocusEffectApplier!
+    /// Built in init (lazy because it holds self; no IUO).
+    private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
     /// Recently shown workspaces kept mounted and paused, oldest first
     /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
@@ -81,7 +82,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
         window.focus = focus
-        focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()

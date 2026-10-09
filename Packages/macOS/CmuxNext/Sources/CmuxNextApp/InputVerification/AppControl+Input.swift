@@ -18,7 +18,7 @@ extension AppControl {
                 let source = call.params["source"]?.stringValue ?? "journal"
                 let entries: [InputJournalEntry]
                 if source == "report" {
-                    guard let report = services?.input.monitor.reports.last else { return .value(["error": "no desync report"]) }
+                    guard let report = services?.input.monitor?.reports.last else { return .value(["error": "no desync report"]) }
                     entries = report.journal
                 } else {
                     entries = InputJournal.shared.entries()

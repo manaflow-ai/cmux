@@ -94,7 +94,7 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? (services.cloud?.isSignedIn ?? false) }
+    var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? services.cloud.isSignedIn }
 
     func signInToCmux() {
         if let showcaseMock { showcaseMock.signInToCmux(); model.refresh(); return }

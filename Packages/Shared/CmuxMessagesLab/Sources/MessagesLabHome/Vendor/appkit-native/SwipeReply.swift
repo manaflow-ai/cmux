@@ -220,7 +220,7 @@ enum SwipeCheck {
     static func run(_ c: ChatController, out: String) {
         var lines: [String] = []
         func check(_ name: String, _ ok: Bool, _ detail: String) { lines.append("\(ok ? "PASS" : "FAIL") \(name): \(detail)") }
-        guard let hit = c.demo.lastTextRow(mine: false) else { lines.append("FAIL no incoming text row"); finish(lines, out); return }
+        guard let hit = c.demo?.lastTextRow(mine: false) else { lines.append("FAIL no incoming text row"); finish(lines, out); return }
         let p = CGPoint(x: hit.body.midX, y: hit.body.midY)
         @discardableResult func handle(_ e: NSEvent?) -> NSEvent? { // cmux: a nil event is a FAIL, not a trap
             guard let e else { lines.append("FAIL could not make a scroll event"); return nil }
@@ -235,12 +235,12 @@ enum SwipeCheck {
         let short = stream(40, 0, steps: 8)
         check("short swipe follows 1:1", abs((short.last ?? 0) - 40) < 0.5, "offset after 40 pt travel = \(short.last ?? -1)")
         handle(event(dx: 0, dy: 0, phase: 4))
-        check("short swipe opens nothing", c.store.state.ui.openThread == nil, "openThread = \(String(describing: c.store.state.ui.openThread))")
+        check("short swipe opens nothing", c.store?.state.ui.openThread == nil, "openThread = \(String(describing: c.store?.state.ui.openThread))")
         check("short swipe springs back (model)", c.swipe.rowOffset == 0, "model offset \(c.swipe.rowOffset)")
         let full = stream(160, 0, steps: 16)
         check("full swipe capped", (full.max() ?? 0) <= SwipeReply.Tuning.maxOffset + 0.01, "max offset \(full.max() ?? -1)")
         handle(event(dx: 0, dy: 0, phase: 4))
-        check("full swipe opens the reply", c.store.state.ui.openThread != nil, "openThread = \(String(describing: c.store.state.ui.openThread))")
+        check("full swipe opens the reply", c.store?.state.ui.openThread != nil, "openThread = \(String(describing: c.store?.state.ui.openThread))")
         c.dispatch(.closeThread)
         let consumedVertical = handle(event(dx: 0, dy: -20, phase: 1)) == nil
         handle(event(dx: 0, dy: 0, phase: 4))
