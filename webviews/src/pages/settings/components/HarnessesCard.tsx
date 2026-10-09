@@ -23,7 +23,7 @@ function Row({ row }: { row: HarnessRow }) {
   // Every row has a Check and a Sign In: each names its harness for assistive tech.
   const titleId = useId();
   return (
-    <div className="row accounts-row" tabIndex={-1} data-harness={row.id}>
+    <div className="row accounts-row" data-harness={row.id}>
       <div className="row-main">
         <span className="accounts-mark" aria-hidden="true">
           <AgentMark agent={row.id} size={16} />

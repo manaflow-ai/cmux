@@ -176,3 +176,86 @@ fn messages_during_settle_go_into_one_call() {
     );
     assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
 }
+
+/// codex-acp answers a steer only when the turn ends: every queued message
+/// is steered at once (C does not wait for B's answer), and each is logged
+/// as `user` where it arrived, before the turn's later entries.
+#[test]
+fn on_codex_every_message_is_steered_and_logged_where_it_arrived() {
+    let mut h = codex();
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        inner.steer_at_end = true;
+    }
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "A");
+    h.step(); // settled: the turn starts
+    h.step(); // the turn's session exists
+    h.agents.wait_prompts(1);
+    h.say("user_local", "B");
+    h.agents.wait_steers(1);
+    h.say("user_local", "C");
+    h.agents.wait_steers(2);
+    h.agents.push_events("s1", ends("All done."));
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(inner.cancels.is_empty());
+    assert_eq!(inner.prompts.len(), 1, "one turn answers all three");
+    drop(inner);
+    let log = h.log();
+    let pairs: Vec<(&str, &str)> = log.iter().map(|(k, t)| (k.as_str(), t.as_str())).collect();
+    assert_eq!(
+        pairs,
+        vec![
+            ("user", "A"),
+            ("user", "B"),
+            ("user", "C"),
+            ("talk", "Working.All done."),
+        ]
+    );
+}
+
+/// A message too big to go in whole (over the view's 128,000 bytes; the
+/// reference's Memory.whole check) is never steered: it waits for the next
+/// turn, which builds its node first.
+#[test]
+fn an_oversized_message_waits_for_the_next_turn() {
+    let mut h = Harness::new(Box::new(|turn, _| {
+        if turn == 0 {
+            working()
+        } else {
+            ends("Read it.")
+        }
+    }));
+    h.agents.inner.lock().unwrap().steering = true;
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "A");
+    h.step();
+    h.step();
+    h.agents.wait_prompts(1);
+    let big = "x".repeat(optchat_core::VIEW + 1);
+    h.say("user_local", &big);
+    for _ in 0..10 {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(30)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        h.agents.inner.lock().unwrap().steers.is_empty(),
+        "not steered"
+    );
+    h.agents.push_events("s1", ends("A done."));
+    h.agents.hold(false);
+    h.agents.release();
+    h.agents.release();
+    h.settle_posts();
+    assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
+    let prompts = new_messages(&h);
+    assert_eq!(prompts.len(), 2);
+    assert_eq!(prompts[1], big);
+}

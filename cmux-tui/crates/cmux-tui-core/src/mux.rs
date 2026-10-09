@@ -35,11 +35,33 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
+mod agent_types;
+pub use agent_types::{AgentRecord, AgentSource, AgentState};
+use agent_types::{
+    AgentReportOrigin, AgentReportTarget, AgentRosterHost, TerminalAgentRecord,
+    agent_hook_notification, agent_provider_identity, agent_state_for_hook_kind,
+    legacy_hook_session_id, parse_projection_agent_state, published_agent_session_id,
+};
+mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_undo_commit;
+pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+mod notification_types;
+pub use notification_types::{
+    NotificationEvent, NotificationSource, ResourceNotification, SurfaceNotification,
+};
+mod notification_level;
+pub use notification_level::NotificationLevel;
 mod personal;
 mod presentation;
+mod provider_authority;
+pub(crate) use provider_authority::ProviderWorkspaceState;
+pub use provider_authority::{
+    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError,
+};
+use provider_authority::{constant_time_eq, validate_mux_generation};
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
@@ -57,6 +79,8 @@ pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
+mod time;
+pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
@@ -117,14 +141,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroize;
 
 use crate::Actor;
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
@@ -226,8 +249,6 @@ const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
-const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
@@ -435,118 +456,6 @@ fn workspace_resource_upsert(
     })
 }
 
-/// An opaque per-mux credential provisioned by the external machine
-/// provider. Debug output is deliberately redacted.
-#[derive(PartialEq, Eq)]
-pub struct ProviderWorkspaceAuthority(Box<str>);
-
-impl ProviderWorkspaceAuthority {
-    pub fn new(value: impl Into<String>) -> anyhow::Result<Self> {
-        let mut value = value.into();
-        if !(PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES..=PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES)
-            .contains(&value.len())
-            || value.bytes().any(|byte| byte.is_ascii_control())
-        {
-            value.zeroize();
-            anyhow::bail!(
-                "provider workspace authority must be 32 to 512 bytes without control characters"
-            );
-        }
-        Ok(Self(value.into_boxed_str()))
-    }
-
-    pub(crate) fn expose(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
-/// Public, non-secret state exposed by the provider management socket.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderWorkspaceAuthorityStatus {
-    pub managed: bool,
-    pub mux_generation: Option<String>,
-    pub authority_generation: u64,
-    pub authority_installed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderWorkspaceAuthorityUpdateError {
-    Unmanaged,
-    MuxGenerationMismatch,
-    ExpectedGenerationMismatch,
-    GenerationConflict,
-    InvalidGeneration,
-}
-
-impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Unmanaged => "workspace lifecycle is not provider-managed",
-            Self::MuxGenerationMismatch => "mux generation does not match the running process",
-            Self::ExpectedGenerationMismatch => "authority generation changed concurrently",
-            Self::GenerationConflict => {
-                "authority generation already contains a different credential"
-            }
-            Self::InvalidGeneration => "authority generation must advance by exactly one",
-        })
-    }
-}
-
-impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
-
-#[derive(Default)]
-pub(crate) struct ProviderWorkspaceState {
-    managed: bool,
-    mux_generation: Option<Box<str>>,
-    authority_generation: u64,
-    authority: Option<ProviderWorkspaceAuthority>,
-}
-
-impl ProviderWorkspaceState {
-    fn status(&self) -> ProviderWorkspaceAuthorityStatus {
-        ProviderWorkspaceAuthorityStatus {
-            managed: self.managed,
-            mux_generation: self.mux_generation.as_deref().map(str::to_owned),
-            authority_generation: self.authority_generation,
-            authority_installed: self.authority.is_some(),
-        }
-    }
-}
-
-impl fmt::Debug for ProviderWorkspaceAuthority {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("ProviderWorkspaceAuthority([redacted])")
-    }
-}
-
-impl Drop for ProviderWorkspaceAuthority {
-    fn drop(&mut self) {
-        // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
-        // place before its allocation is released.
-        self.0.zeroize();
-    }
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    let length = left.len().max(right.len());
-    for index in 0..length {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
-        );
-    }
-    difference == 0
-}
-
-fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        anyhow::bail!("mux generation must be 32 lowercase hexadecimal characters");
-    }
-    Ok(())
-}
-
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
 }
@@ -579,222 +488,6 @@ struct CellPixelCompletionTracker {
     completed: Mutex<HashSet<SurfaceId>>,
 }
 
-/// Structured graphics failures localized by the presentation frontend.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphicsStatus {
-    KittyImageBudgetWorkerStartFailed { error: Arc<str> },
-    KittyImageBudgetUpdateFailed { retry_exhausted: bool, summary: Arc<str> },
-    CellPixelUpdateRetriesExhausted { attempts: u8, remaining: usize, cell_pixels: (u16, u16) },
-}
-
-/// Events pushed to subscribed frontends.
-#[derive(Debug, Clone)]
-pub enum MuxEvent {
-    /// New output arrived in a surface (coalesced; cleared when rendered).
-    SurfaceOutput(SurfaceId),
-    /// A surface's runtime changed size.
-    SurfaceResized {
-        surface: SurfaceId,
-        cols: u16,
-        rows: u16,
-        reservation_id: Option<u64>,
-    },
-    /// An asynchronous browser resize failed after queue acceptance.
-    SurfaceResizeFailed {
-        surface: SurfaceId,
-        cols: u16,
-        rows: u16,
-        error: Arc<str>,
-        retry_after_ms: Option<u64>,
-        reservation_id: Option<u64>,
-    },
-    /// A surface's child exited. Hosted terminal views have been atomically
-    /// detached while their durable exit receipt remains queryable; local
-    /// terminals have already been reaped when this arrives.
-    SurfaceExited(SurfaceId),
-    TitleChanged {
-        surface: SurfaceId,
-        title: Arc<str>,
-    },
-    /// The latest agent state for one surface changed.
-    AgentChanged {
-        surface: SurfaceId,
-        state: Arc<str>,
-        source: Arc<str>,
-        session: Option<Arc<str>>,
-        agent: Option<Arc<str>>,
-        updated_at_ms: u64,
-    },
-    Bell(SurfaceId),
-    Notification(NotificationEvent),
-    GraphicsStatus(GraphicsStatus),
-    Status(String),
-    /// A frontend should reload its local mux configuration and redraw.
-    ConfigReloadRequested,
-    /// A frontend should set its host terminal window title. Empty clears it.
-    WindowTitleRequested(String),
-    /// A PTY surface viewport moved within its scrollback.
-    ScrollChanged {
-        surface: SurfaceId,
-        offset: u64,
-        at_bottom: bool,
-    },
-    /// The workspace/screen/pane/tab tree changed (from any frontend or
-    /// the control socket).
-    TreeChanged,
-    /// Delta subscribers need a coarse snapshot resync for a selection-only change.
-    TreeSelectionChanged,
-    /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
-    /// back to the legacy `tree-changed` event.
-    TreeDelta(TreeDelta),
-    FrontendProjectionChanged {
-        frontend: String,
-        scope: String,
-        subject_key: String,
-        projection_revision: u64,
-        origin: String,
-        mutation_id: String,
-    },
-    /// The home session's personal state (rooms, sessions, personal groups
-    /// and order; `profiles-v1`) changed. Consumers refetch `list-personal`.
-    PersonalChanged {
-        personal_revision: u64,
-    },
-    BookmarksChanged(personal::BookmarksChange),
-    Conversation(Arc<crate::conversation_store::ConversationEvent>),
-    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
-    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
-    /// A durable terminal-registry mutation committed. Consumers use this as
-    /// a barrier, then fetch `terminal-events` or a fresh snapshot.
-    TerminalRegistryChanged {
-        registry_id: String,
-        generation: String,
-        terminal_revision: u64,
-    },
-    /// The owner ended a terminal that had no tab placement for the reap
-    /// grace period and was not marked `keep` (`terminal-reap-v1`).
-    TerminalReaped {
-        /// Stable terminal host id.
-        terminal_id: String,
-        /// Public `term_` resource id, when the terminal had one.
-        terminal: Option<String>,
-        grace_ms: u64,
-    },
-    /// A screen's pane geometry changed. Clients should re-fetch layout.
-    LayoutChanged(ScreenId),
-    /// A control connection attached its first surface.
-    ClientAttached {
-        client: u64,
-        transport: String,
-        name: Option<String>,
-        kind: Option<String>,
-    },
-    /// A control connection updated its display metadata.
-    ClientChanged {
-        client: u64,
-        name: Option<String>,
-        kind: Option<String>,
-    },
-    /// A control connection ended.
-    ClientDetached(u64),
-    /// The shared sizing state of a terminal changed. Emitted once per
-    /// placement of the terminal runtime; `generation` orders the states.
-    SizeStateChanged {
-        surface: SurfaceId,
-        runtime: SurfaceId,
-        state: Arc<TerminalSizingState>,
-    },
-    /// A recovered event subscription may have missed client lifecycle
-    /// events, so consumers must reload the authoritative client list.
-    ClientListInvalidated,
-    /// An unauthenticated browser is waiting for a trusted TUI decision.
-    PairingRequested(PairingChallenge),
-    /// A pairing request was approved, denied, disconnected, or expired.
-    PairingResolved {
-        request: u64,
-    },
-    /// The daemon's machine-level model spend readout changed. `None` means
-    /// the readout is unavailable and frontends must hide it.
-    MachineUsageChanged(Option<MachineUsage>),
-    /// Every workspace is gone.
-    Empty,
-}
-
-/// Machine-level model spend for the machine hosting this daemon, as
-/// reported by coderouter for the trailing `period_days` window. Frontends
-/// show it as an informational readout beside the machine identity.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MachineUsage {
-    pub vm_id: String,
-    pub period_days: u32,
-    pub total_tokens: u64,
-    pub api_equivalent_usd: f64,
-    /// Server-side timestamp of the snapshot, when known.
-    pub as_of: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TreeDeltaKind {
-    WorkspaceAdded,
-    WorkspaceClosed,
-    WorkspaceRenamed,
-    WorkspaceMoved,
-    /// Workspace presentation (color, icon, title) changed.
-    WorkspaceChanged,
-    ScreenAdded,
-    ScreenClosed,
-    ScreenRenamed,
-    /// Screen presentation (color, icon, pin, group) or position changed.
-    ScreenChanged,
-    PaneAdded,
-    PaneClosed,
-    TabAdded,
-    TabClosed,
-    TabRenamed,
-    /// Tab metadata (pinned flag, directory, git HEAD, unread marker)
-    /// changed.
-    TabChanged,
-}
-
-impl TreeDeltaKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::WorkspaceAdded => "workspace-added",
-            Self::WorkspaceClosed => "workspace-closed",
-            Self::WorkspaceRenamed => "workspace-renamed",
-            Self::WorkspaceMoved => "workspace-moved",
-            Self::WorkspaceChanged => "workspace-changed",
-            Self::ScreenAdded => "screen-added",
-            Self::ScreenClosed => "screen-closed",
-            Self::ScreenRenamed => "screen-renamed",
-            Self::ScreenChanged => "screen-changed",
-            Self::PaneAdded => "pane-added",
-            Self::PaneClosed => "pane-closed",
-            Self::TabAdded => "tab-added",
-            Self::TabClosed => "tab-closed",
-            Self::TabRenamed => "tab-renamed",
-            Self::TabChanged => "tab-changed",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TreeDelta {
-    pub kind: TreeDeltaKind,
-    pub workspace: WorkspaceId,
-    pub screen: Option<ScreenId>,
-    pub pane: Option<PaneId>,
-    pub surface: Option<SurfaceId>,
-    pub index: Option<usize>,
-    pub entity: Value,
-    /// Present for ordered workspace-registry mutations. Consumers can apply
-    /// only the exact next revision and refetch after a gap.
-    pub workspace_revision: Option<u64>,
-    /// The client transaction id of the command that caused this delta, so
-    /// a frontend can reconcile its optimistic UI.
-    pub transaction: Option<Arc<str>>,
-}
-
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -805,117 +498,6 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotificationLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl NotificationLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationLevel::Info => "info",
-            NotificationLevel::Warning => "warning",
-            NotificationLevel::Error => "error",
-        }
-    }
-}
-
-/// Who posted a notification (`notification-source-v1`). Frontends apply
-/// per-source preferences from it instead of guessing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NotificationSource {
-    /// `cmux notify`, the `notify` verb without a source, or
-    /// `notification.create`.
-    Cli,
-    /// A program in the terminal: OSC 9, OSC 777 `notify` or kitty OSC 99,
-    /// parsed by the daemon from the terminal's output.
-    Terminal,
-    /// An agent hook (Claude Code, Codex, ...), daemon-side or reported by a
-    /// frontend.
-    Agent,
-    /// Any other daemon producer.
-    Daemon,
-}
-
-impl NotificationSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationSource::Cli => "cli",
-            NotificationSource::Terminal => "terminal",
-            NotificationSource::Agent => "agent",
-            NotificationSource::Daemon => "daemon",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "cli" => Some(NotificationSource::Cli),
-            "terminal" => Some(NotificationSource::Terminal),
-            "agent" => Some(NotificationSource::Agent),
-            "daemon" => Some(NotificationSource::Daemon),
-            _ => None,
-        }
-    }
-
-    /// The source of a durable notification written before sources existed,
-    /// from its idempotency key: agent hooks mint `agent-hook-notification-*`;
-    /// every other producer then was `notify` or `notification.create`.
-    pub(crate) fn from_legacy_key(idempotency_key: &str) -> Self {
-        if idempotency_key.starts_with("agent-hook-notification-") {
-            NotificationSource::Agent
-        } else {
-            NotificationSource::Cli
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct NotificationEvent {
-    pub notification: u64,
-    pub title: String,
-    pub body: String,
-    pub level: NotificationLevel,
-    pub surface: Option<SurfaceId>,
-    pub source: NotificationSource,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResourceNotification {
-    pub id: NotificationPublicId,
-    pub title: String,
-    /// Second line under the title, as `cmux notify --subtitle`.
-    pub subtitle: Option<String>,
-    pub body: String,
-    pub level: NotificationLevel,
-    pub terminal_id: Option<TerminalPublicId>,
-    pub created_at_ms: u64,
-    pub source: NotificationSource,
-    pub(crate) surface: Option<SurfaceId>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentState {
-    Working,
-    Blocked,
-    Idle,
-    Done,
-    Unknown,
-}
-
-impl AgentState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AgentState::Working => "working",
-            AgentState::Blocked => "blocked",
-            AgentState::Idle => "idle",
-            AgentState::Done => "done",
-            AgentState::Unknown => "unknown",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -955,206 +537,6 @@ impl Direction {
             Direction::Down => (0, 1),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentSource {
-    /// An installed userland agent plugin wrote the observation.
-    Plugin,
-    /// Legacy source value emitted by pre-userland screen detection. Current
-    /// core code never emits it; the reducer keeps it so old journals replay
-    /// after screen detection moves to a userland plugin.
-    Detected,
-    Socket,
-    Hook,
-}
-
-impl AgentSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AgentSource::Plugin => "plugin",
-            AgentSource::Detected => "detected",
-            AgentSource::Socket => "socket",
-            AgentSource::Hook => "hook",
-        }
-    }
-}
-
-/// The agent-record state a committed hook journal event implies, or `None`
-/// for events that carry no lifecycle transition (child agents, unclassified
-/// state changes) so they never churn the record.
-fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
-    Some(match kind {
-        // A freshly started session sits at its prompt; a completed turn
-        // returns to it.
-        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
-        "agent.turn.started" => AgentState::Working,
-        "agent.approval.requested"
-        | "agent.question.requested"
-        | "agent.plan_review.requested"
-        | "agent.error.reported" => AgentState::Blocked,
-        "agent.session.ended" => AgentState::Done,
-        _ => return None,
-    })
-}
-
-/// Title, body, and level for the notification an agent hook event earns,
-/// or `None` for transitions that need no attention (session start, turn
-/// start, child lifecycle, session end).
-fn agent_hook_notification(
-    ingress: &crate::JournalIngress,
-) -> Option<(String, String, NotificationLevel)> {
-    const BODY_MAX_CHARS: usize = 512;
-    let (verb, level) = match ingress.kind.as_str() {
-        "agent.turn.completed" => ("finished", NotificationLevel::Info),
-        "agent.approval.requested" => ("needs approval", NotificationLevel::Warning),
-        "agent.question.requested" => ("asked a question", NotificationLevel::Warning),
-        "agent.plan_review.requested" => ("requested plan review", NotificationLevel::Warning),
-        "agent.error.reported" => ("reported an error", NotificationLevel::Error),
-        _ => return None,
-    };
-    let adapter = ingress
-        .payload
-        .get("adapter")
-        .and_then(|adapter| adapter.get("id"))
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .unwrap_or("Agent");
-    let mut agent = String::with_capacity(adapter.len());
-    let mut chars = adapter.chars();
-    if let Some(first) = chars.next() {
-        agent.extend(first.to_uppercase());
-        agent.push_str(chars.as_str());
-    }
-    // Prompt and message text is redacted before the journal accepts it, so
-    // the body is the one structural field a viewer can act on: the tool an
-    // approval is waiting on. Everything else stays empty rather than leaking
-    // a redaction marker into the notification feed.
-    let normalized = ingress.payload.get("normalized");
-    let body = ["tool_name"]
-        .into_iter()
-        .filter_map(|field| normalized.and_then(|value| value.get(field)).and_then(Value::as_str))
-        .map(str::trim)
-        .find(|text| !text.is_empty() && *text != "[redacted]")
-        .map(|text| text.chars().take(BODY_MAX_CHARS).collect::<String>())
-        .unwrap_or_default();
-    Some((format!("{agent} {verb}"), body, level))
-}
-
-/// A stored projection state string as its typed form; unknown spellings
-/// degrade to `Unknown`, which every agents view hides.
-fn parse_projection_agent_state(value: &str) -> AgentState {
-    match value {
-        "working" => AgentState::Working,
-        "blocked" => AgentState::Blocked,
-        "idle" => AgentState::Idle,
-        "done" => AgentState::Done,
-        _ => AgentState::Unknown,
-    }
-}
-
-/// The agent roster host: reducer state plus its journal fold cursor.
-/// Lock ordering rule: never acquire another `Mux` lock while holding this
-/// one - fold paths release it before persisting, and commit paths only
-/// take a read after their registry/state locks, so `registry -> roster`
-/// is the single global order.
-#[derive(Debug, Default)]
-struct AgentRosterHost {
-    roster: crate::journal_reducers::AgentRoster,
-    cursor: u64,
-}
-
-fn agent_provider_identity(ingress: &crate::JournalIngress) -> Option<String> {
-    ingress
-        .payload
-        .get("normalized")
-        .and_then(|normalized| normalized.get("agent_type"))
-        .and_then(Value::as_str)
-        .or_else(|| {
-            ingress
-                .payload
-                .get("adapter")
-                .and_then(|adapter| adapter.get("id"))
-                .and_then(Value::as_str)
-        })
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase)
-}
-
-#[derive(Debug, Clone)]
-pub struct AgentRecord {
-    pub surface: SurfaceId,
-    pub terminal_id: TerminalPublicId,
-    pub state: AgentState,
-    pub source: AgentSource,
-    pub session: Option<String>,
-    /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
-    /// claimed the terminal; absent for socket-only reports.
-    pub agent: Option<String>,
-    pub updated_at_ms: u64,
-}
-
-/// Longest hook session id published for resume. Claude session ids are
-/// UUIDs; longer values are dropped rather than truncated into a wrong id.
-const MAX_PUBLISHED_AGENT_SESSION_ID_BYTES: usize = 256;
-
-/// The hook session id a client may use to resume the agent, or `None` for
-/// the local generation token that session-less adapters receive and for ids
-/// that are too long or contain anything beyond `[A-Za-z0-9._:-]`. Hook
-/// payloads can come from remote hosts, and clients pass the id to a resume
-/// command.
-fn published_agent_session_id(terminal_id: &TerminalPublicId, session_id: &str) -> Option<String> {
-    let portable = !session_id.is_empty()
-        && session_id.len() <= MAX_PUBLISHED_AGENT_SESSION_ID_BYTES
-        && session_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
-    (portable && !session_id.starts_with(&format!("legacy:{terminal_id}:")))
-        .then(|| session_id.to_owned())
-}
-
-/// Session-less adapters get a local generation token. The journal sequence
-/// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
-/// the previous fence identity after restart.
-pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
-    crate::journal_reducers::legacy_hook_session_id(terminal_id.as_str(), sequence)
-}
-
-#[derive(Debug, Clone)]
-struct TerminalAgentRecord {
-    state: AgentState,
-    source: AgentSource,
-    session: Option<String>,
-    agent: Option<String>,
-    /// The agent's own session id from its hook stream (Claude's
-    /// `session_id`), published as `extra.agent_session_id` so clients can
-    /// resume it. Absent for agents without a native hook session.
-    agent_session_id: Option<String>,
-    updated_at_ms: u64,
-}
-
-/// Who initiated an agent projection commit: a direct socket/SDK report
-/// (which must echo its intent into the journal so the roster fold sees
-/// it), or the roster fold itself applying a journal-derived delta (which
-/// must not echo, or every hook event would append a second record).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AgentReportOrigin {
-    Direct,
-    RosterFold,
-}
-
-enum AgentReportTarget<'a> {
-    Surface(SurfaceId),
-    Resource { selectors: &'a crate::ResourceSelectors, terminal_id: &'a TerminalPublicId },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SurfaceNotification {
-    pub notification: u64,
-    pub level: NotificationLevel,
-    pub unread: bool,
-    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17506,13 +16888,6 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         })
         .cloned()
         .collect()
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn sidebar_retry_delay(failures: u32) -> Duration {
