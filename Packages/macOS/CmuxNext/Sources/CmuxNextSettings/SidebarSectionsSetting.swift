@@ -14,6 +14,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let activityViewPath = ["sidebar", "activityView"]
     public static let allChatsRowsPath = ["sidebar", "allChatsRows"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
@@ -68,6 +69,16 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
                           keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
+    }
+
+    /// Activity view (meeting 2026-10-08, AV): Priority, then every chat by day.
+    static func activityViewDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(activityViewPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.activityView", "Activity View"),
+                          help: SettingsText.keyed("settings.sidebar.activityView.help",
+                                                   "Shows chats that need you at the top, then every chat by day, in place of the sidebar sections."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.activityView),
+                          keywords: ["sidebar", "activity", "chats", "priority", "unread", "attention"])
     }
 
     /// All chats rows (`sidebar.allChatsRows`): how many show before the section scrolls.
@@ -139,6 +150,7 @@ public nonisolated enum SidebarSectionsSetting {
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
+        result.activityView = flag(root, activityViewPath, fallback: result.activityView, &diagnostics)
         if let value = root.value(at: showChatsPath) {
             if let flag = value.boolValue {
                 result.showChats = flag

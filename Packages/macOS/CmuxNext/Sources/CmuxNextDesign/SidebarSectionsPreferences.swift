@@ -4,6 +4,7 @@
 /// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
 /// `sidebar.showChats` shows the device-wide All chats section (on by default,
 /// cx-xub5) and `sidebar.allChatsRows` caps the rows it shows before it scrolls.
+/// `sidebar.activityView` swaps the sections for the Activity view.
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -44,6 +45,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true
+    /// The Activity view (meeting 2026-10-08, AV): Priority, then every chat by
+    /// day, in place of the sections (`sidebar.activityView`, off by default).
+    public var activityView = false
     /// How many chat rows All chats shows before it scrolls inside (`sidebar.allChatsRows`).
     public var allChatsRows = SidebarSectionsPreferences.defaultAllChatsRows
     /// Pinned bands that hide until the pointer is over the sidebar (R54).

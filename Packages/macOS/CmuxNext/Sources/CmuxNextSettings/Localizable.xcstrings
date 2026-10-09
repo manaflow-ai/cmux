@@ -65263,6 +65263,58 @@
           "zh-Hant": { "stringUnit": { "state": "translated", "value": "在側邊欄底部顯示這台電腦上所有程式設計代理的聊天，最新的在前。" } }
         }
       },
+    "settings.sidebar.activityView": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "translated", "value": "عرض النشاط" } },
+          "bs": { "stringUnit": { "state": "translated", "value": "Prikaz aktivnosti" } },
+          "da": { "stringUnit": { "state": "translated", "value": "Aktivitetsvisning" } },
+          "de": { "stringUnit": { "state": "translated", "value": "Aktivitätsansicht" } },
+          "en": { "stringUnit": { "state": "translated", "value": "Activity View" } },
+          "es": { "stringUnit": { "state": "translated", "value": "Vista de actividad" } },
+          "fr": { "stringUnit": { "state": "translated", "value": "Vue Activité" } },
+          "it": { "stringUnit": { "state": "translated", "value": "Vista attività" } },
+          "ja": { "stringUnit": { "state": "translated", "value": "アクティビティ表示" } },
+          "km": { "stringUnit": { "state": "translated", "value": "ទិដ្ឋភាពសកម្មភាព" } },
+          "ko": { "stringUnit": { "state": "translated", "value": "활동 보기" } },
+          "nb": { "stringUnit": { "state": "translated", "value": "Aktivitetsvisning" } },
+          "pl": { "stringUnit": { "state": "translated", "value": "Widok aktywności" } },
+          "pt-BR": { "stringUnit": { "state": "translated", "value": "Visualização de atividade" } },
+          "ru": { "stringUnit": { "state": "translated", "value": "Вид активности" } },
+          "th": { "stringUnit": { "state": "translated", "value": "มุมมองกิจกรรม" } },
+          "tr": { "stringUnit": { "state": "translated", "value": "Etkinlik Görünümü" } },
+          "uk": { "stringUnit": { "state": "translated", "value": "Вигляд активності" } },
+          "vi": { "stringUnit": { "state": "translated", "value": "Chế độ xem hoạt động" } },
+          "zh-Hans": { "stringUnit": { "state": "translated", "value": "活动视图" } },
+          "zh-Hant": { "stringUnit": { "state": "translated", "value": "活動檢視" } }
+        }
+      },
+    "settings.sidebar.activityView.help": {
+        "extractionState": "manual",
+        "localizations": {
+          "ar": { "stringUnit": { "state": "translated", "value": "يعرض المحادثات التي تحتاج إليك في الأعلى، ثم كل المحادثات حسب اليوم، بدلًا من أقسام الشريط الجانبي." } },
+          "bs": { "stringUnit": { "state": "translated", "value": "Prikazuje razgovore kojima ste potrebni na vrhu, zatim sve razgovore po danima, umjesto odjeljaka bočne trake." } },
+          "da": { "stringUnit": { "state": "translated", "value": "Viser chats, der har brug for dig, øverst og derefter alle chats efter dag i stedet for sidepanelets sektioner." } },
+          "de": { "stringUnit": { "state": "translated", "value": "Zeigt Chats, die dich brauchen, oben und darunter alle Chats nach Tag, anstelle der Abschnitte der Seitenleiste." } },
+          "en": { "stringUnit": { "state": "translated", "value": "Shows chats that need you at the top, then every chat by day, in place of the sidebar sections." } },
+          "es": { "stringUnit": { "state": "translated", "value": "Muestra arriba los chats que te necesitan y después todos los chats por día, en lugar de las secciones de la barra lateral." } },
+          "fr": { "stringUnit": { "state": "translated", "value": "Affiche en haut les chats qui ont besoin de vous, puis tous les chats par jour, à la place des sections de la barre latérale." } },
+          "it": { "stringUnit": { "state": "translated", "value": "Mostra in alto le chat che richiedono la tua attenzione, poi tutte le chat per giorno, al posto delle sezioni della barra laterale." } },
+          "ja": { "stringUnit": { "state": "translated", "value": "対応が必要なチャットを上部に、その下にすべてのチャットを日付ごとに、サイドバーのセクションの代わりに表示します。" } },
+          "km": { "stringUnit": { "state": "translated", "value": "បង្ហាញការជជែកដែលត្រូវការអ្នកនៅខាងលើ បន្ទាប់មកការជជែកទាំងអស់តាមថ្ងៃ ជំនួសផ្នែកនៃរបារចំហៀង។" } },
+          "ko": { "stringUnit": { "state": "translated", "value": "사이드바 섹션 대신, 확인이 필요한 채팅을 위에 표시하고 그 아래에 모든 채팅을 날짜별로 표시합니다." } },
+          "nb": { "stringUnit": { "state": "translated", "value": "Viser chatter som trenger deg øverst, og deretter alle chatter etter dag, i stedet for sidepanelets seksjoner." } },
+          "pl": { "stringUnit": { "state": "translated", "value": "Pokazuje na górze czaty, które wymagają Twojej uwagi, a pod nimi wszystkie czaty według dni, zamiast sekcji paska bocznego." } },
+          "pt-BR": { "stringUnit": { "state": "translated", "value": "Mostra no topo os chats que precisam de você e, depois, todos os chats por dia, no lugar das seções da barra lateral." } },
+          "ru": { "stringUnit": { "state": "translated", "value": "Показывает вверху чаты, которым нужно ваше внимание, а ниже все чаты по дням, вместо разделов боковой панели." } },
+          "th": { "stringUnit": { "state": "translated", "value": "แสดงแชตที่ต้องการคุณไว้ด้านบน ตามด้วยแชตทั้งหมดตามวัน แทนส่วนต่าง ๆ ของแถบด้านข้าง" } },
+          "tr": { "stringUnit": { "state": "translated", "value": "Kenar çubuğu bölümleri yerine, sizi bekleyen sohbetleri üstte, ardından tüm sohbetleri güne göre gösterir." } },
+          "uk": { "stringUnit": { "state": "translated", "value": "Показує вгорі чати, яким потрібна ваша увага, а нижче всі чати за днями, замість розділів бічної панелі." } },
+          "vi": { "stringUnit": { "state": "translated", "value": "Hiển thị các cuộc trò chuyện cần bạn ở trên cùng, sau đó là mọi cuộc trò chuyện theo ngày, thay cho các mục của thanh bên." } },
+          "zh-Hans": { "stringUnit": { "state": "translated", "value": "在顶部显示需要你处理的聊天，然后按日期显示所有聊天，取代侧边栏的各个分区。" } },
+          "zh-Hant": { "stringUnit": { "state": "translated", "value": "在頂部顯示需要你處理的聊天，接著依日期顯示所有聊天，取代側邊欄的各個區段。" } }
+        }
+      },
     "settings.sidebar.allChatsRows": {
         "extractionState": "manual",
         "localizations": {
