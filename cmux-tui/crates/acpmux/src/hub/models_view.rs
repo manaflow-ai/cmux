@@ -7,11 +7,10 @@
 //!    catalog entry whose `modelSource` is `catalog`. For an ACP harness that
 //!    already reported its models, only the curated ones it reported (the
 //!    agent decides what it runs; the catalog adds names, order and
-//!    metadata). Claude Code's list is the "default" choice, then the
-//!    catalog's models, then step 3;
+//!    metadata). Claude Code reports none, so its list comes from the catalog
+//!    after the "default" choice;
 //! 3. the models the harness reported that the catalog does not list, marked
-//!    `curated: false` (for example an OpenCode user's own providers, or the
-//!    aliases Claude Code reports at initialize: "opus" runs its newest Opus). A
+//!    `curated: false` (for example an OpenCode user's own providers). A
 //!    `probe` entry lists no models: every reported model is shown, with the
 //!    catalog's metadata when `models` describes its id.
 //!
@@ -93,37 +92,53 @@ fn push_or_fill(models: &mut Vec<Value>, entry: Value) {
     }
 }
 
-/// Steps 2 and 3 of the module doc for one harness.
+/// Whether `reported` lists `model`, by its id or one of its aliases.
+fn lists(reported: &[(String, String)], model: &HarnessModel) -> bool {
+    reported.iter().any(|(id, _)| {
+        *id == model.id || model.aliases.as_ref().is_some_and(|aliases| aliases.contains(id))
+    })
+}
+
+/// Steps 2 and 3 of the module doc for one harness. `live`: `reported` is the
+/// harness CLI's own list (`hub/live_models.rs`), which stands in for Claude
+/// Code's static list and, like an ACP harness's report, picks the curated
+/// models it names.
 fn offered(
     kind: &HarnessKind,
     curated: Option<&CatalogHarness>,
     catalog: &Catalog,
     reported: &[(String, String)],
+    live: bool,
 ) -> Vec<Value> {
-    let static_claude =
-        || crate::claude_stdio::models().iter().map(|(v, n)| json!({"id": v, "name": n})).collect();
-    let Some(curated) = curated.filter(|c| c.model_source == "catalog" && !c.models.is_empty())
-    else {
-        return match kind {
-            HarnessKind::ClaudeStdio => static_claude(),
-            _ => reported.iter().map(|r| reported_json(r, catalog)).collect(),
-        };
-    };
-    let mut out = Vec::new();
-    if *kind == HarnessKind::ClaudeStdio
-        && let Some((id, name)) = crate::claude_stdio::models().first()
-    {
+    let claude = *kind == HarnessKind::ClaudeStdio;
+    let mut out: Vec<Value> = Vec::new();
+    // Claude Code's own "default" choice comes first whatever the list.
+    if claude && let Some((id, name)) = crate::claude_stdio::models().first() {
         out.push(json!({"id": id, "name": name}));
     }
-    let reported_has = |id: &str| reported.iter().any(|(r, _)| r == id);
+    let Some(curated) = curated.filter(|c| c.model_source == "catalog" && !c.models.is_empty())
+    else {
+        if claude && !live {
+            return crate::claude_stdio::models()
+                .iter()
+                .map(|(v, n)| json!({"id": v, "name": n}))
+                .collect();
+        }
+        out.extend(reported.iter().map(|r| reported_json(r, catalog)));
+        return out;
+    };
+    let picks = (*kind == HarnessKind::Acp || live) && !reported.is_empty();
     for model in &curated.models {
-        if *kind != HarnessKind::Acp || reported.is_empty() || reported_has(&model.id) {
+        if !picks || lists(reported, model) {
             out.push(curated_json(model, catalog));
         }
     }
+    // Claude Code's adapter reports its static aliases, which the curated list covers.
+    if claude && !live {
+        return out;
+    }
     for entry in reported {
-        let listed = out.iter().any(|m| m["id"] == entry.0.as_str());
-        if !listed && !curated.models.iter().any(|m| m.id == entry.0) {
+        if !curated.models.iter().any(|m| lists(std::slice::from_ref(entry), m)) {
             out.push(reported_json(entry, catalog));
         }
     }
@@ -161,9 +176,18 @@ impl Hub {
                 .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
                 .collect();
             let curated = curated_for(&self.catalog, name, profile);
-            let reported = known.get(name).cloned().unwrap_or_default();
-            for entry in offered(&profile.kind, curated.as_ref(), &catalog, &reported) {
+            let live = self.live_models_for(name).filter(|l| !l.is_empty());
+            let reported = match &live {
+                Some(live) => live.iter().map(|m| (m.id.clone(), m.name.clone())).collect(),
+                None => known.get(name).cloned().unwrap_or_default(),
+            };
+            for entry in
+                offered(&profile.kind, curated.as_ref(), &catalog, &reported, live.is_some())
+            {
                 push_or_fill(&mut models, entry);
+            }
+            if let Some(live) = &live {
+                crate::live_models::overlay(&mut models, live);
             }
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
@@ -234,13 +258,13 @@ mod tests {
             ("gpt-old".to_owned(), "gpt old".to_owned()),
             ("mine".to_owned(), "Mine".to_owned()),
         ];
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &reported);
+        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &reported, false);
         assert_eq!(ids(&out), ["gpt-old", "mine"]);
         assert_eq!(out[0]["name"], "GPT Old");
         assert_eq!(out[0]["curated"], true);
         assert_eq!(out[1]["curated"], false);
         // Before the probe answers, the curated list is the whole list, with its metadata.
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[]);
+        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false);
         assert_eq!(ids(&out), ["gpt-new", "gpt-old"]);
         assert_eq!(out[0]["contextWindow"], 400000);
     }
@@ -252,7 +276,7 @@ mod tests {
             ("anthropic/claude-x".to_owned(), "claude x".to_owned()),
             ("local/llama".to_owned(), "Llama".to_owned()),
         ];
-        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[1]), &c, &reported);
+        let out = offered(&HarnessKind::Acp, Some(&c.harnesses[1]), &c, &reported, false);
         assert_eq!(ids(&out), ["anthropic/claude-x", "local/llama"]);
         assert_eq!(out[0]["contextWindow"], 200000);
         assert_eq!(out[0]["name"], "claude x");
@@ -261,36 +285,81 @@ mod tests {
     #[test]
     fn claude_code_lists_default_then_the_curated_models() {
         let c = catalog();
-        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &[]);
+        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &[], false);
         assert_eq!(ids(&out), ["default", "gpt-new", "gpt-old"]);
         assert_eq!(out[1]["fast"], true);
         // No catalog entry: the built-in list.
         assert_eq!(
-            offered(&HarnessKind::ClaudeStdio, None, &c, &[]).len(),
+            offered(&HarnessKind::ClaudeStdio, None, &c, &[], false).len(),
             crate::claude_stdio::models().len()
         );
     }
 
-    // cx-jqkx: the models Claude Code reported (its aliases) are offered beside the curated ones.
+    fn live(
+        id: &str,
+        efforts: &[&str],
+        fast: Option<bool>,
+        is_default: bool,
+    ) -> crate::live_models::LiveModel {
+        crate::live_models::LiveModel {
+            id: id.into(),
+            name: id.into(),
+            efforts: efforts.iter().map(|e| (*e).to_owned()).collect(),
+            default_effort: None,
+            fast,
+            is_default,
+        }
+    }
+
     #[test]
-    fn claude_code_also_offers_the_models_it_reported() {
+    fn a_live_claude_list_replaces_the_static_list_and_picks_curated_models() {
         let c = catalog();
+        // The CLI names gpt-new and a model the catalog does not have yet.
         let reported = vec![
-            ("default".to_owned(), "Default".to_owned()),
-            ("opus".to_owned(), "Opus 5.5".to_owned()),
-            ("gpt-old".to_owned(), "gpt old".to_owned()),
+            ("gpt-new".to_owned(), "gpt new".to_owned()),
+            ("brand-new".to_owned(), "Brand New".to_owned()),
         ];
-        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &reported);
-        assert_eq!(ids(&out), ["default", "gpt-new", "gpt-old", "opus"]);
-        assert_eq!(out[3]["name"], "Opus 5.5");
-        assert_eq!(out[3]["curated"], false);
+        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &reported, true);
+        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
+        assert_eq!(out[1]["curated"], true);
+        // Without a catalog entry the live list stands alone, after "default".
+        let out = offered(&HarnessKind::ClaudeStdio, None, &c, &reported, true);
+        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
+    }
+
+    #[test]
+    fn live_fields_win_and_the_cli_default_moves_first() {
+        let c = catalog();
+        let mut models = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false);
+        let listed = [
+            live("gpt-new", &["low", "high"], Some(false), false),
+            live("gpt-old", &[], None, true),
+        ];
+        crate::live_models::overlay(&mut models, &listed);
+        assert_eq!(ids(&models), ["gpt-old", "gpt-new"]);
+        let new = &models[1];
+        assert_eq!(new["efforts"], json!(["low", "high"]));
+        assert_eq!(new["fast"], false, "the CLI knows the version it runs");
+        assert_eq!(new["contextWindow"], 400000, "curated metadata stays");
+    }
+
+    #[test]
+    fn a_live_alias_fills_the_curated_model_it_names() {
+        let mut models = vec![
+            json!({"id": "default", "name": "Default"}),
+            json!({"id": "claude-opus-5-5", "name": "Opus 5.5", "aliases": ["opus"]}),
+        ];
+        crate::live_models::overlay(&mut models, &[live("opus", &["max"], Some(true), true)]);
+        assert_eq!(models[1]["efforts"], json!(["max"]));
+        assert_eq!(models[1]["fast"], true);
+        assert_eq!(models[0]["id"], "default", "Claude Code's own default stays first");
     }
 
     #[test]
     fn a_declared_model_keeps_its_fields_and_gains_curated_ones() {
         let c = catalog();
         let mut models = vec![json!({"id": "gpt-new", "name": "Mine", "declared": true})];
-        for entry in offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[]) {
+        for entry in offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false) {
             push_or_fill(&mut models, entry);
         }
         assert_eq!(models.len(), 2);
