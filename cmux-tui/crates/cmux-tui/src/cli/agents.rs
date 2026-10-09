@@ -239,6 +239,7 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
                 }
                 mode = Some(
                     args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
                         .ok_or_else(|| UsageError::new("--mode needs a value"))?
                         .clone(),
                 )
@@ -251,6 +252,7 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
                 }
                 selections.push(
                     args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
                         .ok_or_else(|| UsageError::new("--selection needs a value"))?
                         .clone(),
                 )
@@ -331,19 +333,30 @@ pub(super) fn compose_snapshot_with_limit(
         app_focus::overlay_focused(&mut snapshot["workspaces"], shown);
     }
     if let Some(limit) = limit {
-        let mut truncated = false;
-        for collection in ["windows", "workspaces", "screens", "panes", "tabs", "terminals"] {
-            if let Some(items) = snapshot[collection].as_array_mut()
-                && items.len() > limit
-            {
-                items.truncate(limit);
-                truncated = true;
-            }
-        }
+        let truncated = bound_arrays(&mut snapshot, limit);
         snapshot["limit"] = json!(limit);
         snapshot["truncated"] = json!(truncated);
     }
     snapshot
+}
+
+fn bound_arrays(value: &mut Value, limit: usize) -> bool {
+    match value {
+        Value::Array(items) => {
+            let mut truncated = items.len() > limit;
+            if truncated {
+                items.truncate(limit);
+            }
+            for item in items {
+                truncated |= bound_arrays(item, limit);
+            }
+            truncated
+        }
+        Value::Object(map) => {
+            map.values_mut().fold(false, |truncated, value| truncated | bound_arrays(value, limit))
+        }
+        _ => false,
+    }
 }
 
 fn selection(topology: Option<&Value>, daemon: Option<&Value>) -> Value {
@@ -406,10 +419,11 @@ mod tests {
     fn bounded_snapshot_limits_each_topology_collection() {
         let value = compose_snapshot_with_limit(
             Ok(json!({"workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]})),
-            Ok(json!({"topology": {"windows": []}})),
+            Ok(json!({"topology": {"windows": [{"workspaces": ["ws_a", "ws_b"]}]}})),
             Some(1),
         );
         assert_eq!(value["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(value["windows"][0]["workspaces"].as_array().unwrap().len(), 1);
         assert_eq!(value["limit"], 1);
         assert_eq!(value["truncated"], true);
     }
