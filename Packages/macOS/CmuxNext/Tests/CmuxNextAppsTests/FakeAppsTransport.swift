@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 @testable import CmuxNextApps
 
 /// An in-memory app supervisor for tests: the bundled sample manifests as
@@ -9,20 +9,20 @@ public import Foundation
 /// the connection.
 @MainActor
 public final class FakeAppsTransport: AppsTransport {
-    public private(set) var availability: AppsAvailability
+    private(set) var availability: AppsAvailability
     public var onEvent: ((AppsTransportEvent) -> Void)?
-    public private(set) var records: [AppRecord]
-    public private(set) var revision: UInt64 = 1
+    private(set) var records: [AppRecord]
+    private(set) var revision: UInt64 = 1
     /// Refuses a change before it commits (nil lets it through).
     public var refusal: ((String, AppChange, AppOrigin) -> AppsTransportError?)?
     /// While true, `apps-set` replies wait for `releaseReplies()`.
     public var holdsReplies = false
-    public private(set) var mounted: [String: (app: String, interface: String, context: AppJSON)] = [:]
-    public private(set) var dispatched: [(mountID: String, node: String, event: String)] = []
-    public private(set) var seenKeys: [String] = []
-    public private(set) var listCalls = 0
+    private(set) var mounted: [String: (app: String, interface: String, context: AppJSON)] = [:]
+    private(set) var dispatched: [(mountID: String, node: String, event: String)] = []
+    private(set) var seenKeys: [String] = []
+    private(set) var listCalls = 0
     /// Every `apps-run` as `(op, origin)`.
-    public private(set) var runs: [(op: String, origin: AppOrigin)] = []
+    private(set) var runs: [(op: String, origin: AppOrigin)] = []
     private var held: [CheckedContinuation<Void, Never>] = []
     private var epoch = 1
 
