@@ -746,7 +746,9 @@ extension CloudWelcomeMediaCarousel {
         }
 
         deinit {
-            advanceTimer?.cancel()
+            // `deinit` is nonisolated for this main-actor type. Releasing the
+            // owned dispatch source tears it down; its handler captures self
+            // weakly, so it cannot outlive this coordinator through a cycle.
             loopContinuation.finish()
         }
 
