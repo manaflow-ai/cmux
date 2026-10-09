@@ -1662,13 +1662,6 @@ public actor VMClient {
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             summary.createAttach = Self.decodeCreateAttach(obj["attach"])
-                ?? (summary.cmuxTuiContract == "snapshot-v2" ? Self.decodeCreateAttach([
-                    "transport": "cmux-remote",
-                    "route": summary.addressIPv4.map { "ws://\($0):1337/v1/link" }
-                        ?? summary.addressIPv6.map { "ws://[\($0)]:1337/v1/link" } ?? "",
-                    "session": "cloud",
-                    "trustedCarrier": true,
-                ]) : nil)
             machineCache.record(hasAnyMachine: true)
             return summary
         }

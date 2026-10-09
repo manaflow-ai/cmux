@@ -146,20 +146,20 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// provider directly, exactly as discovery would. New Machine then links
     /// without first re-reading the whole fleet list (`GET /api/vm`, ~0.3 s).
     /// Receipts from older backends without an address keep the old path.
-    func recordCreatedMachine(_ summary: VMSummary, attach: VMCmuxRemoteEndpoint? = nil, scope: UUID?) async {
-        guard let scope, scope == creationScope, let catalog else { return }
+    func recordCreatedMachine(_ summary: VMSummary, attach: VMCmuxRemoteEndpoint? = nil, scope: UUID?) async -> CmuxTuiSurfaceProvider? {
+        guard let scope, scope == creationScope, let catalog else { return nil }
         var receipt = summary
         if receipt.addressIPv4 == nil { receipt.addressIPv4 = attach?.networkAddresses?.ipv4 }
         if receipt.addressIPv6 == nil { receipt.addressIPv6 = attach?.networkAddresses?.ipv6 }
         if receipt.cmuxTuiContract == nil, attach?.trustedCarrier == true { receipt.cmuxTuiContract = Self.trustedCarrierContract }
         // A replay cannot overwrite names or status already accepted by discovery.
-        guard catalog.machines[.cloud(receipt.id)] == nil, providers[receipt.id] == nil else { return }
+        guard catalog.machines[.cloud(receipt.id)] == nil, providers[receipt.id] == nil else { return providers[receipt.id] }
         pendingMachineCreationIDs.insert(receipt.id)
         catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
             from: receipt, linkState: .connecting, linkError: nil, stats: nil
         ))
         let addresses = [receipt.addressIPv4, receipt.addressIPv6].compactMap { $0 }
-        guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: receipt.id)] == nil else { return }
+        guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: receipt.id)] == nil else { return nil }
         let generation = refreshGeneration
         let ownerTeamID = activeTeamID()
         await links.setPrivateAddresses(addresses, for: receipt.id)
@@ -170,7 +170,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         // Same fences as discovery: a delete or account change during the
         // await must not receive a provider.
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
-              providers[receipt.id] == nil else { return }
+              providers[receipt.id] == nil else { return nil }
         let provider = CmuxTuiSurfaceProvider(
             summary: receipt, fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
             ownerTeamID: ownerTeamID, links: links, catalog: catalog,
@@ -187,6 +187,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         Task { [weak provider] in
             _ = await provider?.refreshCurrentGraph(force: false)
         }
+        return provider
     }
 
     /// The image contract whose daemon serves the trusted private-network

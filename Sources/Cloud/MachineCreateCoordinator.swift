@@ -15,6 +15,7 @@ final class MachineCreateCoordinator {
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
     ) -> Bool
     typealias CancellableLaunch = @MainActor (
+        UUID,
         [String],
         @escaping @MainActor (String) -> Void,
         @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
@@ -50,8 +51,6 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var launches: [UUID: CancellableLaunch] = [:]
     @ObservationIgnored private var handles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
     @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
-    /// The operation currently entering a launcher; in-process create uses this as its idempotency scope.
-    @ObservationIgnored private(set) var launchingOperationID: UUID?
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
     @ObservationIgnored private let selectWorkspace: SelectWorkspace
     @ObservationIgnored private let cancelCreatedMachine: @MainActor (String) -> Void
@@ -95,7 +94,7 @@ final class MachineCreateCoordinator {
     /// Registers the pending projection before invoking a legacy noncancellable launcher.
     @discardableResult
     func start(_ request: MachineCreateRequest, launch: @escaping Launch) -> Bool {
-        start(request, cancellableLaunch: { arguments, progress, completion in
+        start(request, cancellableLaunch: { _, arguments, progress, completion in
             guard launch(arguments, progress, completion) else { return nil }
             return CloudVMActionLauncher.CancellationHandle { }
         })
@@ -208,9 +207,7 @@ final class MachineCreateCoordinator {
         if isRetry, !request.isBaseSetup, let machineID {
             arguments = ["vm", "open", machineID] + (request.presentationWorkspaceID.map { ["--workspace", $0.uuidString] } ?? []) + ["--focus", "false"]
         }
-        let previousLaunchingOperationID = launchingOperationID
-        launchingOperationID = attempt.operationID
-        let handle = launch(arguments, { [weak self] chunk in
+        let handle = launch(attempt.operationID, arguments, { [weak self] chunk in
             guard let self else { return }
             self.apply(self.lifecycle.receive(chunk, from: attempt))
         }, { [weak self] result in
@@ -222,7 +219,6 @@ final class MachineCreateCoordinator {
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
-        launchingOperationID = previousLaunchingOperationID
         guard let handle else {
             let failure = isRetry ? String(localized: "machines.new.error.launch", defaultValue: "cmux could not start the create command. Sign in and try again.") : nil
             apply(lifecycle.refuse(attempt, retryFailure: failure))

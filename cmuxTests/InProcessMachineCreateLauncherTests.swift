@@ -23,10 +23,9 @@ struct InProcessMachineCreateLauncherTests {
                 if !created { throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") }
                 return VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1)
             },
-            status: { _ in throw VMClientError.malformedResponse(secret) },
-            record: { _, _ in }, prepare: { _ in }, bind: { _, _ in },
-            connect: { _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") },
-            terminal: { _, _, _ in nil }
+            record: { _, _ in nil },
+            provider: { _ in nil },
+            open: { _, _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") }
         )
         let completion = await InProcessMachineCreateLauncher.run(
             invocation, operationID: UUID(), dependencies: dependencies, onOutput: { _ in }
@@ -84,6 +83,6 @@ struct InProcessMachineCreateLauncherTests {
     @Test func oneOperationKeepsOneIdempotencyKeyAcrossRetries() {
         let operationID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
         #expect(InProcessMachineCreateLauncher.idempotencyKey(operationID: operationID) == "app-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-        #expect(InProcessMachineCreateLauncher.idempotencyKey(operationID: operationID) == InProcessMachineCreateLauncher.idempotencyKey(operationID: operationID))
+        #expect(InProcessMachineCreateLauncher.idempotencyKey(operationID: operationID) != InProcessMachineCreateLauncher.idempotencyKey(operationID: UUID()))
     }
 }

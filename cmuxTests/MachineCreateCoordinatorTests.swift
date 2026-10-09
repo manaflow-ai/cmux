@@ -15,6 +15,7 @@ struct MachineCreateCoordinatorTests {
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
+        var operationIDs: [UUID] = []
         var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
@@ -31,7 +32,8 @@ struct MachineCreateCoordinatorTests {
         }
 
         var cancellableLaunch: MachineCreateCoordinator.CancellableLaunch {
-            { [self] arguments, progress, completion in
+            { [self] operationID, arguments, progress, completion in
+                self.operationIDs.append(operationID)
                 self.arguments.append(arguments)
                 guard starts else { return nil }
                 progressHandlers.append(progress)
