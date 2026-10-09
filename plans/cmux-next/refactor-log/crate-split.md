@@ -100,4 +100,17 @@ crate only when a crate extracted below core needs them (for example the
 terminal-host runtime), with LockStats and JournalContention moved with
 them. Crate boundary agreed through the chief with the mux.rs lane first.
 
+## Order that shrinks cmux-tui-core's own compile (chief, 2026-10-09)
+
+Priority is by lines removed from cmux-tui-core, biggest first, among
+domains that can leave without a design step: platform family 5.7k (step 2),
+terminal-host protocol family about 4.9k with the surface consts and
+server/protocol_key.rs, terminal_host_runtime 15.8k (after now_ms and
+NotificationLevel reach a leaf module), browser 12.3k (after a host seam),
+then the seam-gated domains (surface, workspace_registry, apps). Leaves under
+1k lines go along with a larger step, never alone. fs_ops (2.8k, ready on
+local branch refactor-crate-split-step2) fills a gap only.
+
 ## Landings
+
+- 2026-10-09 90f75c91fc9c (code 98fdbdfc9fe7) step 1: cmux-tui-core/src/cloud_conversations/ (8 files) -> crates/cmux-tui-cloud-conversations; cmux-tui-core 295,439 -> 292,376 lines; Testbox gate 8 min; post-land cmux-tui.yml focused run 37892029995 green. Build (32 vCPU, warm, edit in moved code): `cargo test -p <domain> --no-run` 12.2 s -> 0.2 s; `cargo build -p cmux-tui` 14.1 -> 13.6 s (no real change).

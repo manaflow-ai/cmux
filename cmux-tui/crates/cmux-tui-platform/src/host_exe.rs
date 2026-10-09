@@ -32,13 +32,13 @@ use std::path::PathBuf;
 
 /// The executable for a new terminal host: the verified copy on macOS, else
 /// (or when the copy cannot be used) the daemon's own executable.
-pub(crate) fn terminal_host_executable() -> io::Result<PathBuf> {
+pub fn terminal_host_executable() -> io::Result<PathBuf> {
     imp::terminal_host_executable()
 }
 
 /// Hold the shared in-use lock of the copy this process runs from, if it
 /// runs from one. A terminal host calls it once at start.
-pub(crate) fn hold_in_use_lock() {
+pub fn hold_in_use_lock() {
     imp::hold_in_use_lock();
 }
 
@@ -46,7 +46,7 @@ pub(crate) fn hold_in_use_lock() {
 /// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
 /// executable is used. A spawn that fails from the copy is retried once from
 /// the daemon's own executable, and the copy is not used again.
-pub(crate) fn spawn_host(
+pub fn spawn_host(
     configure: impl Fn(&mut std::process::Command),
 ) -> io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;

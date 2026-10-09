@@ -1478,6 +1478,7 @@ dependencies = [
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "flate2",
  "fs4",
@@ -1522,6 +1523,23 @@ dependencies = [
  "serde_json",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-platform"
+version = "0.1.0"
+dependencies = [
+ "cmux-link",
+ "cmux-pty",
+ "cmux-sdk",
+ "cmux-unix-socket",
+ "getrandom 0.3.4",
+ "libc",
+ "serde_json",
+ "sha2 0.10.9",
+ "uds_windows",
+ "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
