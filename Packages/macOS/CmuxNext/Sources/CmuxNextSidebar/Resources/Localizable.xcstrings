@@ -9305,130 +9305,130 @@
     "sidebar.chats.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chats"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المحادثات"
+            "value": "كل المحادثات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Razgovori"
+            "value": "Svi razgovori"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samtaler"
+            "value": "Alle chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats de"
+            "value": "Alle Chats"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats es"
+            "value": "Todos los chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversations"
+            "value": "Tous les chats"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Tutte le chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャット"
+            "value": "すべてのチャット"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការជជែក"
+            "value": "ការជជែកទាំងអស់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅"
+            "value": "모든 채팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chatter"
+            "value": "Alle chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czaty"
+            "value": "Wszystkie czaty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversas"
+            "value": "Todos os chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чаты"
+            "value": "Все чаты"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชต"
+            "value": "แชททั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetler"
+            "value": "Tüm sohbetler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чати"
+            "value": "Усі чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuộc trò chuyện"
+            "value": "Tất cả cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天"
+            "value": "所有聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "聊天"
+            "value": "所有聊天"
           }
         }
       }
@@ -12704,6 +12704,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "橙色"
+          }
+        }
+      }
+    },
+    "sidebar.chats.group.newest": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأحدث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najnovije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyeste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neueste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい順"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្មីបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신순"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyeste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najnowsze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала новые"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En yeni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу нові"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mới nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
           }
         }
       }

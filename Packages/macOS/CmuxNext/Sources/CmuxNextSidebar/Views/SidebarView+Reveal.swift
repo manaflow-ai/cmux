@@ -15,6 +15,7 @@ extension SidebarView {
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
+        for region in bandRegions { region.chromeRevealed = revealed }
         cardStack.revealed = revealed
         if changed { onChromeRevealChange?(revealed) }
         let alpha: CGFloat = revealed ? 1 : 0

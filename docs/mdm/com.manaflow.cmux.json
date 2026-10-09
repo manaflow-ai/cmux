@@ -1420,6 +1420,14 @@
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
     },
+    "sidebar.allChatsRows" : {
+      "default" : 8,
+      "description" : "How many chats the All chats section shows before it scrolls.",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "All Chats Rows",
+      "type" : "number"
+    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
@@ -1505,9 +1513,9 @@
       "type" : "string"
     },
     "sidebar.showChats" : {
-      "default" : false,
-      "description" : "Shows the device-wide Chats section in the sidebar.",
-      "title" : "Show Chats",
+      "default" : true,
+      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
+      "title" : "Show All Chats",
       "type" : "boolean"
     },
     "sidebar.showProjects" : {

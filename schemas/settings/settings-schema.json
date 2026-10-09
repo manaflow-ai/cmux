@@ -8556,7 +8556,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -8564,15 +8564,17 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "Shows the device-wide Chats section in the sidebar."
+        "text" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
       "keywords" : [
         "sidebar",
         "chats",
+        "all chats",
         "agents",
-        "conversations"
+        "conversations",
+        "history"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -8588,7 +8590,62 @@
       "section" : "appearance",
       "title" : {
         "key" : "settings.sidebar.showChats",
-        "text" : "Show Chats"
+        "text" : "Show All Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.allChatsRows.help",
+        "text" : "How many chats the All chats section shows before it scrolls."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.allChatsRows",
+      "keywords" : [
+        "sidebar",
+        "chats",
+        "all chats",
+        "rows",
+        "count"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "allChatsRows"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.allChatsRows",
+        "text" : "All Chats Rows"
       },
       "validation" : "portable"
     },
