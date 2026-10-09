@@ -42,11 +42,16 @@ try {
     const probes = Promise.allSettled([adapter.listOptions(directory), adapter.listCommands(directory)]);
     if (mode.startsWith("hang")) {
       const stage = mode.slice("hang-".length);
-      const ready = join(directory, `${stage}-ready`);
-      const readyDeadline = Date.now() + 2_000;
+      const readyDeadline = Date.now() + 10_000;
+      let probeChildren: { pid: number; mode: string }[] = [];
       try {
-        while ((!existsSync(ready) || watchdogs.length < 2) && Date.now() < readyDeadline) await Bun.sleep(10);
-        assert.ok(existsSync(ready), `fixture must consume ${stage} before timing out`);
+        while (Date.now() < readyDeadline) {
+          probeChildren = processes().slice(-2);
+          if (probeChildren.length === 2 && watchdogs.length === 2 && probeChildren.every((child) => existsSync(join(directory, `${stage}-ready-${child.pid}`)))) break;
+          await Bun.sleep(10);
+        }
+        assert.equal(probeChildren.length, 2, `both ${stage} probes must journal before timing out`);
+        assert.ok(probeChildren.every((child) => existsSync(join(directory, `${stage}-ready-${child.pid}`))), `both probes must consume ${stage} before timing out`);
         assert.equal(watchdogs.length, 2, "both catalog entrypoints must schedule an 8s watchdog");
         assert.ok(watchdogs.every((watchdog) => watchdog.delay === 8_000));
       } finally {

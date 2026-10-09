@@ -43,44 +43,9 @@ concurrency:
   cancel-in-progress: ${{ github.event.workflow_run.event == 'pull_request' }}
 
 jobs:
-  select-fast-guard:
-    name: Select fast guard result
-    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    permissions:
-      actions: read
-    outputs:
-      relevant: ${{ steps.select.outputs.relevant }}
-    steps:
-      - name: Select the authoritative fast guard job
-        id: select
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          RUN_PATH: ${{ github.event.workflow_run.path }}
-        run: |
-          set -euo pipefail
-          if [ "$RUN_PATH" = ".github/workflows/ci-repo-variables.yml" ]; then
-            echo "relevant=$([[ "$RUN_CONCLUSION" != cancelled ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100")"
-          fast_conclusion="$(jq -r '[.jobs[] | select(.name == "CI fast guards")][0].conclusion // "missing"' <<<"$jobs_json")"
-          relevant=false
-          if [ "$RUN_CONCLUSION" = "success" ] && [ "$fast_conclusion" = "success" ]; then
-            relevant=true
-          elif [ "$RUN_CONCLUSION" != "success" ] && [[ "$fast_conclusion" =~ ^(failure|timed_out|startup_failure|action_required)$ ]]; then
-            relevant=true
-          fi
-          echo "fast guard job: $fast_conclusion; workflow: $RUN_CONCLUSION; relevant=$relevant"
-          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
-
   analyze:
     name: Analyze
-    needs: select-fast-guard
-    if: ${{ needs.select-fast-guard.outputs.relevant == 'true' }}
+    if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
     # needs no secret or write token, so use the shared Linux runner pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -144,7 +109,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow the fast guard within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       contents: read

@@ -351,6 +351,7 @@ class Robustness(unittest.TestCase):
     def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        gh.comments = lambda number: [{"id": 1, "body": ga.PR_MARKER}]  # type: ignore[method-assign]
         run = {
             "id": 9,
             "run_attempt": 2,
@@ -358,11 +359,13 @@ class Robustness(unittest.TestCase):
             "path": ".github/workflows/ci.yml",
             "event": "pull_request",
             "conclusion": "failure",
-            "pull_requests": [{"number": 7}],
+            "pull_requests": [{"number": 7, "base": {"repo": {
+                "url": "https://api.github.com/repos/manaflow-ai/cmux",
+            }} }],
         }
         selected = ga.authoritative_guard_run(gh, run)
         self.assertEqual(selected["conclusion"], "success")
-        self.assertEqual(ga.analyze_pr(None, selected, ROOT, "")["state"], "green")
+        self.assertEqual(ga.analyze_pr(gh, selected, ROOT, "")["state"], "green")
 
     def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
@@ -383,17 +386,21 @@ class Robustness(unittest.TestCase):
 
     def test_fast_guard_log_selection_excludes_unrelated_failed_jobs(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
-        gh.get = lambda path: {  # type: ignore[method-assign]
+        paths = []
+        gh.get = lambda path: (paths.append(path) or {  # type: ignore[method-assign]
             "jobs": [
                 {"id": 1, "name": ga.FAST_WORKFLOW, "conclusion": "failure"},
                 {"id": 2, "name": "Fast static checks", "conclusion": "failure"},
             ]
-        }
+        })
         gh.request = lambda method, path, text=False: f"log:{path}"  # type: ignore[method-assign]
         self.assertEqual(
-            gh.failed_log(9, job_name=ga.FAST_WORKFLOW),
+            gh.failed_log(9, run_attempt=4, job_name=ga.FAST_WORKFLOW),
             "log:repos/manaflow-ai/cmux/actions/jobs/1/logs",
         )
+        self.assertEqual(paths, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/4/jobs?per_page=100&page=1",
+        ])
 
     def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

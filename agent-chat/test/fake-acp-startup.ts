@@ -25,6 +25,7 @@ await readLines(Bun.stdin.stream(), (line) => {
   const stage = request.method === "initialize" ? "initialize" : request.method === "session/new" ? "session" : "";
   if (stage && mode === `hang-${stage}`) {
     writeFileSync(join(directory, `${stage}-ready`), "");
+    writeFileSync(join(directory, `${stage}-ready-${process.pid}`), "");
     return;
   }
   if (stage && mode === `reject-${stage}`) {

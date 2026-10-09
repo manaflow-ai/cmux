@@ -59,7 +59,7 @@ try {
   // Wait for the real child to consume initialize before firing the watchdog.
   // This exercises the same timeout/kill/reap path without spending 30 seconds
   // asleep or imposing a short wall-clock deadline on subprocess startup.
-  const readyDeadline = Date.now() + 2_000;
+  const readyDeadline = Date.now() + 10_000;
   while (!existsSync(join(directory, "initialize-ready")) && Date.now() < readyDeadline) await Bun.sleep(10);
   assert.ok(existsSync(join(directory, "initialize-ready")), "fixture must consume initialize before timing out");
   assert.deepEqual(timers.map(({ delay }) => delay), [30_000, 30_000], "startup watchdog and initialize RPC retain their 30s deadlines");
