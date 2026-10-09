@@ -188,6 +188,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 public enum MobileSyncFrameCodecError: Error, Equatable, Sendable {
     case frameTooLarge(Int)
     case tooManyFrames(Int)
+    /// A decode limit was negative (frame bytes) or below one (frame count).
+    case invalidLimit
 }
 
 /// Length-prefixed frame codec for the mobile sync wire protocol.
@@ -217,8 +219,9 @@ public struct MobileSyncFrameCodec {
         maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
         maximumDecodedFrameCount: Int = defaultMaximumDecodedFrameCount
     ) throws -> [Data] {
-        precondition(maximumFrameByteCount >= 0)
-        precondition(maximumDecodedFrameCount > 0)
+        guard maximumFrameByteCount >= 0, maximumDecodedFrameCount > 0 else {
+            throw MobileSyncFrameCodecError.invalidLimit
+        }
         var frames: [Data] = []
         frames.reserveCapacity(min(maximumDecodedFrameCount, 16))
         var consumedByteCount = 0
