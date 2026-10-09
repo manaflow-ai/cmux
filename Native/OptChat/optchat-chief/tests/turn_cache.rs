@@ -337,12 +337,8 @@ fn turn_requests_never_put_a_one_hour_mark_after_a_five_minute_one_for_either_se
 
 #[test]
 fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
-    use optchat_chief::acpmux::Family;
-    use optchat_chief::compactor::{cached_prompt, compactor_presets, compactor_settings};
-    let dir = tempfile::tempdir().unwrap();
-    let paths = optchat_chief::paths::Paths::new(dir.path());
-    let presets = compactor_presets(&paths, dir.path(), "claude", Family::Claude);
-    assert!(!presets.is_empty());
+    use optchat_chief::compactor::{cached_prompt_with, compactor_settings_for};
+    use optchat_chief::prompt::CacheTtl;
     let mut context = String::from("<chat>\n");
     for i in 0..40 {
         context.push_str(&format!("{i}+1|note: line {i}\n"));
@@ -355,26 +351,17 @@ fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
         step: "step".into(),
         cut: None,
     };
-    let prompt = cached_prompt(&request, true);
-    let ours: Vec<&str> = markers(&prompt.blocks)
-        .iter()
-        .map(|&k| ttl_of(&prompt.blocks[k]["cache_control"]))
-        .collect();
-    assert_eq!(ours.len(), 1);
-    for preset in &presets {
+    for ttl in [CacheTtl::FiveMinutes, CacheTtl::OneHour] {
+        let prompt = cached_prompt_with(&request, true, ttl);
+        let ours: Vec<&str> = markers(&prompt.blocks)
+            .iter()
+            .map(|&k| ttl_of(&prompt.blocks[k]["cache_control"]))
+            .collect();
+        assert_eq!(ours, vec![ttl.as_str()]);
         assert_non_increasing(
-            harness_ttl(&compactor_settings(), Some(&preset.env)),
+            harness_ttl(&compactor_settings_for(ttl), None),
             &ours,
-            &format!("compactor preset {}", preset.name),
-        );
-        assert_eq!(
-            preset
-                .env
-                .get("FORCE_PROMPT_CACHING_5M")
-                .map(String::as_str),
-            Some("1"),
-            "{}: Claude Code's own marks pinned to 5m",
-            preset.name
+            &format!("compactor node at {}", ttl.as_str()),
         );
     }
 }

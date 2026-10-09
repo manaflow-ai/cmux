@@ -725,13 +725,17 @@ impl Brain {
     /// `OPTCHAT_CACHE_TTL`, else the Chief's `cache.ttl`, else 1 hour; 5
     /// minutes once a route refused 1 hour.
     pub(super) fn turn_cache_ttl(&self) -> CacheTtl {
-        if self.ttl_refused.load(Ordering::SeqCst) {
-            return CacheTtl::FiveMinutes;
-        }
-        self.settings
-            .cache_ttl
-            .or(self.chief.cache_ttl)
-            .unwrap_or(CacheTtl::OneHour)
+        let ttl = if self.ttl_refused.load(Ordering::SeqCst) {
+            CacheTtl::FiveMinutes
+        } else {
+            self.settings
+                .cache_ttl
+                .or(self.chief.cache_ttl)
+                .unwrap_or(CacheTtl::OneHour)
+        };
+        // The compactor's nodes follow it.
+        self.settings.shared_ttl.set(ttl);
+        ttl
     }
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux

@@ -44,7 +44,8 @@ enum DebugNotifications {
             "unread": .array(unread),
             "windows": .array(windows),
             "banners": .array(center.desktop.posted.map { banner in
-                ["id": .string(banner.id), "title": .string(banner.title), "body": .string(banner.body),
+                ["id": .string(banner.id), "title": .string(banner.title),
+                 "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
                  "surface": banner.surface.map { .number(Double($0)) } ?? .null]
             }),
             "authorization": .string(center.desktop.authorization),
