@@ -43,14 +43,6 @@ nonisolated struct PaletteRankerBridgeFrecencyEntry: Encodable {
     let lastUsed: Double
 }
 
-nonisolated struct PaletteRankerBridgePick: Encodable {
-    let prefix: String
-    let key: String
-    let score: Double
-    let lastUsed: Double
-    let last: Bool
-}
-
 nonisolated struct PaletteRankerBridgeFrecency: Encodable {
     let entries: [String: PaletteRankerBridgeFrecencyEntry]
     let halfLife: Double
