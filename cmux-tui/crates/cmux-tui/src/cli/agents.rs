@@ -57,25 +57,26 @@ enum AgentCommand {
 }
 
 fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
-    match args {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
         [family] if family == "snapshot" => Ok(AgentCommand::Snapshot),
         ["workspace", "select", target] => Ok(resource(
             "workspace.select",
-            vec!["workspace".into(), target.clone(), "focus".into()],
+            vec!["workspace".into(), (*target).into(), "focus".into()],
         )),
         ["workspace", "create", rest @ ..] => {
             let mut mapped = vec!["workspace".into(), "create".into()];
-            mapped.extend(rest.iter().cloned());
+            mapped.extend(rest.iter().map(|value| (*value).into()));
             Ok(resource("workspace.create", mapped))
         }
         ["tab", "select", target] => {
-            Ok(resource("tab.select", vec!["tab".into(), target.clone(), "focus".into()]))
+            Ok(resource("tab.select", vec!["tab".into(), (*target).into(), "focus".into()]))
         }
         ["terminal", "focus", target] => {
-            Ok(resource("terminal.focus", vec!["tab".into(), target.clone(), "focus".into()]))
+            Ok(resource("terminal.focus", vec!["tab".into(), (*target).into(), "focus".into()]))
         }
         ["terminal", "split", direction, rest @ ..]
-            if matches!(direction.as_str(), "left" | "right" | "up" | "down") =>
+            if matches!(*direction, "left" | "right" | "up" | "down") =>
         {
             let mut mapped = vec!["pane".into(), "current".into(), "split".into()];
             mapped.push(format!("--{direction}"));
@@ -86,7 +87,7 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                     let value = rest.get(index + 1).ok_or_else(|| {
                         UsageError::new("agents terminal split: --surface needs a value")
                     })?;
-                    pane = Some(value.clone());
+                    pane = Some((*value).into());
                     index += 2;
                 } else {
                     return Err(UsageError::new(format!(
@@ -103,12 +104,15 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
         ["palette", "open"] => {
             Ok(AgentCommand::App { action: "palette.open".into(), args: Vec::new() })
         }
-        ["dialog", "list"] | ["dialog", "list", "--all"] => {
-            Ok(AgentCommand::App { action: "dialog.list".into(), args: args[2..].to_vec() })
-        }
+        ["dialog", "list"] | ["dialog", "list", "--all"] => Ok(AgentCommand::App {
+            action: "dialog.list".into(),
+            args: words[2..].iter().map(|value| (*value).into()).collect(),
+        }),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
-            args: std::iter::once(request_id.clone()).chain(rest.iter().cloned()).collect(),
+            args: std::iter::once((*request_id).into())
+                .chain(rest.iter().map(|value| (*value).into()))
+                .collect(),
         }),
         _ => Err(UsageError::new(format!("unknown agents command; run `cmux agents --help`"))),
     }
