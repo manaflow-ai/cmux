@@ -4,9 +4,9 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// cx-xub5 (Lawrence 2026-10-09): the All chats section at the bottom of the
-/// sidebar lists every chat newest first; its header (title, search, project
-/// filter, grouping) shows only while the pointer is over the sidebar; its
-/// row count follows `sidebar.allChatsRows`.
+/// sidebar lists every chat newest first. It starts minimized (its header row
+/// alone); open, it is a fixed third of the sidebar and its list scrolls. The
+/// title always shows; the icons (search, filter, group) show only on hover.
 @MainActor @Suite(.serialized) struct SidebarAllChatsTests {
     private static func row(_ id: String, harness: String, folder: String? = nil) -> SidebarChatsView.Row {
         SidebarChatsView.Row(id: id, title: id, harness: harness, brand: nil, folder: folder)
@@ -16,10 +16,11 @@ import Testing
     private static let rows = [row("codex:a", harness: "codex"), row("claude-code:b", harness: "claude-code"),
                                row("opencode:c", harness: "opencode"), row("codex:d", harness: "codex")]
 
-    private func chats(_ rows: [SidebarChatsView.Row] = Self.rows) -> SidebarChatsView {
+    private func chats(_ rows: [SidebarChatsView.Row] = Self.rows, expanded: Bool = true) -> SidebarChatsView {
         let view = SidebarChatsView(frame: NSRect(x: 0, y: 0, width: 260, height: 400),
                                     defaults: UserDefaults(suiteName: "all-chats-\(UUID())")!)
         view.update(rows, enabled: true, ready: true)
+        if expanded { view.toggleExpanded() }
         view.layoutSubtreeIfNeeded()
         return view
     }
@@ -32,19 +33,44 @@ import Testing
         #expect(view.numberOfRows(in: NSTableView()) == Self.rows.count, "only chat rows, no headers")
     }
 
-    /// The header is faded out and takes no clicks until the sidebar is hovered.
-    @Test func theHeaderShowsOnlyOnHover() {
+    /// The icons are faded out and take no clicks until the sidebar is hovered; the title shows.
+    @Test func theIconsShowOnlyOnHover() {
         let view = chats()
         let center = NSPoint(x: view.searchButton.frame.midX, y: view.searchButton.frame.midY)
         #expect(!view.isHeaderRevealed)
-        #expect(view.header.alphaValue == 0)
-        #expect(view.header.hitTest(center) == nil, "a hidden search field takes no click")
+        #expect(view.searchButton.alphaValue == 0 && view.titleLabel.alphaValue == 1)
+        #expect(view.header.hitTest(center) === view.header, "a hidden search icon takes no click")
         view.setHoverRevealed(true)
         #expect(view.isHeaderRevealed)
-        #expect(view.header.hitTest(center) != nil)
+        #expect(view.header.hitTest(center) === view.searchButton)
         view.setHoverRevealed(false)
         #expect(!view.isHeaderRevealed)
-        #expect(view.header.hitTest(center) == nil)
+        #expect(view.header.hitTest(center) === view.header)
+    }
+
+    /// Minimized by default: the header row alone, no list, no icons even on hover. A click on
+    /// the header opens it (and it stays open on this Mac), a second click minimizes it again.
+    @Test func theSectionStartsMinimizedAndTheHeaderOpensIt() {
+        let defaults = UserDefaults(suiteName: "all-chats-min-\(UUID())")!
+        let view = SidebarChatsView(frame: NSRect(x: 0, y: 0, width: 260, height: 400), defaults: defaults)
+        view.update(Self.rows, enabled: true, ready: true)
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.isExpanded)
+        #expect(view.preferredHeight == Metrics.sidebarRowHeight, "the header row alone")
+        #expect(view.sidebarShare == nil)
+        view.setHoverRevealed(true)
+        #expect(!view.isHeaderRevealed, "a minimized section shows no icons")
+        var changes = 0
+        view.onLayoutChange = { changes += 1 }
+        let title = NSPoint(x: view.titleLabel.frame.midX, y: view.titleLabel.frame.midY)
+        #expect(view.header.hitTest(title) === view.header, "the title toggles")
+        #expect(view.header.accessibilityPerformPress())
+        #expect(view.isExpanded && changes == 1)
+        #expect(view.sidebarShare == 1.0 / 3.0)
+        let again = SidebarChatsView(defaults: defaults)
+        #expect(again.isExpanded, "the choice is kept on this Mac")
+        view.toggleExpanded()
+        #expect(!view.isExpanded && changes == 2)
     }
 
     /// At the narrowest sidebar the header still fits: the whole title, then
@@ -117,9 +143,12 @@ import Testing
     /// The App's provider gives the section no title, so the band draws no
     /// title row of its own; hovering the sidebar reveals the section's header.
     final class Provider: SidebarAppSectionProvider {
-        let view = SidebarChatsView(defaults: UserDefaults(suiteName: "SidebarAllChatsTests") ?? .standard)
+        let view = SidebarChatsView(defaults: UserDefaults(suiteName: "SidebarAllChatsTests-\(UUID())")!)
         var onContentChange: (() -> Void)?
-        init() { view.update(SidebarAllChatsTests.rows, enabled: true, ready: true) }
+        init(expanded: Bool = true) {
+            view.update(SidebarAllChatsTests.rows, enabled: true, ready: true)
+            if expanded { view.toggleExpanded() }
+        }
         func title(for contribution: String) -> String? { nil }
         func makeView(for contribution: String) -> NSView? { contribution == SidebarChatsView.contribution ? view : nil }
         func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
@@ -152,6 +181,32 @@ import Testing
         plain.layoutSubtreeIfNeeded()
         plain.layout()
         #expect(plain.belowRegion.restAlpha(hiddenByMode: true) == 0)
+    }
+
+    private func sidebar(_ provider: Provider, height: CGFloat) -> SidebarView {
+        let model = SidebarModel()
+        model.layout = SidebarLayoutDocument.defaults.chatsLayout(enabled: true)
+        let sidebar = SidebarView(model: model)
+        sidebar.appSections = provider
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: height)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.layout()
+        return sidebar
+    }
+
+    /// Open, the section is a fixed third of the sidebar (not the bottom band's 25% cap, not its
+    /// rows); minimized, it is one row.
+    @Test(arguments: [CGFloat(600), 900, 1200])
+    func anOpenSectionTakesAThirdOfTheSidebar(height: CGFloat) {
+        let open = Provider()
+        let view = sidebar(open, height: height)
+        view.layout()
+        #expect(abs(open.view.frame.height - floor(height / 3)) <= 1, "\(open.view.frame.height) of \(height)")
+        #expect(view.belowScroll.frame.height >= floor(height / 3) - 1, "the band shows the whole section")
+        let closed = Provider(expanded: false)
+        let small = sidebar(closed, height: height)
+        small.layout()
+        #expect(closed.view.frame.height == Metrics.sidebarRowHeight)
     }
 
     @Test func hoveringTheSidebarRevealsTheHeaderAndTheBandAddsNoTitleRow() throws {

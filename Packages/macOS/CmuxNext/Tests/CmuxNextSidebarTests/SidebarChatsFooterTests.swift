@@ -12,11 +12,12 @@ import Testing
 
     /// Gives the sidebar the App's Chats section with `count` chats.
     final class ChatsProvider: SidebarAppSectionProvider {
-        let view = SidebarChatsView(defaults: UserDefaults(suiteName: "SidebarChatsFooterTests") ?? .standard)
+        let view = SidebarChatsView(defaults: UserDefaults(suiteName: "SidebarChatsFooterTests-\(UUID())")!)
         var onContentChange: (() -> Void)?
         init(count: Int) {
             view.update((0..<count).map { SidebarChatsView.Row(id: "claude:s\($0)", title: "Chat \($0)", harness: "claude", brand: nil) },
                         enabled: true, ready: true)
+            view.toggleExpanded() // open: a third of the sidebar (minimized by default)
         }
         func title(for contribution: String) -> String? { SidebarChatsView.title }
         func makeView(for contribution: String) -> NSView? { contribution == SidebarChatsView.contribution ? view : nil }
@@ -71,12 +72,13 @@ import Testing
         }
     }
 
-    /// In a small window the Chats section shrinks below its full height and
-    /// scrolls inside; in a tall window it shows in full.
-    @Test func chatsShrinkInASmallWindowFirst() throws {
-        let small = sidebar(height: 320, provider: ChatsProvider(count: 40))
-        #expect(small.belowRegion.frame.height > small.belowScroll.contentView.bounds.height + 0.5, "the Chats band scrolls")
-        let tall = sidebar(height: 1200, provider: ChatsProvider(count: 40))
-        #expect(abs(tall.belowRegion.frame.height - tall.belowScroll.contentView.bounds.height) <= 0.5, "full height in a tall window")
+    /// Open, All chats is a fixed third of the sidebar: 40 chats scroll inside it, and the band
+    /// never grows past a third plus its padding, in a small window or a tall one.
+    @Test(arguments: [CGFloat(320), 1200])
+    func openChatsStayAThird(height: CGFloat) throws {
+        let provider = ChatsProvider(count: 40)
+        let view = sidebar(height: height, provider: provider)
+        #expect(provider.view.frame.height <= floor(height / 3) + 0.5)
+        #expect(view.belowScroll.contentView.bounds.height <= floor(height / 3) + Metrics.space4 * 2)
     }
 }
