@@ -698,12 +698,10 @@ describe("acpmux composer pickers", () => {
     await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
     expect(compacted).toBe(1);
     expect(pop()).toBeNull();
-    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
-    await render(snapshot({}), { onCompact });
+    // Without the agent's compact command there is no Compact.
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }), { onCompact });
     await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
-    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
-    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
   });
 });
 

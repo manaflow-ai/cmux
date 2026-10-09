@@ -432,6 +432,8 @@ export function ContextRing({
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
+        // Before the first usage report there is nothing to show: the ring keeps its place, off.
+        disabled={!known}
         onPointerDown={() => (openAtPress.current = open)}
         onClick={() => {
           setOpen(!(openAtPress.current ?? open));
