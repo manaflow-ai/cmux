@@ -320,7 +320,7 @@ final class TabContentCache {
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
-        entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
+        entry.chrome.machineBadge = page is MachineBrowserPageTab ? nil : { [weak self] url in self?.machineBadge?(key, url) }  // runs there
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
