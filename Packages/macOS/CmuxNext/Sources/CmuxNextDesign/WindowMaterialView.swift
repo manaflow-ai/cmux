@@ -24,6 +24,8 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let inactiveTintView = NSView()
+    private var keyObservers: [NSObjectProtocol] = []
     private let artView = NSView()
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
@@ -62,6 +64,11 @@ public final class WindowMaterialView: NSView {
         tintView.autoresizingMask = [.width, .height]
         tintView.isHidden = true
         addSubview(tintView)
+        inactiveTintView.wantsLayer = true
+        inactiveTintView.frame = bounds
+        inactiveTintView.autoresizingMask = [.width, .height]
+        inactiveTintView.isHidden = true
+        addSubview(inactiveTintView)
         setAccessibilityElement(false)
     }
 
@@ -84,10 +91,43 @@ public final class WindowMaterialView: NSView {
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
-    /// The theme tint laid over glass while the window is not key (stub).
-    var inactiveTintAlpha: CGFloat { 0 }
-    /// Its color (stub).
-    var inactiveTintColor: CGColor? { nil }
+    /// The theme tint laid over glass while the window is not key: Liquid
+    /// Glass drops its `tintColor` then and draws the system's grey, so the
+    /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
+    var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
+    var inactiveTintColor: CGColor? { inactiveTintView.isHidden ? nil : inactiveTintView.layer?.backgroundColor }
+
+    /// Classic's wash over inactive glass: strong over a dark theme, light
+    /// over a light one, none while the window is key or for other materials.
+    static func inactiveTintAlpha(isGlass: Bool, isKeyWindow: Bool, tint: NSColor) -> CGFloat {
+        guard isGlass, !isKeyWindow else { return 0 }
+        guard let rgb = tint.usingColorSpace(.sRGB) else { return 0.85 }
+        let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+        return luminance > 0.5 ? 0.35 : 0.85
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
+        keyObservers = []
+        guard let window else { return }
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                let isKey = note.name == NSWindow.didBecomeKeyNotification
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated { self?.updateInactiveTint(isKeyWindow: isKey) }
+            }
+        }
+        updateInactiveTint(isKeyWindow: window.isKeyWindow)
+    }
+
+    private func updateInactiveTint(isKeyWindow: Bool) {
+        let glass = materialView as? NSGlassEffectView
+        let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: isKeyWindow, tint: $0) } ?? 0
+        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        inactiveTintView.alphaValue = alpha
+        inactiveTintView.isHidden = alpha == 0
+    }
 
     /// Decoration only: clicks reach the views above or the window.
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -140,6 +180,7 @@ public final class WindowMaterialView: NSView {
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        updateInactiveTint(isKeyWindow: window?.isKeyWindow ?? true)
     }
 
     private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {
