@@ -6,22 +6,33 @@ extension Workspace {
 
     func applyProgramStatus(_ report: ProgramStatusReport, panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        var store = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
-        store.apply(report)
-        programStatusStoresByPanelId[panelId] = store
-        projectProgramStatus(panelId: panelId)
+        // Every shell prompt emits a prompt-start event; panes that never
+        // reported program status have nothing to drop.
+        if report.event == .promptStart, programStatusStoresByPanelId[panelId] == nil { return }
+        updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
     }
 
     func dropTransientProgramStatus(panelId: UUID) {
-        guard var store = programStatusStoresByPanelId[panelId] else { return }
-        store.dropTransient()
-        programStatusStoresByPanelId[panelId] = store
-        projectProgramStatus(panelId: panelId)
+        updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dropTransient() }
     }
 
     func dismissCompletedProgramStatus(panelId: UUID) {
-        guard var store = programStatusStoresByPanelId[panelId] else { return }
-        store.dismissCompleted()
+        updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dismissCompleted() }
+    }
+
+    /// Mutates one pane's store and re-projects the sidebar only when the
+    /// records changed, so prompts and focus changes do not republish status.
+    private func updateProgramStatusStore(
+        panelId: UUID,
+        createIfMissing: Bool = true,
+        _ mutate: (inout ProgramStatusRecordStore) -> Void
+    ) {
+        guard var store = programStatusStoresByPanelId[panelId] ?? (createIfMissing ? ProgramStatusRecordStore() : nil) else {
+            return
+        }
+        let previous = programStatusStoresByPanelId[panelId]
+        mutate(&store)
+        guard store != previous else { return }
         programStatusStoresByPanelId[panelId] = store
         projectProgramStatus(panelId: panelId)
     }
@@ -90,16 +101,18 @@ extension Workspace {
     }
 
     private func refreshProgramStatusWorkspaceEntry() {
-        let entries = agentStatusEntriesByPanelId.values.compactMap { $0[Self.programStatusKey] }
-        guard let entry = entries.max(by: { lhs, rhs in
-            let left = lhs.priority
-            let right = rhs.priority
-            return left == right ? lhs.timestamp < rhs.timestamp : left < right
-        }) else {
-            statusEntries.removeValue(forKey: Self.programStatusKey)
-            return
+        let entries = agentStatusEntriesByPanelId.compactMap { panelId, entries in
+            panels[panelId] == nil ? nil : entries[Self.programStatusKey]
         }
-        statusEntries[Self.programStatusKey] = entry
+        let winner = entries.max(by: { lhs, rhs in
+            lhs.priority == rhs.priority ? lhs.timestamp < rhs.timestamp : lhs.priority < rhs.priority
+        })
+        guard statusEntries[Self.programStatusKey] != winner else { return }
+        if let winner {
+            statusEntries[Self.programStatusKey] = winner
+        } else {
+            statusEntries.removeValue(forKey: Self.programStatusKey)
+        }
     }
 
     func sanitizedProgramStatusText(_ value: String?) -> String? {

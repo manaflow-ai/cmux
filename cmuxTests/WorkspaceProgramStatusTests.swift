@@ -61,6 +61,41 @@ struct WorkspaceProgramStatusTests {
         #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
     }
 
+    @Test func closingPaneRemovesItsProgramStatusRow() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let blockedPanel = try #require(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: false)
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .blocked, kind: .permission, app: "terraform"),
+            panelId: blockedPanel.id
+        )
+        #expect(workspace.statusEntries[Workspace.programStatusKey] != nil)
+
+        workspace.discardClosedPanelLifecycleState(
+            panelId: blockedPanel.id,
+            paneId: nil,
+            panel: blockedPanel,
+            origin: "program_status_test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
+        #expect(workspace.programStatusStoresByPanelId[blockedPanel.id] == nil)
+    }
+
+    @Test func promptStartWithoutRecordsDoesNotCreateState() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.applyProgramStatus(ProgramStatusReport(event: .promptStart, state: .idle), panelId: panelId)
+        #expect(workspace.programStatusStoresByPanelId[panelId] == nil)
+        #expect(workspace.statusEntries[Workspace.programStatusKey] == nil)
+    }
+
     @Test func sanitizesInvisibleFormattingAndCapsDisplay() {
         let workspace = Workspace()
         let value = workspace.sanitizedProgramStatusText("hello\u{202E}world")
