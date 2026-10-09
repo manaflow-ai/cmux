@@ -174,6 +174,17 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
+    /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
+    /// session of `harness` and `preset` in `cwd`, so the next `session/new`
+    /// of exactly that shape takes a harness that is already up.
+    fn prewarm(
+        &self,
+        _harness: &str,
+        _preset: Option<&str>,
+        _cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -697,6 +708,37 @@ impl AgentPort for Acpmux {
             .request("_acpmux/permission_respond", params)
             .map(|_| ())
             .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        // The same preset `new_session` gives a session that names none.
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match preset {
+            Some(name) if ready.contains(name) => Some(name.to_owned()),
+            Some(_) => return Ok(()),
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.clone()),
+        };
+        let mut params = json!({"harness": harness, "cwd": cwd});
+        if let Some(preset) = preset {
+            params["preset"] = json!(preset);
+        }
+        self.client()?
+            .request("_acpmux/prewarm", params)
+            .map(|_| ())
+            .map_err(|e| format!("prewarm: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

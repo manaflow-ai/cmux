@@ -125,11 +125,11 @@ impl SideFloor {
     }
 }
 
-/// One `spawn(tasks)` call (section 9): its subagents report together.
+/// One `spawn(tasks)` call (section 9): each subagent reports as it finishes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpawnRecord {
     pub subs: Vec<SubRecord>,
-    /// The combined report is in the log; later reports come one by one.
+    /// A report of this spawn is in the log.
     #[serde(default)]
     pub delivered: bool,
     /// When the spawn was made (ms since the epoch).
@@ -169,6 +169,9 @@ pub struct SubRecord {
     /// The report waiting for the log.
     #[serde(default)]
     pub report: Option<String>,
+    /// The waiting report is of a run the user stopped: it starts no turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     /// The session's event seq at its last read turn end.
     #[serde(default)]
     pub floor: u64,
@@ -285,6 +288,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The user stopped the subagent: its report is logged with the next
+    /// turn and starts none (the reference client's stopped report).
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl HostState {
@@ -298,6 +305,7 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.stopped = false;
                     sub.floor = *floor;
                 }
             }
