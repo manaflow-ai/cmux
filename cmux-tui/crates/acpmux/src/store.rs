@@ -138,6 +138,12 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
+    /// current Claude conversation: the one that started or forked it. A
+    /// respawn on another profile (a failover) resumes only when that
+    /// profile's store has the conversation, else starts fresh (E1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -499,6 +505,7 @@ mod tests {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
             remote_origin: false,
             session_env: Default::default(),
