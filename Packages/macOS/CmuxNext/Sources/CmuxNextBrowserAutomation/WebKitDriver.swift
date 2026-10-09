@@ -51,6 +51,8 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.history": return try await tabHistory(params)
         case "tab.reload": return try await tabReload(params)
         case "frames.list": return try await framesList(params)
+        case "frame.contentFrame": return try await frameContentFrame(params)
+        case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
