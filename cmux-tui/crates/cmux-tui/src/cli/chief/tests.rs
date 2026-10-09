@@ -424,3 +424,17 @@ fn the_cli_resolves_every_chief_home_vector_as_the_app_does() {
         }
     }
 }
+
+#[test]
+fn a_message_steered_into_a_running_turn_ends_with_that_turn() {
+    // The brain delivers a message into the running turn (between tool
+    // calls): its read cursor passes the message while the Chief already
+    // types, and that turn's one reply answers it (parity run 2026-10-09:
+    // `cmux chief -p` waited its whole --timeout).
+    let mut watch = TurnWatch::new(5);
+    watch.on(&typing(true));
+    watch.on(&cursor(5));
+    assert!(watch.on(&UiEvent::Message(message(6, "agent_mux", "both answered", "t"))).is_some());
+    watch.on(&typing(false));
+    assert!(watch.done);
+}
