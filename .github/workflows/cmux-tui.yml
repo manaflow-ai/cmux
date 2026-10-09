@@ -567,9 +567,9 @@ jobs:
             --test-threads=1
 
           startup_tests=(
-            config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver
-            config::tests::ghostty_file_reader_enforces_byte_limit_during_read
-            config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
+            config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver
+            config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read
+            config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit
           )
           for test_name in "${startup_tests[@]}"; do
             require_exact_test "$cmux_tui_bin" "$test_name"

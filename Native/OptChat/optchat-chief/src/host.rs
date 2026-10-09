@@ -932,7 +932,13 @@ fn start(
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        Some(Arc::new(app.with_home(home)))
+        // E17: the app while it runs, else the Chief's owner daemon.
+        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
+            app,
+            daemon_socket.into(),
+            home,
+            Some(sub_harness.clone()),
+        )))
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {

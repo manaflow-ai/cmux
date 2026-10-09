@@ -144,9 +144,14 @@ import Testing
         let services = try await services(daemon)
         defer { shutdown(services) }
         #expect(services.daemon.store.workspace(resourceID: ResourceID(rawValue: "ws_w")) != nil)
+        let clock = ManualClock()
+        services.daemon.reopenClock = clock
 
         let work = services.registry.capturingWork { _ = services.registry.perform("reopenClosedWorkspace") }
         #expect(work.count == 1)
+        // The restore replied; its workspace never reaches the mirror.
+        await clock.sleepers()
+        clock.advance(by: .seconds(5))
         for task in work {
             let failure = await task.value
             #expect(failure?.mayHaveApplied == true)
