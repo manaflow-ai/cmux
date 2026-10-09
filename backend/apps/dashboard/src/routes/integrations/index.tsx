@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad } from "../../lib/hooks"
-import { mutate, read } from "../../lib/server"
+import { useTeamApi } from "../../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../../lib/session"
 import { IntegrationApprovals } from "./-approvals"
 
@@ -32,8 +32,9 @@ const LABEL: Record<Connection["provider"], string> = { github: "GitHub App", li
 
 function Integrations() {
   const signedIn = useSignedIn()
+  const { read, mutate, team } = useTeamApi()
   const [error, setError] = useState<string | null>(null)
-  const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? "integrations" : null, async () => {
+  const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? `integrations:${team ?? "personal"}` : null, async () => {
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)
     const [r, p] = await Promise.all([read({ data: { op: "integration.list", params: {} } }), read({ data: { op: "integration.policy.get", params: {} } })])

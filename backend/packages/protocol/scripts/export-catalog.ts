@@ -146,6 +146,8 @@ const catalog = {
     "operation.failed": { retryable: false },
     "auth.unauthenticated": { retryable: false },
     "auth.forbidden": { retryable: false },
+    // Any op called with x-cmux-team (or the team.<id> subprotocol) for a team the caller is not in (cx-5xew).
+    "team.not_member": { retryable: false },
     "owner.unreachable": { retryable: true },
     "mutation.indeterminate": { retryable: true }
   },
