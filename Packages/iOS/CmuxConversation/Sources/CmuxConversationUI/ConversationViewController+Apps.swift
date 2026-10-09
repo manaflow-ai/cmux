@@ -107,7 +107,9 @@ final class AppsMenuOverlay: UIView {
 extension ConversationViewController {
     func presentAppsMenu() {
         dismissPhotoDrawer()
-        view.endEditing(true)
+        // Messages (iOS 26.5 and 27.0) keeps the keyboard up under the menu,
+        // with the composer still riding it; items that need the keyboard's
+        // place (Photos) dismiss it themselves.
         var items: [AppsMenuOverlay.Item] = []
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .systemGray) { [weak self] in
@@ -175,7 +177,9 @@ extension ConversationViewController {
         photoDrawer = drawer
         // The composer's field sits 4 pt above its container's bottom.
         let composerBottom = top - 20 - (view.bounds.height - view.safeAreaInsets.bottom)
-        UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+        // On the keyboard's own curve: the keyboard leaving and the drawer
+        // arriving move the composer as one motion, never down then up.
+        animateAlongsideKeyboard {
             drawer.frame.origin.y = top
             self.composer.sideInset = 16
             self.composer.layoutIfNeeded()
@@ -188,7 +192,9 @@ extension ConversationViewController {
         guard let drawer = photoDrawer else { return }
         photoDrawer = nil
         pickedAssets = [:]
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
+        // Usually inside the keyboard's show animation (see viewDidLoad),
+        // which this matches, so the composer rides up with the keyboard.
+        animateAlongsideKeyboard {
             drawer.frame.origin.y = self.view.bounds.height
             self.composer.sideInset = ConversationTheme.composerSideInset
             self.composer.layoutIfNeeded()
@@ -233,6 +239,18 @@ extension ConversationViewController {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
         picker.delegate = cameraDelegate
         present(picker, animated: true)
+    }
+
+    /// UIKit's keyboard animation on iOS 26 and 27: a critically damped
+    /// spring with stiffness 555 and damping 47.1 (response 2π/√555 =
+    /// 0.2667 s), read from the animations UIKit adds for a keyboard
+    /// notification (curve 7, 0.383 s). Inside a keyboard notification the
+    /// block inherits UIKit's own animation instead.
+    func animateAlongsideKeyboard(_ animations: @escaping () -> Void, completion: ((Bool) -> Void)? = nil) {
+        UIView.animate(
+            springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
+            animations: animations, completion: completion
+        )
     }
 
     private func composerBottomConstraintConstant(_ value: CGFloat) {
