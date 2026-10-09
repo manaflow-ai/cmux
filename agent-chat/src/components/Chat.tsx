@@ -13,6 +13,29 @@ import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
 import { useAutoGrow } from "../hooks/useAutoGrow";
 import { loadingProviderOptionIds, providerOptionMap, useFileCatalog, useProviderCatalogs, withFileTrigger } from "../hooks/useCatalogs";
 
+const TRANSCRIPT_GUIDE_SEEN_KEY = "agentui.transcriptGuide.seen";
+
+function readTranscriptGuideSeen(): boolean {
+  try {
+    return localStorage.getItem(TRANSCRIPT_GUIDE_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function TranscriptGuideInput() {
+  const sentence = agentChatText("transcriptGuideInput");
+  const marker = "{answerInTerminal}";
+  const parts = sentence.split(marker);
+  const answer = agentChatText("answerInTerminal");
+  return parts.map((part, index) => (
+    <span key={`${part}-${index}`}>
+      {part}
+      {index < parts.length - 1 ? <strong>{answer}</strong> : null}
+    </span>
+  ));
+}
+
 function usePersistSessionOptions(provider: string | undefined, options: SessionOption[], skip = false) {
   useEffect(() => {
     if (skip || !provider || !options.length) return;
@@ -60,8 +83,11 @@ export function Chat() {
   const [text, setText] = useState(() => draftStorage.getItem(composerDraftKey) || "");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [transcriptGuideSeen, setTranscriptGuideSeen] = useState(readTranscriptGuideSeen);
+  const [transcriptGuideOpen, setTranscriptGuideOpen] = useState(false);
   const taRef = useAutoGrow(text, 200);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const transcriptGuideRef = useRef<HTMLElement>(null);
   const stickRef = useRef(true);
   const pendingModelRestoreRef = useRef<string | null>(null);
   const cwd = session?.cwd ?? "";
@@ -119,6 +145,16 @@ export function Chat() {
     stickRef.current = true;
     if (reply(t)) setText("");
   };
+  const dismissTranscriptGuide = () => {
+    setTranscriptGuideSeen(true);
+    setTranscriptGuideOpen(false);
+    try { localStorage.setItem(TRANSCRIPT_GUIDE_SEEN_KEY, "1"); } catch { /* storage is optional */ }
+  };
+  const showTranscriptGuide = transcriptView && (!transcriptGuideSeen || transcriptGuideOpen);
+  useLayoutEffect(() => {
+    if (!showTranscriptGuide) return;
+    transcriptGuideRef.current?.scrollIntoView?.({ block: "start" });
+  }, [showTranscriptGuide, transcriptGuideOpen]);
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
     if (provider === session.provider) {
@@ -153,6 +189,28 @@ export function Chat() {
           <div className="connection-notice" role="status">
             {connectionEpoch > 0 ? "Connection lost. Reconnecting… Your draft stays here." : "Connecting to cmux…"}
           </div>
+        ) : null}
+        {showTranscriptGuide ? (
+          <aside ref={transcriptGuideRef} className="transcript-guide" role="region" aria-labelledby="transcript-guide-title">
+            <div className="transcript-guide-heading">
+              <div>
+                <h2 id="transcript-guide-title">{agentChatText("transcriptGuideTitle")}</h2>
+                <p>{agentChatText("transcriptGuideDescription")}</p>
+              </div>
+              {transcriptGuideSeen ? (
+                <button className="transcript-guide-close" type="button" aria-label={agentChatText("closeTranscriptGuide")} onClick={() => setTranscriptGuideOpen(false)}>×</button>
+              ) : null}
+            </div>
+            <ul>
+              <li>{agentChatText("transcriptGuideLogin")}</li>
+              <li>{agentChatText("transcriptGuidePrompts")}</li>
+              <li><TranscriptGuideInput /></li>
+            </ul>
+            <div className="transcript-guide-actions">
+              <button type="button" onClick={focusTerminal}>{agentChatText("openTerminal")}</button>
+              <button type="button" onClick={dismissTranscriptGuide}>{agentChatText("gotIt")}</button>
+            </div>
+          </aside>
         ) : null}
         <Blocks
           blocks={blocks}
@@ -215,7 +273,10 @@ export function Chat() {
                 <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
                 <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
               </span>
-              {chatActions}
+              <div className="transcript-actions">
+                <button className="transcript-help" type="button" aria-expanded={showTranscriptGuide} onClick={() => setTranscriptGuideOpen((open) => !open)}>{agentChatText("transcriptGuideButton")}</button>
+                {chatActions}
+              </div>
             </div>
           ) : (
             <StatusRow
