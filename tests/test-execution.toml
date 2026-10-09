@@ -1620,6 +1620,10 @@ path = "tests/test_ci_manual_dispatch_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_guard_status.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
@@ -1672,5 +1676,14 @@ path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_notarization_poll_loop.py"
+path = "tests/test_surface_task_local_reservations.py"
+lane = "manual"
+reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned macOS 26 Xcode, whose back-deployed TaskLocal fallback it exercises; newer toolchains no longer emit that path."
+
+[[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testbox_source_mtimes.py"
 lane = "linux-guard"
