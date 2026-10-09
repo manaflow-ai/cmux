@@ -269,7 +269,7 @@ public final class DaemonStore: StateResourceQueries {
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
                         if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
-                        tab.setObservedCwd(directories[tab.surface])
+                        tab.setObservedCwd(directories.directory(for: tab.surface))
                     }
                 }
             }

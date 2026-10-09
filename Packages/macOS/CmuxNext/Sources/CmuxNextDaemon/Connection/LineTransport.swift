@@ -114,9 +114,10 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .socketPathTooLong(path)
         }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+            var raw = sunPath  // the same memory; `modify` is mutating on the view
             raw.copyBytes(from: pathBytes)
-            raw[pathBytes.count] = 0
+            raw.modify(checked: pathBytes.count) { $0 = 0 }
         }
         address.sun_len = UInt8(clamping: MemoryLayout<sockaddr_un>.size) // 106 bytes
         let result = withUnsafePointer(to: &address) { pointer in
@@ -179,12 +180,12 @@ final class LineTransport: Sendable {
 
     /// Fails a still-pending request with `timedOut`.
     func expire(id: UInt64, after timeout: Duration) {
-        let pending: (String, ReplySlot)? = state.withLock { state in
+        let expired: (String, ReplySlot)? = state.withLock { state in
             guard case .reply(let cmd, let slot)? = state.pending[id] else { return nil }
-            state.pending[id] = .expired(cmd: cmd)
+            state.pending.updateValue(.expired(cmd: cmd), forKey: id)
             return (cmd, slot)
         }
-        guard let (cmd, slot) = pending else { return }
+        guard let (cmd, slot) = expired else { return }
         slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
@@ -228,7 +229,7 @@ final class LineTransport: Sendable {
             let payload: Data
             do { payload = try body(id) } catch { return error }
             state.withLock { state in
-                state.pending[id] = waiter
+                state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
             }
             submittedID = id

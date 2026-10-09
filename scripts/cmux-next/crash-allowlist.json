@@ -8,6 +8,7 @@
   "swift.index_subscript@CMUXMobileCore",
   "swift.index_subscript@CmuxHomeRender",
   "swift.index_subscript@CmuxNextControl",
+  "swift.index_subscript@CmuxNextDaemon",
   "swift.index_subscript@CmuxNextMobile",
   "swift.index_subscript@CmuxTerminalSizing",
   "swift.index_subscript@MessagesLabHome",
@@ -15,6 +16,7 @@
   "swift.int_conversion@CMUXMobileCore",
   "swift.int_conversion@CmuxHomeRender",
   "swift.int_conversion@CmuxNextControl",
+  "swift.int_conversion@CmuxNextDaemon",
   "swift.int_conversion@CmuxNextMobile",
   "swift.int_conversion@CmuxTerminalSizing",
   "swift.int_conversion@MessagesLabHome",
@@ -608,6 +610,13 @@
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/CheckedAccess.swift",
+   "class": "swift.index_subscript",
+   "count": 2,
+   "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/CheckedAccess.swift",
    "class": "swift.index_subscript",
    "count": 2,
    "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
