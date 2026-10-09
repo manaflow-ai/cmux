@@ -415,7 +415,7 @@ impl Brain {
                     Source::Message {
                         remote: Some(_),
                         ..
-                    }
+                    } | Source::Resume { remote: true }
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
@@ -583,6 +583,9 @@ impl Brain {
                 }
                 if let Source::Spawn(r) = &item.source {
                     next.spawn_logged(r);
+                }
+                if let Source::Resume { .. } = &item.source {
+                    next.resumes.retain(|r| r.conversation != item.conversation);
                 }
                 if let (Some(c), Source::Message { seq, id, .. }) =
                     (&item.conversation, &item.source)
@@ -1052,6 +1055,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Resume { .. } => "resume",
     }
 }
 
@@ -1074,11 +1078,18 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, .. } => Item {
+        Source::Message { seq, id, remote } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
+            remote: remote.is_some(),
+            ..Item::default()
+        },
+        Source::Resume { remote } => Item {
+            conversation: queued.conversation.clone(),
+            remote: *remote,
+            resume: true,
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {
