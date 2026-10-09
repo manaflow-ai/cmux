@@ -99,7 +99,7 @@ final class HomeSidebarSource {
     func setPinned(_ on: Bool, _ id: ConversationID) {
         guard let row = listed().first(where: { $0.id == id }) else { return }
         pins.setPinned(on, row)
-        store.save(pins, account: account())
+        store.save(persistentPins, account: account())
     }
 
     /// Puts `id` at `index` of the pinned grid (a drag: a new place, or a row pinned there) and
@@ -107,7 +107,7 @@ final class HomeSidebarSource {
     func place(_ id: ConversationID, at index: Int) {
         let shown = HomeSidebarModel(rows: listed(), pins: pins, me: me()).pinned.map(\.id)
         pins.place(id, at: index, shown: shown)
-        store.save(pins, account: account())
+        store.save(persistentPins, account: account())
     }
 
     /// Marks `id` unread (Mark as Unread) or clears the mark (Mark as Read, opening it), and keeps
@@ -121,6 +121,29 @@ final class HomeSidebarSource {
     /// The signed-in account changed: its own pins and unread marks.
     func reloadPins() {
         pins = store.pins(account: account())
+        #if DEBUG
+        let cleaned = persistentPins
+        if cleaned != pins { store.save(cleaned, account: account()) }
+        pins = cleaned
+        #endif
         unreadMarks = store.unreadMarks(account: account())
     }
+
+    #if DEBUG
+    /// DEBUG fixture conversations are sidebar-only and must never persist in the user's pins.
+    func clearDebugFixturePins() {
+        pins = persistentPins
+    }
+
+    private var persistentPins: HomePins {
+        HomePins(pinned: pins.pinned.filter { !Self.isDebugFixture($0) },
+                 unpinned: pins.unpinned.filter { !Self.isDebugFixture($0) })
+    }
+
+    private static func isDebugFixture(_ id: ConversationID) -> Bool {
+        id.rawValue.hasPrefix("conv_fixture_")
+    }
+    #else
+    private var persistentPins: HomePins { pins }
+    #endif
 }

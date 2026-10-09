@@ -21,6 +21,7 @@ enum DebugHomeSidebarFixture {
         let count = min(names.count, max(0, params["count"]?.intValue ?? 5))
         let pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
         let me = services.home.homeStore.me ?? Participant(id: ParticipantID("user_debug_me"), kind: .human, displayName: "Me")
+        page.sidebar.clearDebugFixturePins()
         page.sidebar.debugRows = rows(count: count, me: me, now: Date())
         for row in page.sidebar.debugRows.prefix(pinned) where !page.sidebar.pins.isPinned(row) {
             page.sidebar.setPinned(true, row.id)

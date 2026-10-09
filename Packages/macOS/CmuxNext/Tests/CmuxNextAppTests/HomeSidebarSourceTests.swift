@@ -90,6 +90,33 @@ import Testing
         #expect(HomePinStore(defaults: defaults).pins(account: "user_1").pinned.map(\.rawValue) == ["a", "c", "b"])
     }
 
+    #if DEBUG
+    @Test func debugFixturePinsStayInMemoryAndDoNotPersist() {
+        let defaults = Self.defaults()
+        let fixture = Self.row("conv_fixture_0", "Austin", minutesAgo: 1)
+        let source = HomeSidebarSource(store: HomePinStore(defaults: defaults), account: { "user_1" }, rows: { [fixture] },
+                                       me: { Self.me }, contacts: { [] })
+        source.reloadPins()
+        source.setPinned(true, fixture.id)
+        #expect(source.model(now: Self.at).pinned.map(\.id) == [fixture.id])
+        #expect(HomePinStore(defaults: defaults).pins(account: "user_1") == HomePins())
+        source.setPinned(false, fixture.id)
+        #expect(source.model(now: Self.at).pinned.isEmpty)
+    }
+
+    @Test func reloadRemovesFixturePinsPersistedByOlderDebugCommand() {
+        let defaults = Self.defaults()
+        let store = HomePinStore(defaults: defaults)
+        store.save(HomePins(pinned: [ConversationID("conv_fixture_0"), ConversationID("a")],
+                            unpinned: [ConversationID("conv_fixture_1")]), account: "user_1")
+        let source = HomeSidebarSource(store: store, account: { "user_1" }, rows: { [Self.row("a", "Austin", minutesAgo: 1)] },
+                                       me: { Self.me }, contacts: { [] })
+        source.reloadPins()
+        #expect(source.pins == HomePins(pinned: [ConversationID("a")]))
+        #expect(store.pins(account: "user_1") == HomePins(pinned: [ConversationID("a")]))
+    }
+    #endif
+
     @Test func choicesReachThePageAndSearchFilters() {
         let rows = [Self.row("a", "Austin", minutesAgo: 1), Self.row("b", "Aziz", minutesAgo: 2)]
         let zoe = HomeContact(id: ParticipantID("user_zoe"), name: "Zoe", source: .team)
