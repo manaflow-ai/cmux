@@ -33,11 +33,11 @@ struct BrowserProfileServiceTests {
         let workspace = try #require(services.daemon.store.workspaces.first)
         let browserTabs = try #require(services.cache.browserTabs)
         var stored: [String?] = []
-        browserTabs.create = { _, _, _, profile, _, _ in
+        browserTabs.create = { _, _, _, _, profile, _, _ in
             stored.append(profile)
             return SurfaceID(rawValue: 9)
         }
-        let pane = PaneID(rawValue: 3)
+        let pane = try #require(services.daemon.store.pane(PaneID(rawValue: 3)))
         let choice = BrowserEngineChoice(engine: .webkit)
         _ = try await browserTabs.open(choice, in: pane, url: "https://a.example/")
         try profiles.setWorkspaceDefault(Self.work, for: workspace.id)
@@ -90,9 +90,9 @@ struct BrowserProfileServiceTests {
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
         try profiles.setWorkspaceDefault(Self.work, for: workspace.id)
         let browserTabs = try #require(services.cache.browserTabs)
-        browserTabs.isAvailable = { true }
+        browserTabs.serves = { _ in true }
         var reopened: [(String, String?)] = []
-        browserTabs.create = { _, url, _, profile, _, _ in
+        browserTabs.create = { _, _, url, _, profile, _, _ in
             reopened.append((url, profile))
             return SurfaceID(rawValue: 10)
         }

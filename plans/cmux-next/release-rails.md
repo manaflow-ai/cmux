@@ -299,7 +299,8 @@ Lawrence for it first.
    inherited roles; verify as in "cmux_vm-only owner role" (no privilege in public, no membership,
    no CREATEROLE/CREATEDB/BYPASSRLS/REPLICATION, no pg_* role). Never `--successor postgres`.
    Store the login only in a 0600 file under `~/.secrets/cmux-vm-db/` (stat it; never print it).
-   Set `ownerPgRole`/`ownerRole` for production in trees.ts if the name differs.
+   trees.ts names it: production has no `ownerPgRole`, so the owner check looks up the PlanetScale
+   role `cmux-vm-owner` on main with pscale (staging and development check the SQL role `cmux_vm_migrator`).
 2. Apply, from a clean checkout whose HEAD is on origin/feat-cmux-next:
    `bun scripts/cmux-next/release/db-release.ts apply --tree cmux-vm --target production --url-env OWNER_URL --confirm-production --allow-contract 0009_cmux_vm_mesh_device_address.sql`
    In one run it takes the advisory lock, checks the owner (session_user and current_user, broad

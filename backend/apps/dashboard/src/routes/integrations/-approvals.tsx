@@ -3,7 +3,7 @@ import { ApprovalCard } from "../../lib/approval-card"
 import { approvalText, useLocale } from "../../lib/approval-strings"
 import { checkDigest, parseApproval, type ApprovalView, type DigestCheck, type ParsedApproval } from "../../lib/approvals"
 import { useLoad } from "../../lib/hooks"
-import { mutate, read } from "../../lib/server"
+import { useTeamApi } from "../../lib/team-api"
 import { newKey, setSignedIn } from "../../lib/session"
 
 interface Row {
@@ -16,15 +16,17 @@ interface Row {
 const OPEN_LIMIT = 200
 const CLOSED_LIMIT = 10
 
-const listItems = async (params: Record<string, unknown>): Promise<Array<unknown>> => {
+type Read = ReturnType<typeof useTeamApi>["read"]
+
+const listItems = async (read: Read, params: Record<string, unknown>): Promise<Array<unknown>> => {
   const r = await read({ data: { op: "feed.list", params: { poster_kind: "integration", kind: "approve", ...params } } })
   if (r.status === 401) setSignedIn(false)
   if (r.status !== 200) throw new Error(`feed.list ${r.status}`)
   return (r.body.value as { items?: Array<unknown> } | null)?.items ?? []
 }
 
-const loadRows = async (): Promise<Array<Row>> => {
-  const [open, closed] = await Promise.all([listItems({ state: "open", order: "urgent", limit: OPEN_LIMIT }), listItems({ state: "closed", order: "recent", limit: CLOSED_LIMIT })])
+const loadRows = async (read: Read): Promise<Array<Row>> => {
+  const [open, closed] = await Promise.all([listItems(read, { state: "open", order: "urgent", limit: OPEN_LIMIT }), listItems(read, { state: "closed", order: "recent", limit: CLOSED_LIMIT })])
   const items = [...open, ...closed].map(parseApproval).filter((a): a is ParsedApproval => a !== null)
   return Promise.all(
     items.map(async (approval) => {
@@ -43,7 +45,8 @@ const loadRows = async (): Promise<Array<Row>> => {
 export function IntegrationApprovals() {
   const locale = useLocale()
   const t = (key: Parameters<typeof approvalText>[1], vars?: Record<string, string>) => approvalText(locale, key, vars)
-  const rows = useLoad<Array<Row>>("integration-approvals", loadRows)
+  const { read, mutate, team } = useTeamApi()
+  const rows = useLoad<Array<Row>>(`integration-approvals:${team ?? "personal"}`, () => loadRows(read))
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

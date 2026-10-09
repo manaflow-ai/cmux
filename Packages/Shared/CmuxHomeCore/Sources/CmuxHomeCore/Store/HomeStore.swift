@@ -21,7 +21,8 @@ public enum HomeSendState: Error, Hashable, Sendable {
 @MainActor
 @Observable
 public final class HomeStore {
-    /// `.connecting` and `.offline` both refuse new ops (nothing queues).
+    /// `.connecting` and `.offline` refuse new ops, except sends: those wait
+    /// for the reconnect (`offlineSendDeadline`).
     public internal(set) var connection: HomeConnection = .connecting
     public private(set) var rows: [InboxRow] = []
     /// Increments whenever a transcript's visible items change.
@@ -60,6 +61,14 @@ public final class HomeStore {
     /// while the connection stayed up, and how many each has had.
     @ObservationIgnored var backoffTasks: [IdempotencyKey: Task<Void, Never>] = [:]
     @ObservationIgnored var backoffAttempts: [IdempotencyKey: Int] = [:]
+    /// Sends made while offline that have not gone to the owner yet, and
+    /// the deadline of each send made while offline.
+    @ObservationIgnored var offlineQueued: Set<IdempotencyKey> = []
+    /// Sends an attempt may have delivered (sent, no answer): a later
+    /// attempt that sends nothing (`HomeOwnerOffline`) keeps them "may have
+    /// been delivered".
+    @ObservationIgnored var possiblySent: Set<IdempotencyKey> = []
+    @ObservationIgnored var offlineDeadlines: [IdempotencyKey: Task<Void, Never>] = [:]
     /// The periodic prune loop, and the pass running now. `prepare` waits
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
@@ -170,6 +179,7 @@ public final class HomeStore {
         pruneLoop?.cancel()
         pruneLoop = nil
         cancelBackoffs()
+        cancelOfflineDeadlines()
         for job in uploads.values { job.task?.cancel() }
         connection = .offline(since: Date())
         let waiters = turnWaiters.values
@@ -222,6 +232,10 @@ public final class HomeStore {
     /// Upload jobs and queued sends live only as long as their log entry.
     /// A waiter whose entry left resumes (and finds it gone).
     func dropOrphanUploadJobs() {
+        if !offlineDeadlines.isEmpty {
+            let keys = Set(log.entries.map(\.intent.key))
+            for key in Array(offlineDeadlines.keys) where !keys.contains(key) { endOfflineDeadline(key) }
+        }
         guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }

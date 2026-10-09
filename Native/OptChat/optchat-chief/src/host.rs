@@ -102,6 +102,35 @@ pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Which codex the codex sessions run, in host.log and the trace (event
+/// `codex`: path and `--version`). Without the Chief's own copy, one line
+/// says that the PATH codex runs and may not read the view back.
+fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String)) {
+    let (path, own) = match crate::codex_home::chief_codex(paths) {
+        Some(p) => (p, true),
+        None => {
+            log(format!(
+                "codex: the Chief's own codex is not installed at {}; codex sessions run the PATH codex, which may ignore the Chief's prompt cache key",
+                paths.codex_bin.display()
+            ));
+            (PathBuf::from("codex"), false)
+        }
+    };
+    let version = std::process::Command::new(&path)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    trace.emit(
+        "codex",
+        serde_json::json!({"path": path.display().to_string(), "own": own, "version": version}),
+    );
+    if own {
+        log(format!("codex: {} ({version})", path.display()));
+    }
+}
+
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
@@ -128,6 +157,12 @@ pub fn turn_preset(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if let Some(codex) = crate::codex_home::chief_codex(paths) {
+            env.insert(
+                crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                codex.display().to_string(),
+            );
+        }
         if isolate {
             // The Chief's own codex home: no native subagents (its subagents
             // are `chief spawn` sessions), no user MCP servers, hooks or skills.
@@ -637,6 +672,9 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some() || compactor_family == Family::Codex {
+        trace_codex(paths, &trace, &log);
+    }
     if codex_preset.is_some()
         && isolate
         && let Err(e) =
@@ -1152,7 +1190,15 @@ fn start(
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
-    spawn_probe(model, fallback, system, route, tx.clone());
+    let probe_delay = Arc::new(ProbeDelay::default());
+    spawn_probe(
+        probe_delay.clone(),
+        model,
+        fallback,
+        system,
+        route,
+        tx.clone(),
+    );
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
@@ -1195,6 +1241,7 @@ fn start(
         }
     }
     let fatal = brain.run(rx);
+    probe_delay.stop();
     chat.shutdown();
     Ok(fatal)
 }
@@ -1206,6 +1253,7 @@ fn start(
 /// Chief conversation one notice, instead of every turn waiting on settle
 /// with nothing said.
 fn spawn_probe(
+    delay: Arc<ProbeDelay>,
     model: Arc<dyn CompactModel>,
     fallback: Option<Arc<dyn CompactModel>>,
     system: String,
@@ -1217,23 +1265,11 @@ fn spawn_probe(
         .spawn(move || {
             let started = std::time::Instant::now();
             // A transient failure (the network, an exhausted route) is
-            // retried after a backoff, quietly; a real fault is posted once.
-            let mut attempt = 0;
-            let result = loop {
-                match probe_models(&*model, fallback.as_deref(), &system) {
-                    Err(e) => match probe_retry_wait(&e, attempt) {
-                        Some(wait) => {
-                            log(format!(
-                                "compactor probe: {e}; trying again in {} s",
-                                wait.as_secs()
-                            ));
-                            std::thread::sleep(wait);
-                            attempt += 1;
-                        }
-                        None => break Err(e),
-                    },
-                    ok => break ok,
-                }
+            // retried after a backoff through the host's delay, quietly; a
+            // real fault is posted once; the host's end stops the probe.
+            let probe = || probe_models(&*model, fallback.as_deref(), &system);
+            let Some(result) = probe_until_ready(&probe, &*delay, &|line: &str| log(line)) else {
+                return;
             };
             match result {
                 Ok(line) => {
@@ -1265,6 +1301,73 @@ fn spawn_probe(
         });
     if let Err(e) = spawned {
         log(format!("starting the compactor probe: {e}"));
+    }
+}
+
+/// A wait the host can cut short: the start-up probe's retry delay. No
+/// sleep in runtime code: `ProbeDelay` waits on a condition variable that
+/// `stop` wakes (the host's end).
+pub trait Delay: Send + Sync {
+    /// Waits `d`; false when stopped (now or during the wait).
+    fn wait(&self, d: std::time::Duration) -> bool;
+}
+
+/// The host's `Delay`, stopped when the host ends.
+#[derive(Default)]
+pub struct ProbeDelay {
+    stopped: std::sync::Mutex<bool>,
+    woken: std::sync::Condvar,
+}
+
+impl ProbeDelay {
+    pub fn stop(&self) {
+        *self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.woken.notify_all();
+    }
+}
+
+impl Delay for ProbeDelay {
+    fn wait(&self, d: std::time::Duration) -> bool {
+        let stopped = self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (stopped, _) = self
+            .woken
+            .wait_timeout_while(stopped, d, |s| !*s)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        !*stopped
+    }
+}
+
+/// The start-up probe: `probe` again after each transient failure, with
+/// `delay` between tries; None when the delay was stopped.
+pub fn probe_until_ready(
+    probe: &dyn Fn() -> Result<String, String>,
+    delay: &dyn Delay,
+    log: &dyn Fn(&str),
+) -> Option<Result<String, String>> {
+    let mut attempt = 0;
+    loop {
+        match probe() {
+            Err(e) => match probe_retry_wait(&e, attempt) {
+                Some(wait) => {
+                    log(&format!(
+                        "compactor probe: {e}; trying again in {} s",
+                        wait.as_secs()
+                    ));
+                    if !delay.wait(wait) {
+                        return None;
+                    }
+                    attempt += 1;
+                }
+                None => return Some(Err(e)),
+            },
+            ok => return Some(ok),
+        }
     }
 }
 
