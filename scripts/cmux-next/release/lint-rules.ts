@@ -32,7 +32,7 @@ export const ALLOWED_FUNCTIONS: ReadonlySet<string> = new Set([
   "jsonb_typeof", "jsonb_array_length", "array_length", "cardinality", "md5", "family", "masklen",
 ])
 const BUILTIN_TYPES: ReadonlySet<string> = new Set([
-  "int2", "int4", "int8", "smallint", "integer", "int", "bigint", "serial", "bigserial", "numeric", "decimal", "float4", "float8", "real",
+  "int2", "int4", "int8", "smallint", "integer", "int", "bigint", "smallserial", "serial", "bigserial", "serial2", "serial4", "serial8", "numeric", "decimal", "float4", "float8", "real",
   "bool", "boolean", "text", "varchar", "bpchar", "char", "bytea", "date", "time", "timetz", "timestamp", "timestamptz", "interval",
   "uuid", "json", "jsonb", "inet", "cidr", "macaddr", "tsvector",
 ])
@@ -149,8 +149,11 @@ const columnOk = (c: Ctx, col: Node, where: string, existing: boolean): void => 
   const cons: Array<Node> = (col.constraints ?? []).map((x: Node) => x.Constraint ?? {})
   for (const con of cons) constraintOk(c, con, `${where} ${col.colname}`)
   if (existing) {
+    // A serial column adds a sequence and a nextval() default: a rewrite of a live table (P2-2).
+    if (/^(small|big)?serial[248]?$/.test(names(col.typeName?.names).at(-1) ?? "")) fail(c, `${where} ${col.colname}: a serial column on an existing table`)
     const types = new Set(cons.map((x) => x.contype))
     for (const t of types) if (!["CONSTR_NULL", "CONSTR_NOTNULL", "CONSTR_DEFAULT", "CONSTR_CHECK"].includes(t)) fail(c, `${where} ${col.colname}: ${String(t).replace("CONSTR_", "")} on an existing table`)
+    if (types.has("CONSTR_CHECK")) c.liftable.push(`${where} ${col.colname}: a CHECK on a new column of an existing table scans it (validated)`)
     if (types.has("CONSTR_NOTNULL") && !types.has("CONSTR_DEFAULT")) fail(c, `${where} ${col.colname}: NOT NULL without DEFAULT on an existing table`)
     // Any function but now() (stable) in a default of an existing table may be volatile: a table rewrite.
     const calls = (e: unknown): Array<string> =>
@@ -168,7 +171,8 @@ const createTable = (c: Ctx, b: Node) => {
   if (b.relation?.relpersistence && b.relation.relpersistence !== "p") return fail(c, `CREATE TABLE ${relName(b.relation)}: only permanent tables (no TEMP or UNLOGGED)`)
   if (b.oncommit && b.oncommit !== "ONCOMMIT_NOOP") return fail(c, `CREATE TABLE ${relName(b.relation)}: ON COMMIT`)
   if (c.tree === "backend" && b.inhRelations?.length && !b.partbound) return fail(c, `CREATE TABLE ${relName(b.relation)}: INHERITS`)
-  c.created.add(relKey(b.relation))
+  // IF NOT EXISTS may meet a live table: it never counts as created here (P2-1).
+  if (!b.if_not_exists) c.created.add(relKey(b.relation))
   for (const el of b.tableElts ?? []) {
     if (el.ColumnDef) columnOk(c, el.ColumnDef, `CREATE TABLE ${relName(b.relation)}`, false)
     else if (el.Constraint) constraintOk(c, el.Constraint, `CREATE TABLE ${relName(b.relation)}`)
@@ -181,6 +185,7 @@ const createIndex = (c: Ctx, b: Node) => {
   if (!inSchema(c, b.relation)) return fail(c, `${where}: outside ${c.schema}`)
   const extra = keysOnly(b, ["idxname", "relation", "accessMethod", "indexParams", "indexIncludingParams", "whereClause", "unique", "nulls_not_distinct", "concurrent", "if_not_exists", "primary"])
   if (extra.length) return fail(c, `${where}: ${extra.join(", ")} (for example WITH or TABLESPACE)`)
+  if (b.concurrent && !b.idxname) fail(c, `${where}: CREATE INDEX CONCURRENTLY must name its index (a failed build leaves an invalid index to drop by name)`)
   if (!INDEX_METHODS.has(b.accessMethod ?? "btree")) fail(c, `${where}: USING ${b.accessMethod} (only btree, gin, gist, hash)`)
   for (const p of [...(b.indexParams ?? []), ...(b.indexIncludingParams ?? [])]) {
     const el = p.IndexElem ?? {}
@@ -268,6 +273,10 @@ const EXTENSIONS = new Set(["pg_trgm", "btree_gin"])
 /** Every problem of one file: `never` refuses always; `liftable` refuses unless a contract header names a reason. */
 export const statementProblems = (stmts: ReadonlyArray<ParsedStatement>, tree: string, schema: string, contract: TreeRoleContract): { never: Array<string>; liftable: Array<string> } => {
   const c: Ctx = { tree, schema, contract, never: [], liftable: [], created: new Set() }
+  // The runner owns the tracking table: no migration may name it (P3-4).
+  const touchesTracking = (node: unknown): boolean =>
+    Array.isArray(node) ? node.some(touchesTracking) : !!node && typeof node === "object" && ((node as Node).relname === "schema_migrations" || Object.values(node as Node).some(touchesTracking))
+  if (stmts.some((s) => touchesTracking(s.node) || JSON.stringify(s.node).includes('"sval":"schema_migrations"'))) c.never.push("names the tracking table schema_migrations (the runner owns it)")
   for (const { kind, node: b } of stmts) {
     switch (kind) {
       case "CreateStmt":
@@ -280,7 +289,9 @@ export const statementProblems = (stmts: ReadonlyArray<ParsedStatement>, tree: s
         alterTable(c, b)
         break
       case "CreateSeqStmt":
-        if (!inSchema(c, b.sequence)) fail(c, `CREATE SEQUENCE ${relName(b.sequence)} is outside ${schema}`)
+        if (keysOnly(b, ["sequence", "options", "if_not_exists", "for_identity"]).length || b.for_identity) fail(c, `CREATE SEQUENCE ${relName(b.sequence)}: ${keysOnly(b, ["sequence", "options", "if_not_exists"]).join(", ")}`)
+        else if (b.sequence?.relpersistence && b.sequence.relpersistence !== "p") fail(c, `CREATE SEQUENCE ${relName(b.sequence)}: only permanent sequences`)
+        else if (!inSchema(c, b.sequence)) fail(c, `CREATE SEQUENCE ${relName(b.sequence)} is outside ${schema}`)
         else if ((b.options ?? []).some((o: Node) => !["start", "increment", "minvalue", "maxvalue", "cache", "cycle", "as"].includes(o.DefElem?.defname))) fail(c, `CREATE SEQUENCE ${relName(b.sequence)}: an option outside START, INCREMENT, MINVALUE, MAXVALUE, CACHE, CYCLE, AS`)
         break
       case "CreateEnumStmt":
@@ -291,13 +302,17 @@ export const statementProblems = (stmts: ReadonlyArray<ParsedStatement>, tree: s
         else if (!qualifiedIn(c, names(b.typeName))) fail(c, `ALTER TYPE ${names(b.typeName).join(".")} is outside ${schema}`)
         break
       case "CreateSchemaStmt":
-        if (b.schemaname !== schema || b.schemaElts?.length) fail(c, `CREATE SCHEMA ${b.schemaname}: only ${schema} itself, with nothing inside the statement`)
+        if (b.schemaname !== schema || b.schemaElts?.length || b.authrole) fail(c, `CREATE SCHEMA ${b.schemaname}: only ${schema} itself, with nothing inside the statement`)
         break
       case "CommentStmt": {
         const o = b.object
         const parts = ((o?.List?.items ?? (o?.String ? [o] : [])) as Array<Node>).map((i) => i.String?.sval)
-        const ok = b.objtype === "OBJECT_SCHEMA" ? parts[0] === schema : tree === "cmux-vm" ? parts.length >= 2 && parts[0] === schema : true
-        if (!ok) fail(c, `COMMENT ON ${parts.join(".")} (outside ${schema} or unqualified)`)
+        // Exact name depth per object kind; the first part is the schema (backend: public or unqualified).
+        const depth: Record<string, number> = { OBJECT_SCHEMA: 1, OBJECT_TABLE: 2, OBJECT_INDEX: 2, OBJECT_SEQUENCE: 2, OBJECT_TYPE: 2, OBJECT_COLUMN: 3 }
+        const want = depth[b.objtype]
+        const qualified = tree === "cmux-vm" ? parts.length === want && parts[0] === schema : parts.length === want ? parts[0] === schema : parts.length === (want ?? 0) - 1
+        const ok = want !== undefined && (b.objtype === "OBJECT_SCHEMA" ? parts.length === 1 && parts[0] === schema : qualified) && parts.every((p) => typeof p === "string")
+        if (!ok) fail(c, `COMMENT ON ${String(b.objtype).replace("OBJECT_", "")} ${parts.join(".")} (outside ${schema}, unqualified, or not a table, column, index, sequence, type or the schema)`)
         break
       }
       case "GrantStmt":
