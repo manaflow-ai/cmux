@@ -76,7 +76,7 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
       const fake = instance.stack
       instance.stack = { ...fake, getTeam: async (id: string) => (await gate, fake.getTeam(id)) }
       const slow = instance.stackSync.deliver({ svix_id: `msg_slow_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 10_000)
-      const late = instance.stackSync.deliver({ svix_id: `msg_late_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 1)
+      const late = instance.stackSync.deliver({ svix_id: `msg_late_${crypto.randomUUID()}`, type: "team.updated", stack_team: t.stackTeam }, 0)
       const lateReply = await late
       release!()
       await slow
