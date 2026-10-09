@@ -1,14 +1,14 @@
 import { Hono } from "hono";
-import { requireUserOrHost } from "../auth";
+import { requireUserOrHostAllowQuery } from "../auth";
 import type { HonoEnv } from "../context";
 import { randomId } from "../crypto";
 import { ApiError } from "../errors";
 import { signalRoom } from "../signal/client";
-import { HEADER_HOST, HEADER_HOSTS, HEADER_PEER, HEADER_ROLE, HEADER_USER } from "../signal/room";
+import { HEADER_EXPIRES, HEADER_HOST, HEADER_HOSTS, HEADER_PEER, HEADER_ROLE, HEADER_USER } from "../signal/room";
 
 export const signalRoutes = new Hono<HonoEnv>();
 
-signalRoutes.get("/", requireUserOrHost, async (c) => {
+signalRoutes.get("/", requireUserOrHostAllowQuery, async (c) => {
   if (c.req.header("upgrade")?.toLowerCase() !== "websocket") throw new ApiError("bad_request", "expected a WebSocket upgrade", 426);
   const { principal, repo } = c.var;
   const hosts = await repo.listHosts(principal.userId);
@@ -21,6 +21,7 @@ signalRoutes.get("/", requireUserOrHost, async (c) => {
     [HEADER_HOSTS]: JSON.stringify(hosts.map((h) => h.id)),
   });
   if (principal.kind === "host") headers.set(HEADER_HOST, principal.hostId);
+  else headers.set(HEADER_EXPIRES, String(principal.expiresAt));
   for (const h of ["sec-websocket-key", "sec-websocket-version", "sec-websocket-protocol", "sec-websocket-extensions"]) {
     const v = c.req.header(h);
     if (v) headers.set(h, v);

@@ -7,6 +7,8 @@ export interface PeerInfo {
   role: Role;
   hostId?: string;
   userId: string;
+  /** Phones: access-token expiry (ms). The socket is closed with 4002 at this time. */
+  expiresAt?: number;
 }
 
 export type RelayType = "offer" | "answer" | "candidate" | "bye";

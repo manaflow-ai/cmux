@@ -1,4 +1,4 @@
-import type { EmailCode, Host, HostPairing, OAuthCode, RefreshToken, Repo, User } from "./types";
+import { DuplicateError, type EmailCode, type Host, type HostPairing, type OAuthCode, type RefreshToken, type Repo, type User } from "./types";
 
 /** In-process store for tests and local development. */
 export class MemoryRepo implements Repo {
@@ -17,7 +17,7 @@ export class MemoryRepo implements Repo {
     return clone([...this.users.values()].find((u) => u.email === email));
   }
   async createUser(user: User) {
-    if (user.email && [...this.users.values()].some((u) => u.email === user.email)) throw new Error("duplicate email");
+    if (user.email && [...this.users.values()].some((u) => u.email === user.email)) throw new DuplicateError("duplicate email");
     this.users.set(user.id, { ...user });
   }
   async setUserName(id: string, name: string) {
@@ -38,6 +38,7 @@ export class MemoryRepo implements Repo {
     return this.identities.get(`${provider}:${subject}`)?.userId ?? null;
   }
   async createIdentity(provider: string, subject: string, userId: string, email: string | null) {
+    if (this.identities.has(`${provider}:${subject}`)) throw new DuplicateError("duplicate identity");
     this.identities.set(`${provider}:${subject}`, { userId, email });
   }
 
@@ -65,6 +66,18 @@ export class MemoryRepo implements Repo {
 
   async createRefreshToken(token: RefreshToken) {
     this.refreshTokens.set(token.hash, { ...token });
+  }
+  async createRefreshTokenIfAbsent(token: RefreshToken) {
+    if (this.refreshTokens.has(token.hash)) return false;
+    this.refreshTokens.set(token.hash, { ...token });
+    return true;
+  }
+  async markRefreshTokenRotated(hash: string, now: number) {
+    const t = this.refreshTokens.get(hash);
+    if (!t || t.revokedAt !== null) return false;
+    t.revokedAt = now;
+    t.rotatedAt = now;
+    return true;
   }
   async getRefreshToken(hash: string) {
     return clone(this.refreshTokens.get(hash));

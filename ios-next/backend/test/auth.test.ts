@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetAppleJwksCache } from "../src/apple";
-import { base64url, CODE_ALPHABET, sha256Base64url, verifyHs256 } from "../src/crypto";
+import { base64url, CODE_ALPHABET, sha256Base64url, sha256Hex, verifyHs256 } from "../src/crypto";
 import { emailLogin, harness, lastCode } from "./helpers";
 
 describe("health and configuration", () => {
@@ -126,7 +126,7 @@ describe("test sign-in", () => {
 });
 
 describe("refresh tokens", () => {
-  it("rotates, and reuse revokes the whole family", async () => {
+  it("rotates; a retry within 30 s returns the same pair; later reuse revokes the family", async () => {
     const h = harness();
     const first = await emailLogin(h);
     const second = await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: first.refreshToken } });
@@ -137,9 +137,36 @@ describe("refresh tokens", () => {
     // Stored hashed.
     expect(h.repo.refreshTokens.has(first.refreshToken)).toBe(false);
 
-    // Replay of the old token is reuse: it fails and kills the new one too.
+    // Idempotent retry (lost response) inside the grace window.
+    h.clock.now += 20 * 1000;
+    const retry = await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: first.refreshToken } });
+    expect(retry.status).toBe(200);
+    expect(retry.json).toEqual(second.json);
+
+    // After the window, replaying the old token is reuse: it fails and kills the new one too.
+    h.clock.now += 11 * 1000;
     expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: first.refreshToken } })).status).toBe(401);
     expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: second.json.refreshToken } })).status).toBe(401);
+  });
+
+  it("concurrent refreshes of one token both succeed with the same pair", async () => {
+    const h = harness();
+    const t = await emailLogin(h);
+    const [a, b] = await Promise.all([
+      h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } }),
+      h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.json).toEqual(a.json);
+    expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: a.json.refreshToken } })).status).toBe(200);
+  });
+
+  it("a grace retry fails once the successor was itself rotated", async () => {
+    const h = harness();
+    const t = await emailLogin(h);
+    const second = await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } });
+    expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: second.json.refreshToken } })).status).toBe(200);
+    expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } })).status).toBe(401);
   });
 
   it("rejects unknown and expired tokens", async () => {
@@ -150,10 +177,13 @@ describe("refresh tokens", () => {
     expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } })).status).toBe(401);
   });
 
-  it("logout revokes the family", async () => {
+  it("logout revokes the family, with no grace", async () => {
     const h = harness();
     const t = await emailLogin(h);
-    expect((await h.call("POST", "/v1/auth/logout", { token: t.accessToken, body: { refreshToken: t.refreshToken } })).status).toBe(200);
+    const rotated = await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } });
+    expect((await h.call("POST", "/v1/auth/logout", { token: t.accessToken, body: { refreshToken: rotated.json.refreshToken } })).status).toBe(200);
+    expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: rotated.json.refreshToken } })).status).toBe(401);
+    // Even the grace retry of the older token is refused: its successor is revoked.
     expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } })).status).toBe(401);
   });
 });
@@ -250,12 +280,27 @@ describe("Sign in with Apple", () => {
     expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(base(h), "unknown-kid") } })).status).toBe(401);
     expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: "garbage" } })).status).toBe(401);
   });
+
+  it("checks the nonce when the app sends one", async () => {
+    const h = harness();
+    withJwks(h);
+    const raw = "raw-nonce-123";
+    const hashed = await sha256Hex(raw);
+    const post = async (claims: Record<string, unknown>, nonce?: string) =>
+      (await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(claims), ...(nonce ? { nonce } : {}) } })).status;
+    expect(await post({ ...base(h), nonce: hashed }, raw)).toBe(200);
+    expect(await post({ ...base(h), nonce: raw }, raw)).toBe(200);
+    expect(await post({ ...base(h), nonce: hashed }, "other")).toBe(401);
+    expect(await post(base(h), raw)).toBe(401);
+    // No nonce sent: not checked.
+    expect(await post({ ...base(h), nonce: hashed })).toBe(200);
+  });
 });
 
 describe("OAuth web flows", () => {
   it("answers unsupported when the provider is not configured", async () => {
     const h = harness();
-    const res = await h.call("GET", "/v1/auth/oauth/github/start?redirect=cmux-next://auth");
+    const res = await h.call("GET", `/v1/auth/oauth/github/start?redirect=cmux-next://auth&code_challenge=${"a".repeat(43)}`);
     expect(res.status).toBe(501);
     expect(res.json.error.code).toBe("unsupported");
     expect((await h.call("GET", "/v1/auth/oauth/myspace/start?redirect=cmux-next://auth")).status).toBe(404);
@@ -294,6 +339,7 @@ describe("OAuth web flows", () => {
     const code = back.searchParams.get("code")!;
     expect(code).toMatch(/^oc_/);
 
+    expect((await h.call("POST", "/v1/auth/oauth/exchange", { body: { code } })).status).toBe(400);
     expect((await h.call("POST", "/v1/auth/oauth/exchange", { body: { code, codeVerifier: "wrong".repeat(10) } })).status).toBe(401);
     // A failed verifier consumed the code; run the callback again for a fresh one.
     const cb2 = await h.call("GET", `/v1/auth/oauth/github/callback?code=good&state=${encodeURIComponent(state)}`);
@@ -306,9 +352,13 @@ describe("OAuth web flows", () => {
 
   it("rejects non-app redirect schemes and bad state, and reports provider errors to the app", async () => {
     const h = githubHarness();
-    expect((await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("https://evil.example/cb")}`)).status).toBe(400);
+    const cc = `&code_challenge=${await sha256Base64url("v".repeat(64))}`;
+    expect((await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("https://evil.example/cb")}${cc}`)).status).toBe(400);
+    // PKCE S256 is mandatory.
+    expect((await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("cmux-next://auth")}`)).status).toBe(400);
+    expect((await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("cmux-next://auth")}${cc}&code_challenge_method=plain`)).status).toBe(400);
     expect((await h.call("GET", "/v1/auth/oauth/github/callback?code=good&state=forged")).status).toBe(400);
-    const start = await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("cmux-next://auth")}`);
+    const start = await h.call("GET", `/v1/auth/oauth/github/start?redirect=${encodeURIComponent("cmux-next://auth")}${cc}`);
     const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
     const cb = await h.call("GET", `/v1/auth/oauth/github/callback?code=bad&state=${encodeURIComponent(state)}`);
     expect(new URL(cb.headers.get("location")!).searchParams.get("error")).toBe("server_error");
@@ -323,12 +373,49 @@ describe("OAuth web flows", () => {
       if (url === "https://openidconnect.googleapis.com/v1/userinfo") return Response.json({ sub: "g1", email: "g@example.com", email_verified: true, name: "Gee" });
       return undefined;
     });
-    const start = await h.call("GET", `/v1/auth/oauth/google/start?redirect=${encodeURIComponent("dev.cmux.next.tabs://oauth")}`);
+    const verifier = "g".repeat(50);
+    const start = await h.call(
+      "GET",
+      `/v1/auth/oauth/google/start?redirect=${encodeURIComponent("dev.cmux.next.tabs://oauth")}&code_challenge=${await sha256Base64url(verifier)}&code_challenge_method=S256`,
+    );
     const authorize = new URL(start.headers.get("location")!);
     expect(authorize.hostname).toBe("accounts.google.com");
     const cb = await h.call("GET", `/v1/auth/oauth/google/callback?code=c&state=${encodeURIComponent(authorize.searchParams.get("state")!)}`);
     const code = new URL(cb.headers.get("location")!).searchParams.get("code")!;
-    const tokens = await h.call("POST", "/v1/auth/oauth/exchange", { body: { code } });
+    const tokens = await h.call("POST", "/v1/auth/oauth/exchange", { body: { code, codeVerifier: verifier } });
     expect(tokens.json.user).toMatchObject({ email: "g@example.com", name: "Gee" });
+  });
+});
+
+describe("resolveUser concurrency", () => {
+  it("concurrent first sign-ins with one identity yield one user", async () => {
+    const { resolveUser } = await import("../src/auth");
+    const { MemoryRepo } = await import("../src/repo/memory");
+    const repo = new MemoryRepo();
+    // Make every read miss once so both callers try to create.
+    const getUserByEmail = repo.getUserByEmail.bind(repo);
+    const findIdentity = repo.findIdentityUserId.bind(repo);
+    let emailMisses = 2;
+    let identityMisses = 2;
+    repo.getUserByEmail = async (e) => (emailMisses-- > 0 ? null : getUserByEmail(e));
+    repo.findIdentityUserId = async (p, s) => (identityMisses-- > 0 ? null : findIdentity(p, s));
+    const id = { provider: "stack:p", subject: "same", email: "race@example.com", emailVerified: true, name: "R" };
+    const [a, b] = await Promise.all([resolveUser(repo, id, 1), resolveUser(repo, id, 1)]);
+    expect(a.id).toBe(b.id);
+    expect(repo.users.size).toBe(1);
+    expect(repo.identities.size).toBe(1);
+  });
+
+  it("concurrent identity link without email cleans up the losing user", async () => {
+    const { resolveUser } = await import("../src/auth");
+    const { MemoryRepo } = await import("../src/repo/memory");
+    const repo = new MemoryRepo();
+    const findIdentity = repo.findIdentityUserId.bind(repo);
+    let misses = 2;
+    repo.findIdentityUserId = async (p, s) => (misses-- > 0 ? null : findIdentity(p, s));
+    const id = { provider: "apple", subject: "x", email: null, emailVerified: false, name: null };
+    const [a, b] = await Promise.all([resolveUser(repo, id, 1), resolveUser(repo, id, 1)]);
+    expect(a.id).toBe(b.id);
+    expect(repo.users.size).toBe(1);
   });
 });

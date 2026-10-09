@@ -29,26 +29,26 @@ All bodies are JSON. Errors are `{error:{code,message}}`.
 
 | Method | Path | Auth | Notes |
 | --- | --- | --- | --- |
-| GET | `/health` | - | `{ok, db, email, turn, auth, stack, oauth:{github,google}}` |
+| GET | `/health` | - | `{ok, db, email, turn, auth, stack, stackDev, oauth:{github,google}}` |
 | POST | `/auth/stack` | - | `{accessToken, projectId}` -> `Tokens`. **Primary sign-in**, see Stack Auth below |
 | POST | `/auth/email/start` | - | `{email}` -> `{nonce}`; mails a 6-char code (A-Z, 2-9, no 0/O/1/I/L). 10 min expiry, 5 codes per email per hour |
 | POST | `/auth/email/verify` | - | `{email, code, nonce}` -> `Tokens`; 5 attempts per code, single use |
 | POST | `/auth/test` | - | `{email, secret}` -> `Tokens`; only when `TEST_LOGIN_SECRET` is set (else 404), see below |
-| POST | `/auth/apple` | - | `{identityToken, fullName?}` -> `Tokens`; RS256 against Apple JWKS, `aud` in `APPLE_AUDIENCES` |
-| GET | `/auth/oauth/:provider/start?redirect=&code_challenge=` | - | `github` or `google`; 501 `unsupported` without client id/secret. `redirect` must use a scheme in `OAUTH_REDIRECT_SCHEMES`. Optional PKCE S256 challenge |
+| POST | `/auth/apple` | - | `{identityToken, fullName?, nonce?}` -> `Tokens`; RS256 against Apple JWKS, `aud` in `APPLE_AUDIENCES`; `nonce` (raw) must match the token's `nonce` claim (SHA-256 hex or raw) |
+| GET | `/auth/oauth/:provider/start?redirect=&code_challenge=&code_challenge_method=S256` | - | `github` or `google`; 501 `unsupported` without client id/secret. `redirect` must use a scheme in `OAUTH_REDIRECT_SCHEMES`. PKCE S256 required |
 | GET | `/auth/oauth/:provider/callback` | - | 302 to `redirect?code=<one-time>` or `redirect?error=` |
-| POST | `/auth/oauth/exchange` | - | `{code, codeVerifier?}` -> `Tokens`; verifier required when start had a challenge |
-| POST | `/auth/refresh` | - | `{refreshToken}` -> `Tokens`; rotates. Reusing a rotated token revokes the whole family |
+| POST | `/auth/oauth/exchange` | - | `{code, codeVerifier}` -> `Tokens` |
+| POST | `/auth/refresh` | - | `{refreshToken}` -> `Tokens`; rotates. A retry of the immediately previous token within 30 s returns the same pair (the successor is derived by HMAC from the old token, the access token is signed at the rotation time); any other reuse revokes the whole family |
 | POST | `/auth/logout` | user | `{refreshToken}` -> `{}`; revokes its family |
 | GET | `/me` | user | `{user}` |
 | DELETE | `/me` | user | deletes the user, identities, tokens, hosts; closes their sockets |
 | POST | `/hosts/pair/start` | - | `{name, os}` -> `{deviceCode, userCode:"ABCD-EFGH", expiresAt, interval:5}`; 10 min |
-| POST | `/hosts/pair/poll` | - | `{deviceCode}` -> `{status:"pending"}` / `{status:"approved", hostId, hostToken, userId}` (token returned once); 404 unknown, 410 expired or already claimed |
-| POST | `/hosts/pair/approve` | user | `{userCode}` (case and dash insensitive) -> `{host}` |
+| POST | `/hosts/pair/poll` | - | `{deviceCode}` -> `{status:"pending"}` / `{status:"approved", hostId, hostToken, userId, approverEmail}` (token returned once; host should confirm `approverEmail`); 404 unknown, 410 expired or already claimed |
+| POST | `/hosts/pair/approve` | user | `{userCode}` (case and dash insensitive) -> `{host}`; 10 attempts per user per 10 min |
 | GET | `/hosts` | user | `{hosts:[{id,name,os,online,lastSeenAt,createdAt}]}`; `online` comes from the SignalRoom |
 | DELETE | `/hosts/:id` | user | `{}`; disconnects the host socket and sends `presence` with `online:false, removed:true` |
-| GET | `/ice` | user or host | `{iceServers, ttl:86400}`; Cloudflare STUN always, TURN when configured |
-| GET | `/signal` | user or host | WebSocket; token in `Authorization` or `?token=` |
+| GET | `/ice` | user or host | `{iceServers, ttl:3600}`; Cloudflare STUN always, TURN when configured. Users need at least one paired host (403); 60 per hour per user and per host |
+| GET | `/signal` | user or host | WebSocket; `Authorization: Bearer`. `?token=` still works but is deprecated |
 
 Tokens: access token is an HS256 JWT (15 min, `sub`=userId, `typ`="user",
 `iss`="cmux-next-mobile", secret `JWT_SECRET`). Refresh tokens (`rt_...`,
@@ -68,6 +68,8 @@ One `SignalRoom` per user id. Behaviour beyond PROTOCOL.md:
   byes go either way. Violations get `{"type":"error","code":"forbidden"}`.
 - Error codes: `host_offline`, `peer_offline`, `forbidden`, `bad_request`.
   Errors echo `sessionId` when the frame had one.
+- Phone sockets close with 4002 when their access token expires (the room
+  keeps an alarm at the earliest expiry); refresh and reconnect.
 - `{"type":"ping"}` gets `{"type":"pong"}` without waking the object.
 - A host reconnecting replaces its old socket (close code 4001). Deleted
   hosts are closed with 4003, deleted accounts with 4004.
@@ -88,7 +90,8 @@ One `SignalRoom` per user id. Behaviour beyond PROTOCOL.md:
 | `TEST_LOGIN_SECRET` | secret | Enables `POST /v1/auth/test` |
 | `TEST_LOGIN_EMAIL_DOMAINS` | var | Domains `/auth/test` may sign in (default `test.cmux.dev`) |
 | `EMAIL_FROM` | var | Sender address for codes; empty disables email sign-in (503) |
-| `STACK_PROJECT_IDS` | var | Stack Auth projects accepted by `/auth/stack` (cmux prod and dev) |
+| `STACK_PROJECT_ID` | var | Stack Auth prod project (always accepted, links by verified email) |
+| `STACK_DEV_PROJECT_ID`, `DEV_STACK_ENABLED` | var | Stack dev project, accepted only when `DEV_STACK_ENABLED = "true"` (currently true) |
 | `APPLE_AUDIENCES` | var | `dev.cmux.next.drawer,dev.cmux.next.tabs` |
 | `OAUTH_REDIRECT_SCHEMES` | var | App schemes OAuth may redirect to |
 
@@ -106,17 +109,23 @@ printf '%s' "$VALUE" | npx wrangler secret put NAME
 
 The app signs in with Stack Auth exactly like cmux iOS on TestFlight, then
 calls `POST /v1/auth/stack {accessToken, projectId}` with the Stack access
-token. The Worker checks `projectId` against `STACK_PROJECT_IDS` (prod
-`9790718f-14cd-4f7e-824d-eaf527a82b82`, dev
-`454ecd03-1db2-4050-845e-4ce5b0cd9895`), verifies the ES256 signature against
+token. The Worker accepts the prod project `9790718f-14cd-4f7e-824d-eaf527a82b82`
+and, while `DEV_STACK_ENABLED = "true"`, the dev project
+`454ecd03-1db2-4050-845e-4ce5b0cd9895`. It verifies the ES256 (or RS256) signature against
 `https://api.stack-auth.com/api/v1/projects/<projectId>/.well-known/jwks.json`
 (cached 10 min, refetched on an unknown `kid`), requires
 `iss = https://api.stack-auth.com/api/v1/projects/<projectId>`,
 `aud = <projectId>`, an unexpired `exp` (60 s skew) and `is_anonymous != true`.
-The identity is `("stack", <Stack user id>)`; email and name come from the
-claims, or from `GET /api/v1/users/me` (headers `x-stack-access-token`,
-`x-stack-project-id`, `x-stack-access-type: client`) when missing. Only a
-verified email links to an existing account. Email code, Apple and OAuth
+The identity is `("stack:<projectId>", <Stack user id>)`; email and name come
+from the claims, or from `GET /api/v1/users/me` (headers `x-stack-access-token`,
+`x-stack-project-id`, `x-stack-access-type: client`) when missing. Only the prod
+project links to an existing account by verified email.
+
+Risk of `DEV_STACK_ENABLED = "true"`: anyone can create users in the dev Stack
+project, so dev sign-ins get their own accounts with no email (never linked to
+or claiming a prod account by email). They can still pair hosts and use
+TURN under the `/ice` limits. Set it to `"false"` and redeploy once Debug
+builds use the prod project. Email code, Apple and OAuth
 sign-in remain in the code but are disabled until configured.
 
 ### Test sign-in
@@ -173,6 +182,12 @@ cheapest MySQL cluster size unless `PSCALE_CLUSTER_SIZE` is set; this is
 billed), creates a `readwriter` password for the Worker and stores it in the
 three secrets, then migrates with a 1-hour `admin` password. To migrate by
 hand: `DATABASE_HOST=... DATABASE_USERNAME=... DATABASE_PASSWORD=... npm run migrate`.
+
+## Logging
+
+Invocation logs are off (`[observability.logs] invocation_logs = false`), so
+request URLs, including a deprecated `/v1/signal?token=`, are never recorded.
+Console logs carry only error messages, never tokens or request bodies.
 
 ## Develop, test, deploy
 

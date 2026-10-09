@@ -25,6 +25,7 @@ const toRefresh = (r: Row): RefreshToken => ({
   familyId: String(r.family_id),
   expiresAt: num(r.expires_at),
   revokedAt: numOrNull(r.revoked_at),
+  rotatedAt: numOrNull(r.rotated_at),
   createdAt: num(r.created_at),
 });
 const toHost = (r: Row): Host => ({
@@ -147,9 +148,20 @@ export class PlanetScaleRepo implements Repo {
 
   async createRefreshToken(t: RefreshToken) {
     await this.run(
-      "INSERT INTO refresh_tokens (hash, user_id, family_id, expires_at, revoked_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [t.hash, t.userId, t.familyId, t.expiresAt, t.revokedAt, t.createdAt],
+      "INSERT INTO refresh_tokens (hash, user_id, family_id, expires_at, revoked_at, rotated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [t.hash, t.userId, t.familyId, t.expiresAt, t.revokedAt, t.rotatedAt, t.createdAt],
     );
+  }
+  async createRefreshTokenIfAbsent(t: RefreshToken) {
+    return (
+      (await this.run(
+        "INSERT IGNORE INTO refresh_tokens (hash, user_id, family_id, expires_at, revoked_at, rotated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [t.hash, t.userId, t.familyId, t.expiresAt, t.revokedAt, t.rotatedAt, t.createdAt],
+      )) === 1
+    );
+  }
+  async markRefreshTokenRotated(hash: string, now: number) {
+    return (await this.run("UPDATE refresh_tokens SET revoked_at = ?, rotated_at = ? WHERE hash = ? AND revoked_at IS NULL", [now, now, hash])) === 1;
   }
   async getRefreshToken(hash: string) {
     const r = await this.one("SELECT * FROM refresh_tokens WHERE hash = ?", [hash]);

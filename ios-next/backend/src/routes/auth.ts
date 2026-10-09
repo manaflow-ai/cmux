@@ -3,7 +3,7 @@ import { verifyAppleIdentityToken } from "../apple";
 import { issueTokens, jwtSecret, requireUser, resolveUser, rotateRefreshToken, userView } from "../auth";
 import type { HonoEnv } from "../context";
 import { CODE_ALPHABET, hmacHex, randomCode, randomToken, sha256Hex, timingSafeEqual } from "../crypto";
-import { csv } from "../env";
+import { csv, stackProjects } from "../env";
 import { fetchStackUser, verifyStackAccessToken } from "../stack";
 import { ApiError, badRequest, notFound, unauthorized, unavailable } from "../errors";
 import { rateLimit, readJson, str } from "../http";
@@ -104,7 +104,9 @@ authRoutes.post("/stack", async (c) => {
   const accessToken = str(body, "accessToken", { max: 8192 });
   const projectId = str(body, "projectId", { max: 64 });
   const now = deps.now();
-  const claims = await verifyStackAccessToken(accessToken, projectId, csv(c.env.STACK_PROJECT_IDS), deps.fetch, now);
+  const projects = stackProjects(c.env);
+  const project = projects.get(projectId);
+  const claims = await verifyStackAccessToken(accessToken, projectId, [...projects.keys()], deps.fetch, now);
   if (!claims.email || !claims.name) {
     try {
       const extra = await fetchStackUser(accessToken, projectId, deps.fetch);
@@ -119,7 +121,16 @@ authRoutes.post("/stack", async (c) => {
   }
   const user = await resolveUser(
     repo,
-    { provider: "stack", subject: claims.sub, email: claims.email, emailVerified: claims.emailVerified, name: claims.name },
+    {
+      provider: `stack:${projectId}`,
+      subject: claims.sub,
+      email: claims.email,
+      emailVerified: claims.emailVerified,
+      name: claims.name,
+      // Only the prod project may link to (or claim) an account by email; dev
+      // project users are anyone who signs up there, so they never inherit one.
+      linkByEmail: project?.linkByEmail ?? false,
+    },
     now,
   );
   return c.json(await issueTokens(repo, secret, user, now));
@@ -132,7 +143,8 @@ authRoutes.post("/apple", async (c) => {
   const body = await readJson(c);
   const identityToken = str(body, "identityToken", { max: 8192 });
   const now = deps.now();
-  const claims = await verifyAppleIdentityToken(identityToken, csv(c.env.APPLE_AUDIENCES), deps.fetch, now);
+  const nonce = str(body, "nonce", { max: 256, optional: true });
+  const claims = await verifyAppleIdentityToken(identityToken, csv(c.env.APPLE_AUDIENCES), deps.fetch, now, nonce);
   const user = await resolveUser(
     repo,
     { provider: "apple", subject: claims.sub, email: claims.email, emailVerified: claims.emailVerified, name: appleName(body.fullName) },

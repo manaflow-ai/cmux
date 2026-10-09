@@ -5,12 +5,15 @@ import { randomCode, randomId, randomToken, sha256Hex } from "../crypto";
 import { ApiError, notFound } from "../errors";
 import { rateLimit, readJson, str } from "../http";
 import type { Host } from "../repo/types";
-import { notifyHostRemoved, onlineHostIds } from "../signal/client";
+import { notifyHostRemoved, onlineHostIds, userRateLimit } from "../signal/client";
 
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 export const PAIRING_INTERVAL_S = 5;
 /** How long after approval the host may still collect its token. */
 export const PAIRING_CLAIM_WINDOW_MS = 10 * 60 * 1000;
+/** Approve attempts per user (guards user-code guessing). */
+export const APPROVE_LIMIT = 10;
+export const APPROVE_WINDOW_MS = 10 * 60 * 1000;
 
 export const hostView = (h: Host, online: boolean) => ({
   id: h.id,
@@ -69,11 +72,16 @@ hostRoutes.post("/pair/poll", async (c) => {
   if (!(await repo.claimPairing(pairing.id, now))) throw new ApiError("not_found", "pairing already claimed", 410);
   const hostToken = randomToken("ht");
   await repo.setHostToken(pairing.hostId, await sha256Hex(hostToken));
-  return c.json({ status: "approved", hostId: pairing.hostId, hostToken, userId: pairing.userId });
+  const approver = await repo.getUser(pairing.userId);
+  // approverEmail lets the host ask "Pair with <email>? [y/N]" before using the token.
+  return c.json({ status: "approved", hostId: pairing.hostId, hostToken, userId: pairing.userId, approverEmail: approver?.email ?? null });
 });
 
 hostRoutes.post("/pair/approve", requireUser, async (c) => {
   const { repo, deps, principal } = c.var;
+  if (!(await userRateLimit(c.env, principal.userId, "pair-approve", APPROVE_LIMIT, APPROVE_WINDOW_MS))) {
+    throw new ApiError("rate_limited", "too many pairing attempts; try again later");
+  }
   const userCode = normalizeUserCode(str(await readJson(c), "userCode", { max: 32 }));
   const now = deps.now();
   const pairing = await repo.getPendingPairingByUserCode(userCode, now);

@@ -23,6 +23,8 @@ export interface RefreshToken {
   familyId: string;
   expiresAt: number;
   revokedAt: number | null;
+  /** Set when the token was exchanged for its successor (also sets revokedAt). */
+  rotatedAt: number | null;
   createdAt: number;
 }
 
@@ -59,6 +61,17 @@ export interface OAuthCode {
   createdAt: number;
 }
 
+/** Thrown by repos on a unique-key conflict. */
+export class DuplicateError extends Error {
+  constructor(message = "duplicate") {
+    super(message);
+  }
+}
+
+export function isDuplicate(err: unknown): boolean {
+  return err instanceof DuplicateError || (err instanceof Error && /duplicate entry|\b1062\b|AlreadyExists/i.test(err.message));
+}
+
 export interface Repo {
   // users and identities
   getUser(id: string): Promise<User | null>;
@@ -81,6 +94,10 @@ export interface Repo {
 
   // refresh tokens
   createRefreshToken(token: RefreshToken): Promise<void>;
+  /** Inserts unless a token with the same hash exists; returns whether it inserted. */
+  createRefreshTokenIfAbsent(token: RefreshToken): Promise<boolean>;
+  /** Marks an active token rotated (and revoked); returns false if it was not active. */
+  markRefreshTokenRotated(hash: string, now: number): Promise<boolean>;
   getRefreshToken(hash: string): Promise<RefreshToken | null>;
   /** Revokes one token if still active; returns false if it was already revoked. */
   revokeRefreshToken(hash: string, now: number): Promise<boolean>;

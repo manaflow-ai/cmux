@@ -1,4 +1,6 @@
 import { exports as workerExports } from "cloudflare:workers";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 /** Integration tests through the real Worker entry, Durable Object and WebSockets. */
@@ -70,7 +72,7 @@ class Peer {
   }
 }
 
-async function connect(token: string, via: "query" | "header" = "query"): Promise<Peer> {
+async function connect(token: string, via: "query" | "header" = "header"): Promise<Peer> {
   const url = via === "query" ? `${BASE}/v1/signal?token=${encodeURIComponent(token)}` : `${BASE}/v1/signal`;
   const headers: Record<string, string> = { upgrade: "websocket" };
   if (via === "header") headers.authorization = `Bearer ${token}`;
@@ -98,7 +100,8 @@ describe("signaling", () => {
     expect(welcome.peerId).toMatch(/^p_/);
     expect(welcome.hosts).toEqual([{ hostId, online: false }]);
 
-    const host = await connect(hostToken);
+    // Deprecated query form still works.
+    const host = await connect(hostToken, "query");
     const hostWelcome = await host.next((f) => f.type === "welcome");
     expect(hostWelcome.hosts).toEqual([{ hostId, online: true }]);
     expect(await phone.next((f) => f.type === "presence")).toEqual({ type: "presence", hostId, online: true });
@@ -197,5 +200,47 @@ describe("signaling", () => {
     expect(bobPhone.frames.filter((f) => f.type === "presence")).toEqual([]);
     alicePhone.ws.close(1000);
     bobPhone.ws.close(1000);
+  });
+
+  it("closes phone sockets with 4002 when their access token expires", async () => {
+    const user = await login();
+    const { hostToken } = await pairHost(user.accessToken);
+    const phone = await connect(user.accessToken);
+    await phone.next((f) => f.type === "welcome");
+    const host = await connect(hostToken);
+    await host.next((f) => f.type === "welcome");
+
+    const ns = (env as unknown as { SIGNAL_ROOM: DurableObjectNamespace }).SIGNAL_ROOM;
+    const stub = ns.get(ns.idFromName(user.user.id));
+    // The room armed an alarm for the phone token's expiry (15 min).
+    const alarm = await runInDurableObject(stub, async (_i, state: DurableObjectState) => state.storage.getAlarm());
+    expect(alarm).toEqual(expect.any(Number));
+    expect(alarm! - Date.now()).toBeGreaterThan(14 * 60 * 1000);
+    // Pretend the token expired, then fire the alarm.
+    await runInDurableObject(stub, async (_i, state: DurableObjectState) => {
+      for (const ws of state.getWebSockets("role:phone")) ws.serializeAttachment({ ...ws.deserializeAttachment(), expiresAt: Date.now() - 1 });
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await phone.waitClosed();
+    expect(phone.closed?.code).toBe(4002);
+    // Hosts have no expiry and stay connected.
+    expect(host.closed).toBeNull();
+    host.ws.close(1000);
+  });
+
+  it("closes every socket with 4004 when the account is deleted", async () => {
+    const user = await login();
+    const { hostToken } = await pairHost(user.accessToken);
+    const phone = await connect(user.accessToken);
+    await phone.next((f) => f.type === "welcome");
+    const host = await connect(hostToken);
+    await host.next((f) => f.type === "welcome");
+    expect((await api("DELETE", "/v1/me", { token: user.accessToken })).status).toBe(200);
+    await host.waitClosed();
+    await phone.waitClosed();
+    expect(host.closed?.code).toBe(4004);
+    expect(phone.closed?.code).toBe(4004);
+    // The deleted host token no longer authenticates.
+    expect((await worker.fetch(`${BASE}/v1/signal`, { headers: { upgrade: "websocket", authorization: `Bearer ${hostToken}` } })).status).toBe(401);
   });
 });

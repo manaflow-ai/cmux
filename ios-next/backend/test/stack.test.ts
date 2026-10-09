@@ -24,8 +24,8 @@ describe("Stack Auth sign-in", () => {
     return `${header}.${body}.${base64url(new Uint8Array(sig))}`;
   }
 
-  function setup(usersMe?: Record<string, unknown>) {
-    const h = harness();
+  function setup(envOverrides: Record<string, string> = {}, usersMe?: Record<string, unknown>) {
+    const h = harness(envOverrides);
     h.onFetch((url, init) => {
       if (url.endsWith("/.well-known/jwks.json") && url.startsWith("https://api.stack-auth.com/api/v1/projects/")) {
         return Response.json({ keys: [{ ...jwk, kid: "s1", alg: "ES256" }] });
@@ -58,23 +58,58 @@ describe("Stack Auth sign-in", () => {
     expect(res.status).toBe(200);
     expect(res.json.user).toMatchObject({ email: "s@example.com", name: "Stacy" });
     expect(res.json.refreshToken).toMatch(/^rt_/);
-    expect(h.repo.identities.get("stack:stack-user-1")?.userId).toBe(res.json.user.id);
+    expect(h.repo.identities.get(`stack:${PROD}:stack-user-1`)?.userId).toBe(res.json.user.id);
     const again = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h)), projectId: PROD } });
     expect(again.json.user.id).toBe(res.json.user.id);
     // JWKS is cached.
     expect(h.outbound.filter((o) => o.url.endsWith("jwks.json"))).toHaveLength(1);
   });
 
-  it("accepts the dev project and links by verified email", async () => {
+  it("links prod sign-ins to an existing account by verified email", async () => {
+    const h = setup();
+    const existing = await emailLogin(h, "s@example.com");
+    const res = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h)), projectId: PROD } });
+    expect(res.json.user.id).toBe(existing.user.id);
+  });
+
+  it("accepts the dev project as a separate identity that never links by email", async () => {
     const h = setup();
     const existing = await emailLogin(h, "s@example.com");
     const res = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h, DEV)), projectId: DEV } });
     expect(res.status).toBe(200);
-    expect(res.json.user.id).toBe(existing.user.id);
+    expect(res.json.user.id).not.toBe(existing.user.id);
+    expect(res.json.user.email).toBeNull();
+    expect(h.repo.identities.get(`stack:${DEV}:stack-user-1`)?.userId).toBe(res.json.user.id);
+    // Same Stack user id in prod is a different identity.
+    const prod = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h)), projectId: PROD } });
+    expect(prod.json.user.id).toBe(existing.user.id);
+  });
+
+  it("refuses the dev project unless DEV_STACK_ENABLED is true", async () => {
+    const h = setup({ DEV_STACK_ENABLED: "false" });
+    expect((await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h, DEV)), projectId: DEV } })).status).toBe(400);
+    expect((await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h)), projectId: PROD } })).status).toBe(200);
+  });
+
+  it("verifies RS256 tokens too", async () => {
+    const h = harness();
+    const rsa = (await crypto.subtle.generateKey(
+      { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+      true,
+      ["sign", "verify"],
+    )) as CryptoKeyPair;
+    const pub = (await crypto.subtle.exportKey("jwk", rsa.publicKey)) as JsonWebKey;
+    h.onFetch((url) => (url.endsWith("/.well-known/jwks.json") ? Response.json({ keys: [{ ...pub, kid: "r1", alg: "RS256" }] }) : undefined));
+    const enc = new TextEncoder();
+    const header = base64url(enc.encode(JSON.stringify({ alg: "RS256", kid: "r1" })));
+    const body = base64url(enc.encode(JSON.stringify(claims(h))));
+    const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", rsa.privateKey, enc.encode(`${header}.${body}`));
+    const res = await h.call("POST", "/v1/auth/stack", { body: { accessToken: `${header}.${body}.${base64url(new Uint8Array(sig))}`, projectId: PROD } });
+    expect(res.status).toBe(200);
   });
 
   it("fetches users/me when the token has no email", async () => {
-    const h = setup({ primary_email: "me@example.com", primary_email_verified: true, display_name: "Me" });
+    const h = setup({}, { primary_email: "me@example.com", primary_email_verified: true, display_name: "Me" });
     const { email: _e, name: _n, ...noEmail } = claims(h);
     const res = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(noEmail), projectId: PROD } });
     expect(res.json.user).toMatchObject({ email: "me@example.com", name: "Me" });

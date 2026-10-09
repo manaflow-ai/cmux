@@ -9,8 +9,11 @@ export interface AppEnv {
   AUTH_LIMITER?: RateLimit;
 
   APPLE_AUDIENCES?: string;
-  /** Comma list of Stack Auth project ids accepted by /auth/stack. */
-  STACK_PROJECT_IDS?: string;
+  /** Stack Auth project accepted by /auth/stack (cmux prod). */
+  STACK_PROJECT_ID?: string;
+  /** Stack Auth dev project, accepted only when DEV_STACK_ENABLED is "true". */
+  STACK_DEV_PROJECT_ID?: string;
+  DEV_STACK_ENABLED?: string;
   OAUTH_REDIRECT_SCHEMES?: string;
   EMAIL_FROM?: string;
 
@@ -51,6 +54,14 @@ export function emailConfigured(env: AppEnv): boolean {
 
 export function turnConfigured(env: AppEnv): boolean {
   return Boolean(env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN);
+}
+
+/** Stack projects accepted by /auth/stack, with whether they may link accounts by email. */
+export function stackProjects(env: AppEnv): Map<string, { linkByEmail: boolean }> {
+  const out = new Map<string, { linkByEmail: boolean }>();
+  if (env.STACK_PROJECT_ID) out.set(env.STACK_PROJECT_ID, { linkByEmail: true });
+  if (env.DEV_STACK_ENABLED === "true" && env.STACK_DEV_PROJECT_ID) out.set(env.STACK_DEV_PROJECT_ID, { linkByEmail: false });
+  return out;
 }
 
 export type OAuthProvider = "github" | "google";

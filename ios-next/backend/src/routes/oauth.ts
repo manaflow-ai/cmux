@@ -49,13 +49,14 @@ oauthRoutes.get("/:provider/start", async (c) => {
   const p = provider(c);
   const redirect = checkRedirect(c.env, c.req.query("redirect"));
   const challenge = c.req.query("code_challenge");
-  if (challenge !== undefined && !/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw badRequest("code_challenge must be an S256 challenge");
+  const method = c.req.query("code_challenge_method") ?? "S256";
+  if (method !== "S256" || !challenge || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw badRequest("code_challenge (S256) is required");
   const iat = Math.floor(c.var.deps.now() / 1000);
   const state = await signHs256(jwtSecret(c.env), {
     typ: "oauth_state",
     p,
     r: redirect.toString(),
-    cc: challenge ?? null,
+    cc: challenge,
     n: randomToken("n", 8),
     iat,
     exp: iat + STATE_TTL_S,
@@ -82,7 +83,9 @@ oauthRoutes.get("/:provider/callback", async (c) => {
   const { deps, repo } = c.var;
   const now = deps.now();
   const state = await verifyHs256(jwtSecret(c.env), c.req.query("state") ?? "", now);
-  if (!state || state.typ !== "oauth_state" || state.p !== p || typeof state.r !== "string") throw badRequest("invalid or expired state");
+  if (!state || state.typ !== "oauth_state" || state.p !== p || typeof state.r !== "string" || typeof state.cc !== "string") {
+    throw badRequest("invalid or expired state");
+  }
   const redirect = checkRedirect(c.env, state.r).toString();
   if (c.req.query("error")) return redirectWith(redirect, { error: "access_denied" });
   const code = c.req.query("code");
@@ -99,7 +102,7 @@ oauthRoutes.get("/:provider/callback", async (c) => {
   await repo.createOAuthCode({
     codeHash: await sha256Hex(oneTime),
     userId: user.id,
-    codeChallenge: typeof state.cc === "string" ? state.cc : null,
+    codeChallenge: state.cc,
     expiresAt: now + CODE_TTL_MS,
     consumedAt: null,
     createdAt: now,
@@ -112,13 +115,12 @@ oauthRoutes.post("/exchange", async (c) => {
   const { deps, repo } = c.var;
   const body = await readJson(c);
   const code = str(body, "code", { max: 256 });
-  const verifier = str(body, "codeVerifier", { max: 256, optional: true });
+  const verifier = str(body, "codeVerifier", { max: 128 });
+  if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) throw badRequest("codeVerifier must be 43-128 unreserved characters");
   const now = deps.now();
   const row = await repo.takeOAuthCode(await sha256Hex(code), now);
   if (!row) throw unauthorized("invalid or expired code");
-  if (row.codeChallenge) {
-    if (!verifier || !timingSafeEqual(await sha256Base64url(verifier), row.codeChallenge)) throw unauthorized("code verifier mismatch");
-  }
+  if (!row.codeChallenge || !timingSafeEqual(await sha256Base64url(verifier), row.codeChallenge)) throw unauthorized("code verifier mismatch");
   const user = await repo.getUser(row.userId);
   if (!user) throw unauthorized("user not found");
   return c.json(await issueTokens(repo, jwtSecret(c.env), user, now));

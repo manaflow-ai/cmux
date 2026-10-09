@@ -16,6 +16,21 @@ export async function onlineHostIds(env: AppEnv, userId: string): Promise<Set<st
   }
 }
 
+/**
+ * Per-user sliding-window rate limit kept in the user's SignalRoom.
+ * Fails open if the room is unreachable.
+ */
+export async function userRateLimit(env: AppEnv, userId: string, key: string, max: number, windowMs: number): Promise<boolean> {
+  try {
+    const q = new URLSearchParams({ key, max: String(max), windowMs: String(windowMs) });
+    const res = await signalRoom(env, userId).fetch(`https://signal/internal/limit?${q}`, { method: "POST" });
+    return ((await res.json()) as { ok?: boolean }).ok !== false;
+  } catch (err) {
+    console.error("user rate limit failed", err instanceof Error ? err.message : err);
+    return true;
+  }
+}
+
 export async function notifyHostRemoved(env: AppEnv, userId: string, hostId: string): Promise<void> {
   try {
     await signalRoom(env, userId).fetch(`https://signal/internal/host-removed?hostId=${encodeURIComponent(hostId)}`, { method: "POST" });

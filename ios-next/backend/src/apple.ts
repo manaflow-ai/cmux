@@ -1,4 +1,4 @@
-import { decodeJwt, verifyRs256 } from "./crypto";
+import { decodeJwt, sha256Hex, timingSafeEqual, verifyRs256 } from "./crypto";
 import { unauthorized } from "./errors";
 
 export const APPLE_ISSUER = "https://appleid.apple.com";
@@ -29,7 +29,12 @@ export interface AppleClaims {
 }
 
 /** Verifies a Sign in with Apple identity token (RS256, Apple JWKS). */
-export async function verifyAppleIdentityToken(token: string, audiences: string[], fetcher: typeof fetch, now: number): Promise<AppleClaims> {
+/**
+ * Verifies a Sign in with Apple identity token (RS256, Apple JWKS). When the
+ * app passes `rawNonce`, the token's `nonce` claim must equal its SHA-256 hex
+ * (what the app sends to Apple) or the raw value itself.
+ */
+export async function verifyAppleIdentityToken(token: string, audiences: string[], fetcher: typeof fetch, now: number, rawNonce?: string): Promise<AppleClaims> {
   let decoded;
   try {
     decoded = decodeJwt(token);
@@ -52,6 +57,10 @@ export async function verifyAppleIdentityToken(token: string, audiences: string[
   if (!aud.some((a) => typeof a === "string" && audiences.includes(a))) throw unauthorized("bad identity token audience");
   if (typeof payload.exp !== "number" || payload.exp * 1000 <= now) throw unauthorized("identity token expired");
   if (typeof payload.sub !== "string" || !payload.sub) throw unauthorized("identity token has no subject");
+  if (rawNonce !== undefined) {
+    const claim = typeof payload.nonce === "string" ? payload.nonce : "";
+    if (!timingSafeEqual(claim, await sha256Hex(rawNonce)) && !timingSafeEqual(claim, rawNonce)) throw unauthorized("identity token nonce mismatch");
+  }
   const email = typeof payload.email === "string" ? payload.email : null;
   const verified = payload.email_verified === true || payload.email_verified === "true";
   return { sub: payload.sub, email, emailVerified: Boolean(email) && verified };

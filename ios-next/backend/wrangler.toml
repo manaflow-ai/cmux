@@ -6,12 +6,22 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false
 
+# Console logs only. Invocation logs would record request URLs, and the
+# deprecated `/v1/signal?token=` form carries a credential in the URL.
 [observability]
 enabled = true
 
+[observability.logs]
+enabled = true
+invocation_logs = false
+
 [vars]
-# Stack Auth projects accepted by /v1/auth/stack: cmux prod, cmux dev.
-STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
+# Stack Auth projects accepted by /v1/auth/stack. The dev project is open to
+# anyone who signs up there; it is accepted only while DEV_STACK_ENABLED is
+# "true" (Debug builds use it) and never links accounts by email.
+STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+STACK_DEV_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+DEV_STACK_ENABLED = "true"
 APPLE_AUDIENCES = "dev.cmux.next.drawer,dev.cmux.next.tabs"
 # Custom URL schemes the OAuth flow may redirect back to.
 OAUTH_REDIRECT_SCHEMES = "cmux-next,dev.cmux.next.drawer,dev.cmux.next.tabs"

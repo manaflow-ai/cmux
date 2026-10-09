@@ -10,6 +10,21 @@ async function pair(h: ReturnType<typeof harness>, accessToken: string) {
 }
 
 describe("host pairing (device code)", () => {
+  it("rate-limits approve attempts per user (10 per 10 min)", async () => {
+    const h = harness();
+    const user = await emailLogin(h, "guesser@example.com");
+    for (let i = 0; i < 10; i++) {
+      expect((await h.call("POST", "/v1/hosts/pair/approve", { token: user.accessToken, body: { userCode: "ZZZZ-ZZZZ" } })).status).toBe(404);
+    }
+    const start = await h.call("POST", "/v1/hosts/pair/start", { body: { name: "Mac", os: "macOS" } });
+    const limited = await h.call("POST", "/v1/hosts/pair/approve", { token: user.accessToken, body: { userCode: start.json.userCode } });
+    expect(limited.status).toBe(429);
+    expect(limited.json.error.code).toBe("rate_limited");
+    // Another user is unaffected.
+    const other = await emailLogin(h, "other@example.com");
+    expect((await h.call("POST", "/v1/hosts/pair/approve", { token: other.accessToken, body: { userCode: start.json.userCode } })).status).toBe(200);
+  });
+
   it("start -> pending -> approve -> approved once", async () => {
     const h = harness();
     const user = await emailLogin(h);
@@ -36,7 +51,7 @@ describe("host pairing (device code)", () => {
     expect((await h.call("POST", "/v1/hosts/pair/approve", { token: user.accessToken, body: { userCode: code } })).status).toBe(404);
 
     const poll = await h.call("POST", "/v1/hosts/pair/poll", { body: { deviceCode: start.json.deviceCode } });
-    expect(poll.json).toMatchObject({ status: "approved", hostId: approve.json.host.id, userId: user.user.id });
+    expect(poll.json).toMatchObject({ status: "approved", hostId: approve.json.host.id, userId: user.user.id, approverEmail: "a@example.com" });
     expect(poll.json.hostToken).toMatch(/^ht_/);
     expect(h.repo.hosts.get(approve.json.host.id)!.tokenHash).toBe(await sha256Hex(poll.json.hostToken));
 
@@ -80,13 +95,20 @@ describe("host pairing (device code)", () => {
   });
 });
 
+/** A user with one paired host (needed for /ice). */
+async function userWithHost(h: ReturnType<typeof harness>, email = "a@example.com") {
+  const user = await emailLogin(h, email);
+  const { poll } = await pair(h, user.accessToken);
+  return { ...user, hostToken: poll.json.hostToken as string };
+}
+
 describe("/ice", () => {
   it("returns Cloudflare STUN without TURN configured", async () => {
     const h = harness({ TURN_KEY_ID: undefined, TURN_KEY_API_TOKEN: undefined });
-    const user = await emailLogin(h);
+    const user = await userWithHost(h);
     expect((await h.call("GET", "/v1/ice")).status).toBe(401);
     const res = await h.call("GET", "/v1/ice", { token: user.accessToken });
-    expect(res.json).toEqual({ iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }], ttl: 86400 });
+    expect(res.json).toEqual({ iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }], ttl: 3600 });
     expect(h.outbound).toHaveLength(0);
   });
 
@@ -95,7 +117,7 @@ describe("/ice", () => {
     h.onFetch((url, init) => {
       if (url !== "https://rtc.live.cloudflare.com/v1/turn/keys/key1/credentials/generate-ice-servers") return undefined;
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer tok");
-      expect(JSON.parse(String(init?.body))).toEqual({ ttl: 86400 });
+      expect(JSON.parse(String(init?.body))).toEqual({ ttl: 3600 });
       return Response.json(
         {
           iceServers: [
@@ -106,7 +128,7 @@ describe("/ice", () => {
         { status: 201 },
       );
     });
-    const user = await emailLogin(h);
+    const user = await userWithHost(h);
     const res = await h.call("GET", "/v1/ice", { token: user.accessToken });
     expect(res.json.iceServers).toEqual([
       { urls: ["stun:stun.cloudflare.com:3478"] },
@@ -117,8 +139,29 @@ describe("/ice", () => {
   it("falls back to STUN when the TURN API fails", async () => {
     const h = harness({ TURN_KEY_ID: "key1", TURN_KEY_API_TOKEN: "tok" });
     h.onFetch(() => new Response("nope", { status: 500 }));
-    const user = await emailLogin(h);
+    const user = await userWithHost(h);
     const res = await h.call("GET", "/v1/ice", { token: user.accessToken });
     expect(res.json.iceServers).toEqual([{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+  });
+
+  it("requires the user to have a paired host; hosts always allowed", async () => {
+    const h = harness();
+    const lonely = await emailLogin(h, "lonely@example.com");
+    const res = await h.call("GET", "/v1/ice", { token: lonely.accessToken });
+    expect(res.status).toBe(403);
+    expect(res.json.error.code).toBe("forbidden");
+    const owner = await userWithHost(h, "owner@example.com");
+    expect((await h.call("GET", "/v1/ice", { token: owner.hostToken })).status).toBe(200);
+  });
+
+  it("rate-limits per user", async () => {
+    const h = harness();
+    const user = await userWithHost(h);
+    for (let i = 0; i < 60; i++) expect((await h.call("GET", "/v1/ice", { token: user.accessToken })).status).toBe(200);
+    const limited = await h.call("GET", "/v1/ice", { token: user.accessToken });
+    expect(limited.status).toBe(429);
+    expect(limited.json.error.code).toBe("rate_limited");
+    // The host has its own budget.
+    expect((await h.call("GET", "/v1/ice", { token: user.hostToken })).status).toBe(200);
   });
 });
