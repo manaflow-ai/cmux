@@ -1609,7 +1609,15 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                         CODEX_CACHE_KEY_ENV.to_owned(),
                         codex_cache_key(home, "compact"),
                     ),
-                ]),
+                ])
+                .into_iter()
+                .chain(crate::codex_home::chief_codex(paths).map(|c| {
+                    (
+                        crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                        c.display().to_string(),
+                    )
+                }))
+                .collect(),
                 args: Vec::new(),
                 system_prompt: None,
             })
