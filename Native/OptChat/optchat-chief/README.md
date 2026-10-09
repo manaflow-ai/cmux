@@ -150,17 +150,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-A Claude spawn of several subagents is single-flight on the shared view: the
-first subagent starts alone, its first message marked at the view's last whole
-block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
-a route refused our marks), and the subagent directory's project settings
-give Claude Code the same TTL (`promptCacheTtl`, as the turns' session
-directory; acpmux takes no TTL variable in a session's env), so the API never
-sees a 1h mark after a 5m one. A spawn in a directory of the user's gets no
-mark: that directory is not ours to write. The rest start when its response began
-streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
-later, and read that entry. The trace's `spawn.warm` says whether the first
-spoke and how long the wait took.
+A subagent's first message carries no cache mark of ours, and all of a
+spawn's subagents start at once: Claude Code marks its two system blocks and
+the last two messages of every later request in a session, the API takes at
+most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
+marks (decision 2026-10-08; see Cache marks and TTL).
 
 ## Engine: harness, model and effort per turn
 

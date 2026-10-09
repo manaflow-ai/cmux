@@ -49,7 +49,7 @@ enum TabMoves {
         case .pty:
             return .terminal(SpawnOptions(cwd: tab.cwd, workspace: services.workspaceKey(of: pane)))
         case .browser:
-            guard tab.isFrontendOwned, let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
+            guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
             else { return nil }
             return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.snapshot.browserProfileID)
@@ -223,7 +223,7 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs?.isIncognitoTab(tab.id) == true
+        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
