@@ -22,6 +22,8 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 4f54bc866f82: terminal input/output command arms (12) + parse_hex_color -> server/cmd_terminal_io.rs (423 lines). server.rs 7818 -> 7581. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 63fb27d73af2: terminal sizing command arms (11) + validate_relay_view -> server/cmd_sizing.rs (458 lines). server.rs 7581 -> 7254. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 - 2026-10-09 71eae12c5962: attach and detach command arms (4, attach-surface is 502 lines) -> server/cmd_attach.rs (554 lines). server.rs 7254 -> 6693. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
+- 2026-10-09 9907a4b00d22: profile, session and personal-group command arms (15) -> server/cmd_profiles.rs (207 lines). server.rs 6693 -> 6677. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
+- 2026-10-09 fe9c26cb23a1: browser and browser-provider command arms (10) + provider registration/JSON and frame-presented helpers -> server/cmd_browser.rs (232 lines). server.rs 6677 -> 6518. Gate: gate-run receipt (spec inventory + checker tests, tree inputs, godfile, fmt, clippy -D warnings core+cmux-tui, Windows --tests, core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 

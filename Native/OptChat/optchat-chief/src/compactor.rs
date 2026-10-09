@@ -1667,6 +1667,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
+    env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;

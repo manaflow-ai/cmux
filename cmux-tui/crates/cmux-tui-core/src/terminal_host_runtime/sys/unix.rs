@@ -26,6 +26,9 @@ pub(crate) use lease::*;
 pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
 pub(crate) use waker::AcceptWaker;
 
+/// The session id of an adopted (non-child) process.
+pub(crate) type SessionId = libc::pid_t;
+
 /// The owner of a file: its uid.
 pub(crate) type FileOwner = u32;
 

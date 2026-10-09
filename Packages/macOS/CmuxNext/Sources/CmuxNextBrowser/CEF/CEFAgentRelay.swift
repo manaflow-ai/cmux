@@ -55,7 +55,9 @@ public final class CEFAgentRelay {
     /// background tab of a drawn window then, and moving it would take the
     /// window from that pane.
     public var needsRenderWindow: Bool {
-        guard let tab, !tab.isClosed, tab.contentView.window == nil else { return false }
+        // A tab its pane parked hidden (PaneContentView+Parking) is in the
+        // window but not drawn: a background tab too.
+        guard let tab, !tab.isClosed, tab.contentView.window == nil || tab.contentView.isHiddenOrHasHiddenAncestor else { return false }
         return tab.host.visibleTab == nil
     }
 

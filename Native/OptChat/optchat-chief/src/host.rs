@@ -178,6 +178,9 @@ pub fn turn_preset(
     } else {
         BTreeMap::new()
     };
+    if family == Family::Claude {
+        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    }
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -274,6 +277,9 @@ pub fn subagent_preset(
         BTreeMap::new()
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+    if family == Family::Claude {
+        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
     if family == Family::Codex {

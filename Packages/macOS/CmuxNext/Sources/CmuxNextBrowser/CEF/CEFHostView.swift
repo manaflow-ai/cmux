@@ -121,11 +121,28 @@ final class CEFTabContentView: NSView {
         super.viewDidMoveToWindow()
         guard let tab else { return }
         tab.pageThemeDidChange()
-        if window != nil {
+        // A tab parked hidden in its pane (PaneContentView+Parking) shows
+        // when it is unhidden, not when it enters the window.
+        if window != nil, !isHiddenOrHasHiddenAncestor {
             tab.contentDidAppear(in: self)
         } else {
             tab.contentDidDisappear()
         }
+    }
+
+    /// The pane parked this tab (another tab of the pane shows): it lets the
+    /// shared host view go, as when it leaves the window, at no window move.
+    override func viewDidHide() {
+        super.viewDidHide()
+        tab?.contentDidDisappear()
+    }
+
+    /// The pane shows this parked tab again: it takes the host view.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        guard let tab, window != nil else { return }
+        tab.pageThemeDidChange()
+        tab.contentDidAppear(in: self)
     }
 
     override func layout() {
