@@ -126,7 +126,9 @@ extension AgentPaneRequest {
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "workspace.useFolder":
-            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= Self.maximumOpenTabText {
+            // Any text: a path that is not an existing absolute folder is refused by the host
+            // (`transport.path_invalid`), so the page never takes it for an older host.
+            if let cwd = params?["cwd"] as? String, cwd.utf8.count <= Self.maximumOpenTabText {
                 self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
             } else {
                 self = .unsupported(method)

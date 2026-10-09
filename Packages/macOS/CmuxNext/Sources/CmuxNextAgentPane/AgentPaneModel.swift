@@ -226,7 +226,11 @@ public final class AgentPaneModel {
                 // The page shows the folder a new chat starts in, so it names the workspace's
                 // folder the relay would fill in (cx-nn3e: the chip and the start disagreed). A
                 // reconnect keeps the page's own pick.
-                if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() { handshake.cwd = root }
+                var filled = false
+                if request == .ready, sessionId == nil, handshake.cwd == nil, let root = primaryRoot() {
+                    handshake.cwd = root
+                    filled = true
+                }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
                 if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
                    workspaceAgentHome?() != nil {
@@ -236,7 +240,9 @@ public final class AgentPaneModel {
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
-                if let cwd = handshake.cwd { handshakeCwd = cwd }
+                // A filled workspace folder stays the workspace's: it is no root of its own once the
+                // workspace drops it.
+                if let cwd = handshake.cwd, !filled { handshakeCwd = cwd }
                 if let session = handshake.sessionId { transport.sessions.add(session) }
                 // The connection stays here; the reply never encodes it.
                 pendingConnection = handshake.connection

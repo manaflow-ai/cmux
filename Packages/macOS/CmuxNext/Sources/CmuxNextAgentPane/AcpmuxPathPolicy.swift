@@ -95,9 +95,12 @@ nonisolated enum AcpmuxPathPolicy {
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let userHome = scope.home.flatMap(canonical)
         let homeOrAbove = { (path: String) in path == "/" || userHome.map { contains(root: path, path: $0) } == true }
+        // The home folder is a root only when the user granted it (`workspace.useFolder`), and
+        // nothing above it ever is: not from the host's roots, not from the New Tab page's open
+        // folders (a terminal at `~` lists `~` there), not from a grant (cx-nn3e).
         var context = Context(roots: scope.roots.compactMap(canonical).filter { !homeOrAbove($0) }
-                                  + scope.granted.compactMap(canonical).filter { $0 != "/" },
-                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" },
+                                  + scope.granted.compactMap(canonical).filter { $0 == userHome || !homeOrAbove($0) },
+                              gestureRoots: scope.gestureRoots.compactMap(canonical).filter { !homeOrAbove($0) },
                               home: userHome)
         // The agent-home folder is a root once it exists (a running chat may still name it).
         if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path {

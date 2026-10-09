@@ -51,6 +51,13 @@ test("a host without the question uses the folder as before", async () => {
   expect(used).toEqual(["/Users/me/project"]);
 });
 
+test("a path the host says is no folder is not used", async () => {
+  const { callNative } = host(() => Object.assign(new Error("invalid"), { code: "transport.path_invalid" }));
+  const used: string[] = [];
+  expect(await pickFolder(callNative, "~/project", (cwd) => used.push(cwd))).toBeUndefined();
+  expect(used).toEqual([]);
+});
+
 // Use Home Folder is the answer and the start in one click: no Retry, no second question.
 test("the answer confirms with the host, then uses the folder at once", async () => {
   const { calls, callNative } = host((params) =>

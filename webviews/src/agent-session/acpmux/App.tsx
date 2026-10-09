@@ -909,7 +909,14 @@ function AcpmuxPane() {
   const [folderError, setFolderError] = useState<string | undefined>();
   /// A folder the user picked that waits for their answer (startFolder.tsx): the question shows
   /// above the composer, and `use` runs with the folder once they answer Use Home Folder.
-  const [folderAsk, setFolderAsk] = useState<{ ask: FolderAsk; use(cwd: string): void; error?: string }>();
+  /// `sessionId` is the chat the pick was for: a chat that started or changed meanwhile drops it.
+  const [folderAsk, setFolderAsk] = useState<{
+    ask: FolderAsk;
+    use(cwd: string): void;
+    cancel?(): void;
+    sessionId?: string;
+    error?: string;
+  }>();
   const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
@@ -1009,6 +1016,8 @@ function AcpmuxPane() {
   const startFolder = freshChat && !snapshot.sessionId ? projectDraft : undefined;
   const startFolderRef = useRef(startFolder);
   startFolderRef.current = startFolder;
+  /// The folder question, while the chat it was asked for is still the one shown.
+  const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
@@ -1412,14 +1421,22 @@ function AcpmuxPane() {
   );
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
-  const requestFolder = useCallback((cwd: string, use: (folder: string) => void) => {
+  /// Only the latest pick's answer counts (two quick picks can answer out of order).
+  const folderPick = useRef(0);
+  const shownSession = useRef(snapshot.sessionId);
+  shownSession.current = snapshot.sessionId;
+  const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
+    const pick = ++folderPick.current;
+    const sessionId = shownSession.current;
     setFolderAsk(undefined);
-    void pickFolder(callNative, cwd, use)
-      .then((ask) => {
-        if (ask) setFolderAsk({ ask, use });
-      })
-      .catch(() => undefined);
+    void pickFolder(callNative, cwd, (folder) => {
+      if (pick === folderPick.current) use(folder);
+    }).then((ask) => {
+      if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId });
+    });
   }, []);
+  const freshRef = useRef(false);
+  freshRef.current = freshChat && !snapshot.sessionId;
   const chooseProject = useCallback(
     (cwd: string, peer?: string) => {
       // Another computer's folder is that computer's to check.
@@ -1427,13 +1444,13 @@ function AcpmuxPane() {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return;
       }
-      const fresh = freshChat && !snapshot.sessionId;
+      // Fresh or started is read when the folder is used (an answer can come later).
       requestFolder(cwd, (folder) => {
-        if (fresh) setProjectDraft(folder);
+        if (freshRef.current) setProjectDraft(folder);
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       });
     },
-    [freshChat, snapshot.sessionId, requestFolder],
+    [requestFolder],
   );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
@@ -2137,7 +2154,8 @@ function AcpmuxPane() {
       })().catch(() => undefined);
     // The page's own folder is inherited (`~` in a fresh workspace): the chat starts in its start
     // folder. Another project the user picked there goes through the host first.
-    if (cwd && cwd !== inherited) requestFolder(cwd, start);
+    // Use Private Folder (or Keep) there gives the typed text back to the composer.
+    if (cwd && cwd !== inherited) requestFolder(cwd, start, text ? () => setDraft(text) : undefined);
     else start(startFolder);
   };
   const loadNewTabProjects = useCallback(
@@ -2276,22 +2294,23 @@ function AcpmuxPane() {
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
-      {folderAsk ? (
+      {pendingFolder ? (
         <StartFolderAsk
-          ask={folderAsk.ask}
+          ask={pendingFolder.ask}
           current={freshChat && !snapshot.sessionId ? projectDraft : (movedTo ?? snapshot.summary?.cwd)}
-          error={folderAsk.error}
+          error={pendingFolder.error}
           onUse={() => {
-            const pending = folderAsk;
-            void confirmFolder(callNative, pending.ask, pending.use).then(
-              () => setFolderAsk((current) => (current === pending ? undefined : current)),
-              (error: unknown) =>
-                setFolderAsk((current) =>
-                  current === pending ? { ...pending, error: errorMessage(error) || String(error) } : current,
-                ),
+            // The question closes on the click, so a second click cannot use the folder twice.
+            const pending = pendingFolder;
+            setFolderAsk(undefined);
+            void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
+              setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
             );
           }}
-          onCancel={() => setFolderAsk(undefined)}
+          onCancel={() => {
+            pendingFolder.cancel?.();
+            setFolderAsk(undefined);
+          }}
         />
       ) : showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
@@ -2417,7 +2436,7 @@ function AcpmuxPane() {
           prompt={prompt}
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
-        blocked={folderAsk ? {} : trustAsk.blocked}
+          blocked={pendingFolder ? {} : trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
         />

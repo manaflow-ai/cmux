@@ -38,6 +38,31 @@ import Testing
         #expect(rig.transport.addedRoots.isEmpty)
     }
 
+    /// The New Tab page lists every open tab's folder as a pick (gesture roots); a fresh workspace's
+    /// terminal at `~` lists `~` and one at `/Users` lists that. A click never makes either a root.
+    @Test func theNewTabPagesFoldersNeverMakeTheHomeFolderARoot() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let home = rig.folder("users/me"), above = rig.folder("users")
+        rig.transport.homeFolder = home
+        rig.transport.gestureRoots = { [home, above] }
+        for folder in [home, above] {
+            rig.transport.gestures.record()
+            let refused = await rig.send("session/new", ["cwd": folder, "mcpServers": [Any]()], expect: .pathOutsideRoots)
+            #expect(await rig.received(refused) == nil, "\(folder)")
+        }
+        #expect(rig.transport.addedRoots.isEmpty)
+    }
+
+    /// A path that is no folder gets the host's refusal, never the "older host" fallback.
+    @Test func aPathThatIsNoFolderIsRefused() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let reply = await model.respond(to: Self.useFolder("~/project"))
+        #expect(reply["ok"] as? Bool == false)
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.pathInvalid.rawValue)
+    }
+
     /// A project folder needs no question. The home folder is asked about first; the answer's
     /// click makes it a root, and the chat then starts there at once, without another click.
     @Test func theHomeFolderIsAskedOnceAndTheAnswerStartsTheChat() async throws {

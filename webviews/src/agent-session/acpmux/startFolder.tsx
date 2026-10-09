@@ -24,18 +24,20 @@ function read(reply: unknown, cwd: string): { status: string; reason?: string; c
   };
 }
 
-const code = (error: unknown) =>
-  typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-
 /// The user picked `cwd` for a chat. A folder the host takes is passed to `use` (as the host
 /// spells it); one that needs the user's answer comes back as the question to show, and nothing
-/// is used. A host that predates the question (`unsupported`) uses the folder as before.
+/// is used, as for a path the host says is no folder. A host that cannot answer (one that predates
+/// the question, the browser dev page) uses the folder as before: the question is the pane's
+/// courtesy, and the relay still refuses the home folder until the user answered it
+/// (AcpmuxPathPolicy).
 export async function pickFolder(callNative: Native, cwd: string, use: (cwd: string) => void): Promise<FolderAsk | undefined> {
   let reply: unknown;
   try {
     reply = await callNative("workspace.useFolder", { cwd });
   } catch (error) {
-    if (code(error) !== "unsupported") throw error;
+    // The host's own refusal of the path (not a folder) uses nothing.
+    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "transport.path_invalid")
+      return undefined;
     use(cwd);
     return undefined;
   }

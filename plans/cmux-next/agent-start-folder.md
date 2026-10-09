@@ -37,7 +37,13 @@ started in the whole home folder.
    Send waits while the question is open.
 4. The relay's typed-folder rule (#18347) never covers `~` or above: a plain click on a start in
    `~` stays refused; only decision 3's answer makes `~` a root.
-5. A started chat's location move (shell/chatMoves.ts) is not gated: it changes only where the
+5. The New Tab page's open folders (gesture roots) and grants never hold `~` or above either,
+   except the home folder itself granted by decision 3's answer.
+6. Known limit: decision 3's answer, like every pane gesture, is a recent real click or key in the
+   pane (about 30 s). A page script that runs while the user types could send the answer without
+   the question showing. Only a native confirmation would close that, which "Remove dialogues."
+   rules out; the relay still never starts `~` without that answer.
+7. A started chat's location move (shell/chatMoves.ts) is not gated: it changes only where the
    pane's own shell commands run and adds a note to the next prompt.
 
 The machine chip's "(2)" is macOS's own computer name (`SCDynamicStoreCopyComputerName`, the
