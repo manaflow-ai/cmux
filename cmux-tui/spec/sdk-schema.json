@@ -5600,6 +5600,46 @@
      "presence": "required",
      "nullable": false
     },
+    "full_projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scoped_projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scope_fallbacks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "crosschecks": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "crosscheck_mismatches": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
     "read_us": {
      "type": {
       "kind": "ref",
@@ -5693,7 +5733,8 @@
    "constraints": [
     "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
     "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
-    "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
+    "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes.",
+    "full_projections plus scoped_projections is projections; a scoped projection restates only the workspaces it changed, and scope_fallbacks counts scoped projections that found a change outside their scope and ran full. crosschecks counts scoped projections compared with the full projection (debug builds, or CMUX_TUI_PROJECTION_CROSSCHECK=1); crosscheck_mismatches counts comparisons that differed."
    ]
   },
   "GuestUrlOpenResult": {

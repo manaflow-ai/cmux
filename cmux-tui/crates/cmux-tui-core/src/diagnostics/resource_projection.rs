@@ -21,6 +21,11 @@ pub struct ResourceProjectionStats {
     /// projected patch counts, not cwd reports or other direct patches.
     projected_pending: AtomicBool,
     projections: AtomicU64,
+    full_projections: AtomicU64,
+    scoped_projections: AtomicU64,
+    scope_fallbacks: AtomicU64,
+    crosschecks: AtomicU64,
+    crosscheck_mismatches: AtomicU64,
     read_us: LogLinearHistogram,
     index_us: LogLinearHistogram,
     diff_us: LogLinearHistogram,
@@ -45,6 +50,8 @@ pub struct ProjectionSpans {
     pub diff: Duration,
     /// Durable changes in the projected patch.
     pub changes: usize,
+    /// The projection restated only the workspaces it changed.
+    pub scoped: bool,
 }
 
 /// The durations of one registry commit of a projected patch.
@@ -68,10 +75,26 @@ impl ResourceProjectionStats {
     pub fn projected(&self, spans: ProjectionSpans) {
         self.projected_pending.store(true, Ordering::Relaxed);
         self.projections.fetch_add(1, Ordering::Relaxed);
+        let kind = if spans.scoped { &self.scoped_projections } else { &self.full_projections };
+        kind.fetch_add(1, Ordering::Relaxed);
         self.read_us.record_duration(spans.read);
         self.index_us.record_duration(spans.index);
         self.diff_us.record_duration(spans.diff);
         self.projected_changes.record(spans.changes as u64);
+    }
+
+    /// A scoped projection found a change outside its scope and ran full.
+    pub fn scope_fell_back(&self) {
+        self.scope_fallbacks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A scoped projection was compared with the full one; `matched` is
+    /// false when the two would commit different changes.
+    pub fn crosschecked(&self, matched: bool) {
+        self.crosschecks.fetch_add(1, Ordering::Relaxed);
+        if !matched {
+            self.crosscheck_mismatches.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record a resource patch commit; it counts only when a projection
@@ -92,6 +115,11 @@ impl ResourceProjectionStats {
     pub fn snapshot(&self) -> ResourceProjectionSnapshot {
         ResourceProjectionSnapshot {
             projections: self.projections.load(Ordering::Relaxed),
+            full_projections: self.full_projections.load(Ordering::Relaxed),
+            scoped_projections: self.scoped_projections.load(Ordering::Relaxed),
+            scope_fallbacks: self.scope_fallbacks.load(Ordering::Relaxed),
+            crosschecks: self.crosschecks.load(Ordering::Relaxed),
+            crosscheck_mismatches: self.crosscheck_mismatches.load(Ordering::Relaxed),
             read_us: self.read_us.snapshot(),
             index_us: self.index_us.snapshot(),
             diff_us: self.diff_us.snapshot(),
@@ -111,6 +139,17 @@ impl ResourceProjectionStats {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ResourceProjectionSnapshot {
     pub projections: u64,
+    /// Projections that read and restated the whole topology.
+    pub full_projections: u64,
+    /// Projections that restated only the workspaces they changed.
+    pub scoped_projections: u64,
+    /// Scoped projections that found a change outside their scope.
+    pub scope_fallbacks: u64,
+    /// Scoped projections compared with the full projection (debug builds,
+    /// or `CMUX_TUI_PROJECTION_CROSSCHECK=1`).
+    pub crosschecks: u64,
+    /// Cross-checks whose scoped and full projections differed.
+    pub crosscheck_mismatches: u64,
     pub read_us: HistogramSnapshot,
     pub index_us: HistogramSnapshot,
     pub diff_us: HistogramSnapshot,
@@ -147,6 +186,7 @@ mod tests {
             index: Duration::from_micros(40),
             diff: Duration::from_millis(1),
             changes: 12,
+            scoped: false,
         });
         stats.committed(CommitSpans {
             total: Duration::from_millis(5),
@@ -158,6 +198,7 @@ mod tests {
         });
         let snapshot = stats.snapshot();
         assert_eq!((snapshot.projections, snapshot.commits), (1, 1));
+        assert_eq!((snapshot.full_projections, snapshot.scoped_projections), (1, 0));
         assert!(snapshot.read_us.max >= 3_000, "{snapshot:?}");
         assert_eq!(snapshot.projected_changes.max, 12);
         assert_eq!(snapshot.written_changes.max, 4);

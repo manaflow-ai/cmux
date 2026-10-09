@@ -1345,12 +1345,17 @@ class ServerStatsResourceProjection:
     commit_prune_us: ServerStatsHistogram
     commit_us: ServerStatsHistogram
     commits: int
+    crosscheck_mismatches: int
+    crosschecks: int
     diff_us: ServerStatsHistogram
+    full_projections: int
     index_us: ServerStatsHistogram
     journaled_changes: ServerStatsHistogram
     projected_changes: ServerStatsHistogram
     projections: int
     read_us: ServerStatsHistogram
+    scope_fallbacks: int
+    scoped_projections: int
     written_changes: ServerStatsHistogram
 
 
