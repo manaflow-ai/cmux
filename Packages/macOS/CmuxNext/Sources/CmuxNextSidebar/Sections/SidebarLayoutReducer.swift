@@ -14,7 +14,7 @@ public nonisolated enum SidebarLayoutReducer {
     /// a no-op returns the document unchanged.
     public static func reduce(_ document: SidebarLayoutDocument, _ op: SidebarLayoutOp) -> Result<SidebarLayoutDocument, SidebarLayoutReject> {
         var sections = document.sections
-        do {
+        do throws(SidebarLayoutReject) {
             switch op {
             case let .sectionAdd(section, index):
                 try add(section, at: index, to: &sections)
@@ -42,10 +42,9 @@ public nonisolated enum SidebarLayoutReducer {
             case .reset:
                 sections = SidebarLayoutDocument.defaults.sections
             }
-        } catch let reject as SidebarLayoutReject {
-            return .failure(reject)
         } catch {
-            preconditionFailure("SidebarLayoutReducer throws only SidebarLayoutReject")
+            // Typed throws: the compiler proves every error here is a SidebarLayoutReject.
+            return .failure(error)
         }
         guard sections != document.sections else { return .success(document) }
         return .success(SidebarLayoutDocument(revision: document.revision + 1, sections: sections))
@@ -53,7 +52,7 @@ public nonisolated enum SidebarLayoutReducer {
 
     // MARK: Sections
 
-    private static func add(_ section: LayoutSection, at index: Int, to sections: inout [LayoutSection]) throws {
+    private static func add(_ section: LayoutSection, at index: Int, to sections: inout [LayoutSection]) throws(SidebarLayoutReject) {
         guard sections.count < maxSections else { throw SidebarLayoutReject.tooMany }
         // L2: ids are unique across sections and items.
         let sectionIDs = Set(sections.map(\.id.rawValue))
@@ -81,7 +80,7 @@ public nonisolated enum SidebarLayoutReducer {
         sections.insert(section, at: insertionIndex(region: section.region, index: index, in: sections))
     }
 
-    private static func update(_ id: LayoutSectionID, _ patch: SectionPatch, in sections: inout [LayoutSection]) throws {
+    private static func update(_ id: LayoutSectionID, _ patch: SectionPatch, in sections: inout [LayoutSection]) throws(SidebarLayoutReject) {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
         if let title = patch.title {
             try validate(title: title.value)
@@ -107,7 +106,7 @@ public nonisolated enum SidebarLayoutReducer {
         }
     }
 
-    private static func moveSection(_ id: LayoutSectionID, to region: SidebarRegion, at index: Int, in sections: inout [LayoutSection]) throws {
+    private static func moveSection(_ id: LayoutSectionID, to region: SidebarRegion, at index: Int, in sections: inout [LayoutSection]) throws(SidebarLayoutReject) {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
         var section = sections.remove(at: s)
         section.region = region
@@ -131,7 +130,7 @@ public nonisolated enum SidebarLayoutReducer {
 
     // MARK: Items
 
-    private static func addItem(_ item: LayoutItem, to id: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
+    private static func addItem(_ item: LayoutItem, to id: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws(SidebarLayoutReject) {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
         try ensureItems(sections[s])
         try validate(span: item.span)
@@ -144,7 +143,7 @@ public nonisolated enum SidebarLayoutReducer {
         sections[s].items.insert(item, at: slot)
     }
 
-    private static func moveItem(_ id: LayoutItemID, to target: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
+    private static func moveItem(_ id: LayoutItemID, to target: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws(SidebarLayoutReject) {
         guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
         guard let t = sections.firstIndex(where: { $0.id == target }) else { throw SidebarLayoutReject.unknownSection }
         try ensureItems(sections[t])
@@ -164,7 +163,7 @@ public nonisolated enum SidebarLayoutReducer {
 
     // MARK: Validation
 
-    private static func ensureItems(_ section: LayoutSection) throws {
+    private static func ensureItems(_ section: LayoutSection) throws(SidebarLayoutReject) {
         switch section.content {
         case .items: return
         case .workspaces: throw SidebarLayoutReject.workspacesRequired
@@ -172,19 +171,19 @@ public nonisolated enum SidebarLayoutReducer {
         }
     }
 
-    private static func validate(title: String?) throws {
+    private static func validate(title: String?) throws(SidebarLayoutReject) {
         guard let title else { return }
         // Unicode scalars, like the store's reducer (Rust `chars().count()`).
         guard !title.isEmpty, title.unicodeScalars.count <= maxTitleLength else { throw SidebarLayoutReject.invalidTitle }
     }
 
     /// L4: an item's grid span is 1...12, like the arrangement's columns.
-    private static func validate(span: Int?) throws {
+    private static func validate(span: Int?) throws(SidebarLayoutReject) {
         guard let span else { return }
         guard SectionArrangement.columnsRange.contains(span) else { throw SidebarLayoutReject.invalidArrangement }
     }
 
-    private static func validate(maxRows: Int?) throws {
+    private static func validate(maxRows: Int?) throws(SidebarLayoutReject) {
         guard let maxRows else { return }
         guard maxRowsRange.contains(maxRows) else { throw SidebarLayoutReject.invalidMaxRows }
     }

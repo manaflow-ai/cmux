@@ -59,9 +59,6 @@
    "CmuxNextApp": 27,
    "CmuxNextSidebar": 5
   },
-  "precondition": {
-   "CmuxNextSidebar": 1
-  },
   "render_font": {
    "CmuxHomeRender": 4,
    "MessagesLabHome": 25,
