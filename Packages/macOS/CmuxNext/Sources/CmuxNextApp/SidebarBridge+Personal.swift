@@ -102,7 +102,8 @@ extension SidebarBridge {
             if let edit { self?.pendingEdits.settle(edit) }
             self?.resync()
         }
-        let applied: (@MainActor () -> Void)? = edit.map { edit in { [weak self] in self?.settle(edit) } }
+        var applied: (@MainActor () -> Void)?
+        if let edit { applied = { [weak self] in self?.settle(edit) } }
         life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
                     applied: applied) { connection in
             for step in plan.steps {
