@@ -193,7 +193,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-mp-row,
+  /* Picker rows highlight on the first frame (POLISH.md: retarget with no fade gap). */
   .acpmux-mp-crumb {
     transition:
       background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),

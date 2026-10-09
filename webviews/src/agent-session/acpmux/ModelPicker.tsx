@@ -572,7 +572,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       }}
                       active={harnesses.indexOf(entry) === activeHarness}
                     >
-                      <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                      <AgentMark agent={entry.mark ?? entry.id} size={14} />
                       <span className="acpmux-mp-harness-name">{entry.name}</span>
                       {note && <span className="acpmux-menu-description">{note}</span>}
                       {entry.ids.includes(harness ?? "") ? <CheckIcon /> : <ChevronIcon />}

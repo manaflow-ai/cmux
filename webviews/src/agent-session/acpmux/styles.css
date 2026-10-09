@@ -76,7 +76,7 @@
 .acpmux-mp-search input::-webkit-search-cancel-button{-webkit-appearance:none}
 .acpmux-mp-harness-list{flex:1;min-height:0;overflow:auto}
 .acpmux-mp-harness-list-inner{display:flex;flex-direction:column}
-.acpmux-mp-harness,.acpmux-mp-row,.acpmux-mp-more{display:flex;align-items:center;gap:7px;width:100%;min-height:24px;box-sizing:border-box;padding:2px 6px;border:0;border-radius:var(--ui-row-radius,5px);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
+.acpmux-mp-harness,.acpmux-mp-row,.acpmux-mp-more{display:flex;align-items:center;gap:7px;width:100%;min-height:26px;box-sizing:border-box;padding:2px 6px;border:0;border-radius:var(--ui-row-radius,5px);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-mp-harness:hover,.acpmux-mp-row:hover,.acpmux-mp-more:hover,.acpmux-mp-harness[aria-selected=true],.acpmux-mp-row.acpmux-mp-active{background:var(--acpmux-menu-hover)}
 .acpmux-mp-harness:focus-visible,.acpmux-mp-row:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-mp-row .acpmux-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
