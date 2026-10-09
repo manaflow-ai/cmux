@@ -224,10 +224,11 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// when the field is not being edited.
     func refresh(_ group: SidebarGroup) {
         for swatch in swatches { swatch.isChosen = swatch.color == group.color }
-        if nameField.currentEditor() == nil {
-            name = group.name
+        // A name the person typed is kept; an untouched field follows the group.
+        if nameField.stringValue == name {
             nameField.stringValue = group.name
         }
+        name = group.name
     }
 
     private func applyColors() {
