@@ -1,3 +1,4 @@
+-- contract: widens mesh_signed_requests_purpose_check to a superset (adds 'address'); old writes stay valid
 -- cmux VM mesh: a device's published public IPv6 address (bead cx-wb5.45,
 -- transport.md sections 7 and 13.6). Inside the cmux_vm schema only and
 -- additive: two nullable columns on cmux_vm.mesh_devices and a wider purpose
