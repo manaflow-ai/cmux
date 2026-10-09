@@ -58,6 +58,14 @@ enum SidebarStyle {
     /// How far a group member's content moves in: past the header's caret
     /// and its band (option B, Lawrence 2026-10-07).
     static var groupMemberIndent: CGFloat { Metrics.smallIconSize + Metrics.space1 }
+    /// Where a group chip starts: a little before the titles' inset, so the
+    /// name inside it lines up with the workspace titles (cx-rcby).
+    static var groupChipLeading: CGFloat { horizontalInset - Metrics.space2 }
+    /// A compact pill inside the header row.
+    static func groupChipHeight(rowHeight: CGFloat) -> CGFloat { max(Metrics.space6, rowHeight - 2 * Metrics.space2) }
+    /// The members' bar: thin, under the chip's rounded start.
+    static var groupBarWidth: CGFloat { max(Metrics.dividerThickness * 2, 2) }
+    static var groupBarX: CGFloat { groupChipLeading + Metrics.space3 }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.

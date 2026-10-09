@@ -53,14 +53,17 @@ import Testing
 
     // MARK: Group caret
 
-    @Test func theGroupCaretSitsLeftOfTheNameAndShowsAtRest() throws {
+    /// cx-rcby: the chevron ends the group chip, after the name, like the
+    /// Chrome tab group chip, and shows without hover.
+    @Test func theGroupChevronEndsTheChipAndShowsAtRest() throws {
         let h = MinimalChromeTests.Harness(sections: fixture())
         let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
         header.isHovered = false
         header.layoutSubtreeIfNeeded()
-        #expect(header.disclosureFrame.midX < header.titleFrame.minX, "caret \(header.disclosureFrame) name \(header.titleFrame)")
-        let caret = header.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden && $0.frame.maxX <= header.titleFrame.minX }
-        #expect(caret != nil, "the caret shows on an expanded group without hover")
+        #expect(header.disclosureFrame.midX > header.titleFrame.maxX, "chevron \(header.disclosureFrame) name \(header.titleFrame)")
+        #expect(header.labelFrame.contains(NSPoint(x: header.disclosureFrame.midX, y: header.disclosureFrame.midY)), "inside the chip")
+        let chevron = header.subviews.compactMap { $0 as? NSImageView }.first { !$0.isHidden && $0.frame.minX >= header.titleFrame.maxX }
+        #expect(chevron != nil, "the chevron shows on an expanded group without hover")
     }
 
     // MARK: Retired items

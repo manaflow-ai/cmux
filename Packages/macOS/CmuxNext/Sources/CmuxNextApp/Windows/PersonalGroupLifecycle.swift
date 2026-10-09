@@ -103,15 +103,17 @@ struct PersonalGroupLife {
     /// The delete goes only to the groups `recheck` still names once the
     /// command landed, read from the latest personal state: a member
     /// another window or client placed meanwhile keeps its group.
-    /// `failed` runs when a command fails (the caller re-syncs).
+    /// `failed` runs when a command fails (the caller re-syncs); `settled`
+    /// runs last either way.
     func commit(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                failed: @escaping @MainActor () -> Void,
+                failed: @escaping @MainActor () -> Void, settled: @escaping @MainActor () -> Void = {},
                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
+            defer { settled() }
             guard await home.request(label, body) != nil else {
                 end()
                 return failed()
@@ -144,4 +146,7 @@ struct PersonalGroupLife {
 final class PersonalGroupEditorState {
     var pending: WorkspaceGroupID?
     var explicit: Set<WorkspaceGroupID> = []
+    /// Organization changes in flight; the sidebar keeps its optimistic
+    /// rows while any is (`SidebarGroupFlow.holdRows`).
+    var rowHolds = 0
 }

@@ -90,7 +90,8 @@ extension SidebarBridge {
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
         let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync) { connection in
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync,
+                    settled: groupFlow.holdRows()) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
