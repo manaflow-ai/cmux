@@ -465,7 +465,6 @@ extension DockSplitStore {
                 sessionId: restorableAgent.sessionId,
                 claim: resumeLaunchClaim
             )
-            resumeLaunchClaim = nil
         }
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
