@@ -157,10 +157,9 @@ import Testing
         #expect(sheets.asked == ["effort = high"])
     }
 
-    /// An option that is not free shows its id and value.
+    /// A named option shows the setting name and a readable value instead of wire identifiers.
     @Test func aNonModeOptionShowsTheOptionText() {
         let option = AgentPaneView.confirmationSpec(.option(id: "fast", value: "true"))
-        #expect(option.lines == [String(format: AgentPaneView.confirmOptionMessage, "fast", "true")])
-        #expect(option.lines.first?.contains("fast") == true && option.lines.first?.contains("true") == true)
+        #expect(option.lines == ["Change Fast mode to On? Paired devices could then run actions without asking."])
     }
 }
