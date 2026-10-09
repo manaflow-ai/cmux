@@ -53,6 +53,7 @@ pub mod rules;
 mod transfer;
 mod turns;
 mod warm;
+mod xai;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
