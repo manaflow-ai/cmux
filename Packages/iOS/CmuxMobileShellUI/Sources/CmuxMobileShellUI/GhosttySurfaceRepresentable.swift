@@ -15,7 +15,7 @@ import UIKit
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     @Environment(MobileTerminalKeyboardCorrectionPreference.self)
-    fileprivate var keyboardCorrectionPreference
+    var keyboardCorrectionPreference
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
