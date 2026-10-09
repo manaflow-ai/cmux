@@ -106,17 +106,20 @@ pub(super) fn quarantine_if_unreadable(
 ) -> anyhow::Result<Connection> {
     let probe =
         connection.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0));
-    let Err(rusqlite::Error::SqliteFailure(failure, message)) = probe else {
+    // rusqlite reports a failed prepare as `SqliteFailure` or `SqlInputError`;
+    // read the SQLite code from either.
+    let Err(error) = probe else {
         return Ok(connection);
     };
-    let newer_schema =
-        message.as_deref().is_some_and(|text| text.contains("malformed database schema"));
-    if newer_schema || !matches!(failure.code, ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)
-    {
+    let reason = error.to_string();
+    let unreadable = matches!(
+        error.sqlite_error_code(),
+        Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)
+    );
+    if !unreadable || reason.contains("malformed database schema") {
         return Ok(connection);
     }
     drop(connection);
-    let reason = message.unwrap_or_else(|| failure.to_string());
     Err(quarantine(db_path, &reason)?.into())
 }
 
