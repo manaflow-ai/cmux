@@ -466,6 +466,9 @@ mod unix {
     use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtyOpenError, PtySize};
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
 
+    mod session_cleanup;
+    use session_cleanup::SessionCleanup;
+
     use super::*;
 
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -3397,6 +3400,7 @@ mod unix {
         child_signal_lock: Mutex<()>,
         child_reaped: AtomicBool,
         group_escalation_complete: AtomicBool,
+        session_cleanup: Mutex<Option<SessionCleanup>>,
         /// Session of an adopted, non-child process (`adopted_child.rs`).
         adopted_session: Option<libc::pid_t>,
         #[cfg(test)]
@@ -4231,6 +4235,11 @@ mod unix {
             self.publish_child_wait_predicate(&self.pty_drained);
         }
 
+        fn terminal_session_id(&self) -> Option<libc::pid_t> {
+            self.adopted_session
+                .or_else(|| self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()))
+        }
+
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
             let mut groups = Vec::with_capacity(2);
             // The wait thread observes exit with WNOWAIT, then takes this lock
@@ -4240,6 +4249,27 @@ mod unix {
             let _signal = self.child_signal_lock.lock().unwrap();
             let child_reserved =
                 !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
+            // Capture every live process group in the PTY session before the
+            // leader receives HUP. Background jobs can create their own group,
+            // and adopted leaders may be gone by the later KILL escalation.
+            // Revalidate the captured groups on each signal so an emptied
+            // group or an unrelated reused group is never addressed.
+            // SAFETY: getpgrp has no preconditions.
+            let host_group = unsafe { libc::getpgrp() };
+            let session_cleanup = {
+                let mut cleanup = self.session_cleanup.lock().unwrap();
+                if signal == libc::SIGHUP {
+                    *cleanup = self
+                        .terminal_session_id()
+                        .and_then(|session| SessionCleanup::capture(session, host_group));
+                    cleanup.clone()
+                } else {
+                    cleanup.clone()
+                }
+            };
+            if let Some(cleanup) = session_cleanup {
+                cleanup.signal(signal, host_group);
+            }
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
             {
@@ -4258,8 +4288,6 @@ mod unix {
             // A portable-pty child starts as a new session/process-group
             // leader. Signal both that durable group and any foreground job
             // group, but never risk addressing the terminal-host's own group.
-            // SAFETY: getpgrp has no preconditions.
-            let host_group = unsafe { libc::getpgrp() };
             for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
                 // SAFETY: validated positive process-group ids owned by this
                 // PTY session; signal is a platform constant from this module.
@@ -6295,6 +6323,7 @@ mod unix {
                 child_signal_lock: Mutex::new(()),
                 child_reaped: AtomicBool::new(true),
                 group_escalation_complete: AtomicBool::new(false),
+                session_cleanup: Mutex::new(None),
                 adopted_session: None,
                 fail_next_resize_publication: AtomicBool::new(false),
             });
