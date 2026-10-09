@@ -5,7 +5,7 @@ import Testing
 
 /// POLISH (Leo 2026-10-08): a popover sizes to its content. A short
 /// workspace card is no wider than its name and facts need; a long name
-/// wraps at the card's widest.
+/// wraps within the card's widest.
 @MainActor @Suite struct WorkspaceHoverCardWidthTests {
     private func width(_ title: String) -> CGFloat {
         let view = WorkspaceHoverCardView()
@@ -21,8 +21,10 @@ import Testing
         #expect(short >= WorkspaceHoverCardView.minCardWidth)
     }
 
+    /// Word wrap ends a line short of the widest, so the card is at most that wide.
     @Test func aLongNameWrapsAtTheWidest() {
         let long = width(String(repeating: "Play Starsector campaign ", count: 4))
-        #expect(long == WorkspaceHoverCardView.cardWidth)
+        #expect(long <= WorkspaceHoverCardView.cardWidth)
+        #expect(long > width("api"))
     }
 }
