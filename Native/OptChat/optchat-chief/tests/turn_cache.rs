@@ -499,3 +499,54 @@ fn the_last_turns_mark_survives_a_restart() {
         "marks {ma} then {mb} across the restart"
     );
 }
+
+/// Claude Code's own cache marks per request, measured on 2.1.287 through
+/// a capture proxy on both the subscription login and the subrouter
+/// (2026-10-08): its two system blocks, then the last message on a
+/// session's first request, and the last TWO messages on every later
+/// request (a tool step, a follow-up prompt, a steered message). None with
+/// DISABLE_PROMPT_CACHING=1 in the session's settings env.
+fn claude_code_marks(settings: &Value, later: bool) -> usize {
+    if settings["env"]["DISABLE_PROMPT_CACHING"] == "1" {
+        0
+    } else if later {
+        4
+    } else {
+        3
+    }
+}
+
+/// The API takes at most 4 marks per request. A turn that carries our view
+/// mark runs Claude Code without its own (its mark stays in the history of
+/// every later request of the session); a turn too short to carry ours
+/// keeps Claude Code's.
+#[test]
+fn every_turn_request_shape_stays_within_four_cache_marks() {
+    for (lines, marked) in [(0, false), (1_200, true)] {
+        let mut h = claude_harness(None);
+        fill(&h.chat, 0, lines);
+        h.connect();
+        h.say("user_local", "one");
+        h.settle();
+        let ours = {
+            let inner = h.agents.inner.lock().unwrap();
+            markers(&inner.prompts[0]).len()
+        };
+        assert_eq!(ours, usize::from(marked), "view of {lines} lines");
+        let settings = session_settings(&h, "settings.json");
+        for later in [false, true] {
+            let total = ours + claude_code_marks(&settings, later);
+            assert!(
+                total <= 4,
+                "view of {lines} lines, {} request: {total} marks",
+                if later { "a later" } else { "the first" }
+            );
+        }
+        if !marked {
+            assert!(
+                settings["env"].get("DISABLE_PROMPT_CACHING").is_none(),
+                "an unmarked turn keeps Claude Code's own cache: {settings}"
+            );
+        }
+    }
+}
