@@ -56,19 +56,13 @@ describe("backend catalog contract diff", () => {
 
 describe("cmux-vm openapi contract diff (pinned oasdiff)", () => {
   const doc = JSON.parse(readFileSync(REAL("workers/cmux-vm/openapi.json"), "utf8"))
-  if (process.platform === "linux" && process.arch === "x64") {
-    it("refuses a removed endpoint and passes an unchanged document", () => {
-      const head = structuredClone(doc)
-      const first = Object.keys(head.paths)[0]!
-      delete head.paths[first]
-      expect(openapiProblems(JSON.stringify(doc), JSON.stringify(head)).join()).toContain("openapi:")
-      expect(openapiProblems(JSON.stringify(doc), JSON.stringify(doc))).toEqual([])
-    })
-  } else {
-    it("refuses to judge on a host without the pinned binary", () => {
-      expect(openapiProblems("{}", "{}").join()).toContain("pinned for linux-x64 only")
-    })
-  }
+  it("refuses a removed endpoint and passes an unchanged document", () => {
+    const head = structuredClone(doc)
+    const first = Object.keys(head.paths)[0]!
+    delete head.paths[first]
+    expect(openapiProblems(JSON.stringify(doc), JSON.stringify(head)).join()).toContain("openapi:")
+    expect(openapiProblems(JSON.stringify(doc), JSON.stringify(doc))).toEqual([])
+  })
 })
 
 describe("inventory at the release tag", () => {

@@ -169,6 +169,15 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
       deps.error(`${snapshotId} is named ${name}; the ${env} Worker boots only ${CHANNEL_PREFIX[channel]}* Cloud snapshots (bake it for ${channel} and record names.${channel})`)
       return 1
     }
+    if (channel === "production") {
+      // cmux-old shares the Freestyle production account: production needs the compat receipts (compat.ts).
+      const { compatProblems } = await import("./compat.ts")
+      const compat = compatProblems(receiptsDir(deps.env), `image:${v}:${entry.snapshot_id}`, "production", deps.now().getTime())
+      if (compat.length) {
+        for (const c of compat) deps.error(c)
+        return 1
+      }
+    }
     if (current?.snapshot === name) {
       deps.log(`${env} ${v} is already ${name}; nothing to do`)
       return 0

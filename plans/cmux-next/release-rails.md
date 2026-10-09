@@ -120,7 +120,25 @@ vm.cmux.dev / vm-staging.cmux.dev (cmux-vm Worker) or cloud-api.cmux.dev (cmux-n
 and no cmux-old path reads the cmux-next `CLOUD_FREESTYLE_SNAPSHOT` / `TEAM_VM_SNAPSHOT`
 names (git grep at v0.65.0 over CLI/, Sources/, Packages/, cmux-tui/crates), so an image
 promotion here does not affect cmux-old. Shared state: PlanetScale cmux-prod (hence the
-schema confinement rule) and the Freestyle production account. Production apply, promote
-and deploy also need a passing cmux-old compatibility receipt (contract diff + a v0.65.0
-client smoke against staging) for the same change within 24 h: see the compat gate section
-once it lands.
+schema confinement rule) and the Freestyle production account. Its CLI makes no REST call
+itself: every Cloud call goes through the running app (CmuxCloud), which honours
+`CMUX_VM_API_BASE_URL`/`CMUX_API_BASE_URL` and the env auto-login
+(`CMUX_UITEST_STACK_EMAIL`/`_PASSWORD`, not DEBUG-gated in v0.65.0).
+
+`compat.ts` (production apply and production promote refuse without both receipts):
+
+```bash
+R=scripts/cmux-next/release
+bun $R/compat.ts static --change migrations:cmux-vm --target production   # or image:<VAR>:<sh-id>, deploy:<tree>
+# then the v0.65.0 client smoke against staging (compat-smoke.sh) records:
+bun $R/compat.ts smoke-record --change migrations:cmux-vm --target production --result pass --detail "<run>"
+bun $R/compat.ts check --change migrations:cmux-vm --target production
+```
+
+Static: the inventory (`git grep` at the latest release tag for the hosts and names the
+change reaches; a hit is reported as cmux-old-affecting), the migration lint, and the API
+contract (cmux-vm `openapi.json` through the pinned oasdiff 1.32.1; backend
+`catalog/cloud-operations.json`: removed operations, params, types, fields, enum values or
+error codes, newly required params) against `--base` (origin/main for production). Change
+keys: `migrations:<tree>:<hash of every file>`, `image:<VAR>:<history snapshot id>`,
+`deploy:<tree>:<commit>`. Receipts count for 24 h.

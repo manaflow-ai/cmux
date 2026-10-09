@@ -365,6 +365,10 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
             if (!rehearsal)
               throw new Refused(`no passing rehearsal of set ${setHash.slice(0, 12)} (pending ${plan.pending.map((f) => f.name).join(", ")}) against ${target} in the last 24 h; run: bun scripts/cmux-next/release/db-release.ts rehearse --tree ${tree.name} --target ${target}`)
             if (target === "production") {
+              // cmux-old shares cmux-prod: production needs the compat receipts of this exact tree (compat.ts).
+              const { changeKey, compatProblems } = await import("./compat.ts")
+              const compat = compatProblems(dir, changeKey(deps.root, { kind: "migrations", tree }), "production", deps.now().getTime())
+              if (compat.length) throw new Refused(compat.join("; "))
               const staging = await open(deps, tree, "staging", value("--staging-url-env"), "read")
               try {
                 const stagingPlan = await planOf(staging.sql, tree, files)
