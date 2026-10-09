@@ -2124,7 +2124,10 @@ fn the_probe_retries_through_a_stoppable_delay() {
     let delay = Recording(Mutex::new(Vec::new()), true);
     let result = probe_until_ready(&probe, &delay, &|_| {});
     assert_eq!(result, Some(Ok("user: ping".to_owned())));
-    assert_eq!(*delay.0.lock().unwrap(), [Duration::from_secs(1), Duration::from_secs(2)]);
+    assert_eq!(
+        *delay.0.lock().unwrap(),
+        [Duration::from_secs(1), Duration::from_secs(2)]
+    );
     tries.store(0, Ordering::SeqCst);
     let stopped = Recording(Mutex::new(Vec::new()), false);
     assert_eq!(probe_until_ready(&probe, &stopped, &|_| {}), None);
