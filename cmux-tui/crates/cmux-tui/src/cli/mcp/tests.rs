@@ -18,6 +18,8 @@ const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 struct Fake {
     actions: Value,
     fail_resources: bool,
+    fail_apps: bool,
+    daemon_snapshot: Option<Value>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -60,7 +62,7 @@ impl Backend for Fake {
                 idempotency_key: key,
             });
         }
-        Ok(json!([]))
+        Ok(self.daemon_snapshot.clone().unwrap_or_else(|| json!([])))
     }
 
     fn app(
@@ -76,6 +78,13 @@ impl Backend for Fake {
             "params": params,
             "key": idempotency_key,
         }));
+        if self.fail_apps {
+            return Err(CallFailure {
+                kind: FailureKind::NotRun,
+                error: json!({"code": "transport.unavailable", "message": "app is down"}),
+                idempotency_key: None,
+            });
+        }
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
@@ -324,6 +333,57 @@ fn mutations_carry_an_idempotency_key_that_a_retry_replays() {
 }
 
 #[test]
+fn agents_snapshot_reports_total_owner_outage() {
+    let mut server =
+        Server::new(Fake { fail_resources: true, fail_apps: true, ..Fake::with_actions() }, None);
+    let result = call(&mut server, "agents_snapshot", json!({}));
+    assert_eq!(result["isError"], true);
+    assert_eq!(result["structuredContent"]["error"]["code"], "agents.unavailable");
+    assert_eq!(result["structuredContent"]["state"], "not_run");
+}
+
+#[test]
+fn agents_snapshot_pages_large_topologies_without_losing_objects() {
+    let tabs = (0..250)
+        .map(|i| json!({"id": format!("tab_{i:032x}"), "title": "x".repeat(2048)}))
+        .collect::<Vec<_>>();
+    let mut server =
+        Server::new(Fake { daemon_snapshot: Some(json!({"tabs": tabs})), ..Fake::default() }, None);
+    let mut offset = 0;
+    let mut seen = BTreeSet::new();
+    for _ in 0..300 {
+        let result = call(&mut server, "agents_snapshot", json!({"offset": offset, "limit": 1000}));
+        assert_eq!(result["isError"], false, "{result}");
+        let page = &result["structuredContent"];
+        assert!(serde_json::to_vec(page).unwrap().len() <= MAX_RESULT_BYTES);
+        for item in page["items"].as_array().expect("paged objects") {
+            if item["kind"] == "tab" {
+                assert!(seen.insert(item["value"]["id"].as_str().unwrap().to_owned()));
+            }
+        }
+        let Some(next) = page["next_offset"].as_u64() else { break };
+        assert!(next > offset);
+        offset = next;
+    }
+    assert_eq!(seen.len(), 250);
+}
+
+#[test]
+fn agents_snapshot_rejects_invalid_pagination_before_reading_owners() {
+    for args in [
+        json!({"offset": -1}),
+        json!({"limit": 0}),
+        json!({"limit": 1001}),
+        json!({"offset": "one"}),
+    ] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(&mut server, "agents_snapshot", args);
+        assert_eq!(result["isError"], true);
+        assert!(server.backend.sent.borrow().is_empty());
+    }
+}
+
+#[test]
 fn the_server_refuses_unless_cmux_json_enables_it() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("cmux.json");
@@ -404,7 +464,13 @@ fn json_rpc_lifecycle_and_errors() {
     let listed = server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"}));
     let tools = listed.unwrap()["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
-    for expected in ["workspace_list", "terminal_input_write", "window_list", "app_new_window"] {
+    for expected in [
+        "workspace_list",
+        "terminal_input_write",
+        "window_list",
+        "agents_snapshot",
+        "app_new_window",
+    ] {
         assert!(names.contains(expected), "missing {expected}");
     }
     for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
