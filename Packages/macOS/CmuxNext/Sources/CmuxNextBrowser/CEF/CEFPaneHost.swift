@@ -91,6 +91,32 @@ final class CEFPaneHost {
     /// popup still in its opener's window is not one.
     var anchorBrowser: Int32? { tabs.lazy.filter { !$0.awaitsWindowMove }.compactMap(\.browserID).first }
 
+    /// Whether a host visibility pass is queued for this run-loop turn.
+    private var hostVisibilityPending = false
+
+    /// The host view's visibility is derived: hidden unless the shown tab is
+    /// not concealed. A conceal queues one pass for the end of this run-loop
+    /// turn (before the frame commits), so a same-pane switch, which conceals
+    /// the old tab and presents the new one in the same turn, never takes the
+    /// page window off screen (cx-asb1: Chromium then saw a window hide/show
+    /// instead of a tab switch, about 100 ms late under load).
+    func setNeedsHostVisibility() {
+        guard !hostVisibilityPending else { return }
+        hostVisibilityPending = true
+        let main = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
+            // main-proof: a CFRunLoopGetMain() block runs on the main thread
+            MainActor.assumeIsolated { self?.applyHostVisibility() }
+        }
+        CFRunLoopWakeUp(main)
+    }
+
+    private func applyHostVisibility() {
+        hostVisibilityPending = false
+        let hidden = visibleTab.map(\.isContentHidden) ?? true
+        if hostView.isHidden != hidden { hostView.isHidden = hidden }
+    }
+
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
