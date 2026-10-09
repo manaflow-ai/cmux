@@ -132,14 +132,27 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    // The reference's Claude Code path: no user settings (user MCP servers,
+    // hooks, plugins), no skills or slash commands; the session directory's
+    // own settings and .mcp.json stay, and the user's login still signs in.
+    let args = if family == Family::Claude && isolate {
+        TURN_ISOLATION_ARGS.iter().map(|a| (*a).to_owned()).collect()
+    } else {
+        Vec::new()
+    };
     (isolate || family != Family::Other).then(|| Preset {
         name: turn_preset_name(home, family),
         harness: harness.to_owned(),
         env,
-        args: Vec::new(),
+        args,
         system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
     })
 }
+
+/// The Claude Code args of an isolated turn: no user or local setting
+/// source, no skills or slash commands (acpmux's preset allowlist).
+pub const TURN_ISOLATION_ARGS: [&str; 3] =
+    ["--setting-sources", "project", "--disable-slash-commands"];
 
 /// A subagent preset `name`: the user's own environment (subagents do real
 /// work in the user's repositories), the pinned cmux env, its cache key,

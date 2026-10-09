@@ -5,8 +5,11 @@
 //! globs and `$(…)` stay literal and an empty string is a real empty
 //! argument). They are an allowlist: on a Claude stdio command line only
 //! `--tools ""` (no tools), `--strict-mcp-config` (no MCP servers, as no
-//! `--mcp-config` may be given) and `--no-session-persistence`; on any other
-//! harness none. Every other word is refused, `=` forms and short aliases
+//! `--mcp-config` may be given), `--no-session-persistence`,
+//! `--setting-sources project` (no user or local settings: no user MCP
+//! servers, hooks or plugins; the project's own settings, its denied tools
+//! included, stay) and `--disable-slash-commands` (no skills or slash
+//! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
 //!
@@ -65,7 +68,13 @@ impl Preset {
 }
 
 /// The Claude Code flags a preset may pass.
-const CLAUDE_ALLOWED: [&str; 3] = ["--tools", "--strict-mcp-config", "--no-session-persistence"];
+const CLAUDE_ALLOWED: [&str; 5] = [
+    "--tools",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--setting-sources",
+    "--disable-slash-commands",
+];
 
 /// The system prompt file's name in a preset's directory.
 pub const SYSTEM_PROMPT_FILE: &str = "system.md";
@@ -105,10 +114,19 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
                     );
                 }
             },
-            "--strict-mcp-config" | "--no-session-persistence" => {}
+            "--setting-sources" => match words.next().map(String::as_str) {
+                Some("project") => {}
+                _ => {
+                    return Err(
+                        "args: --setting-sources takes only \"project\" (no user or local settings)"
+                            .to_owned(),
+                    );
+                }
+            },
+            "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
-                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value); set systemPrompt for a system prompt file",
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
                     CLAUDE_ALLOWED.join(", ")
                 ));
             }

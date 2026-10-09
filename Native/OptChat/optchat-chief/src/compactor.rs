@@ -1102,13 +1102,17 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
 
 /// The compactor presets' harness arguments on a Claude harness: acpmux's
 /// allowlist of preset args, every one of which takes a capability away: no
-/// tools, no MCP servers, no transcript. The system prompt is the preset's
+/// tools, no MCP servers, no transcript, no user or local settings, no
+/// skills or slash commands. The system prompt is the preset's
 /// `systemPrompt` text (acpmux writes and checks the file), never a path.
-pub const COMPACTOR_ARGS: [&str; 4] = [
+pub const COMPACTOR_ARGS: [&str; 7] = [
     "--tools",
     "",
     "--strict-mcp-config",
     "--no-session-persistence",
+    "--setting-sources",
+    "project",
+    "--disable-slash-commands",
 ];
 
 /// The slot presets' system prompt at install, before any node sets its
@@ -1444,6 +1448,7 @@ pub fn compactor_effort(family: Family) -> Option<String> {
 pub fn is_model_unavailable(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("issue with the selected model")
+        || lower.contains("unrecognized_model")
         || lower.contains("may not exist or you may not have access")
         || (lower.contains("not_found_error") && lower.contains("model"))
 }
