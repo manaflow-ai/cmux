@@ -17,7 +17,7 @@ import Testing
 
     /// The view a mouse-down at `point` (window coordinates) reaches.
     static func hit(_ window: NSWindow, _ point: NSPoint) -> NSView? {
-        let content = window.contentView!
+        let content = window.contentView
         return content.hitTest(content.superview.map { content.convert(point, to: $0) } ?? point)
     }
 
@@ -46,7 +46,7 @@ import Testing
         window.isReleasedWhenClosed = false
         let (_, sidebar, transcript) = await HomeTransparencyTests.home(light: false, in: window)
         defer { window.close() }
-        let top = window.contentView!.bounds.height
+        let top = window.contentView.bounds.height
 
         // People list: the strip above the search field, left of the compose button.
         #expect(try Self.drags(window, at: NSPoint(x: 60, y: top - 20)), "a drag on the list's top strip moves the window")

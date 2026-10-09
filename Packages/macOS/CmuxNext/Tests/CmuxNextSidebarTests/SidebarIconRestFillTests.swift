@@ -33,7 +33,7 @@ import Testing
         // A region sizes only its rows; give it room so the rows are visible.
         if root.frame.height < 1 { root.frame = NSRect(x: 0, y: 0, width: 240, height: 400) }
         let window = SidebarHoverOwnerTests.window()
-        window.contentView!.addSubview(root)
+        window.contentView.addSubview(root)
         do {
             try SidebarHoverOwnerTests.rest(on: view, at: SidebarHoverOwnerTests.center(view))
         } catch {

@@ -13,7 +13,7 @@ import Testing
 
     @Test func configCommandActionsAreRegisteredAndReplaced() throws {
         let services = Coverage.boundServices()
-        let controller = services.configActions!
+        let controller = services.configActions
         let command = ConfigCommandAction(name: "start-claude", title: "Start Claude", command: "claude")
         controller.apply([command])
         #expect(services.registry.isBound("cmuxConfig.start-claude"))
@@ -41,7 +41,7 @@ import Testing
         let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url)
         settings.start()
         defer { settings.stop() }
-        let controller = services.configActions!
+        let controller = services.configActions
         controller.start(settings: settings)
         defer { controller.stop() }
         try await eventually(settings) { services.registry.isBound("cmuxConfig.go") }

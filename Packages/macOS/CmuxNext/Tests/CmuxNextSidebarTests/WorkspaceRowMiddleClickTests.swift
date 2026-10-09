@@ -16,8 +16,8 @@ import Testing
             sidebar = SidebarView(model: model)
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.borderless], backing: .buffered, defer: deferred)
             window.isReleasedWhenClosed = false
-            sidebar.frame = window.contentView!.bounds
-            window.contentView!.addSubview(sidebar)
+            sidebar.frame = window.contentView.bounds
+            window.contentView.addSubview(sidebar)
             sidebar.layoutSubtreeIfNeeded()
             sidebar.list.reload(animated: false)
             model.onIntent = { [unowned self] intent in self.intents.append(intent) }

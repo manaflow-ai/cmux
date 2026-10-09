@@ -68,7 +68,7 @@ import Testing
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let content = window.contentView!
+        let content = window.contentView
         // A pane narrower than the window: the sidebar takes the left.
         let pane = PaneContentView(stripModel: TabStripModel())
         pane.frame = NSRect(x: 220, y: 0, width: 880, height: 720)

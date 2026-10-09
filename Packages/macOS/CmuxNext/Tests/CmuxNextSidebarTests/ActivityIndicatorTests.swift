@@ -30,8 +30,8 @@ import Testing
         let sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 400), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        sidebar.frame = window.contentView!.bounds
-        window.contentView!.addSubview(sidebar)
+        sidebar.frame = window.contentView.bounds
+        window.contentView.addSubview(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         let list = sidebar.list
@@ -74,7 +74,7 @@ import Testing
         let window = ScaledWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let indicator = StatusIndicatorView(frame: NSRect(x: 0, y: 0, width: 14, height: 14))
-        window.contentView!.addSubview(indicator)
+        window.contentView.addSubview(indicator)
         indicator.configure(.busy)
         indicator.layoutSubtreeIfNeeded()
         #expect(indicator.indicator.contentsScale == 2)

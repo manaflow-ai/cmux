@@ -76,7 +76,7 @@ struct SidebarHoverOwnerTests {
         let region = SidebarRegionView(region: .top)
         region.update(Self.content([.home, .settings]), width: 240)
         region.frame = NSRect(x: 0, y: 0, width: 240, height: 300)
-        window.contentView!.addSubview(region)
+        window.contentView.addSubview(region)
         let home = try #require(region.itemView(LayoutItemID("itm_home")))
         let point = region.convert(Self.center(home), from: home)
         try Self.rest(on: home, at: Self.center(home))
@@ -97,7 +97,7 @@ struct SidebarHoverOwnerTests {
         let window = Self.window()
         defer { PointerHover.clearDebugPointer(in: window); window.close() }
         let handle = SidebarResizeHandle(frame: NSRect(x: 100, y: 0, width: 8, height: 400))
-        window.contentView!.addSubview(handle)
+        window.contentView.addSubview(handle)
         try Self.rest(on: handle, at: Self.center(handle))
         #expect(handle.isHovered)
 
@@ -118,7 +118,7 @@ struct SidebarHoverOwnerTests {
         let window = Self.window()
         defer { PointerHover.clearDebugPointer(in: window); window.close() }
         let stack = SidebarCardStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 400))
-        window.contentView!.addSubview(stack)
+        window.contentView.addSubview(stack)
         stack.revealed = true
         stack.show([Self.card("a"), Self.card("b")])
         stack.layoutSubtreeIfNeeded()

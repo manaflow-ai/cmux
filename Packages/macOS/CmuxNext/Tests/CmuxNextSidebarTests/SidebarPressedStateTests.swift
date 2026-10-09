@@ -28,7 +28,7 @@ import Testing
     /// pointer (`PointerHover`, cx-3wu5).
     private func host(_ view: NSView) -> NSWindow {
         let window = SidebarHoverOwnerTests.window()
-        window.contentView!.addSubview(view)
+        window.contentView.addSubview(view)
         return window
     }
 

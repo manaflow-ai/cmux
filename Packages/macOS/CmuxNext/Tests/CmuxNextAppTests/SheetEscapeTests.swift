@@ -18,7 +18,7 @@ struct SheetEscapeTests {
     /// Headless: only an unmodified Escape asks to end a sheet, and the key
     /// is consumed only when a sheet ended.
     @Test func onlyUnmodifiedEscapeEndsASheet() {
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         var asked: [NSWindow] = []
         var hasSheet = true
@@ -36,7 +36,7 @@ struct SheetEscapeTests {
     @Test(.enabled(if: WindowSession.available, WindowSession.reason))
     func escapeCancelsASheetOnTheWindowItReaches() async throws {
         NSApplication.shared.setActivationPolicy(.accessory)
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

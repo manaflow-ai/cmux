@@ -13,8 +13,8 @@ import Testing
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let pane = PaneContentView(stripModel: TabStripModel())
-        pane.frame = window.contentView!.bounds
-        window.contentView!.addSubview(pane)
+        pane.frame = window.contentView.bounds
+        window.contentView.addSubview(pane)
         pane.layoutSubtreeIfNeeded()
         return (pane, window)
     }

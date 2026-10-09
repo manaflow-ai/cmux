@@ -19,7 +19,7 @@ struct StripScrollbarHoverTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { PointerHover.clearDebugPointer(in: window); window.close() }
-        window.contentView!.addSubview(bar)
+        window.contentView.addSubview(bar)
         bar.update(Self.input(band: CGRect(x: 0, y: 0, width: 400, height: StripScrollbarView.bandHeight)), scrolled: true)
         #expect(bar.isShown)
 

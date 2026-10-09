@@ -25,7 +25,7 @@ struct MarkdownPageKeyTests {
     }
 
     @Test func commandSInAMarkdownPageSavesThroughThePageCommand() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let save = try K.key("s", keyCode: 1, [.command])
         let decision = router.decide(save, focus: Self.markdownPage, keyWindow: .content,
                                      facts: KeyRouter.Facts(pageID: PageDescriptor.markdown.id))
@@ -48,7 +48,7 @@ extension MarkdownPageKeyTests {
     /// a focused markdown page, through its page commands; elsewhere those
     /// keys keep their owners.
     @Test func linkBackAndForwardInAMarkdownPage() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let markdown = KeyRouter.Facts(pageID: PageDescriptor.markdown.id)
         let cases: [(NSEvent, ActionID, String)] = [
             (try K.key("k", keyCode: 40, [.command, .shift]), "markdownLink", "link"),

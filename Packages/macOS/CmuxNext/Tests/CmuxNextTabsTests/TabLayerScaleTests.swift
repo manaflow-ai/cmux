@@ -28,7 +28,7 @@ import CmuxNextDesign
             strip = TabStripView(model: model)
             window.isReleasedWhenClosed = false
             strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)
-            window.contentView!.addSubview(strip)
+            window.contentView.addSubview(strip)
             strip.layoutSubtreeIfNeeded()
             strip.sync(fromModel: true)
         }

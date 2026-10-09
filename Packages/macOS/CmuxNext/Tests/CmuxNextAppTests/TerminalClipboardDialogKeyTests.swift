@@ -26,7 +26,7 @@ import Testing
         let right = NSView(frame: NSRect(x: 400, y: 0, width: 400, height: 600))
         let leftTerminal = Focusable(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
         let rightTerminal = Focusable(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         var answers: [Bool] = []
         private var close: (() -> Void)?
 

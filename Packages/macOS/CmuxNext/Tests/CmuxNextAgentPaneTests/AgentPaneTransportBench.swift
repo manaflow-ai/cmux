@@ -128,9 +128,9 @@ struct AgentPaneTransportBench {
         let before = server.peers.count
         switch mode {
         case .direct:
-            let webView = WKWebView(frame: window.contentView!.bounds)
+            let webView = WKWebView(frame: window.contentView.bounds)
             print("PANE-STAGE awake \(Self.keepAwake(webView))")
-            window.contentView!.addSubview(webView)
+            window.contentView.addSubview(webView)
             let loaded = Loaded()
             webView.navigationDelegate = loaded
             await withCheckedContinuation { continuation in
@@ -147,9 +147,9 @@ struct AgentPaneTransportBench {
             try Self.nativePage.write(to: page, atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
             let pane = try #require(AgentPaneView(model: model, source: .bundled(page)))
-            pane.frame = window.contentView!.bounds
+            pane.frame = window.contentView.bounds
             print("PANE-STAGE awake \(Self.keepAwake(pane.webView))")
-            window.contentView!.addSubview(pane)
+            window.contentView.addSubview(pane)
             if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer() }
             // The page loads on its own; wait for it, then start.
             let deadline = ContinuousClock.now + .seconds(20)

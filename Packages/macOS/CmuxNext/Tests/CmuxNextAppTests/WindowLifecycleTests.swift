@@ -36,7 +36,7 @@ struct WindowLifecycleTests {
     }
 
     private static func expectConsistent(_ services: AppServices, _ step: String = "") {
-        let windows = services.windows!
+        let windows = services.windows
         #expect(WindowInvariants.problems(windows).isEmpty, "\(step): \(WindowInvariants.problems(windows))")
         for controller in windows.controllers {
             #expect(!windows.registry.members(of: controller.state.id).isEmpty, "\(step): \(controller.state.id) shows no workspace")
@@ -131,7 +131,7 @@ struct WindowLifecycleTests {
         // A saved window lists a workspace no machine reports (gone, or its
         // Cloud machine still connecting): it is kept, but never shown empty.
         let services = Self.services(workspaces: 1)
-        let windows = services.windows!
+        let windows = services.windows
         windows.transition { registry in
             registry.openWindow(id: "saved", workspaceIDs: ["00000000-dead-4000-8000-000000000000"])
         }
@@ -173,7 +173,7 @@ struct WindowLifecycleTests {
         for seed in UInt64(1)...8 {
             var rng = WindowRegistryRaceTests.Seeded(state: seed)
             let services = Self.services(workspaces: 4)
-            let windows = services.windows!
+            let windows = services.windows
             windows.openWindow(workspaces: [Self.id(1), Self.id(2)])
             windows.openWindow(workspaces: [Self.id(3), Self.id(4)])
             windows.reconcileMembership()

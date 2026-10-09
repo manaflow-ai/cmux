@@ -104,8 +104,8 @@ import Testing
             sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
-            sidebar.frame = window.contentView!.bounds
-            window.contentView!.addSubview(sidebar)
+            sidebar.frame = window.contentView.bounds
+            window.contentView.addSubview(sidebar)
             sidebar.layoutSubtreeIfNeeded()
             sidebar.list.reload(animated: false)
         }

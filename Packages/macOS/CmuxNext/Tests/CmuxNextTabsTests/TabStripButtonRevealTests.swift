@@ -23,7 +23,7 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             strip.frame = NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
-            window.contentView!.addSubview(strip)
+            window.contentView.addSubview(strip)
             model.intentHandler = { [unowned self] in self.intents.append($0) }
             strip.sync(fromModel: true)
             strip.layoutSubtreeIfNeeded()
