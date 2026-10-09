@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextOnboarding
 import Foundation
 import Observation
+import os
 
 /// The chats step: resumed chats open as agent tabs in their project's
 /// workspace, which the projects step may have opened a moment before.
@@ -22,11 +23,12 @@ extension AppOnboardingServices {
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             let folder = URL(fileURLWithPath: path, isDirectory: true)
             let spawn = folderSpawn(folder)
-            Task {
+            let logger = services.daemon.logger
+            Task { [weak self] in
                 do {
                     _ = try await windows.createWorkspace(spawn, into: target)
                 } catch {
-                    folderFailed(folder, error)
+                    self?.folderFailed(folder, error, logger: logger)
                 }
             }
         }
@@ -34,11 +36,13 @@ extension AppOnboardingServices {
 
     /// A folder's workspace could not be made: it is no longer opening, and
     /// its waiting chats are dropped, so a later resume asks again.
-    func folderFailed(_ folder: URL, _ error: any Error) {
+    /// `logger` is read before the workspace request, so a failure that lands
+    /// after the onboarding service is gone does not reach through it.
+    func folderFailed(_ folder: URL, _ error: any Error, logger: Logger) {
         let path = folder.standardizedFileURL.path
         openingFolders.remove(path)
         let dropped = waitingChats.removeValue(forKey: path)?.count ?? 0
-        services.daemon.logger.error(
+        logger.error(
             "onboarding workspace for a folder failed (\(dropped) chats dropped): \(String(describing: error), privacy: .public)")
     }
 

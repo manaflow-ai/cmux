@@ -14,6 +14,29 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+const composerControls = {
+  configOptions: [
+    {
+      id: "thought_level",
+      name: "Speed",
+      category: "thought_level",
+      currentValue: "medium-fast",
+      options: [
+        { value: "slow", name: "Slow" },
+        { value: "medium-fast", name: "Medium Fast" },
+        { value: "fast", name: "Fast" },
+      ],
+    },
+  ],
+  modes: {
+    currentModeId: "bypassPermissions",
+    availableModes: [
+      { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
+      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    ],
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -60,9 +83,30 @@ export default agentPaneEntry({
     "agent-home": {
       note: "A new chat with no project (cmux's agent home): the hero asks what to build, the folder reads Choose folder.",
       ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
+      // A new chat's session starts at once (the prewarmed process), so the snapshot and its
+      // summary name the same session, as the app's do; the folder control is then the new chat's
+      // folder menu (Choose folder…), not the path field.
+      snapshot: noChat([], {
+        sessionId: "prewarmed",
+        summary: {
+          sessionId: "prewarmed",
+          cwd: AGENT_HOME,
+          harness: "claude",
+          model: "claude-opus-5-5",
+          effort: "high",
+        },
+      }),
+    },
+    "agent-home-path": {
+      note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
+      ready: { cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Folder"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-search"));
+      },
     },
     "agent-home-folders": {
       note: "Play: open the folder menu; it lists real projects, never the agent home's UUID folders.",
@@ -107,7 +151,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     "long-draft-dark": {
       note: "The capped long draft in the dark theme proof matrix.",
@@ -117,7 +161,7 @@ export default agentPaneEntry({
           (_, index) => `Line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
         ).join("\n"),
       },
-      snapshot: chat(finished),
+      snapshot: chat(finished, { summary: { ...chat(finished).summary!, ...composerControls } }),
     },
     working: {
       note: "A turn running: Send becomes Stop.",

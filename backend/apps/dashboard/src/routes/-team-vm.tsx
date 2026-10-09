@@ -1,9 +1,9 @@
 import { useReducer } from "react"
 import { useLocale } from "../lib/approval-strings"
 import { useLoad } from "../lib/hooks"
-import { mutate, read } from "../lib/server"
+import { exportTeamFiles, mutate, read } from "../lib/server"
 import { newKey, setSignedIn } from "../lib/session"
-import { initialCardState, reduceCard, teamVmRequest, type TeamRole, type TeamVmView } from "../lib/team-vm"
+import { exportRequest, initialCardState, reduceCard, teamVmRequest, type TeamRole, type TeamVmView } from "../lib/team-vm"
 import { TeamVmCard } from "../lib/team-vm-card"
 import { teamVmText } from "../lib/team-vm-strings"
 
@@ -33,6 +33,31 @@ export function TeamVmSection({ role, team }: { readonly role: TeamRole | null; 
     status.reload()
   }
 
+  /** Export, then open the single-use URL: the API answers the tar as an attachment, so the page stays. */
+  const download = async (vm: string) => {
+    const view = status.data
+    if (!view || !exportRequest(view, vm)) return
+    dispatch({ t: "download", vm })
+    try {
+      const r = await exportTeamFiles({ data: { vm, idempotency_key: newKey() } })
+      if (r.status === 401) setSignedIn(false)
+      if (!r.url) {
+        dispatch({ t: "download_done", vm, error: { code: r.body.error?.code ?? `http.${r.status}`, message: r.body.error?.message ?? "" }, skipped: 0 })
+        return
+      }
+      const link = document.createElement("a")
+      link.href = r.url
+      link.rel = "noopener"
+      document.body.append(link)
+      link.click()
+      link.remove()
+      const value = r.body.value as { skipped_count?: unknown } | undefined
+      dispatch({ t: "download_done", vm, error: null, skipped: typeof value?.skipped_count === "number" ? value.skipped_count : 0 })
+    } catch (e) {
+      dispatch({ t: "download_done", vm, error: { code: "unknown", message: e instanceof Error ? e.message : String(e) }, skipped: 0 })
+    }
+  }
+
   return (
     <>
       {status.error ? <p className="error">{teamVmText(locale, "card.error.load", { error: status.error })}</p> : null}
@@ -46,6 +71,7 @@ export function TeamVmSection({ role, team }: { readonly role: TeamRole | null; 
           onCancel={() => dispatch({ t: "cancel" })}
           onFilesCopied={(value) => dispatch({ t: "files_copied", value })}
           onConfirm={() => void confirm()}
+          onDownload={(vm) => void download(vm)}
         />
       ) : status.loading ? (
         <p className="muted">{teamVmText(locale, "card.loading")}</p>

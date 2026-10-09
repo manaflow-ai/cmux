@@ -102,12 +102,13 @@ final class AppOnboardingServices: OnboardingServices {
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         // Every folder counts as opening now, so chats picked meanwhile wait for it.
         let spawns = folders.map { ($0, folderSpawn($0)) }
-        Task {
+        let logger = services.daemon.logger
+        Task { [weak self] in
             for (folder, spawn) in spawns {
                 do {
                     _ = try await windows.createWorkspace(spawn, into: target)
                 } catch {
-                    folderFailed(folder, error)
+                    self?.folderFailed(folder, error, logger: logger)
                 }
             }
         }

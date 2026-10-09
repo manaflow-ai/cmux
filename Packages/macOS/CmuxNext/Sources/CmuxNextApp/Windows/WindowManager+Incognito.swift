@@ -37,7 +37,7 @@ extension WindowManager {
         // session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        Task {
+        Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
                 return endIncognitoSessionIfUnused()

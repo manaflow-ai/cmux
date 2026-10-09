@@ -588,7 +588,7 @@ describe("acpmux composer pickers", () => {
 
   test("the mode chip shows the current mode, with descriptions in its menu and the warning color for full access", async () => {
     await render(snapshot({ modes }));
-    expect(button("Mode")!.textContent).not.toContain("Ask for approval");
+    expect(button("Mode")!.textContent).toContain("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
     expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
@@ -888,6 +888,8 @@ describe("acpmux composer queue", () => {
       const box = doc.querySelector(".acpmux-composer-box")!;
       expect(box.lastElementChild!.classList.contains("acpmux-composer-context")).toBe(true);
       expect(box.previousElementSibling!.classList.contains("acpmux-composer-queue")).toBe(true);
+      const tray = doc.querySelector(".acpmux-composer-context")!;
+      expect(tray.parentElement?.classList.contains("acpmux-composer-box")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }

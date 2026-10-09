@@ -80,6 +80,7 @@ function synthetic(element: Element, kind: string): void {
     clientY: y,
     button: 0,
     pointerId: 1,
+    pointerType: "mouse",
     isPrimary: true,
   };
   const fire = (type: string) =>
