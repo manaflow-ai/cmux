@@ -356,7 +356,7 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        pageSettings.apply(to: view)
+        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
         view.deviceChats = pageChats.chats
         customization.start()
         return view

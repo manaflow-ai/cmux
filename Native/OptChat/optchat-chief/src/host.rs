@@ -272,7 +272,7 @@ pub fn session_env(
     // Every `cmux` call reaches this app's daemon (see cmux_env).
     let socket = crate::cmux_env::app_daemon_socket(daemon_socket, inherited);
     let bundled = crate::cmux_env::bundled_bin(exe);
-    crate::cmux_env::pin(&mut session_env, &socket, bundled.as_deref());
+    crate::cmux_env::pin(&mut session_env, &socket, daemon_socket, bundled.as_deref());
     session_env
 }
 

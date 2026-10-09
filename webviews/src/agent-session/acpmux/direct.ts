@@ -1718,6 +1718,12 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
+  /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
+  async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
+    await this.adoptChat(adopt);
+    return this.adopted;
+  }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux

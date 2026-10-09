@@ -67,6 +67,9 @@ extension BrowserHostProvider {
                 frame = .result(id: id, result: nil, error: error.json)
             }
             guard let self, let link, self.connection === link else { return }
+            // A tab the call opened or closed reaches the host before the
+            // reply, so the session's next tabs.list sees it.
+            if method == "tabs.open" || method == "tabs.close" { self.observeTabs() }
             self.send(frame)
         }
     }
