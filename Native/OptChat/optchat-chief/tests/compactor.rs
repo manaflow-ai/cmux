@@ -1473,9 +1473,7 @@ fn the_compactor_notice_is_posted_once_across_restarts_and_retracted_when_it_wor
     let posted = owner
         .messages
         .iter()
-        .find(|m| {
-            matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text)
-        })
+        .find(|m| matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text))
         .map(|m| m.id.clone())
         .unwrap();
     assert!(
@@ -1609,7 +1607,11 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     for k in 1..=11 {
         assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
     }
-    assert_eq!(markers(&inner.prompts[12]).len(), 1, "the 12th node tries the mark again");
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "the 12th node tries the mark again"
+    );
 }
 
 /// Claude Code without the model in its own table answers a failed call
@@ -1653,7 +1655,11 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
     let spec = CompactorSpec {
-        user_env: [("ANTHROPIC_BASE_URL".to_owned(), "http://router:31415".to_owned())].into(),
+        user_env: [(
+            "ANTHROPIC_BASE_URL".to_owned(),
+            "http://router:31415".to_owned(),
+        )]
+        .into(),
         ..spec(dir.path())
     };
     let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));

@@ -119,10 +119,7 @@ pub fn turn_preset(
     if family == Family::Claude && isolate {
         // The preset's system prompt carries the instructions: no CLAUDE.md
         // file reaches a turn (the user's own ~/.claude/CLAUDE.md included).
-        env.insert(
-            "CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(),
-            "1".to_owned(),
-        );
+        env.insert("CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(), "1".to_owned());
     }
     if family == Family::Claude {
         // claude-sr (when chosen): every turn of this Chief on one sticky
@@ -136,7 +133,10 @@ pub fn turn_preset(
     // hooks, plugins), no skills or slash commands; the session directory's
     // own settings and .mcp.json stay, and the user's login still signs in.
     let args = if family == Family::Claude && isolate {
-        TURN_ISOLATION_ARGS.iter().map(|a| (*a).to_owned()).collect()
+        TURN_ISOLATION_ARGS
+            .iter()
+            .map(|a| (*a).to_owned())
+            .collect()
     } else {
         Vec::new()
     };

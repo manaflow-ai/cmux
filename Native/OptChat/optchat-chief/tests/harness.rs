@@ -652,7 +652,11 @@ fn an_isolated_claude_turn_keeps_the_users_login() {
         assert_eq!(preset.system_prompt.as_deref(), Some("SYS"));
     }
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
-    assert!(!codex.env.contains_key("CLAUDE_CONFIG_DIR"), "{:?}", codex.env);
+    assert!(
+        !codex.env.contains_key("CLAUDE_CONFIG_DIR"),
+        "{:?}",
+        codex.env
+    );
 }
 
 /// The reference's Claude Code path: Chief turns and compactor nodes load
@@ -673,9 +677,16 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
         assert_eq!(turn.args, isolated, "{harness}");
     }
-    for preset in optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude) {
+    for preset in
+        optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude)
+    {
         for word in isolated {
-            assert!(preset.args.iter().any(|a| a == word), "{}: {:?}", preset.name, preset.args);
+            assert!(
+                preset.args.iter().any(|a| a == word),
+                "{}: {:?}",
+                preset.name,
+                preset.args
+            );
         }
     }
     let sub = subagent_preset(
@@ -709,7 +720,10 @@ fn the_session_settings_carry_the_users_settings_env() {
     )
     .unwrap();
     let user_env = user_settings_env(&claude_home);
-    assert_eq!(user_env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("http://router:31415"));
+    assert_eq!(
+        user_env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+        Some("http://router:31415")
+    );
     assert!(!user_env.contains_key("N"), "string values only");
     assert!(user_settings_env(&dir.path().join("none")).is_empty());
     let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
