@@ -429,6 +429,7 @@ impl Native {
             // The Messages API, no acpmux harness.
             harness: None,
             refused: false,
+            done_draft: None,
         }
     }
 
