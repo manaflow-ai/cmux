@@ -329,6 +329,58 @@ class Comments(unittest.TestCase):
 
 
 class Robustness(unittest.TestCase):
+    def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        calls = []
+        first_page = [{"id": index, "name": "other"} for index in range(100)]
+
+        def get(path):
+            calls.append(path)
+            if path.endswith("page=1"):
+                return {"jobs": first_page}
+            self.assertTrue(path.endswith("page=2"))
+            return {"jobs": [{"id": 42, "name": ga.FAST_WORKFLOW}]}
+
+        gh.get = get  # type: ignore[method-assign]
+        self.assertEqual(gh.jobs(9, run_attempt=3)[-1]["id"], 42)
+        self.assertEqual(calls, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=1",
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=2",
+        ])
+
+    def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "failure",
+            "pull_requests": [{"number": 7}],
+        }
+        selected = ga.authoritative_guard_run(gh, run)
+        self.assertEqual(selected["conclusion"], "success")
+        self.assertEqual(ga.analyze_pr(None, selected, ROOT, "")["state"], "green")
+
+    def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "cancelled",
+        }
+        for conclusion in ("cancelled", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                gh.guard_job = lambda run, conclusion=conclusion: {  # type: ignore[method-assign]
+                    "id": 42, "name": ga.FAST_WORKFLOW, "conclusion": conclusion,
+                }
+                self.assertIsNone(ga.authoritative_guard_run(gh, run))
+
     def test_fast_guard_log_selection_excludes_unrelated_failed_jobs(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         gh.get = lambda path: {  # type: ignore[method-assign]
