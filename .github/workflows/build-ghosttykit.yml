@@ -129,6 +129,17 @@ jobs:
             -Dtest-filter="ideograph fallback sizing fills two primary cells" \
             --summary all
 
+      - name: Test Ghostty CJK fallback discovery
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="coretext CJK fallback keeps the direct codepoint result" \
+            --summary all
+
       - name: Test Ghostty shaping regressions
         run: |
           set -euo pipefail
