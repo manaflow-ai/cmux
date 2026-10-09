@@ -142,7 +142,7 @@ import Testing
     }
 }
 
-private extension AppPermissionDecision {
+private nonisolated extension AppPermissionDecision {
     /// Allowed or asking: a call that may run.
     var mayRun: Bool { permissiveness > 0 }
 }
