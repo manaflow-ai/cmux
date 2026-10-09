@@ -293,7 +293,7 @@ function thread(app, key) {
     }
     for (const decoy of app.querySelectorAll(".outside [role], .outside [aria-label]")) decoy.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); record("decoy", decoy.getAttribute("aria-label") || decoy.getAttribute("role")); });
     for (const decoy of app.querySelectorAll("#trailing [role]")) decoy.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); record("decoy", decoy.getAttribute("aria-label") || decoy.getAttribute("role")); });
-    const expand = app.querySelector('[aria-label="Expand all"]');
+    const expand = app.querySelector('div[role="main"] [aria-label="Expand all"]');
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
     const reply = (all) => {
       const to = all ? REPLY.replyAll : REPLY.reply;
@@ -306,8 +306,8 @@ function thread(app, key) {
       const held = (field) => [...app.querySelectorAll('#replybox [data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
       app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send(REPLY.rows ? { threadId: t.id, to: held("to"), cc: held("cc"), bcc: held("bcc"), body: replyBox.innerText } : { threadId: t.id, to: (to.to || []).join(",") || null, cc: (to.cc || []).join(",") || null, bcc: (to.bcc || []).join(",") || null, body: replyBox.innerText }));
     };
-    app.querySelector('[data-tooltip="Reply"]').addEventListener("click", () => reply(false));
-    app.querySelector('[data-tooltip="Reply all"]').addEventListener("click", () => reply(true));
+    app.querySelector('div[role="main"] [data-tooltip="Reply"]').addEventListener("click", () => reply(false));
+    app.querySelector('div[role="main"] [data-tooltip="Reply all"]').addEventListener("click", () => reply(true));
   };
   draw();
 }
