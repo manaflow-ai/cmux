@@ -72,7 +72,10 @@ extension TerminalController {
                 params: request.params.mapValues(\.foundationObject),
                 precomputedProcessEvidence: precomputedEvidence
             )
-            return Self.v2Encoder.response(id: request.id, result)
+            return Self.v2Encoder.response(
+                id: request.id,
+                Self.controlCallResult(fromLegacy: result)
+            )
         }
         Task { @MainActor [weak self] in
             self?.scheduleSocketReadSnapshotRefresh()
@@ -83,7 +86,7 @@ extension TerminalController {
     private nonisolated static func strictPositivePID(_ value: Any) -> pid_t? {
         guard let number = value as? NSNumber,
               CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue == number.int64Value,
+              number.doubleValue == Double(number.int64Value),
               number.int64Value > 0,
               let pid = pid_t(exactly: number.int64Value) else {
             return nil
