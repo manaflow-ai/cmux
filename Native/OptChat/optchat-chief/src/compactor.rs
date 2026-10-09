@@ -239,6 +239,10 @@ pub struct AcpmuxCompactor {
     /// Claude Code refused the node's cache marker (it placed a fourth
     /// breakpoint of its own): later nodes go without it.
     marker_refused: AtomicBool,
+    /// The model sessions start with: `spec.model`, until the account
+    /// turns it down and `model_fallback` (Some) takes over.
+    model: Mutex<Option<String>>,
+    model_fallback: Option<Option<String>>,
     log: Option<Log>,
     trace: crate::trace::Trace,
 }
@@ -249,6 +253,7 @@ impl AcpmuxCompactor {
         spec: CompactorSpec,
         slots: Arc<Slots>,
     ) -> AcpmuxCompactor {
+        let model = Mutex::new(spec.model.clone());
         AcpmuxCompactor {
             port,
             spec,
@@ -260,6 +265,8 @@ impl AcpmuxCompactor {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
             marker_refused: AtomicBool::new(false),
+            model,
+            model_fallback: None,
             log: None,
             trace: crate::trace::Trace::off(),
         }
@@ -273,8 +280,46 @@ impl AcpmuxCompactor {
 
     /// The model to build with when the account cannot use `spec.model`
     /// (None: the harness's default model).
-    pub fn with_model_fallback(self, _model: Option<String>) -> AcpmuxCompactor {
+    pub fn with_model_fallback(mut self, model: Option<String>) -> AcpmuxCompactor {
+        self.model_fallback = Some(model);
         self
+    }
+
+    /// The model sessions start with now.
+    fn model(&self) -> Option<String> {
+        self.model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// `error` says the account cannot use the current model: switch to the
+    /// fallback for good and say so once. False: no switch (none set, or
+    /// done already, or another error).
+    fn switch_model(&self, error: &ModelError) -> bool {
+        let Some(fallback) = &self.model_fallback else {
+            return false;
+        };
+        if !is_model_unavailable(&error.message) {
+            return false;
+        }
+        let mut model = self
+            .model
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *model == *fallback {
+            return false;
+        }
+        let old = model.clone().unwrap_or_else(|| "(default)".to_owned());
+        *model = fallback.clone();
+        drop(model);
+        self.say(&format!(
+            "compactor model {old} is not available on {} ({}); building with {} from now on",
+            self.spec.harness,
+            error.message,
+            fallback.as_deref().unwrap_or("the harness's default model")
+        ));
+        true
     }
 
     /// Logs one line per node: its seconds, prompts and token use.
@@ -390,7 +435,7 @@ impl AcpmuxCompactor {
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
-            model: self.spec.model.clone(),
+            model: self.model(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
@@ -676,7 +721,14 @@ impl CompactModel for AcpmuxCompactor {
         followups: &[Followup],
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
-        let result = self.call_inner(request, followups, started);
+        let result = match self.call_inner(request, followups, started) {
+            // The account cannot use the model: the node again, fresh, on the fallback.
+            Err(e) if followups.is_empty() && self.switch_model(&e) => {
+                self.end(request);
+                self.call_inner(request, followups, started)
+            }
+            other => other,
+        };
         if let Some(l) = self
             .live
             .lock()
@@ -718,7 +770,7 @@ impl AcpmuxCompactor {
             json!({
                 "node": node.name(),
                 "harness": self.spec.harness,
-                "model": self.spec.model,
+                "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
                 "prompts": live.prompts,
                 "usage": live.usage.as_ref().map(crate::trace::usage),
@@ -750,7 +802,7 @@ impl AcpmuxCompactor {
             "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
             node.name(),
             self.spec.harness,
-            self.spec.model.as_deref().unwrap_or("default model"),
+            self.model().as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
@@ -1080,20 +1132,35 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
-/// The compactor's effort (section 4.2: the reference runs Claude Sonnet at
-/// medium effort; at low effort it overshot the size limit much more).
-/// acpmux maps `effort` onto Claude Code's `--effort` and codex's
-/// `reasoning_effort`, both of which take `medium`.
-pub const COMPACTOR_EFFORT: &str = "medium";
+/// The effort of a Claude compactor session: high, with Claude Haiku 5.5
+/// (`optchat_host::DEFAULT_EFFORT`, as the reference client runs it; at low
+/// effort the compactor overshot the size limit much more). acpmux maps
+/// `effort` onto Claude Code's `--effort`.
+pub const COMPACTOR_EFFORT: &str = optchat_host::DEFAULT_EFFORT;
 
-/// The default effort of `family`'s compactor sessions: `COMPACTOR_EFFORT`
-/// on a Claude or codex harness; another harness keeps its own default (its
-/// effort names are not known here).
+/// The effort of a codex compactor session (codex's `reasoning_effort`):
+/// medium, as section 4.2 runs its compactor; codex is not Haiku.
+pub const CODEX_COMPACTOR_EFFORT: &str = "medium";
+
+/// The default effort of `family`'s compactor sessions; another harness
+/// keeps its own default (its effort names are not known here).
 pub fn compactor_effort(family: Family) -> Option<String> {
     match family {
-        Family::Claude | Family::Codex => Some(COMPACTOR_EFFORT.to_owned()),
+        Family::Claude => Some(COMPACTOR_EFFORT.to_owned()),
+        Family::Codex => Some(CODEX_COMPACTOR_EFFORT.to_owned()),
         Family::Other => None,
     }
+}
+
+/// Whether a failed compactor turn says the account cannot use the model:
+/// Claude Code's "There's an issue with the selected model (...). It may
+/// not exist or you may not have access to it", or the API's
+/// `not_found_error` for the model. A usage limit or an overload is not.
+pub fn is_model_unavailable(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("issue with the selected model")
+        || lower.contains("may not exist or you may not have access")
+        || (lower.contains("not_found_error") && lower.contains("model"))
 }
 
 /// How the compactor's sessions start for `home`.
