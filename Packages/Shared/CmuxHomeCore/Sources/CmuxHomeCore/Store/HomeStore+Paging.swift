@@ -1,7 +1,8 @@
 import Foundation
 
 // HomeStore's transcript paging: open, close, older pages, and the one
-// transcript read per conversation.
+// transcript read per conversation. HomeTranscriptPager owns the view counts,
+// epochs and running reads; the store runs the reads against the mirror.
 extension HomeStore {
     // MARK: Paging
 
@@ -17,9 +18,8 @@ extension HomeStore {
     /// page is in (at once when it already was).
     @discardableResult
     public func beginOpen(_ id: ConversationID) -> Task<Void, Never> {
-        if viewers[id] == nil { openEpochs[id, default: 0] += 1 }
-        viewers[id, default: 0] += 1
-        if let running = loads[id] {
+        pager.open(id)
+        if let running = pager.runningLoad(id) {
             // A read that started before a close reads again for this open.
             mirror.beginLoading(id)
             return running
@@ -35,12 +35,7 @@ extension HomeStore {
     /// the source, which may end what it keeps for it (a cloud
     /// subscription, an archived conversation shown only while open).
     public func close(_ id: ConversationID) {
-        guard let count = viewers[id] else { return }
-        guard count <= 1 else {
-            viewers[id] = count - 1
-            return
-        }
-        viewers[id] = nil
+        guard pager.close(id) else { return }
         mirror.endTranscript(id)
         bumpTranscript(id)
         source.close(id)
@@ -48,9 +43,8 @@ extension HomeStore {
 
     public func loadOlder(_ id: ConversationID) async {
         guard let window = mirror.windows[id], !window.reachedStart, let first = window.firstSeq,
-              !olderLoading.contains(id) else { return }
-        olderLoading.insert(id)
-        defer { olderLoading.remove(id) }
+              pager.beginOlder(id) else { return }
+        defer { pager.endOlder(id) }
         guard let older = try? await source.history(of: id, before: first, limit: Self.pageSize) else { return }
         // The window may have been replaced during the await; a page that no
         // longer joins it is dropped (the next scroll asks again).
@@ -61,12 +55,12 @@ extension HomeStore {
     /// The conversation's transcript read, or the one already running.
     @discardableResult
     func load(_ id: ConversationID) -> Task<Void, Never> {
-        if let running = loads[id] { return running }
+        if let running = pager.runningLoad(id) { return running }
         let task = Task {
             await self.readTranscript(id)
-            self.loads[id] = nil
+            self.pager.setLoad(nil, for: id)
         }
-        loads[id] = task
+        pager.setLoad(task, for: id)
         return task
     }
 
@@ -86,16 +80,16 @@ extension HomeStore {
         let stream = HomeStream.conversation(id)
         var gaps = 0
         while gaps < 3, !stopped {
-            guard viewers[id] != nil else {
+            guard pager.isShown(id) else {
                 mirror.endTranscript(id)
                 settle()
                 rebuildRows()
                 return
             }
-            let epoch = openEpochs[id]
+            let epoch = pager.epoch(id)
             let page = try? await source.snapshot(of: id, tail: Self.tailSize)
             guard !stopped else { return }
-            guard viewers[id] != nil else {
+            guard pager.isShown(id) else {
                 // Closed while the read ran. The source reads off the main
                 // actor, so the close may have reached it before the read
                 // set anything up (a cloud subscription), which the read
@@ -103,7 +97,7 @@ extension HomeStore {
                 source.close(id)
                 return
             }
-            guard openEpochs[id] == epoch else { continue }
+            guard pager.epoch(id) == epoch else { continue }
             guard let page else {
                 mirror.markStale(stream)
                 return

@@ -36,16 +36,10 @@ public final class HomeStore {
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
     @ObservationIgnored var refetching: Set<HomeStream> = []
-    @ObservationIgnored var olderLoading: Set<ConversationID> = []
-    /// Views showing each conversation's transcript now (`open` minus `close`).
-    @ObservationIgnored var viewers: [ConversationID: Int] = [:]
-    /// Bumps each time a conversation goes from shown nowhere to shown. A
-    /// page read under an older epoch was read before a close: the close
-    /// ended what the source kept for it (a cloud subscription), so the
-    /// page is dropped and, when the conversation is shown again, read again.
-    @ObservationIgnored var openEpochs: [ConversationID: UInt64] = [:]
-    /// The transcript read running per conversation (one at a time).
-    @ObservationIgnored var loads: [ConversationID: Task<Void, Never>] = [:]
+    /// Which transcripts are on screen and the reads that fill them.
+    @ObservationIgnored var pager = HomeTranscriptPager()
+    /// Views showing each conversation's transcript now (tests).
+    var viewers: [ConversationID: Int] { pager.viewers }
     @ObservationIgnored var stopped = false
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
