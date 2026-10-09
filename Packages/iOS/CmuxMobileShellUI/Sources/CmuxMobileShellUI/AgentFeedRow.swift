@@ -368,6 +368,10 @@ struct AgentFeedRow: View, Equatable {
             sender: sender,
             vertical: 7
         )
+        let compactContent = content.overlay(
+            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
+                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
+        )
 
         return Group {
             if message.contains("\n") {
@@ -383,11 +387,7 @@ struct AgentFeedRow: View, Equatable {
                 )
             } else {
                 ViewThatFits(in: .horizontal) {
-                    bubbleSide(content, sender: sender, fullWidth: false)
-                        .overlay(
-                            AgentFeedBubbleShape(tailEdge: sender.tailEdge)
-                                .stroke(tint.opacity(sender == .user ? 0.55 : 0.45), lineWidth: 1)
-                        )
+                    bubbleSide(compactContent, sender: sender, fullWidth: false)
                     bubbleSide(
                         content,
                         sender: sender,
@@ -536,6 +536,10 @@ struct AgentFeedRow: View, Equatable {
             sender: .user,
             vertical: 7
         )
+        let compactContent = content.background(
+            AgentFeedBubbleShape(tailEdge: .trailing)
+                .fill(Color.accentColor)
+        )
 
         return VStack(alignment: .leading, spacing: 6) {
             Group {
@@ -547,11 +551,7 @@ struct AgentFeedRow: View, Equatable {
                         )
                 } else {
                     ViewThatFits(in: .horizontal) {
-                        bubbleSide(content, sender: .user, fullWidth: false)
-                            .background(
-                                AgentFeedBubbleShape(tailEdge: .trailing)
-                                    .fill(Color.accentColor)
-                            )
+                        bubbleSide(compactContent, sender: .user, fullWidth: false)
                         bubbleSide(content, sender: .user, fullWidth: true)
                             .background(
                                 AgentFeedBubbleShape(tailEdge: .trailing)
