@@ -42,6 +42,7 @@ export function ComposerContext({
   localName,
   movedTo,
   onMove,
+  onBrowseFolder,
   busy = false,
   onConnect,
 }: {
@@ -57,6 +58,8 @@ export function ComposerContext({
   /// The folder a started chat moved to.
   movedTo?: string;
   onMove?(cwd: string): void;
+  /// A started chat's Choose folder…: the host's folder panel, then the chat moves there.
+  onBrowseFolder?(): Promise<string | undefined>;
   /// A turn runs: the folder holds still.
   busy?: boolean;
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
@@ -98,6 +101,14 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
   const branch = summary?.branch;
+  // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
+  const browseMove = onBrowseFolder
+    ? () => {
+        void onBrowseFolder().then((cwd) => {
+          if (cwd && cwd !== currentFolder) onMove?.(cwd);
+        });
+      }
+    : undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
@@ -120,6 +131,7 @@ export function ComposerContext({
             disabled={readOnly && !moves}
             icon={<FolderIcon />}
             allowPath
+            onBrowse={moves ? browseMove : undefined}
             onPick={(cwd) => {
               if (moves) {
                 if (cwd !== currentFolder) onMove?.(cwd);
@@ -158,7 +170,7 @@ export function ComposerContext({
 
 function BranchPicker({ branch }: { branch: string }) {
   const [open, setOpen] = useState(false);
-  const [control, anchor] = useCardAnchor();
+  const [control, anchor] = useControlAnchor();
   return (
     <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
@@ -290,18 +302,15 @@ function FolderIcon() {
   );
 }
 
-/// The location menus open above the whole composer card (cx-yrgh). The row is the card's footer,
-/// so a menu on its control's top side covered the prompt above the row. The anchor takes the
-/// control's width and runs from the card's top edge down to the control's bottom, so `side="top"`
-/// puts the menu's bottom at the card's top edge. With too little room above the card the folder
-/// list scrolls (composerLocation.css caps it at the room the positioner reports); only when the
-/// room below the row is larger does the positioner flip the menu under the row. Either way the
-/// card stays uncovered. The box is read at each placement, so it follows the card as it grows.
-function useCardAnchor() {
+/// The location menus open next to their control: on its top side, the way the model menu opens
+/// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
+/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). With too
+/// little room above, the positioner flips the menu under the row.
+function useControlAnchor() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
-      getBoundingClientRect: () => cardEdgeRect(control.current),
+      getBoundingClientRect: () => control.current?.getBoundingClientRect() ?? new DOMRect(),
       get contextElement() {
         return control.current ?? undefined;
       },
@@ -309,17 +318,6 @@ function useCardAnchor() {
     [],
   );
   return [control, anchor] as const;
-}
-
-function cardEdgeRect(control: Element | null): DOMRect {
-  const own = control?.getBoundingClientRect();
-  const card = control?.closest(".acpmux-composer-box")?.getBoundingClientRect();
-  const left = own?.left ?? 0;
-  const right = own?.right ?? 0;
-  const bottom = own?.bottom ?? 0;
-  const top = Math.min(card?.top ?? bottom, own?.top ?? bottom);
-  const rect = { x: left, y: top, left, top, right, bottom, width: right - left, height: bottom - top };
-  return { ...rect, toJSON: () => rect } as DOMRect;
 }
 
 /// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
@@ -357,7 +355,7 @@ function FolderMenu({
   onBrowse?(): void;
 }) {
   const [open, setOpen] = useState(false);
-  const [control, anchor] = useCardAnchor();
+  const [control, anchor] = useControlAnchor();
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
@@ -422,6 +420,7 @@ function LocationPicker({
   disabled,
   icon,
   allowPath = false,
+  onBrowse,
   extras,
   onPick,
 }: {
@@ -434,13 +433,15 @@ function LocationPicker({
   disabled: boolean;
   icon?: React.ReactNode;
   allowPath?: boolean;
+  /// The folder popover's last row, Choose folder…: the host's folder panel.
+  onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
   extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [control, anchor] = useCardAnchor();
+  const [control, anchor] = useControlAnchor();
   const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
@@ -536,8 +537,9 @@ function LocationPicker({
           onCancel={() => setOpen(false)}
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
-          inputClassName="acpmux-location-search"
-          itemClassName="acpmux-menu-item"
+          inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
+          listClassName="m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
+          itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
             return (
@@ -549,6 +551,24 @@ function LocationPicker({
           }}
           inline
         />
+        {onBrowse && (
+          <>
+            <hr className="ui-separator" />
+            <button
+              type="button"
+              className="acpmux-menu-item acpmux-location-choose"
+              // The field keeps the keyboard: its blur closes the picker before the click.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+                onBrowse();
+              }}
+            >
+              {t(CONTEXT_LABELS.chooseFolderMenu)}
+            </button>
+          </>
+        )}
       </Popover>
     </span>
   );

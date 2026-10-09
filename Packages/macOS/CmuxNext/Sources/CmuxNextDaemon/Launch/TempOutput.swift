@@ -7,11 +7,13 @@ final class TempOutput {
 
     init() throws {
         var template = Array((NSTemporaryDirectory() + "cmux-next-proc.XXXXXX").utf8CString)
-        // crash-allow: the template array is never empty, so baseAddress is set.
-        let fd = template.withUnsafeMutableBufferPointer { mkstemp($0.baseAddress!) }
+        // The template array is never empty; without a base address mkstemp's failure path runs.
+        let fd = template.withUnsafeMutableBufferPointer { buffer -> Int32 in
+            guard let base = buffer.baseAddress else { errno = EINVAL; return -1 }
+            return mkstemp(base)
+        }
         guard fd >= 0 else { throw DaemonError.launchFailed("mkstemp: \(String(cString: strerror(errno)))") }
-        // crash-allow: the template array is never empty, so baseAddress is set.
-        template.withUnsafeBufferPointer { _ = unlink($0.baseAddress!) }
+        template.withUnsafeBufferPointer { buffer in if let base = buffer.baseAddress { _ = unlink(base) } }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 

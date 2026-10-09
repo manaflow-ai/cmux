@@ -144,4 +144,88 @@ import Testing
             _ = try? coder.decode(Self.mutate(Data(#"{"v":1,"h":"x","p":1}"#.utf8), &rng))
         }
     }
+
+    /// Mac timestamps come from the wire. Any four timestamps give a split or nil;
+    /// a round trip past Int64.max used to trap in the uplink clamp.
+    @Test func clockOffsetSplitsAnyTimestampsOrRefuses() {
+        var rng = Rng(state: 0x55)
+        var estimator = MobileTerminalClockOffsetEstimator()
+        let edges: [UInt64] = [0, 1, UInt64(Int64.max), UInt64(Int64.max) + 1, .max]
+        for _ in 0..<2_000 {
+            func pick() -> UInt64 { rng.below(3) == 0 ? edges[rng.below(edges.count)] : rng.next() }
+            let t1 = pick(), t4 = pick(), receive = pick() / 1_000, dispatch = pick() / 1_000
+            guard let split = estimator.observe(
+                phoneSendNanos: min(t1, t4), macReceiveMicros: min(receive, dispatch),
+                macDispatchMicros: max(receive, dispatch), phoneReceiveNanos: max(t1, t4)
+            ) else { continue }
+            #expect(split.uplinkNanos <= split.roundTripNanos)
+            #expect(split.uplinkNanos + split.downlinkNanos == split.roundTripNanos)
+        }
+        var fresh = MobileTerminalClockOffsetEstimator()
+        let huge = fresh.observe(
+            phoneSendNanos: 0, macReceiveMicros: 5, macDispatchMicros: 5, phoneReceiveNanos: .max
+        )
+        #expect(huge?.roundTripNanos == .max)
+    }
+
+    @Test func deliveryIdentitiesAndAcknowledgementsRoundTripAndAnyBytesDecodeOrRefuse() {
+        var rng = Rng(state: 0x56)
+        for _ in 0..<2_000 {
+            let delivery = MobileTerminalInputDelivery(surfaceID: UUID(), streamID: UUID(), sequence: rng.next())
+            #expect(MobileTerminalInputDelivery(decoding: delivery.encoded()) == delivery)
+            let status = MobileTerminalInputAcknowledgement.Status(rawValue: UInt8(1 + rng.below(7))) ?? .applied
+            let ack = MobileTerminalInputAcknowledgement(
+                status: status, streamID: UUID(), sequence: rng.next(), expected: rng.next()
+            )
+            #expect(MobileTerminalInputAcknowledgement(decoding: ack.encoded()) == ack)
+            _ = MobileTerminalInputDelivery(decoding: Self.mutate(delivery.encoded(), &rng))
+            _ = MobileTerminalInputAcknowledgement(decoding: Self.mutate(ack.encoded(), &rng))
+            _ = MobileTerminalInputDelivery(decoding: Self.random(&rng, 48))
+            _ = MobileTerminalInputAcknowledgement(decoding: Self.random(&rng, 48))
+        }
+    }
+
+    /// Whole frames get a marker each; a malformed tail is forwarded unchanged.
+    @Test func laneScopingKeepsEveryByteForAnyBlock() throws {
+        var rng = Rng(state: 0x57)
+        let scope = MobileEventLaneScope()
+        let surface = UUID()
+        let marker = scope.marker(surfaceID: surface)
+        for _ in 0..<2_000 {
+            var block = Data()
+            var frames = 0
+            for _ in 0..<rng.below(4) {
+                block += try MobileSyncFrameCodec.encodeFrame(Self.random(&rng, 32))
+                frames += 1
+            }
+            let scoped = scope.scoped(block, surfaceID: surface.uuidString)
+            #expect(scoped.count == block.count + frames * marker.count)
+            let mutated = Self.mutate(block, &rng)
+            #expect(scope.scoped(mutated, surfaceID: surface.uuidString).count >= mutated.count)
+            _ = scope.markerScope(inPayload: Self.random(&rng, 20))
+        }
+    }
+
+    /// Address parsers read hosts and ports a user typed or a peer sent.
+    @Test func addressParsersAcceptOrRefuseAnyText() throws {
+        var rng = Rng(state: 0x58)
+        let seeds = ["[::1]:80", "10.0.0.4:49152", "[fe80::1%en0]:1", "1.2.3.4", "[", "]:", "[]:", ":", "::", "[::1]",
+                     "100.64.0.1", "fd7a:115c:a1e0::53", "a:b:c", "300.1.1.1:1", "1.1.1.1:65536", "1.1.1.1:0"]
+        let qr = CmxPairingQRCode()
+        let loopback = CmxLoopbackHost()
+        for _ in 0..<3_000 {
+            let seed = Data(seeds[rng.below(seeds.count)].utf8)
+            let text = String(decoding: rng.below(4) == 0 ? Self.random(&rng, 24) : Self.mutate(seed, &rng), as: UTF8.self)
+            _ = try? CmxIrohLocalSocketAddress(text)
+            var pairing = URLComponents()
+            pairing.scheme = "cmux"
+            pairing.host = "pair"
+            pairing.queryItems = [URLQueryItem(name: "v", value: "2"), URLQueryItem(name: "r", value: text)]
+            _ = try? qr.decode(pairing)
+            _ = loopback.matches(text)
+            _ = CmxTailscalePeerAddress(text)
+            _ = try? CmxIrohPathHint(kind: .directAddress, value: text, source: .native, privacyScope: .publicInternet)
+        }
+        #expect(try CmxIrohLocalSocketAddress("[fd00::1]:4000").port == 4000)
+    }
 }

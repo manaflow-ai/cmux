@@ -242,11 +242,12 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["config fast-mode on"]);
   });
 
-  test("rows are one line with stable command hotkeys and a star on the row", async () => {
+  // Lawrence 2026-10-08: match the T3 rail picker; one-line rows, no command badges or headings.
+  test("rows are one line with no command badge, and the star toggles on the row", async () => {
     await render();
     await act(async () => modelButton().click());
     expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
+    expect(modelRows()[0]!.textContent).not.toContain("⌘");
     const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
     expect(favorite.getAttribute("aria-pressed")).toBe("false");
     await act(async () => favorite.click());
@@ -255,23 +256,125 @@ describe("T3 model picker", () => {
     );
   });
 
-  // Leo (dogfood 2026-10-08, A1): the lone star in a big left column filtered every harness down to
-  // "No matching models". Starred models get their own section on top instead; nothing filters.
-  test("starred models sit in a Starred section on top, and no toggle hides the other models", async () => {
+  // Lawrence 2026-10-08: "no concept of starred, starred should just show up in its own column".
+  // A star never reorders or heads a harness's list; the rail's Starred tab lists every starred model.
+  test("starred models show under the rail's Starred tab, and a harness's list keeps its order", async () => {
     await render();
     await act(async () => modelButton().click());
-    expect(menu()!.querySelector(".acpmux-mp-harness-favorites")).toBeNull();
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const before = labels();
     const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
     await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
-    expect(labels()).toEqual(["Sonnet 5.5", "Opus 4.1", "Opus 5.5"]);
-    const sections = [...menu()!.querySelectorAll(".acpmux-mp-models .acpmux-mp-section")].map((s) => s.textContent);
-    expect(sections[0]).toBe("Starred");
+    expect(labels()).toEqual(before);
+    expect(menu()!.querySelector(".acpmux-mp-section")).toBeNull();
+    const starred = menu()!.querySelector<HTMLButtonElement>('[aria-label="Starred"]')!;
+    await act(async () => starred.click());
+    expect(labels()).toEqual(["Sonnet 5.5"]);
+  });
+
+  // Lawrence 2026-10-08: "should swap on hover not click for each category".
+  test("hovering a rail tab shows that harness's models without a click", async () => {
+    await render();
+    await act(async () => modelButton().click());
     const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
       (row) => row.textContent === "Codex",
     )!;
-    await act(async () => codex.click());
-    expect(labels()).toEqual(["o3", "GPT-6-Astra"]);
+    await act(async () => {
+      codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    });
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
+  });
+
+  const typeQuery = async (text: string) => {
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    return input;
+  };
+  const fastOption = {
+    id: "fast-mode",
+    name: "Fast mode",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  };
+
+  // Lawrence 2026-10-08: "typing needs to be separate that lets me search through all of them".
+  test("typing searches every harness, whatever tab shows", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    await typeQuery("gpt");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
+    await typeQuery("opus");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "Opus 4.1",
+      "Opus 5.5",
+    ]);
+  });
+
+  // Lawrence 2026-10-08: "type like 'gpt medium fast' and it needs to update the other things too".
+  test("a typed effort and fast mode land with the model in this harness", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = value.catalog[0]!.models.map((model) => ({
+      ...model,
+      efforts: ["low", "high"],
+      fast: model.id === "claude-opus-5-5",
+    }));
+    value.summary!.configOptions = [effort, fastOption];
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("claude low fast");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Opus 5.5"]);
+    expect(modelRows()[0]!.textContent).toContain("low · fast");
+    await key(input, "Enter");
+    // Opus 5.5 already runs: the effort and fast mode change at once.
+    expect(calls).toEqual(["config effort low", "config fast-mode on"]);
+  });
+
+  test("a typed combo for another harness starts it, then lands the model and effort in its new session", async () => {
+    const value = snapshot();
+    value.catalog[2]!.models = value.catalog[2]!.models.map((model) => ({ ...model, efforts: ["low", "medium"] }));
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("gpt medium");
+    await key(input, "Enter");
+    expect(calls).toEqual(["harness codex"]);
+    // The new Codex session reports its default model and its effort option.
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "o3",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra"]);
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "gpt-6-astra",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra", "config effort medium"]);
+  });
+
+  test("Cmd-Ctrl-M opens the picker", async () => {
+    await render();
+    await act(async () =>
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true }),
+      ),
+    );
+    expect(menu()).not.toBeNull();
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside

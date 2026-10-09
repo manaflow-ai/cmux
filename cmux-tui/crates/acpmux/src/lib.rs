@@ -30,6 +30,7 @@ pub mod daemon;
 #[cfg(test)]
 mod git_short_sha;
 pub mod hub;
+pub mod live_models;
 pub mod login_env;
 pub mod native;
 pub mod peer;

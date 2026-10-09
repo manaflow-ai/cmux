@@ -990,6 +990,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1184,9 +1185,20 @@ function AcpmuxPane() {
       ...(connected && {
         retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
       }),
+      ...(connected &&
+        loginCommand &&
+        snapshot.summary?.hostKind !== "cloud" && {
+          reauthenticate: () =>
+            void callNative("tab.open", {
+              kind: "terminal",
+              text: loginCommand,
+              ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+              run: true,
+            }).catch(() => undefined),
+        }),
       review: hunkReview,
     }),
-    [forkable, forkSeq, connected, hunkReview],
+    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -2128,6 +2140,8 @@ function AcpmuxPane() {
       active = false;
     };
   }, [freshChat, newTab, quick, loadNewTabProjects]);
+  // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+  const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2259,116 +2273,128 @@ function AcpmuxPane() {
           }}
         />
       )}
-      <Composer
-        snapshot={composerSnapshot}
-        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-        chips={ComposerChips}
-        draft={draft}
-        onCmuxCommand={(command, args) => {
-          if (command.action !== "continue" || !canContinue) return false;
-          if (!args?.trim()) {
-            setContinuing(true);
+      {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
+      <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+        <Composer
+          snapshot={composerSnapshot}
+          sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          chips={ComposerChips}
+          draft={draft}
+          onCmuxCommand={(command, args) => {
+            if (command.action !== "continue" || !canContinue) return false;
+            if (!args?.trim()) {
+              setContinuing(true);
+              return true;
+            }
+            const target = resolveHarnessTarget(args, handoffTargets);
+            if (!target) return false;
+            setContinuing(false);
+            ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
             return true;
+          }}
+          onSend={(text, chips) => {
+            // Until acpmux connects nothing takes a prompt; the composer keeps it.
+            if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+            // Shell mode's chips carry their commands' output as it is now.
+            const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
+            if (!snapshot.sessionId) claimShellRuns.current = true;
+            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
+            // remote guard, the sandbox) leaves it there to send again.
+            let accept: (taken: true) => void = () => undefined;
+            const taken = new Promise<true>((resolve) => (accept = resolve));
+            const send = async () => {
+              if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
+              return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
+            };
+            // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+            // swaps it when the chat's session starts) puts the prompt in the one shown now.
+            const holder = composerHandle.current;
+            const turn = send();
+            turn.then(() => promptLanded.current(), cancelOpenInWindow);
+            // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+            const held = Promise.race([taken, turn.then(() => true as const)]);
+            held.catch(() => {
+              if (composerHandle.current === holder) return;
+              if (composerHandle.current) composerHandle.current.restore(text, attachments);
+              else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+            });
+            return held;
+          }}
+          onStop={() => void callNative("chat.cancel")}
+          onProject={chooseProject}
+          // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+          onConnect={(kind) =>
+            void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+              () => undefined,
+            )
           }
-          const target = resolveHarnessTarget(args, handoffTargets);
-          if (!target) return false;
-          setContinuing(false);
-          ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
-          return true;
-        }}
-        onSend={(text, chips) => {
-          // Until acpmux connects nothing takes a prompt; the composer keeps it.
-          if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          // Shell mode's chips carry their commands' output as it is now.
-          const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
-          if (!snapshot.sessionId) claimShellRuns.current = true;
-          // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-          // remote guard, the sandbox) leaves it there to send again.
-          let accept: (taken: true) => void = () => undefined;
-          const taken = new Promise<true>((resolve) => (accept = resolve));
-          const send = async () => {
-            if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
-            return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
-          };
-          // The composer that holds the prompt: a refusal that comes once it is gone (the pane
-          // swaps it when the chat's session starts) puts the prompt in the one shown now.
-          const holder = composerHandle.current;
-          const turn = send();
-          turn.then(() => promptLanded.current(), cancelOpenInWindow);
-          // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-          const held = Promise.race([taken, turn.then(() => true as const)]);
-          held.catch(() => {
-            if (composerHandle.current === holder) return;
-            if (composerHandle.current) composerHandle.current.restore(text, attachments);
-            else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-          });
-          return held;
-        }}
-        onStop={() => void callNative("chat.cancel")}
-        onProject={chooseProject}
-        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
-        onConnect={(kind) =>
-          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
-            () => undefined,
-          )
-        }
-        projectChoices={freshChat && !quick ? newTabProjects : undefined}
-        onBrowseProject={
-          freshChat && !quick
-            ? () => {
-                void callNative<{ cwd?: string }>("project.browse")
-                  .then((result) => {
-                    if (result?.cwd) chooseProject(result.cwd);
+          // A started local chat lists the same folders to move to (dogfood 09).
+          projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
+          onBrowseProject={
+            freshChat && !quick
+              ? () => {
+                  void callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => {
+                      if (result?.cwd) chooseProject(result.cwd);
+                    })
+                    .catch(() => undefined);
+                }
+              : undefined
+          }
+          // The host runs commands on this Mac: a Cloud chat has no shell mode.
+          onShell={
+            composerSnapshot.summary?.hostKind === "cloud"
+              ? undefined
+              : (command) =>
+                  shellRuns.start(command, {
+                    ...((movedTo ?? composerSnapshot.summary?.cwd)
+                      ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
+                      : {}),
+                    ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                   })
-                  .catch(() => undefined);
-              }
-            : undefined
-        }
-        // The host runs commands on this Mac: a Cloud chat has no shell mode.
-        onShell={
-          composerSnapshot.summary?.hostKind === "cloud"
-            ? undefined
-            : (command) =>
-                shellRuns.start(command, {
-                  ...((movedTo ?? composerSnapshot.summary?.cwd)
-                    ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
-                    : {}),
-                  ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
-                })
-        }
-        localName={machineName}
-        movedTo={movedTo}
-        // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
-        onMove={
-          snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
-            ? (cwd) => {
-                const move: ChatMove = {
-                  id: `${Date.now().toString(36)}-${chatMoves.length}`,
-                  sessionId: snapshot.sessionId!,
-                  cwd,
-                  machine: machineName ?? t("composer.thisMac"),
-                  at: Date.now(),
-                };
-                setChatMoves((current) => [...current, move]);
-                return move;
-              }
-            : undefined
-        }
-        onShellInterrupt={() => {
-          const running = shellRuns.running(snapshot.sessionId);
-          if (running) shellRuns.stop(running.id);
-          return running !== undefined;
-        }}
-        onMode={(modeId) => void callNative("chat.mode", { modeId })}
-        // Without a folder there is nothing to search; the + menu leaves the item out.
-        searchFiles={fileRoot ? searchFiles : undefined}
-        onOpenInWindow={quick ? openInWindow : undefined}
-        prompt={prompt}
-        handle={composerRef}
-        blocked={trustAsk.blocked}
-        accessory={<DictationButton dictation={dictation} />}
-        onImportFile={importFile}
-      />
+          }
+          localName={machineName}
+          movedTo={movedTo}
+          onBrowseFolder={
+            canMove
+              ? () =>
+                  callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => result?.cwd)
+                    .catch(() => undefined)
+              : undefined
+          }
+          // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+          onMove={
+            canMove
+              ? (cwd) => {
+                  const move: ChatMove = {
+                    id: `${Date.now().toString(36)}-${chatMoves.length}`,
+                    sessionId: snapshot.sessionId!,
+                    cwd,
+                    machine: machineName ?? t("composer.thisMac"),
+                    at: Date.now(),
+                  };
+                  setChatMoves((current) => [...current, move]);
+                  return move;
+                }
+              : undefined
+          }
+          onShellInterrupt={() => {
+            const running = shellRuns.running(snapshot.sessionId);
+            if (running) shellRuns.stop(running.id);
+            return running !== undefined;
+          }}
+          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          // Without a folder there is nothing to search; the + menu leaves the item out.
+          searchFiles={fileRoot ? searchFiles : undefined}
+          onOpenInWindow={quick ? openInWindow : undefined}
+          prompt={prompt}
+          handle={composerRef}
+          blocked={trustAsk.blocked}
+          accessory={<DictationButton dictation={dictation} />}
+          onImportFile={importFile}
+        />
+      </ImageViewerContext.Provider>
     </>
   );
   const hostErrorCard = hostError && (
