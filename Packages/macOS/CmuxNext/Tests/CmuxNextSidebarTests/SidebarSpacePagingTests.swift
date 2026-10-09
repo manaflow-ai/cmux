@@ -146,4 +146,40 @@ import Testing
         #expect(kept.list?.displayed.row(for: .workspace(WorkspaceID("ws-b"))) != nil, "the old space's rows")
         #expect(kept.superview === view.scrollView.superview)
     }
+
+    @Test func aMouseWheelPageSwitchesToTheSpaceBeside() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        view.spacePaging.page(by: 1)
+        view.spacePaging.page(by: -1)
+        #expect(intents == [.switchProfile(Self.keys[2]), .switchProfile(Self.keys[0])])
+    }
+
+    @Test func aMouseWheelPastTheLastSpaceBouncesWithoutSwitching() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        view.model.activeProfileID = Self.keys[2]
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        view.spacePaging.page(by: 1)
+        #expect(intents.isEmpty)
+        #expect(view.spacePaging.neighbor == nil && view.spacePaging.pendingTarget == nil)
+    }
+
+    @Test func aTrackpadSwipeOverTheDotsPagesLikeOverTheList() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let scroll = try #require(view.profileBar.onHorizontalScroll)
+        scroll(.began, -10, 1.00)
+        scroll(.changed, -60, 1.03)
+        #expect(view.spacePaging.neighbor?.index == 2)
+    }
+
+    @Test func aVerticalWheelPagesOnlyWhileEveryRowFits() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        #expect(view.scrollView.rowsFit, "one row fits")
+    }
 }

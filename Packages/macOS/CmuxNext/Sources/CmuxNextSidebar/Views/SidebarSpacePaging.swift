@@ -171,6 +171,48 @@ import QuartzCore
         return animation
     }
 
+    // MARK: Mouse wheel
+
+    /// How far a wheel past the first or last space nudges the list, in pages.
+    static let bumpDistance: CGFloat = 0.06
+
+    /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
+    /// like a switch by dot. Past the first or last space the list nudges
+    /// toward the wheel and eases back, a paged scroll view's edge.
+    func page(by step: Int) {
+        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        if host.model.stepProfile(by: step) { return }
+        bump(step)
+    }
+
+    /// The list moves out toward the wheel and eases back, by layer
+    /// translation only like a swipe; reduced motion shows nothing.
+    private func bump(_ step: Int) {
+        guard snapshot == nil, Motion.animatesMovement else { return }
+        page.wantsLayer = true
+        guard let layer = page.layer else { return }
+        host.clipsToBounds = true
+        let keyPath = "transform.translation.x"
+        layer.removeAnimation(forKey: Self.slideKey)
+        Motion.transaction(nil) { layer.setValue(0, forKeyPath: keyPath) }
+        let animation = CAKeyframeAnimation(keyPath: keyPath)
+        animation.values = [0, -CGFloat(step) * Self.bumpDistance * width, 0]
+        animation.keyTimes = [0, 0.35, 1]
+        animation.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        animation.duration = Self.bumpDuration
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.endBump() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        layer.add(animation, forKey: Self.slideKey)
+        CATransaction.commit()
+    }
+
+    private static let bumpDuration: CFTimeInterval = 0.3
+
+    private func endBump() {
+        guard pager == nil, pendingTarget == nil, snapshot == nil else { return }
+        host.clipsToBounds = false
+    }
+
     // MARK: Switch by dot, key or a new space
 
     /// The old space's rows as a page for a slide (call before the reload):

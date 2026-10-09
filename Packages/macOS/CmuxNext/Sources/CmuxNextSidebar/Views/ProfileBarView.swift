@@ -20,6 +20,8 @@ final class ProfileBarView: NSView {
     private(set) var hovered: Int?
     private var pressed: Int?
     private var swipeTracker = ProfileSwipeTracker()
+    private var wheel = SpaceWheelPager()
+    private var paging = false
     static let plusIndex = -1
 
     /// The current space's chip; it slides on a switch.
@@ -29,6 +31,12 @@ final class ProfileBarView: NSView {
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
     var onHorizontalSwipe: ((Int) -> Void)?
+    /// A horizontal trackpad gesture over the bar, 1:1 like over the list
+    /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
+    /// one-step swipe.
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    /// A mouse wheel notch over the bar, either axis: -1 or +1.
+    var onWheelPage: ((Int) -> Void)?
 
     init(model: SidebarModel) {
         self.model = model
@@ -289,12 +297,29 @@ final class ProfileBarView: NSView {
         activate(pressed)
     }
 
+    /// The bar is the pager's dots: a trackpad pages over it like over the
+    /// list, and a mouse wheel pages on either axis (nothing here scrolls).
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
+            if let onWheelPage, !event.hasPreciseScrollingDeltas {
+                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
+                case .pass, .hold: return
+                case .page(let step): return onWheelPage(step)
+                }
+            }
             super.scrollWheel(with: event)
             return
         }
-        if let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase) {
+        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
+        if let onHorizontalScroll {
+            if phase == .ended || phase == .momentum {
+                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
+                paging = false
+            } else if swipeTracker.isHorizontal {
+                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
+                paging = true
+            }
+        } else if let step {
             onHorizontalSwipe?(step)
         }
         if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }

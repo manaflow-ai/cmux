@@ -201,6 +201,7 @@ public final class SidebarView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
+        scrollView.onWheelPage = { [weak self] step in self?.spacePaging.page(by: step) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -209,6 +210,8 @@ public final class SidebarView: NSView {
         addSubview(footer)
         installBackButton()
         footer.addSubview(profileBar)
+        profileBar.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
+        profileBar.onWheelPage = { [weak self] step in self?.spacePaging.page(by: step) }
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
     }
