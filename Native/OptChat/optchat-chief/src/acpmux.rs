@@ -710,6 +710,37 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("permission_respond: {e}"))
     }
 
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        // The same preset `new_session` gives a session that names none.
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match preset {
+            Some(name) if ready.contains(name) => Some(name.to_owned()),
+            Some(_) => return Ok(()),
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.clone()),
+        };
+        let mut params = json!({"harness": harness, "cwd": cwd});
+        if let Some(preset) = preset {
+            params["preset"] = json!(preset);
+        }
+        self.client()?
+            .request("_acpmux/prewarm", params)
+            .map(|_| ())
+            .map_err(|e| format!("prewarm: {e}"))
+    }
+
     fn preset_args(&self, preset: &str) -> bool {
         self.with_args
             .lock()

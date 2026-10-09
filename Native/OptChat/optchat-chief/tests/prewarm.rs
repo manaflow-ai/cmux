@@ -9,12 +9,10 @@ mod common;
 
 use common::*;
 
-fn shapes(
-    h: &Harness,
-) -> (
-    Vec<(String, Option<String>, std::path::PathBuf)>,
-    Vec<optchat_chief::acpmux::SessionSpec>,
-) {
+/// A pool hint: (harness, preset, cwd).
+type Hint = (String, Option<String>, std::path::PathBuf);
+
+fn shapes(h: &Harness) -> (Vec<Hint>, Vec<optchat_chief::acpmux::SessionSpec>) {
     let inner = h.agents.inner.lock().unwrap();
     (inner.prewarms.clone(), inner.specs.clone())
 }
