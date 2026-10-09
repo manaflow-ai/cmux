@@ -4,6 +4,12 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    /// Full topology reads on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn full_topology_reads_for_test() -> u64 {
+        FULL_TOPOLOGY_READS.with(Cell::get)
+    }
+
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
     pub(crate) fn resource_topology_scoped(
@@ -94,12 +100,6 @@ impl WorkspaceRegistry {
 #[cfg(test)]
 thread_local! {
     static FULL_TOPOLOGY_READS: Cell<u64> = const { Cell::new(0) };
-}
-
-/// Full topology reads on this thread (test hook).
-#[cfg(test)]
-pub(crate) fn full_topology_reads_for_test() -> u64 {
-    FULL_TOPOLOGY_READS.with(Cell::get)
 }
 
 /// Load the live resource topology from `connection`. The registry's

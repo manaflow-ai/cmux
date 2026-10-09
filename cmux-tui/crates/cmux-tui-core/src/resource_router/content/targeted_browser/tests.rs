@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::SurfaceOptions;
-use crate::workspace_registry::full_topology_reads_for_test;
+use crate::workspace_registry::WorkspaceRegistry;
 
 fn parsed_request(operation: &str, fields: Value, key: &str) -> ParsedResourceRequest {
     let mut params = json!({"machine":"current","session":"current"});
@@ -38,13 +38,17 @@ fn a_browser_projection_reads_no_full_topology() {
             .push(BrowserPublicId::parse(value["value"]["browser_id"].as_str().unwrap()).unwrap());
     }
     let browser_id = &created[1];
-    let reads = full_topology_reads_for_test();
+    let reads = WorkspaceRegistry::full_topology_reads_for_test();
     let projection = mux
         .with_resource_projection(|registry, state| {
             targeted_browser_effect_projection(registry, state, browser_id, true)
         })
         .unwrap();
-    assert_eq!(full_topology_reads_for_test(), reads, "the projection read the whole topology");
+    assert_eq!(
+        WorkspaceRegistry::full_topology_reads_for_test(),
+        reads,
+        "the projection read the whole topology"
+    );
     assert!(matches!(
         &projection.patch.changes[..],
         [ResourceChange::UpsertBrowser(browser), ResourceChange::UpsertTab(tab)]
