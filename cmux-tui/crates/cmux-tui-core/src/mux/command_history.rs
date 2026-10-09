@@ -141,16 +141,32 @@ impl Mux {
         }
     }
 
-    /// Starts the worker for a persistent registry (daemon start), so rows
-    /// that expired while the daemon was down are deleted now.
+    /// Daemon start with a persistent registry: deletes the rows that expired
+    /// while the daemon was down, then starts the worker only when a row will
+    /// expire later. The pass runs here, on the constructing thread: a worker
+    /// that upgraded its `Weak<Mux>` at start could keep a Mux (and its
+    /// registry lock) alive after its creator dropped it to reopen the session.
     pub(super) fn start_command_history_for_persistent_registry(self: &Arc<Self>) {
-        let persistent = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .session_journal_database_path()
-            .is_some();
-        if persistent && self.command_history_sender().is_none() {
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        if registry.session_journal_database_path().is_none() {
+            return;
+        }
+        let Ok(now) = unix_epoch_ms() else { return };
+        let retry = now.saturating_add(RETRY_MS);
+        let (mut next, deleted) = match registry.expire_terminal_commands(now) {
+            Ok(expiry) => (expiry.next_ms, expiry.deleted > 0),
+            Err(error) => {
+                eprintln!("cmux-tui: terminal command history pass failed: {error}");
+                (Some(retry), false)
+            }
+        };
+        let checkpoint_pending =
+            deleted && !matches!(registry.checkpoint_terminal_command_deletes(), Ok(true));
+        drop(registry);
+        if checkpoint_pending {
+            next = Some(next.map_or(retry, |next| next.min(retry)));
+        }
+        if next.is_some() && self.spawn_command_history_worker(next, checkpoint_pending).is_none() {
             self.report_internal_diagnostic("terminal command history worker not started");
         }
     }
@@ -160,6 +176,16 @@ impl Mux {
     }
 
     fn command_history_sender(self: &Arc<Self>) -> Option<SyncSender<CommandHistoryMessage>> {
+        self.spawn_command_history_worker(None, false)
+    }
+
+    /// The worker's queue; starts the worker (with its first `deadline`) when
+    /// none runs. The worker does no pass until a message or its deadline.
+    fn spawn_command_history_worker(
+        self: &Arc<Self>,
+        deadline: Option<u64>,
+        checkpoint_pending: bool,
+    ) -> Option<SyncSender<CommandHistoryMessage>> {
         let mut slot = self.command_history_worker.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = slot.as_ref() {
             return Some(sender.clone());
@@ -169,7 +195,7 @@ impl Mux {
         let mux = Arc::downgrade(self);
         std::thread::Builder::new()
             .name("terminal-command-history".into())
-            .spawn(move || Worker { mux, checkpoint_pending: false }.run(receiver))
+            .spawn(move || Worker { mux, checkpoint_pending }.run(receiver, deadline))
             .ok()?;
         *slot = Some(sender.clone());
         Some(sender)
@@ -183,8 +209,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(mut self, receiver: Receiver<CommandHistoryMessage>) {
-        let mut deadline = self.pass(|registry, now| registry.expire_terminal_commands(now));
+    fn run(mut self, receiver: Receiver<CommandHistoryMessage>, mut deadline: Option<u64>) {
         loop {
             let message = match deadline {
                 None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
