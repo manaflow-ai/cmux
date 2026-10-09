@@ -129,7 +129,25 @@ export type StepStats = {
   over16: number;
   /** Largest `cmux-motion:*` performance measure in the step (the arm's planning), in ms. */
   planMs: number;
+  /** Action-to-settled samples for clicks, keys and press-drag pointer steps. */
+  interactionMs: number[];
 };
+
+export type InteractionStats = {
+  count: number;
+  p50: number;
+  p95: number;
+  max: number;
+};
+
+/** Percentiles of action-to-settled samples (milliseconds). */
+export function interactionStats(samples: readonly number[]): InteractionStats {
+  if (!samples.length) return { count: 0, p50: 0, p95: 0, max: 0 };
+  const sorted = [...samples].sort((a, b) => a - b);
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return { count: sorted.length, p50: round(at(0.5)), p95: round(at(0.95)), max: round(sorted[sorted.length - 1]!) };
+}
 
 /** Percentiles of frame intervals (ms). */
 export function frameStats(intervals: readonly number[]): Pick<StepStats, "frames" | "p50" | "p95" | "max" | "over16"> {

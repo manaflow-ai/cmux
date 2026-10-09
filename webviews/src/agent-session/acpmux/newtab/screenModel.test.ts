@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import { MAX_AGENT_ROWS, orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
+import { orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 
 const agents = [
   { id: "claude", name: "Claude Code" },
@@ -71,11 +71,25 @@ test("without installed agents Ask still offers the search", () => {
   expect(types(screenRows("hello", { agents: [], omnibar }))).toEqual(["search"]);
 });
 
-test("agent rows are capped and keep the catalog order", () => {
+test("every installed harness stays available in the Ask list", () => {
   const many = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, name: `A${i}` }));
-  expect(orderedAgents(many).length).toBe(MAX_AGENT_ROWS);
+  expect(orderedAgents(many).length).toBe(9);
   expect(orderedAgents(many, "a7")[0]!.id).toBe("a7");
   expect(orderedAgents(many, "missing")[0]!.id).toBe("a0");
+});
+
+test("a harness after the old four-row cap still gets an Ask row", () => {
+  const rows = screenRows("hello", {
+    agents: [
+      { id: "codex", name: "Codex" },
+      { id: "opencode", name: "OpenCode" },
+      { id: "gemini", name: "Gemini" },
+      { id: "aider", name: "Aider" },
+      { id: "claude", name: "Claude Code" },
+    ],
+    omnibar: EMPTY_OMNIBAR,
+  });
+  expect(rows.some((row) => row.type === "agent" && row.harness === "claude")).toBe(true);
 });
 
 test("! typed into an empty or wholly selected field enters shell mode, keeping the rest", () => {

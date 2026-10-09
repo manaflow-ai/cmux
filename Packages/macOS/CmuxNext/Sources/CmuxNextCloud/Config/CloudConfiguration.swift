@@ -118,8 +118,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// a release build never sends a credential to another origin.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
-        // crash-allow: both operands are constant, valid https URL literals, so the parse cannot fail
-        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+        // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
+        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
     }
 
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
