@@ -7,12 +7,11 @@ use serde_json::{Value, json};
 /// The agent's name in the prompts (section 7.2: rename the agent).
 pub const AGENT: &str = "Chief";
 
-/// The line on messages the user sends mid-turn, our one change to the
-/// spec's system prompt (decision 2026-10-04): it says what the host does,
-/// instead of "reach you between tool calls".
-pub const MIDRUN: &str = "A message the user sends while you work interrupts you at once, even
-mid-thought; a tool call already running finishes first, then you go on
-with the message.";
+/// The line on messages the user sends mid-turn (parity item 7): they are
+/// delivered between tool calls (a harness that cannot steer stops the turn
+/// instead, and the next turn answers).
+pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
+calls; take it into account and go on.";
 
 /// The spec's one system prompt for turns and compactions (gist 3c190e0,
 /// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief.

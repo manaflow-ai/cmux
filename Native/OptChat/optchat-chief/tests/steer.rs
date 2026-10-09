@@ -49,6 +49,7 @@ fn a_message_during_a_turn_is_steered_in_not_a_stop() {
     h.connect();
     h.say("user_local", "build it");
     h.step(); // settled: the turn starts
+    h.step(); // the turn's session exists
     h.agents.wait_prompts(1);
     h.say("user_local", "also run the tests");
     h.agents.wait_steers(1);
