@@ -191,6 +191,10 @@ class PreflightTests(unittest.TestCase):
                 while time.monotonic() < deadline and not all(
                         (repo / marker).exists() for marker in ("xcstrings.ready", "localization.ready")):
                     time.sleep(0.01)
+                self.assertTrue(
+                    all((repo / marker).exists() for marker in ("xcstrings.ready", "localization.ready")),
+                    "both preflight checks must start before the interrupt is sent",
+                )
                 os.killpg(child.pid, signal.SIGINT)
                 output, errors = child.communicate(timeout=5)
             finally:

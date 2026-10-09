@@ -441,15 +441,16 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             for item in items:
                 print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
             pool = None
-            futures = []
+            submitted = []
             try:
                 pool = ThreadPoolExecutor(max_workers=min(jobs, len(items)))
-                futures = [pool.submit(run_item, item) for item in items]
-                results = [future.result() for future in futures]
+                for item in items:
+                    submitted.append((item, pool.submit(run_item, item)))
+                results = [future.result() for _, future in submitted]
             except KeyboardInterrupt:
                 _CANCEL_REQUESTED.set()
                 stop_active_processes()
-                for future in futures:
+                for _, future in submitted:
                     future.cancel()
                 # A worker may have crossed Popen between the first snapshot
                 # and future cancellation. Take one more snapshot before
@@ -460,12 +461,20 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                 interrupted = ({"status": "interrupted", "executed": False,
                                 "exit_code": None, "output_sha256": None, "tests": None,
                                 "cancelled": True, "elapsed_seconds": 0})
-                results = [
-                    (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
-                     "Interrupted before this check completed.")
-                    if future.cancelled() else future.result()
-                    for item, future in zip(items, futures)
-                ]
+                results = []
+                for item, future in submitted:
+                    results.append(
+                        (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
+                         "Interrupted before this check completed.")
+                        if future.cancelled() else future.result()
+                    )
+                # Submission itself can be interrupted. Keep an explicit
+                # receipt for every item that never reached the executor.
+                for item in items[len(submitted):]:
+                    results.append(
+                        (interrupted | {"id": item[0], "phase": item[1], "argv": item[3]},
+                         "Interrupted before this check was submitted.")
+                    )
                 cancelled = True
             else:
                 pool.shutdown(wait=True)
