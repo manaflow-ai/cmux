@@ -179,7 +179,7 @@ impl Brain {
                             marked.then_some(CacheTtl::FiveMinutes)
                         };
                         let stale = ttl_stale.load(Ordering::SeqCst);
-                        match (&outcome.error, ours) {
+                        let outcome = match (&outcome.error, ours) {
                             // The API refused our TTL next to Claude Code's.
                             // A pooled session started under the other TTL
                             // (cache.ttl changed since the prewarm): the
@@ -253,7 +253,10 @@ impl Brain {
                                 turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
-                        }
+                        };
+                        crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                        })
                     }
                     Engine::Native(native) => {
                         let mailbox = || {
@@ -688,15 +691,29 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
-        // A pending approval holds the tool call: a newer message denies it,
-        // so the turn can stop and the next one answers.
-        self.deny_pending("a newer message");
+        // Decision 2026-10-09: a subagent report never stops the turn. It
+        // is steered in when the turn can take it, else it waits for the
+        // next turn. Only a human message stops a turn it cannot reach.
+        let side = self.turn_side();
+        let human = self
+            .queue
+            .iter()
+            .filter(|q| q.conversation == side)
+            .any(|q| matches!(q.source, Source::Message { .. }));
+        if human {
+            // A pending approval holds the tool call: a newer message denies
+            // it, so the turn can take the message or stop.
+            self.deny_pending("a newer message");
+        }
         if matches!(self.settings.engine, Engine::Acpmux) {
             // Parity item 7: between tool calls, when the session steers.
-            if self.try_steer() {
+            if self.try_steer() || !human {
                 return;
             }
             self.stop_wanted = true;
+        } else if !human {
+            // The native engine takes reports at its next tool boundary.
+            return;
         }
         self.interrupt.request();
     }

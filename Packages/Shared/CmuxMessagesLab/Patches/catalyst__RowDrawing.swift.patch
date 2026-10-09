@@ -100,7 +100,7 @@
                  let chev = UIBezierPath()
                  chev.move(to: CGPoint(x: body.maxX - 18, y: body.midY - 5))
                  chev.addLine(to: CGPoint(x: body.maxX - 13, y: body.midY))
-@@ -347,11 +349,11 @@
+@@ -347,25 +349,25 @@
                  }
              }
              let label = ext.uppercased()
@@ -114,7 +114,14 @@
          var name = a.fileName
          while TextDraw.width(name, font: nameFont) > body.width - 100, name.count > 4 { name = String(name.dropLast(5)) + "…" }
          let x = body.minX + 84.5
-@@ -365,7 +367,7 @@
+         TextDraw.line(name, font: nameFont, color: fg, x: x, baseline: body.minY + 43, in: ctx)
+         var sub = Strings.fileKind(a) + " \u{00B7} " + Format.bytes(a.byteSize)
+         if case let .uploading(pr) = a.transfer {
+-            sub = Format.bytes(Int(Double(a.byteSize) * pr)) + " / " + Format.bytes(a.byteSize)
++            sub = Format.bytes(CrashGuard.int(Double(a.byteSize) * pr)) /* cmux: no trap on a NaN progress */ + " / " + Format.bytes(a.byteSize)
+             let bar = CGRect(x: x, y: body.minY + 64, width: body.width - 100, height: 4)
+             fg.withAlphaComponent(0.3).setFill()
+             UIBezierPath(roundedRect: bar, cornerRadius: 2).fill()
              fg.setFill()
              UIBezierPath(roundedRect: CGRect(x: bar.minX, y: bar.minY, width: bar.width * CGFloat(pr), height: 4), cornerRadius: 2).fill()
          }
@@ -168,7 +175,15 @@
              let lines = Strings.laughGlyph.components(separatedBy: "\n")
              for (i, l) in lines.enumerated() {
                  TextDraw.line(l, font: f, color: color, x: r.midX - TextDraw.width(l, font: f) / 2,
-@@ -663,9 +665,10 @@
+@@ -657,15 +659,16 @@
+     static let byteBudget = 160 << 20
+     private(set) var bytes = 0
+ 
+-    func image(for spec: RowSpec) -> CGImage? { cache[spec] }
+-    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache[spec] != nil || waiters[spec] != nil }
++    func image(for spec: RowSpec) -> CGImage? { cache.value(for: spec) } // cmux: dictionary read
++    func has(_ spec: RowSpec) -> Bool { TiledBubble.applies(spec) || cache.keys.contains(spec) || waiters.keys.contains(spec) } // cmux
+ 
      /// Main thread: get the bitmap now or when it is rendered.
      func request(_ spec: RowSpec, _ done: ((CGImage) -> Void)? = nil) {
          // Long text rows are tiles (TiledBubble.swift): no bitmap, and no spec (with its text) held here.
@@ -195,7 +210,27 @@
              self.deliver(spec, img, gen)
          }
          op.queuePriority = .veryHigh
-@@ -782,11 +790,11 @@
+@@ -742,15 +750,16 @@
+     private func store(_ spec: RowSpec, _ img: CGImage) {
+         if TiledBubble.applies(spec) { return }
+         if let old = cache[spec] { bytes -= old.bytesPerRow * old.height } else { order.append(spec) }
+-        cache[spec] = img
++        cache.updateValue(img, forKey: spec) // cmux: dictionary write
+         bytes += img.bytesPerRow * img.height
+         // Trim in chunks (removing from the front of the order array on every
+         // insert copied it each time). Bounded by rows and by bytes (media rows are large).
+         if order.count > RowBitmaps.capacity + 100 || bytes > RowBitmaps.byteBudget {
+             var n = max(0, order.count - RowBitmaps.capacity), freed = 0
+             if bytes > RowBitmaps.byteBudget {
+-                while n < order.count, bytes - freed > RowBitmaps.byteBudget * 4 / 5 {
+-                    freed += cache[order[n]].map { $0.bytesPerRow * $0.height } ?? 0
++                for spec in order.dropFirst(n) { // cmux: no index math
++                    guard bytes - freed > RowBitmaps.byteBudget * 4 / 5 else { break }
++                    freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
+                     n += 1
+                 }
+             }
+@@ -782,11 +791,11 @@
      static func prerender(_ specs: ArraySlice<RowSpec>) -> [(RowSpec, CGImage)] {
          guard prerenderEnabled else { return [] }
          return specs.compactMap { spec in
@@ -209,7 +244,7 @@
          if TiledBubble.applies(spec) { return TiledBubble.emptyImage }
          let span = RowDraw.drawSpan(spec)
          let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-@@ -803,19 +811,21 @@
+@@ -803,19 +812,21 @@
  /// pixel as the sRGB `.standard` renderer it replaces. AppKit builds draw through the
  /// shim's renderer, whose bitmaps are in the window's colour space already.
  enum WideBitmap {

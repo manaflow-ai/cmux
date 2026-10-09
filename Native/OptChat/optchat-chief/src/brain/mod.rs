@@ -893,7 +893,8 @@ impl Brain {
         source: Source,
     ) {
         // Section 9: subagents' reports reach a working Chief between its
-        // tool calls; on acpmux that is a stop like a human message's.
+        // tool calls (steered on acpmux); one that cannot reach it waits for
+        // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
         let item = Queued {
