@@ -112,6 +112,8 @@ pub struct Owner {
     /// Every op the brain sent, in order: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
     pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
@@ -341,6 +343,19 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
         Ok(())
     }
 
@@ -784,6 +799,7 @@ pub fn settings(dir: &Path) -> Settings {
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
+        shared_ttl: Default::default(),
     }
 }
 

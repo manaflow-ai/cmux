@@ -197,8 +197,10 @@ public final class BrowserChromeView: NSView {
         addSubview(promptBar)
         addSubview(findBar)
 
-        toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
-            isToolbarHidden ? 0 : currentToolbarHeight
+        toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
+            // A deallocated chrome view's constraint is never laid out again.
+            guard let self else { return 0 }
+            return isToolbarHidden ? 0 : currentToolbarHeight
         }
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing

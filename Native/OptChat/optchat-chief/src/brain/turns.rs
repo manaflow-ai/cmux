@@ -140,8 +140,12 @@ impl Brain {
                                 after,
                             });
                         };
+                        // The reply as it streams, to every client.
+                        let draft = |d: crate::draft::Draft| {
+                            let _ = tx.send(Input::Draft(Box::new(d)));
+                        };
                         let outcome =
-                            turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -204,15 +208,16 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
-                                marker_refused.store(true, Ordering::SeqCst);
+                                marker_refused.refused();
                                 // The inspector lays this turn out unmarked.
                                 trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
-                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
-                                    start.key
+                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and the next {} turns go without it",
+                                    start.key,
+                                    crate::prompt::MARK_RETRY_AFTER
                                 ));
                                 let mut again = start.clone();
                                 for block in &mut again.blocks {
@@ -221,7 +226,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
                         }
@@ -375,7 +380,7 @@ impl Brain {
         // system prompt; else the view and the messages as blocks.
         let (cached, plain_preset) = self.session_presets(family);
         let cached = cached.as_deref();
-        let marker = !self.marker_refused.load(Ordering::SeqCst);
+        let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our one mark: the last whole block of the view, held within the
         // API's lookback of the last turn's mark (optchat_core::mark_piece).
@@ -721,13 +726,17 @@ impl Brain {
     /// `OPTCHAT_CACHE_TTL`, else the Chief's `cache.ttl`, else 1 hour; 5
     /// minutes once a route refused 1 hour.
     pub(super) fn turn_cache_ttl(&self) -> CacheTtl {
-        if self.ttl_refused.load(Ordering::SeqCst) {
-            return CacheTtl::FiveMinutes;
-        }
-        self.settings
-            .cache_ttl
-            .or(self.chief.cache_ttl)
-            .unwrap_or(CacheTtl::OneHour)
+        let ttl = if self.ttl_refused.load(Ordering::SeqCst) {
+            CacheTtl::FiveMinutes
+        } else {
+            self.settings
+                .cache_ttl
+                .or(self.chief.cache_ttl)
+                .unwrap_or(CacheTtl::OneHour)
+        };
+        // The compactor's nodes follow it.
+        self.settings.shared_ttl.set(ttl);
+        ttl
     }
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
@@ -843,13 +852,15 @@ impl Brain {
         );
     }
 
-    pub(super) fn turn_ended(&mut self, key: &str, outcome: TurnOutcome) {
+    pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        let outcome_done = outcome.done_draft.take();
         let conversation = self
             .state
             .turn
             .as_ref()
             .filter(|t| t.key == key)
             .and_then(|t| t.conversation.clone());
+        let done_conversation = conversation.clone();
         // A turn stopped for a newer message posts nothing: the next turn,
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
@@ -922,6 +933,10 @@ impl Brain {
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        // After the reply: a client drops the draft as the message lands.
+        if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
+            self.publish_draft(conversation, &done);
+        }
         if main {
             self.set_typing(false);
         }

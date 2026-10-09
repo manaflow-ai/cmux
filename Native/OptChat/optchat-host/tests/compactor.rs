@@ -455,3 +455,67 @@ fn a_node_that_always_fails_with_a_request_error_does_not_block_settle() {
     assert!(started.elapsed() < Duration::from_secs(8));
     assert_eq!(chat.status().unbuilt, 1);
 }
+
+/// A clock that records each wait and returns at once; a wait of
+/// `STUCK_RETRY` or more parks the caller (the test is over by then).
+#[derive(Default)]
+struct Recording {
+    waits: Mutex<Vec<Duration>>,
+}
+
+impl Clock for Recording {
+    fn sleep(&self, d: Duration) {
+        self.waits.lock().unwrap().push(d);
+        if d >= STUCK_RETRY {
+            std::thread::park();
+        }
+    }
+}
+
+/// hq-6d item 8: a compactor node's transient failures follow the turns'
+/// policy: the server's retry-after when it gives one, else 1 s doubled each
+/// try, at most 120 s, 8 tries; then the node stops holding turns and is
+/// retried every STUCK_RETRY.
+#[test]
+fn compactor_retries_back_off_honor_retry_after_and_stop_holding_turns_after_8_tries() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = {
+        let calls = calls.clone();
+        Arc::new(Fake(move |_: &CompactRequest, _: &[Followup]| {
+            let k = calls.fetch_add(1, Ordering::SeqCst);
+            let e = ModelError::new(r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#);
+            Err(if k == 2 {
+                e.with_retry_after(Duration::from_secs(7))
+            } else {
+                e
+            })
+        }))
+    };
+    let clock = Arc::new(Recording::default());
+    let chat = OptChat::open_with(dir.path(), config(128_000).0, model, clock.clone()).unwrap();
+    chat.append(Kind::User, &long(0)).unwrap();
+    assert!(
+        chat.settle(None, Some(Duration::from_secs(10))),
+        "a node failing 8 times still holds the turn"
+    );
+    let waits: Vec<u64> = clock.waits.lock().unwrap().iter().map(Duration::as_secs).collect();
+    assert_eq!(waits, vec![1, 2, 7, 8, 16, 32, 64, STUCK_RETRY.as_secs()]);
+    assert_eq!(calls.load(Ordering::SeqCst), 8);
+}
+
+/// hq-6d item 8: a compactor retry waits while a turn waits on a rate limit.
+#[test]
+fn a_compactor_retry_waits_while_a_turn_waits_on_a_rate_limit() {
+    let turn = optchat_host::rate::foreground();
+    let started = std::time::Instant::now();
+    let waiter = std::thread::spawn(move || {
+        optchat_host::rate::background_wait(Duration::from_secs(10));
+        started.elapsed()
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    drop(turn);
+    let waited = waiter.join().unwrap();
+    assert!(waited >= Duration::from_millis(300), "{waited:?}");
+    assert!(waited < Duration::from_secs(5), "{waited:?}");
+}

@@ -26,7 +26,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let window else { return }
                 self?.ownedWindowDidBecomeKey(window)
                 self?.childWindowDidBecomeKey(window)
@@ -34,7 +34,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     self?.controller.focus.send(.appActive(active))
                     if active { self?.reclaimKeyAfterActivation() }
                 }
@@ -267,7 +267,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.focus.send(.overlayOpened(.groupEditor))
         overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
                                                                       queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() }
+            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() } // main-proof: observer on queue: .main
         }
     }
 

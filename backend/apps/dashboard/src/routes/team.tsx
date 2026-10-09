@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useLoad } from "../lib/hooks"
-import { read } from "../lib/server"
-import { setSignedIn, useSignedIn } from "../lib/session"
+import { mutate, read } from "../lib/server"
+import { newKey, setSignedIn, useSignedIn } from "../lib/session"
+import { callerRole, type TeamRole } from "../lib/team-vm"
+import { TeamVmSection } from "./-team-vm"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -13,11 +15,22 @@ interface Directory {
 
 function Team() {
   const signedIn = useSignedIn()
-  const dir = useLoad<{ value: Directory; revision: string }>(signedIn ? "team" : null, async () => {
+  const dir = useLoad<{ value: Directory; revision: string; role: TeamRole | null }>(signedIn ? "team" : null, async () => {
+    // user.ensure is idempotent and names the caller, whose role decides the team VM actions.
+    const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
+    if (e.status === 401) setSignedIn(false)
+    if (e.status !== 200) throw new Error(`user.ensure failed: ${e.status}`)
+    const me = String((e.body.value as { id?: unknown } | undefined)?.id ?? "")
     const r = await read({ data: { op: "team.directory", params: {} } })
     if (r.status === 401) setSignedIn(false)
     if (r.status !== 200) throw new Error(`team.directory failed: ${r.status} (open Devices once to create your personal team)`)
-    return { value: r.body.value as unknown as Directory, revision: r.body.revision }
+    const value = r.body.value as unknown as Directory
+    // The directory lists the first 200 members; a caller past them is found through team.members.list.
+    const role = await callerRole(me, value.members, async (cursor) => {
+      const p = await read({ data: { op: "team.members.list", params: { cursor } } })
+      return p.status === 200 ? (p.body.value as unknown as { members: Array<{ user: string; role: string }>; next_cursor: string | null }) : null
+    })
+    return { value, revision: r.body.revision, role }
   })
   if (signedIn === false)
     return (
@@ -26,6 +39,7 @@ function Team() {
       </p>
     )
   const d = dir.data?.value
+  const role = dir.data?.role ?? null
   return (
     <>
       <h2>Team</h2>
@@ -35,6 +49,7 @@ function Team() {
           <code>{d.team}</code> · revision {dir.data?.revision}
         </p>
       ) : null}
+      {d ? <TeamVmSection team={d.team} role={role} /> : null}
       <h3>Members</h3>
       <div className="card">
         <table>
