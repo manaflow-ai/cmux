@@ -193,6 +193,8 @@ final class OpenBrowserExecutor: ControlActionExecutor {
     @Test func cmuxChatsOneTimeCodeURLOpensInTheCallersPaneAndIsNeverEchoed() async throws {
         let executor = OpenBrowserExecutor()
         let router = makeRouter(executor)
+        // The App's sync barrier: the daemon has applied everything up to now.
+        router.registerSyncBarrier { 0 }
         let url = "http://127.0.0.1:7739/o/Zx9k2LqP4w"
         // The exact params the CLI sends, `after: "sync"` (its read barrier) included.
         let reply = try await open(router, ["url": .string(url), "focus": false, "terminal_id": "term-a", "origin": "script",
