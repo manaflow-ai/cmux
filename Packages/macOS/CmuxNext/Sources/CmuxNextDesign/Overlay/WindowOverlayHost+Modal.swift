@@ -18,18 +18,26 @@ extension WindowOverlayHost {
                 restoreResponder = responder
                 restoreSelection = nil
             }
-            focusMoved = false
+            otherWindowTookKey = false
+            modalLeftWindowUsable = false
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
                                                                  queue: .main) { [weak self] note in
                 let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
                 // main-proof: observer on queue: .main
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    // The overlay taking the keyboard back cancels a move; any other window is a move.
-                    self.focusMoved = window != ObjectIdentifier(self.panel)
+                    guard let self, let window else { return }
+                    // The overlay taking the keyboard back cancels a move. The overlay's own window
+                    // becoming key is the app coming back to the front (dogfood 2026-10-08, C3),
+                    // not a move: a click into it shows as a first responder change instead.
+                    if window == ObjectIdentifier(self.panel) {
+                        self.otherWindowTookKey = false
+                    } else if ![self.restoreWindow, self.window].contains(where: { $0.map(ObjectIdentifier.init) == window }) {
+                        self.otherWindowTookKey = true
+                    }
                 }
             }
         }
+        if handle.options.modalRegion != nil { modalLeftWindowUsable = true }
         panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
         panel.autorecalculatesKeyViewLoop = false
@@ -83,19 +91,30 @@ extension WindowOverlayHost {
         restoreResponder = nil
     }
 
+    /// The keyboard went elsewhere while the modal showed: another window took
+    /// it, or, beside a tab dialog (the rest of the window takes clicks), the
+    /// person clicked into the window: its first responder is no longer the
+    /// one the modal took the keyboard from.
+    var focusMoved: Bool {
+        if otherWindowTookKey { return true }
+        guard modalLeftWindowUsable, let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
+        var current = window.firstResponder
+        if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSResponder }
+        return current !== saved
+    }
+
     /// Escape reaches the panel only while it is key (a modal overlay). For
     /// a non-modal overlay that dismisses on Escape, a local key monitor
     /// lives while such an overlay shows and catches an Escape for any of the
-    /// app's windows; it goes with the last such overlay.
+    /// app's windows; it goes with the last such overlay. It also lives while
+    /// a modal shows: when its window took the keyboard back (the app came
+    /// back to the front), the modal still answers an Escape there.
     func updateEscapeMonitor() {
-        let wanted = handles.contains { $0.options.dismissOnEscape && !$0.options.isModal }
+        let wanted = handles.contains { $0.options.dismissOnEscape || $0.options.isModal }
         if wanted, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, event.keyCode == 53, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
-                      !self.panel.isKeyWindow, let target = event.window,
-                      self.isAppHost || target === self.window || target.parent === self.window,
-                      let handle = self.handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return event }
-                handle.dismiss()
+                      self.routeEscape(event, in: event.window) else { return event }
                 return nil
             }
         } else if !wanted, let monitor = escapeMonitor {
@@ -145,5 +164,35 @@ extension WindowOverlayHost {
             if let found = firstKeyView(in: child) { return found }
         }
         return nil
+    }
+}
+
+extension WindowOverlayHost {
+    /// An Escape for `target`, a window the panel is not: true when an overlay took it. The
+    /// newest modal overlay takes it back while the keyboard did not move on (the person came
+    /// back from another app and the window became key); else the newest non-modal overlay that
+    /// dismisses on Escape goes.
+    func routeEscape(_ event: NSEvent, in target: NSWindow?) -> Bool {
+        guard !panel.isKeyWindow, let target, isAppHost || target === window || target.parent === window else { return false }
+        if handles.contains(where: { $0.options.isModal }), !focusMoved {
+            if panel.isVisible { panel.makeKey() }
+            if let top = handles.last(where: { $0.options.isModal }),
+               !((panel.firstResponder as? NSView)?.isDescendant(of: top.content) ?? false) {
+                panel.makeFirstResponder(Self.keyViews(in: top.content).first ?? top.content)
+            }
+            panel.sendEvent(Self.retargeted(event, to: panel))
+            return true
+        }
+        guard let handle = handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return false }
+        handle.dismiss()
+        return true
+    }
+
+    /// `event` as a key press in `window`.
+    static func retargeted(_ event: NSEvent, to window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: event.type, location: event.locationInWindow, modifierFlags: event.modifierFlags,
+                         timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil,
+                         characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+                         isARepeat: event.isARepeat, keyCode: event.keyCode) ?? event
     }
 }
