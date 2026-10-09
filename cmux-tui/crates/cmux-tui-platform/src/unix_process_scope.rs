@@ -452,9 +452,7 @@ impl UnixProcessScope {
     }
 
     #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
-    pub fn final_scan_gate_for_test(
-        &mut self,
-    ) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+    pub fn final_scan_gate_for_test(&mut self) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
         let (reached, reached_receiver) = mpsc::sync_channel(1);
         let (resume, resume_receiver) = mpsc::sync_channel(1);
         self.track_before_finalization = false;
