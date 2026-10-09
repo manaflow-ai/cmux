@@ -10,6 +10,7 @@ actor MobileRpcService {
     private let channel: MobileChannel
     private let principal: MobileDevicePrincipal
     private let owner: WorkspaceStreamOwner
+    private let configuration: MobileHostConfiguration
     /// Every stream this channel serves by name (`workspace:`, and `task:` with a runner).
     private let streams: [String: any MobileStreamOwner]
     private let executor: MobileOpExecutor
@@ -18,11 +19,13 @@ actor MobileRpcService {
     private var forwarders: [String: Task<Void, Never>] = [:]
 
     init(channel: MobileChannel, principal: MobileDevicePrincipal, owner: WorkspaceStreamOwner,
-         executor: MobileOpExecutor, readHandlers: [String: any MobileReadHandler], gate: MobileSessionGate,
+         executor: MobileOpExecutor, configuration: MobileHostConfiguration,
+         readHandlers: [String: any MobileReadHandler], gate: MobileSessionGate,
          extraStreams: [any MobileStreamOwner] = []) {
         self.channel = channel
         self.principal = principal
         self.owner = owner
+        self.configuration = configuration
         var streams: [String: any MobileStreamOwner] = [owner.stream: owner]
         for extra in extraStreams { streams[extra.stream] = extra }
         self.streams = streams
@@ -147,6 +150,13 @@ actor MobileRpcService {
     }
 
     private func read(_ frame: ReadFrame) async {
+        if frame.op == "mobile.host.status" {
+            let revision = String(await owner.headSeq)
+            try? await channel.send(frame: .readResult(ReadResultFrame(id: frame.id,
+                                                                        value: configuration.statusPayload,
+                                                                        revision: revision)))
+            return
+        }
         guard let handler = readHandlers[frame.op] else {
             await sendError(id: frame.id, code: "proto.unsupported", message: "\(frame.op) is not served by this host")
             return

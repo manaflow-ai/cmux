@@ -825,13 +825,16 @@ let package = Package(
             name: "CmuxiOSPlatform",
             dependencies: [
                 "CmuxiOSFeatureKit",
+                .product(name: "CmuxMobileLink", package: "CmuxMobileLink"),
+                .product(name: "CmuxMobileWire", package: "CmuxMobileWire"),
                 .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "CmuxiOSPlatformTests",
-            dependencies: ["CmuxiOSPlatform", "CmuxiOSFeatureKit"],
+            dependencies: ["CmuxiOSPlatform", "CmuxiOSFeatureKit",
+                           .product(name: "CmuxMobileWire", package: "CmuxMobileWire")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // The platform services' screens: toast overlay, diagnostics, What's

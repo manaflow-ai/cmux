@@ -241,6 +241,15 @@ final class AppContainer {
         // D1: one link client per Mac for terminals (C1), files (C4) and the browser (C2).
         let madeLinks = AccountLinkDirectory()
         accountLinks = madeLinks
+        if let madePairing {
+            let registry = madePairing.registry()
+            let links = madeLinks
+            macCapabilitiesFactory = {
+                LiveMacCapabilitiesSource(registry: registry) { host in
+                    await links.client(for: host)
+                }
+            }
+        }
         let tabs = CurrentWorkspaceTabs()
         browserTabs = tabs
         let links = LinkClientProvider(directory: madeLinks)

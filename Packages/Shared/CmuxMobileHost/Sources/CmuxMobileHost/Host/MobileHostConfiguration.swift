@@ -1,3 +1,5 @@
+public import CmuxMobileWire
+
 /// Static inputs of one Mac host.
 public struct MobileHostConfiguration: Sendable {
     /// This Mac's host id (`h_…`, the id `HostDO` and the proof name).
@@ -16,6 +18,12 @@ public struct MobileHostConfiguration: Sendable {
     public var maxFrame: Int
     /// Caps this host offers in `hello.ok` (intersected with the client's).
     public var caps: [String]
+    /// Metadata returned by the authenticated `mobile.host.status` read.
+    /// These values are deliberately carried by the host configuration so the
+    /// phone does not have to trust a discovery record for compatibility UI.
+    public var displayName: String
+    public var appVersion: String
+    public var appBuild: String
 
     /// `workspace.close`, `workspace.read` and `workspace.preview` tell the
     /// phone it may offer Close and Mark as Read and that rows carry preview
@@ -33,12 +41,29 @@ public struct MobileHostConfiguration: Sendable {
     public static let taskDispatchCap = "task.dispatch"
 
     public init(hostID: String, accountUserID: String, allowsTerminalSpawn: Bool = false, allowsTaskDispatch: Bool = false,
-                maxFrame: Int = 256 * 1024, caps: [String] = MobileHostConfiguration.defaultCaps) {
+                maxFrame: Int = 256 * 1024, caps: [String] = MobileHostConfiguration.defaultCaps,
+                displayName: String = "", appVersion: String = "0", appBuild: String = "0") {
         self.hostID = hostID
         self.accountUserID = accountUserID
         self.allowsTerminalSpawn = allowsTerminalSpawn
         self.allowsTaskDispatch = allowsTaskDispatch
         self.maxFrame = maxFrame
         self.caps = caps
+        self.displayName = displayName
+        self.appVersion = appVersion
+        self.appBuild = appBuild
+    }
+
+    /// The authenticated host identity and capability projection consumed by
+    /// iOS's Mac compatibility gate. `caps` is the complete owner set; the
+    /// hello negotiation still intersects it with the phone's requested caps.
+    public var statusPayload: JSONValue {
+        .object([
+            "mac_device_id": .string(hostID),
+            "mac_display_name": .string(displayName),
+            "mac_app_version": .string(appVersion),
+            "mac_app_build": .string(appBuild),
+            "capabilities": .array(caps.map(JSONValue.string)),
+        ])
     }
 }

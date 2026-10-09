@@ -1,5 +1,6 @@
 import CmuxiOSFeatureKit
 import CmuxiOSPlatform
+import CmuxMobileWire
 import Foundation
 import Testing
 
@@ -48,6 +49,28 @@ struct ReleaseSurfacesTests {
 
     private func mac(protocol version: Int, capabilities: Set<String> = []) -> MacCapabilities {
         MacCapabilities(host: HostID("mac"), name: "Mac", appVersion: "1", protocolVersion: version, capabilities: capabilities)
+    }
+
+    @Test("live host status wins over discovery metadata while hello is the protocol fallback")
+    func liveMacCapabilitiesProjection() {
+        let hello = HelloOKFrame(version: 1, caps: ["workspace.close"], serverTime: 0, maxFrame: 1024)
+        let status: JSONValue = .object([
+            "mac_display_name": .string("Studio"),
+            "mac_app_version": .string("1.2.3"),
+            "capabilities": .array([.string("workspace.close"), .string("task.stream")]),
+        ])
+        let projected = MacCapabilitiesProjection.decode(host: HostID("host_1"), fallbackName: "Old Name",
+                                                         hello: hello, status: status)
+        #expect(projected.name == "Studio")
+        #expect(projected.appVersion == "1.2.3")
+        #expect(projected.protocolVersion == 1)
+        #expect(projected.capabilities == ["workspace.close", "task.stream"])
+
+        let fallback = MacCapabilitiesProjection.decode(host: HostID("host_1"), fallbackName: "Old Name",
+                                                        hello: hello, status: nil)
+        #expect(fallback.name == "Old Name")
+        #expect(fallback.appVersion == "0")
+        #expect(fallback.capabilities == ["workspace.close"])
     }
 
     @Test func macVerdicts() {

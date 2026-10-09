@@ -120,7 +120,13 @@ public actor MobileLinkHostRunner {
             if let device = state.devices[install] { return device.name }
             return state.guests.values.first { $0.device.install == install }?.device.name
         }
-        let features = MobileLinkFeatureFactory.features(options.services, daemon: daemon, hostID: principal.hostID, names: names)
+        var features = MobileLinkFeatureFactory.features(options.services, daemon: daemon, hostID: principal.hostID, names: names)
+        // Host status is part of the authenticated mobile protocol. Keep the
+        // bundle metadata next to the capabilities instead of asking iOS to
+        // infer compatibility from a discovery record.
+        features.displayName = options.macName
+        features.appVersion = options.appVersion
+        features.appBuild = options.appBuild
         tasks = features.taskRunner as? AcpmuxMobileTaskRunner
         let assembly = MobileHostAssembly(
             credentials: MobileHostCredentials(hostID: principal.hostID, accountUserID: principal.accountUserID, direct: direct,

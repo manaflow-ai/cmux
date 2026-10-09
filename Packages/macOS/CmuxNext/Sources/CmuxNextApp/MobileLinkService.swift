@@ -56,6 +56,7 @@ final class MobileLinkService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let keys = support.appendingPathComponent(namespace, isDirectory: true).appendingPathComponent("mobile-link", isDirectory: true)
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         let linkServices = servicesProvider?(setting) ?? MobileLinkServices()
         starting = Task { [weak self, logger] in
             await replacementTeardown.value
@@ -68,7 +69,7 @@ final class MobileLinkService {
             }
             let runner = MobileLinkHostRunner(
                 account: account,
-                options: MobileLinkHostOptions(macName: name, appVersion: version,
+                options: MobileLinkHostOptions(macName: name, appVersion: version, appBuild: build,
                                                wireGuardOverWebRTC: setting.wireGuardOverWebRTC, keyDirectory: keys,
                                                services: linkServices),
                 endpointProvider: { @MainActor in try await daemon.endpoint() })

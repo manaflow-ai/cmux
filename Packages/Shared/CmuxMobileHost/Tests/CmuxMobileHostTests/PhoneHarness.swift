@@ -32,14 +32,16 @@ struct PhoneHarness {
          authorizer: (any MobileDeviceAuthorizer)? = nil, key: P256.Signing.PrivateKey = P256.Signing.PrivateKey(),
          taskRunner: (any MobileTaskRunner)? = nil, allowsTaskDispatch: Bool = false,
          taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(),
-         carrierIdentity: LinkPeerIdentity? = nil, keyResolver: (any CarrierKeyResolver)? = nil) async throws {
+         carrierIdentity: LinkPeerIdentity? = nil, keyResolver: (any CarrierKeyResolver)? = nil,
+         displayName: String = "", appVersion: String = "0", appBuild: String = "0") async throws {
         let paired = devices?(key) ?? [PairedDevice(install: Self.install, userID: Self.userID, keyID: "k1",
                                                      publicKey: key.publicKey.x963Representation)]
         let store = StaticTrustStore(devices: paired)
         let network = LoopbackNetwork()
         let host = MobileHost(
             configuration: MobileHostConfiguration(hostID: Self.hostID, accountUserID: Self.userID,
-                                                   allowsTaskDispatch: allowsTaskDispatch),
+                                                   allowsTaskDispatch: allowsTaskDispatch, displayName: displayName,
+                                                   appVersion: appVersion, appBuild: appBuild),
             acceptor: carrierIdentity.map { IdentifiedAcceptor(inner: network.acceptor, identity: $0) } ?? network.acceptor,
             daemon: daemon,
             authorizer: authorizer ?? TrustStoreAuthorizer(hostID: Self.hostID, accountUserID: Self.userID, store: store),

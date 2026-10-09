@@ -12,16 +12,25 @@ public struct MobileHostFeatures: Sendable {
     public var caps: [String]
     public var allowsTaskDispatch: Bool
     public var allowsTerminalSpawn: Bool
+    /// Values surfaced by the authenticated host status read. The app layer
+    /// fills these from its bundle and computer name for each host run.
+    public var displayName: String
+    public var appVersion: String
+    public var appBuild: String
 
     public init(handlers: MobileChannelHandlers = MobileChannelHandlers(), taskRunner: (any MobileTaskRunner)? = nil,
                 taskAttachments: any MobileTaskAttachmentResolver = UnavailableTaskAttachments(), caps: [String] = [],
-                allowsTaskDispatch: Bool = false, allowsTerminalSpawn: Bool = false) {
+                allowsTaskDispatch: Bool = false, allowsTerminalSpawn: Bool = false,
+                displayName: String = "", appVersion: String = "0", appBuild: String = "0") {
         self.handlers = handlers
         self.taskRunner = taskRunner
         self.taskAttachments = taskAttachments
         self.caps = caps
         self.allowsTaskDispatch = allowsTaskDispatch
         self.allowsTerminalSpawn = allowsTerminalSpawn
+        self.displayName = displayName
+        self.appVersion = appVersion
+        self.appBuild = appBuild
     }
 
     /// The host configuration for this Mac with these features.
@@ -29,6 +38,7 @@ public struct MobileHostFeatures: Sendable {
         var caps = MobileHostConfiguration.defaultCaps
         for cap in self.caps where !caps.contains(cap) { caps.append(cap) }
         return MobileHostConfiguration(hostID: hostID, accountUserID: accountUserID, allowsTerminalSpawn: allowsTerminalSpawn,
-                                       allowsTaskDispatch: allowsTaskDispatch, caps: caps)
+                                       allowsTaskDispatch: allowsTaskDispatch, caps: caps,
+                                       displayName: displayName, appVersion: appVersion, appBuild: appBuild)
     }
 }

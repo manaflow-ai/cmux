@@ -68,6 +68,22 @@ struct SessionTests {
         #expect(await handler.principals == [PhoneHarness.install])
     }
 
+    @Test func authenticatedHostStatusReadReturnsMetadataAndCapabilities() async throws {
+        let h = try await PhoneHarness(displayName: "Studio", appVersion: "1.2.3", appBuild: "42")
+        defer { Task { await h.shutdown() } }
+        try await h.hello()
+        let (rpc, _) = try await h.open(.rpc, id: 1)
+        try await rpc.send(frame: .read(ReadFrame(id: 7, op: "mobile.host.status", params: .object([:]))))
+        let result = try await PhoneHarness.nextJSON(rpc)
+        #expect(result["t"]?.stringValue == "read.result")
+        #expect(result["id"] == .int(7))
+        #expect(result["value"]?["mac_device_id"]?.stringValue == PhoneHarness.hostID)
+        #expect(result["value"]?["mac_display_name"]?.stringValue == "Studio")
+        #expect(result["value"]?["mac_app_version"]?.stringValue == "1.2.3")
+        #expect(result["value"]?["mac_app_build"]?.stringValue == "42")
+        #expect(result["value"]?["capabilities"]?.arrayCount ?? 0 > 0)
+    }
+
     @Test func revocationClosesLiveChannels() async throws {
         let h = try await PhoneHarness()
         defer { Task { await h.shutdown() } }

@@ -35,6 +35,7 @@ final class MobileHostContext: Sendable {
             var reads = handlers.reads
             if let tasks { reads["task.list"] = TaskListReadHandler(service: tasks) }
             await MobileRpcService(channel: channel, principal: principal, owner: owner, executor: executor,
+                                   configuration: configuration,
                                    readHandlers: reads, gate: gate,
                                    extraStreams: tasks.map { [$0.owner] } ?? []).run()
         case .terminal:
