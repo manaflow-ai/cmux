@@ -230,7 +230,7 @@ export CMUX_TUI_TREE_BASE_FALLBACK=1
 expect "pull request, no cmux-tui change, base tree reused" pull_request ready "changes no cmux-tui"
 grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree jobs must fetch the newest published tree $published_key: $(cat "$TMP/gh-output")"
 fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
-[[ "$fetched" == */"$published_key"/cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
+[[ "$fetched" == *"/$published_key/"*cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
 mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"

@@ -402,6 +402,9 @@ jobs:
       # ready, deferred, superseded or failed; empty when no tree tier runs.
       tree_state: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
       tree_key: ${{ steps.tree.outputs.tree_key }}
+      # A pull request that changes no cmux-tui path and whose own tree is not
+      # ready: the published tree its tree jobs fetch (CMUX_TUI_TREE_KEY).
+      tree_fetch_key: ${{ steps.tree-final.outputs.tree_fetch_key || steps.tree.outputs.tree_fetch_key }}
       tree_reason: ${{ steps.marker-upload.outcome == 'failure' && 'the tree wait marker was not uploaded, so no publish would start the tree jobs; re-run this run' || steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -431,6 +434,14 @@ jobs:
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
           python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
             --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          # Whether this pull request changes the cmux-tui it would test against.
+          # One that does not is never failed for an unpublished merge tree
+          # (the probe steps below, CMUX_TUI_TREE_BASE_FALLBACK).
+          if [[ "$EVENT_NAME" == pull_request ]] && ! grep -qE '^(cmux-tui/|ghostty-next$)' "$changed"; then
+            echo "own_tui=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "own_tui=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # One look (and one short re-check of a missing run list), no wait.
       - name: Probe the same-tree cmux-tui
@@ -445,6 +456,7 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -507,6 +519,7 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -1215,6 +1228,9 @@ jobs:
       CMUX_NEXT_RUNNER: ${{ needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # A pull request that changes no cmux-tui path runs on the newest
+      # published tree when its own is not ready (path routing's probe).
+      CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1680,6 +1696,9 @@ jobs:
       CMUX_NEXT_RUNNER: ${{ needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # A pull request that changes no cmux-tui path runs on the newest
+      # published tree when its own is not ready (path routing's probe).
+      CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash

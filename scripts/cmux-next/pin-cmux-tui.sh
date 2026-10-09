@@ -95,7 +95,8 @@
 #        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
 #        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
-#          ready|deferred|superseded|failed, tree_key= and tree_reason= to GITHUB_OUTPUT)
+#          ready|deferred|superseded|failed|skipped, tree_key=, tree_fetch_key= and
+#          tree_reason= to GITHUB_OUTPUT)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
@@ -160,6 +161,22 @@ tree_key() {
 # Empty when <rev> has no v1 key (a revision without the classic gitlink).
 legacy_tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
+}
+# The tree this checkout fetches and bundles: its own, or CMUX_TUI_TREE_KEY.
+# cmux-next path routing sets that for a pull request that changes no
+# cmux-tui path and whose own tree is not published (probe's tree_fetch_key):
+# the tree jobs then run against the newest published tree in its history.
+checkout_tree_key() {
+  if [[ -n "${CMUX_TUI_TREE_KEY:-}" ]]; then
+    [[ "$CMUX_TUI_TREE_KEY" =~ ^[0-9a-f]{40}$ ]] || { echo "error: CMUX_TUI_TREE_KEY must be a 40-hex tree key" >&2; exit 2; }
+    echo "$CMUX_TUI_TREE_KEY"
+  else
+    tree_key HEAD
+  fi
+}
+# The checkout's v1 key; none for a CMUX_TUI_TREE_KEY tree (always v2).
+checkout_legacy_tree_key() {
+  [[ -n "${CMUX_TUI_TREE_KEY:-}" ]] || legacy_tree_key HEAD
 }
 
 mode_from_args() {
@@ -656,7 +673,7 @@ fetch_tree_companions() {
 
 fetch_tree() {
   local key base_key wait_key dir binary url actual temp_dir
-  key="$(tree_key HEAD)"
+  key="$(checkout_tree_key)"
   if local_build_matches "${CMUX_TUI_CLIENT_LOCAL:-}"; then
     echo "same-tree cmux-tui $key: using the local build of this source, $CMUX_TUI_CLIENT_LOCAL"
     return 0
@@ -688,8 +705,11 @@ fetch_tree() {
       echo "pull-request cmux-tui tree $key differs from base tree $base_key; waiting for its own publication (bounded)" >&2
     fi
   fi
-  require_target_in_tree "$wait_key" "$(legacy_tree_key HEAD)"
-  wait_for_tree "$wait_key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
+  if [[ -n "${CMUX_TUI_TREE_KEY:-}" ]]; then
+    echo "cmux-tui tree $key from CMUX_TUI_TREE_KEY: this pull request changes no cmux-tui path, so it runs on the newest published tree in its history" >&2
+  fi
+  require_target_in_tree "$wait_key" "$(checkout_legacy_tree_key)"
+  wait_for_tree "$wait_key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
   if [[ "$published_key" != "$key" ]]; then
     echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/cmux-tui-$TARGET"
@@ -758,6 +778,11 @@ tree_published() {
 #   tree_state=superseded  a push whose artifacts runs were cancelled or skipped
 #                          while the branch moved on: nothing to test
 #   tree_state=failed      nothing will publish it (tree_reason says why)
+#   tree_state=skipped     CMUX_TUI_TREE_BASE_FALLBACK=1 and no tree in the
+#                          history is published: the tree jobs do not run
+# With CMUX_TUI_TREE_BASE_FALLBACK=1 a tree that is not ready is replaced by
+# the newest published one in the history (resolve-newest-published): ready,
+# with tree_fetch_key= for the tree jobs' CMUX_TUI_TREE_KEY.
 # The publisher is CMUX_TUI_TREE_PUBLISHER_SHA's artifacts runs (push and
 # dispatch). A pull request whose merge keeps the base's tree waits for the base
 # push's runs. One with its own merge tree has no publisher (GitHub runs
@@ -773,6 +798,7 @@ tree_published() {
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
+  local fetch_key="" resolved=""
   key="$(tree_key HEAD)"
   legacy="$(legacy_tree_key HEAD)"
   [[ "$legacy" == "$key" ]] && legacy=""
@@ -833,6 +859,20 @@ probe_checkout_tree() {
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac
+  # A pull request that changes no cmux-tui or ghostty-next path
+  # (CMUX_TUI_TREE_BASE_FALLBACK=1 from path routing) is not held to its merge
+  # tree: when that is not ready, its tree jobs run on the newest published
+  # tree in its history, or are skipped when there is none. Never failed.
+  if [[ "$state" != ready && "${CMUX_TUI_TREE_BASE_FALLBACK:-}" == 1 ]]; then
+    if resolved="$(CMUX_TUI_TREE_DISPATCH='' GITHUB_STEP_SUMMARY='' resolve_newest_published_tree)"; then
+      fetch_key="$(awk -F= '$1 == "key" { print $2 }' <<<"$resolved")"
+      reason="this pull request changes no cmux-tui or ghostty-next path; its tree $key is $state, so the tree jobs use the newest published tree $fetch_key (from $(awk -F= '$1 == "source_commit" { print substr($2, 1, 12) }' <<<"$resolved"))"
+      state=ready
+    else
+      reason="this pull request changes no cmux-tui or ghostty-next path, its tree $key is $state, and no tree in its recent history is published; the tree jobs are skipped"
+      state=skipped
+    fi
+  fi
   if [[ "$state" != ready ]]; then
     report_tree_miss "$key"
     case "${tree_publisher_action:-none}:$state" in
@@ -845,6 +885,7 @@ probe_checkout_tree() {
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     {
       echo "tree_key=$key"
+      [[ -z "$fetch_key" ]] || echo "tree_fetch_key=$fetch_key"
       echo "tree_state=$state"
       echo "tree_reason=$(tr -d '\r\n' <<<"$reason")"
     } >> "$GITHUB_OUTPUT"
@@ -1121,7 +1162,7 @@ PY
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
-      echo "$(tree_dir "$(tree_key HEAD)")/cmux-tui"
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-tui"
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-tui"
@@ -1131,7 +1172,7 @@ PY
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
-      echo "$(tree_dir "$(tree_key HEAD)")/cmux-app-host"
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-app-host"
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-app-host"
@@ -1141,7 +1182,7 @@ PY
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
-      echo "$(tree_dir "$(tree_key HEAD)")/cmux-cloud"
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-cloud"
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
@@ -1151,7 +1192,7 @@ PY
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then
-      echo "$(tree_dir "$(tree_key HEAD)")/cmux-browser-host"
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-browser-host"
     else
       read_pin
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-browser-host"
@@ -1173,7 +1214,7 @@ PY
     local_build_matches "${1:-}"
     ;;
   key)
-    rev=HEAD
+    rev=""
     version=v2
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -1182,7 +1223,8 @@ PY
         *) usage >&2; exit 2 ;;
       esac
     done
-    python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version "$version" "$rev"
+    if [[ -z "$rev" && "$version" == v2 ]]; then checkout_tree_key; exit 0; fi
+    python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version "$version" "${rev:-HEAD}"
     ;;
   show)
     read_pin
