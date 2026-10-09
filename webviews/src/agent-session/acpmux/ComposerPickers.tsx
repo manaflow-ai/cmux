@@ -318,14 +318,7 @@ export function ComposerPickers({
   const resolvedName =
     resolvedId &&
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  // A model the session's catalog does not list yet (a New Tab chip before any chat) is named
-  // from the model catalog, else from its id.
-  const catalogName = pickerCatalog?.harnesses
-    .find((entry) => (entry.acpmuxHarness ?? entry.id) === harness)
-    ?.models.find((choice) => choice.id === summary?.model)?.name;
-  const modelName = defaulted
-    ? (resolvedName ?? t("picker.default"))
-    : (model?.name ?? catalogName ?? (summary?.model ? modelIdName(summary.model) : undefined));
+  const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 

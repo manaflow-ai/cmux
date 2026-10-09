@@ -19,12 +19,14 @@ const catalog: PickerCatalog = {
   ],
 };
 const snapshot = (model?: string) =>
-  ({ sessions: [], catalog: [], summary: { sessionId: "", harness: "claude", ...(model ? { model } : {}) } }) as unknown as AcpmuxSnapshot;
+  ({ sessions: [], catalog: [{ id: "claude", name: "Claude Code", models: [] }], summary: { sessionId: "", harness: "claude", ...(model ? { model } : {}) } }) as unknown as AcpmuxSnapshot;
 
 // cx-e2aa decision (chief 2026-10-09): before a pick the New Tab chip names the agent's default model.
 test("an unpicked chip takes the model catalog's default model for the shown agent", () => {
   expect(newTabChipSnapshot(snapshot("default"), catalog).summary?.model).toBe("claude-opus-5-5");
   expect(newTabChipSnapshot(snapshot(), catalog).summary?.model).toBe("claude-opus-5-5");
+  // Listed with the catalog's name, so the chip reads "Opus 5.5".
+  expect(newTabChipSnapshot(snapshot(), catalog).catalog[0]?.models).toEqual([{ id: "claude-opus-5-5", name: "Opus 5.5" }]);
 });
 
 test("a real model, an unknown agent or no catalog leave the chip as it is", () => {
