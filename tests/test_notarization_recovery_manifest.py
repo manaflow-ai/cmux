@@ -110,10 +110,10 @@ class RecoveryManifestTests(unittest.TestCase):
     def test_helper_pending_manifest_binds_signed_app_and_submission(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            hashes = "a" * 40 + "," + "b" * 40
+            hashes = "arm64=" + "a" * 40
             state = root / "cmux-computer-use-notarization.state"
             state.write_text(
-                f"submission_id=helper-id\ncdhashes={hashes}\nstatus=unknown\nwait_exit=124\n",
+                f"submission_id=helper-id\ncdhashes={hashes}\nstatus=In Progress\nwait_exit=124\npending=true\n",
                 encoding="utf-8",
             )
             (root / "cmux-computer-use-notarization.state.log").write_text("timeout\n", encoding="utf-8")
@@ -141,7 +141,7 @@ class RecoveryManifestTests(unittest.TestCase):
             path.write_text(json.dumps(manifest), encoding="utf-8")
             rejected = self.resolve_metadata(path)
             self.assertNotEqual(rejected.returncode, 0)
-            self.assertIn("CDHashes", rejected.stderr)
+            self.assertIn("CDHash evidence", rejected.stderr)
 
     def test_manifest_paths_survive_relocation(self):
         for absolute in (False, True):

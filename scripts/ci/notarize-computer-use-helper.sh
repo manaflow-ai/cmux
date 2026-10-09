@@ -232,13 +232,43 @@ print(status)' <<<"$wait_json" 2>/dev/null || true)"
     /bin/mv "$state_tmp" "$SUBMISSION_FILE"
     /bin/cp "$wait_output" "$wait_evidence"
     {
+      printf '\n--- notarytool info for submission %s ---\n' "$submit_id"
+      "$XCRUN_TOOL" notarytool info "$submit_id" \
+        "${NOTARY_AUTH_ARGS[@]}" || true
       printf '\n--- notarytool log for submission %s ---\n' "$submit_id"
       "$XCRUN_TOOL" notarytool log "$submit_id" \
         "${NOTARY_AUTH_ARGS[@]}" || true
     } >> "$wait_evidence" 2>&1
+    info_status="$(python3 - "$wait_evidence" <<'PYINFO'
+import json
+import re
+import sys
+raw = open(sys.argv[1], encoding="utf-8").read().split("--- notarytool log", 1)[0]
+decoder = json.JSONDecoder()
+status = "unknown"
+for match in re.finditer(r"\{", raw):
+    try:
+        value, _ = decoder.raw_decode(raw[match.start():])
+    except json.JSONDecodeError:
+        continue
+    if isinstance(value, dict) and value.get("status"):
+        status = value["status"]
+print(status)
+PYINFO
+    )"
+    if [ "$info_status" != unknown ]; then
+      python3 - "$SUBMISSION_FILE" "$info_status" <<'PYSTATE'
+from pathlib import Path
+import sys
+path, status = Path(sys.argv[1]), sys.argv[2]
+lines = path.read_text(encoding="utf-8").splitlines()
+path.write_text("\n".join((f"status={status}" if line.startswith("status=") else line) for line in lines) + "\n", encoding="utf-8")
+PYSTATE
+    fi
     cat "$wait_evidence" >&2
     echo "Computer Use helper notarization failed with status: $submit_status (wait exit $wait_status)" >&2
-    if grep -Eiq 'timeout|timed out|In Progress|Submitted|Waiting for Upload' "$wait_evidence"; then
+    if [ "$info_status" = "In Progress" ] || [ "$info_status" = "Submitted" ] || [ "$info_status" = "Waiting for Upload" ] || { [ "$info_status" = unknown ] && [ "$wait_status" -ne 0 ]; }; then
+      printf 'pending=true\n' >> "$SUBMISSION_FILE"
       echo "Computer Use helper notarization remains pending; state retained at $SUBMISSION_FILE" >&2
       exit 75
     fi

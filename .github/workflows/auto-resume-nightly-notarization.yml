@@ -308,6 +308,50 @@ jobs:
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Set up Node for recovered DMG packaging
+        if: ${{ needs.preflight.outputs.metadata_only != 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install recovered DMG packaging tools
+        if: ${{ needs.preflight.outputs.metadata_only != 'true' }}
+        env:
+          CREATE_DMG_VERSION: 8.0.0
+        run: |
+          set -euo pipefail
+          npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$(command -v node)" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Import signing certificate for recovered DMG
+        if: ${{ needs.preflight.outputs.metadata_only != 'true' }}
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$APPLE_CERTIFICATE_BASE64" ] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
       - name: Download exact recovery artifact
         run: |
           set -euo pipefail
@@ -333,6 +377,9 @@ jobs:
           if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
             outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
             CMUX_CHANNEL="$CHANNEL" \
+            CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
+            CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
+            NIGHTLY_VARIANT="$VARIANT" \
             CMUX_OUTER_NOTARY_WAIT_TIMEOUT=60m \
             ./scripts/ci/resume-helper-notarization.sh \
               "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \

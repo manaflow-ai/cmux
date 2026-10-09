@@ -98,7 +98,7 @@ def validate_manifest(
         if manifest["helper_log_path"] != "cmux-computer-use-notarization.state.log":
             raise ValueError("helper log path is not canonical")
         hashes = str(manifest["helper_cdhashes"]).split(",")
-        if not hashes or any(not re.fullmatch(r"[0-9a-fA-F]{40}", value) for value in hashes):
+        if not hashes or any(not re.fullmatch(r"[A-Za-z0-9_=-]+=[0-9a-fA-F]{40}", value) for value in hashes):
             raise ValueError("invalid helper CDHash evidence")
     if not SUBMISSION_ID.fullmatch(str(manifest["submission_id"])):
         raise ValueError("invalid recovery submission id")

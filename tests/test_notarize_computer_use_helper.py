@@ -71,6 +71,8 @@ elif name == 'xcrun':
             print('Timeout of 25m reached before processing completed.', file=sys.stderr)
             sys.exit(124)
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_NOTARY_STATUS', 'Accepted')}))
+    elif args[:2] == ['notarytool', 'info']:
+        print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_INFO_STATUS', 'In Progress')}))
     elif args[:2] == ['notarytool', 'log']:
         entries = json.loads((root / 'submitted.json').read_text())
         entries = [e for e in entries if e['arch'] != os.environ.get('FIXTURE_LOG_OMIT')]
@@ -203,7 +205,9 @@ class HelperNotarizationTests(unittest.TestCase):
         evidence = Path(str(self.state) + '.log')
         self.assertTrue(evidence.exists())
         self.assertIn('Timeout of 25m reached', evidence.read_text())
-        self.assertIn('status=unknown', self.state.read_text())
+        self.assertIn('status=In Progress', self.state.read_text())
+        self.assertIn('pending=true', self.state.read_text())
+        self.assertEqual(result.returncode, 75)
         self.assertIn('wait_exit=124', self.state.read_text())
         self.assertFalse(self.calls('xcrun', 'stapler'))
         self.assertFalse(self.calls('sign-bundle'))
