@@ -51,18 +51,28 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
+   "CmuxBrowserStream": 2,
+   "CmuxLinkDirect": 1,
+   "CmuxLinkWG": 1,
+   "CmuxMobileHost": 6,
    "CmuxNextApp": 48,
    "CmuxNextSettings": 6,
    "CmuxNextSidebar": 3,
+   "CmuxPairing": 2,
+   "CmuxRemoteDesktop": 1,
    "MessagesLabHome": 4,
    "MessagesLabSidebar": 2
   },
   "iuo": {
    "CmuxNextApp": 27,
+   "CmuxNextPages": 2,
    "CmuxNextSidebar": 5
   },
   "precondition": {
-   "CmuxNextSidebar": 1
+   "CmuxLinkWG": 1,
+   "CmuxLinkWebRTC": 1,
+   "CmuxNextSidebar": 1,
+   "CmuxPairing": 1
   },
   "render_font": {
    "CmuxHomeRender": 4,
@@ -71,17 +81,19 @@
   },
   "unchecked": {
    "CMUXAuthCore": 3,
-   "CMUXMobileCore": 7,
+   "CMUXMobileCore": 10,
    "CmuxAuthRuntime": 1,
    "CmuxHomeCore": 1,
    "CmuxHomeRender": 5,
    "CmuxIrohTransport": 7,
    "CmuxIrxTransport": 14,
+   "CmuxLinkWebRTC": 11,
+   "CmuxMobileHost": 4,
    "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
+   "CmuxMobileSSH": 8,
    "CmuxMobileShellModel": 7,
    "CmuxMobileSupport": 4,
-   "CmuxMobileTunnel": 4,
+   "CmuxMobileTunnel": 5,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
    "CmuxNextApp": 5,
