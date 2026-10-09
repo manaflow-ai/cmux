@@ -109,9 +109,13 @@ final class HomeCloudLease {
     }
 
     #if DEBUG
-    /// Waits for the lease work started so far (tests).
+    /// Waits for the lease work started so far, and the work that work
+    /// queued as it ended (tests).
     func settle() async {
-        _ = await leasing?.value
+        while let task = leasing {
+            _ = await task.value
+            if leasing == task { return }
+        }
     }
     #endif
 

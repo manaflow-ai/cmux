@@ -196,12 +196,17 @@ import Testing
         let daemon = FakeCloudDaemon()
         let (linker, source, tokens) = make(clock: clock)
         tokens.user = "a"
+        // Counts the daemon's lease requests the link handled (as `fires`).
+        let asked = HomeCloudLinkProbe()
         daemon.script.withLock { script in
             // Reads are refused too: a reply would show the Worker takes the token.
             script.inboxError = Self.refused("cloud-inbox-list")
             script.op = { [daemon] _ in
                 // task-owner: one hop to the main actor, as the daemon's event does
-                Task { @MainActor in linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry) }
+                Task { @MainActor in
+                    linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+                    asked.fired()
+                }
                 throw Self.refused("cloud-conversation-op")
             }
         }
@@ -217,7 +222,8 @@ import Testing
         _ = try? await source.submit(intent)
         // The op, one renewal, and the resend it recovers.
         #expect(await daemon.wait { Self.ops($0) >= 2 })
-        for _ in 0..<2_000 { await Task.yield() }
+        // The second refusal's lease request reached the link.
+        await asked.wait { _, handled in handled >= 2 }
         await linker.settle()
         try #require(daemon.leases == 2, "renewals looped: \(daemon.leases)")
         #expect(Self.ops(daemon.calls) == 2, "resends looped: \(Self.ops(daemon.calls))")
@@ -226,11 +232,12 @@ import Testing
         await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
         #expect(await daemon.wait { Self.ops($0) >= 3 })
-        for _ in 0..<2_000 { await Task.yield() }
+        await asked.wait { _, handled in handled >= 3 }
         await linker.settle()
         #expect(daemon.leases == 3)
+        await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
-        for _ in 0..<2_000 { await Task.yield() }
+        await linker.timersFired(atLeast: 2)
         await linker.settle()
         #expect(daemon.leases == 3, "the wait did not grow")
         #expect(Self.ops(daemon.calls) == 3)
@@ -275,7 +282,7 @@ import Testing
         await linker.settle()
         await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
-        for _ in 0..<2_000 { await Task.yield() }
+        await linker.timersFired(atLeast: 1)
         linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
         await linker.settle()
         #expect(daemon.leases == 3)
@@ -285,7 +292,7 @@ import Testing
         #expect(daemon.leases == 3)
         // A reply on the renewed lease proves it.
         _ = try await source.inbox()
-        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
         #expect(daemon.leases == 3, "the proof skipped the first wait")
         await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
@@ -308,10 +315,8 @@ import Testing
         #expect(daemon.leases == 2)
         // A reply proves the renewed lease; another socket is refused under it right after.
         _ = try await source.inbox()
-        for _ in 0..<2_000 { await Task.yield() }
-        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
         await linker.settle()
-        for _ in 0..<2_000 { await Task.yield() }
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
         await linker.settle()
         #expect(daemon.leases == 2, "a proven lease let forced renewals go back to back: \(daemon.leases)")
         await clock.sleepers(atLeast: 1)
@@ -338,10 +343,8 @@ import Testing
         await gate.arrived()
         await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
-        for _ in 0..<2_000 { await Task.yield() }
+        await linker.timersFired(atLeast: 1)
         gate.open()
-        await linker.settle()
-        for _ in 0..<2_000 { await Task.yield() }
         await linker.settle()
         #expect(daemon.leases == 4, "the renewal that came due during other lease work was dropped: \(daemon.leases)")
     }
@@ -358,9 +361,10 @@ import Testing
         await clock.sleepers(atLeast: 1)
         tokens.failing = []
         await linker.apply(HomeCloudLink.Link(endpoint: nil, id: nil, userID: "a", displayName: "a"))
+        #expect(clock.pendingSleepers == 0, "the retry still waits")
         clock.advance(by: HomeCloudLink.maxRetry)
-        for _ in 0..<2_000 { await Task.yield() }
         await linker.settle()
+        #expect(linker.probe.fires == 0, "a cancelled retry fired")
         #expect(!daemon.calls.contains(.setSession("a")), "a cancelled retry leased: \(daemon.calls)")
     }
 }

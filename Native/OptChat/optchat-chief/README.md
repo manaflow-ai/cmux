@@ -86,6 +86,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `optchat-sub-<home id>`. Tags: `mux.parent=optchat-chief:<home id>`,
   `optchat.spawn=s<N>`, `optchat.subagent=a<N>`; never `cmux.chief`. It answers
   the ids at once (ids are unique per home, kept in host.json).
+- `spawn` takes an optional `effort` (low, medium, high, xhigh, max): how
+  hard its subagents think; by default the calling turn's effort.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
