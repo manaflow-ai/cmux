@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextCrashReporting
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -40,5 +41,16 @@ import Testing
         #expect(ManagedPreferences.policyKeys.contains { $0.name == CrashReportingPolicy.disableTelemetryPolicyKey })
         #expect(ManagedPreferences.legacyKeys.contains(CrashReportingPolicy.disableTelemetryPolicyKey))
         #expect(CFManagedPreferenceReader.publishedKeys.contains(CrashReportingPolicy.disableTelemetryPolicyKey))
+    }
+}
+
+/// cx-urd.59: the app reads the panic log where its own owner writes it.
+@Suite struct OwnerPanicLogPathTests {
+    @Test func theLogSitsAtTheOwnersStateRoot() throws {
+        let tagged = AppCrashReporting.ownerStateRoot(tag: "nxsntr")
+        #expect(tagged == DaemonLauncher.tagStateDirectory(tag: "nxsntr").deletingLastPathComponent())
+        #expect(OwnerPanicForwarder.log(stateRoot: tagged, session: try DaemonLauncher.sessionName(tag: "nxsntr")).lastPathComponent
+                == "owner-panics-cmux-app-nxsntr.jsonl")
+        #expect(AppCrashReporting.ownerStateRoot(tag: nil).path.hasSuffix("Library/Application Support/cmux-tui"))
     }
 }
