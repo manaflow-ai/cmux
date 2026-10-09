@@ -3,6 +3,21 @@
 //! `CMUX_PANE_APP_CREDENTIAL`). It says hello to the router, then serves
 //! pages directly on a loopback WebSocket; the router never sees its calls.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 #[cfg(unix)]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -80,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn main() {
+fn main() -> std::process::ExitCode {
     eprintln!("the example provider needs a unix router socket");
-    std::process::exit(2);
+    std::process::ExitCode::from(2)
 }
