@@ -930,6 +930,12 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900",
            # Model traffic only through the team subrouter (claude-sr).
            "MUX_HARNESS": os.environ.get("MUX_HARNESS", "claude-sr")}
+    # The subrouter route of this host's login shell (run the script under `zsh -lic`), so the
+    # app's Chief and its compactor sign in; values pass through, never printed.
+    for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "SUBROUTER_URL"):
+        if os.environ.get(name):
+            env[name] = os.environ[name]
+    print("route env:", sorted(k for k in env if k.startswith(("ANTHROPIC_", "SUBROUTER_"))), flush=True)
     APP_ENV.update(env)
     cli_sub = cli_first() if opts.cli_first else None
     if opts.cli_first and not cli_sub:
