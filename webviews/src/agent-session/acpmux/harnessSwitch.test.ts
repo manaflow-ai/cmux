@@ -343,9 +343,13 @@ describe("harness switch: failure", () => {
       reason: "trust.pending",
       cwd: "/work",
     });
+    const held: string[] = [];
+    store.setHandlers({ restore: (text) => restored.push(text), holdPrompt: (promptId) => held.push(promptId) });
     port.creates[0]!.reply.reject(refusal);
     await settle();
     expect(restored).toEqual([]);
+    // The prompt keeps its send's gesture for after Trust.
+    expect(held).toEqual([store.view().intent!.queued[0]!.id]);
     expect(draw().switching?.phase).not.toBe("failed");
     expect(store.view().intent?.harness).toBe("codex");
     expect(store.view().intent?.queued.map((prompt) => prompt.text)).toEqual(["who are you"]);

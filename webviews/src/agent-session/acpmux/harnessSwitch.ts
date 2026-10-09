@@ -149,6 +149,9 @@ export type SwitchHandlers = {
   /// its params without sessionId and _meta). Called in the pick's own handler, while the gesture
   /// is live; a refusal means there was none, and the pick applies without a ticket.
   gesture?(intent: GestureIntent): Promise<string | undefined>;
+  /// Keeps the send's gesture for a prompt the switch holds behind the folder's trust question,
+  /// so the prompt still goes after Trust (heldPrompt.ts): bound to its `promptId`.
+  holdPrompt?(promptId: string): void;
 };
 
 function deferred<T>() {
@@ -518,6 +521,9 @@ export class HarnessSwitch {
     if (isTrustRefusal(error)) {
       intent.phase = "trust";
       intent.error = undefined;
+      // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
+      const first = intent.queued[0];
+      if (first) this.handlers.holdPrompt?.(first.id);
       this.changed();
       return;
     }

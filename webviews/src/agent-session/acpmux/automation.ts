@@ -81,9 +81,19 @@ export async function sendPrompt(host: AutomationHost, text: string, acceptWindo
   return { sent: true, turnEnded: "ended" in outcome, sessionId: host.snapshot().sessionId ?? null };
 }
 
-export async function newChat(host: AutomationHost, harness?: string, cwd?: string) {
-  await host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) });
-  return { sessionId: host.snapshot().sessionId ?? null };
+/// A new chat as the agent row starts it. A start that waits (the folder's trust question) is
+/// reported as pending after the accept window instead of holding the socket call.
+export async function newChat(host: AutomationHost, harness?: string, cwd?: string, acceptWindowMs = SEND_ACCEPT_WINDOW_MS) {
+  const started = host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) }).then(
+    () => ({ started: true as const }),
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+  );
+  const outcome = await Promise.race([
+    started,
+    new Promise<{ pending: true }>((resolve) => setTimeout(() => resolve({ pending: true }), acceptWindowMs)),
+  ]);
+  if ("error" in outcome) return { error: outcome.error };
+  return { sessionId: host.snapshot().sessionId ?? null, ...("pending" in outcome ? { pending: true } : {}) };
 }
 
 export function selectSession(host: AutomationHost, sessionId: string) {
