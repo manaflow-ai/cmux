@@ -332,6 +332,21 @@ pub fn set_prompt_cache_ttl(session: &Path, ttl: crate::prompt::CacheTtl) -> io:
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
         value["promptCacheTtl"] = json!(ttl.as_str());
+        // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
+        // other source of Claude Code's TTL (a subscription login marks 1h).
+        if !value["env"].is_object() {
+            value["env"] = json!({});
+        }
+        match ttl {
+            crate::prompt::CacheTtl::FiveMinutes => {
+                value["env"]["FORCE_PROMPT_CACHING_5M"] = json!("1");
+            }
+            crate::prompt::CacheTtl::OneHour => {
+                if let Some(env) = value["env"].as_object_mut() {
+                    env.remove("FORCE_PROMPT_CACHING_5M");
+                }
+            }
+        }
         let text = format!(
             "{}\n",
             serde_json::to_string_pretty(&value).map_err(io::Error::other)?

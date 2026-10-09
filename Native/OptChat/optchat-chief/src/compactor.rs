@@ -1327,6 +1327,10 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
         // A refusal must reach the host, whose fallback model is probed.
         "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK",
+        // Claude Code's own marks at 5 minutes, the TTL of the node's mark:
+        // on a subscription login it marks 1 hour, and the API refuses a
+        // 1h mark after a 5m one.
+        "FORCE_PROMPT_CACHING_5M",
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
