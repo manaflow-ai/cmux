@@ -9,6 +9,11 @@
 
 use std::collections::BTreeSet;
 
+/// The class of the op's scope: the one table in `scope-classes.json`,
+/// shared with the app platform (no second copy of the classes here).
+pub use cmux_app_manifest::ScopeClass;
+use cmux_app_manifest::scope_info;
+
 /// How an op declares itself to agents (catalog `mcp.expose`). An op with
 /// no declaration is [`McpExpose::Never`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,14 +33,6 @@ pub enum Risk {
     SendExternal,
     Money,
     Destructive,
-}
-
-/// The class of the op's scope (`scope-classes.json`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScopeClass {
-    Standard,
-    Sensitive,
-    Restricted,
 }
 
 /// The catalog fields [`agent_view`] reads for one op.
@@ -68,8 +65,13 @@ impl OpExposure {
     ///
     /// Missing or unknown fields fail closed: `mcp.expose` is
     /// [`McpExpose::Never`], `risk` is [`Risk::Destructive`], `gesture` is
-    /// required and `scope_class` is [`ScopeClass::Restricted`]. A missing
-    /// `server_only` is false, because emit-ir omits it when false.
+    /// required, `scope_class` is [`ScopeClass::Restricted`] and a missing
+    /// `secret_output` is true (emit-ir always writes it). A missing
+    /// `server_only` is false here because emit-ir omits it when false;
+    /// [`agent_view`] still reads the scope's class and server-only flag from
+    /// `scope-classes.json`, so a missing flag never offers a server-only op.
+    /// The input must be merged IR, not an app catalog (catalogs spell
+    /// `gesture` and outputs differently).
     pub fn from_ir(op: &serde_json::Value, app_enabled: impl Fn(&str) -> bool) -> Option<Self> {
         let name = op["name"].as_str()?;
         let scope = op["scope"].as_str()?;
@@ -90,6 +92,7 @@ impl OpExposure {
         let scope_class = match op["scope_class"].as_str() {
             Some("standard") => ScopeClass::Standard,
             Some("sensitive") => ScopeClass::Sensitive,
+            Some("elevated") => ScopeClass::Elevated,
             _ => ScopeClass::Restricted,
         };
         let app_disabled = op["owner"]
@@ -103,7 +106,7 @@ impl OpExposure {
             risk,
             mcp,
             gesture_required: op["gesture"].as_bool() != Some(false),
-            secret_output: op["secret_output"] == true,
+            secret_output: op["secret_output"].as_bool() != Some(false),
             server_only: op["server_only"] == true,
             app_disabled,
         })
@@ -138,8 +141,11 @@ pub enum Exclusion {
     GestureRequired,
     /// The op's app is not installed and enabled.
     AppDisabled,
-    /// The agent's grant does not hold the op's scope.
+    /// The agent's grant does not hold the op's scope. An elevated scope
+    /// counts only when the grant names it; `*` does not hold it.
     NotGranted,
+    /// No rule of `scope-classes.json` knows the op's scope.
+    UnknownScope,
 }
 
 /// The answer for one op and one agent.
@@ -158,16 +164,23 @@ const SECRET_FAMILIES: &[&str] = &["passwords", "credentials", "accounts"];
 /// Scope families only the user may change.
 const USER_ONLY_FAMILIES: &[&str] = &["grants", "policy"];
 
-/// Ops only the user may run: app installs, updates and grants
-/// (app-platform.md section 15; agents may still hide and unhide apps).
+/// Ops only the user may run, beyond the daemon's origin gate A2
+/// (`request_origin::USER_ONLY_OPERATIONS`, which [`agent_view`] also reads):
+/// app updates, grants, local apps and `cmux.apps.set` (app-platform.md
+/// section 15 and D55 as amended: origin user for every field).
 const USER_ONLY_OPS: &[&str] = &[
-    "cmux.apps.install",
-    "cmux.apps.uninstall",
     "cmux.apps.update",
+    "cmux.apps.set",
     "cmux.apps.grant.set",
     "cmux.apps.local.add",
     "cmux.apps.local.remove",
 ];
+
+fn user_only(name: &str) -> bool {
+    let daemon_name = name.strip_prefix("cmux.").unwrap_or(name);
+    USER_ONLY_OPS.contains(&name)
+        || crate::request_origin::USER_ONLY_OPERATIONS.contains(&daemon_name)
+}
 
 /// Decides whether `grant`'s agent may call `op`. Exclusions are checked in
 /// a fixed order and always win over approvals; a standing approval never
@@ -176,8 +189,9 @@ pub fn agent_view(op: &OpExposure, grant: &AgentGrant) -> Exposure {
     if let Some(reason) = exclusion(op, grant) {
         return Exposure::Excluded(reason);
     }
+    let class = scope_info(&op.scope).map_or(ScopeClass::Restricted, |info| info.class);
     let risky = matches!(op.risk, Risk::Destructive | Risk::SendExternal | Risk::Money)
-        || op.scope_class == ScopeClass::Restricted;
+        || [op.scope_class, class].contains(&ScopeClass::Restricted);
     if risky && !grant.standing_approvals.contains(&op.name) {
         Exposure::NeedsApproval
     } else {
@@ -186,14 +200,17 @@ pub fn agent_view(op: &OpExposure, grant: &AgentGrant) -> Exposure {
 }
 
 fn exclusion(op: &OpExposure, grant: &AgentGrant) -> Option<Exclusion> {
-    let (family, verb) = op.scope.split_once(':').unwrap_or((op.scope.as_str(), ""));
-    if op.secret_output || verb == "keys" || SECRET_FAMILIES.contains(&family) {
+    let family = op.scope.split_once(':').map_or(op.scope.as_str(), |(family, _)| family);
+    if op.secret_output || op.scope.ends_with(":keys") || SECRET_FAMILIES.contains(&family) {
         return Some(Exclusion::Secret);
     }
-    if USER_ONLY_FAMILIES.contains(&family) || USER_ONLY_OPS.contains(&op.name.as_str()) {
+    if USER_ONLY_FAMILIES.contains(&family) || user_only(&op.name) {
         return Some(Exclusion::UserOnly);
     }
-    if op.server_only {
+    let Some(info) = scope_info(&op.scope) else {
+        return Some(Exclusion::UnknownScope);
+    };
+    if op.server_only || info.server_only {
         return Some(Exclusion::ServerOnly);
     }
     match op.mcp {
@@ -209,7 +226,9 @@ fn exclusion(op: &OpExposure, grant: &AgentGrant) -> Option<Exclusion> {
     if op.app_disabled {
         return Some(Exclusion::AppDisabled);
     }
-    if !grant.scopes.contains("*") && !grant.scopes.contains(&op.scope) {
+    let elevated = [op.scope_class, info.class].contains(&ScopeClass::Elevated);
+    let wildcard = grant.scopes.contains("*") && !elevated;
+    if !wildcard && !grant.scopes.contains(&op.scope) {
         return Some(Exclusion::NotGranted);
     }
     None
