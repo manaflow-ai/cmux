@@ -20,60 +20,6 @@ pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct RequestId(String);
-
-impl RequestId {
-    pub const MAX_BYTES: usize = 128;
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > Self::MAX_BYTES {
-            return Err(ResourceError::validation_invalid(
-                Some("id"),
-                "request id must contain 1 to 128 UTF-8 bytes",
-            ));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -659,6 +605,7 @@ impl ResourceOperation {
 
 mod envelope;
 mod journal;
+mod request_id;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -668,6 +615,7 @@ mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
+pub use request_id::{RequestId, validate_idempotency_key};
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
