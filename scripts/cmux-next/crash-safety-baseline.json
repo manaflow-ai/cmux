@@ -50,10 +50,10 @@
   },
   "index_subscript": {
    "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 40,
-   "CmuxIrxTransport": 20,
-   "CmuxNextControl": 18,
-   "CmuxNextDaemon": 54,
+   "CmuxIrohTransport": 41,
+   "CmuxIrxTransport": 21,
+   "CmuxNextControl": 20,
+   "CmuxNextDaemon": 62,
    "CmuxNextMobile": 1
   },
   "int_conversion": {
@@ -61,7 +61,7 @@
    "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 10,
    "CmuxNextControl": 5,
-   "CmuxNextDaemon": 3,
+   "CmuxNextDaemon": 4,
    "CmuxNextMobile": 1
   },
   "objc_observer": {
