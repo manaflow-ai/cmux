@@ -135,7 +135,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -159,7 +159,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
             return true
         }
-        if let page = state.page, showTopPage(page) { return }
+        if state.page.map(showTopPage) == true || showCreation() { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
