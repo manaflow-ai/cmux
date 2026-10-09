@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # base-autofix.sh on a fixture repository: copies the regenerated files in
-# (never a frozen path), adds a missing cmux-tui tree input to both lists, and
-# changes nothing when everything is current. No network, no git push.
+# (never a frozen path or a workflow file: GITHUB_TOKEN cannot push those),
+# reports a missing cmux-tui tree input without writing it (its second list is
+# a workflow's paths), and changes nothing when everything is current. No
+# network, no git push.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIX="$ROOT_DIR/scripts/cmux-next/base-autofix.sh"
@@ -12,7 +14,7 @@ fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 repo="$tmp/repo"; gen="$tmp/generated"
 mkdir -p "$repo/cmux-tui/crates/x/src" "$repo/scripts/cmux-next" "$repo/.github/workflows" \
   "$repo/schemas/new" "$repo/Packages/macOS/CmuxNext" "$repo/plans/cmux-next" \
-  "$gen/Packages/macOS/CmuxNext" "$gen/plans/cmux-next"
+  "$gen/Packages/macOS/CmuxNext" "$gen/plans/cmux-next" "$gen/.github/workflows"
 printf '[package]\nname = "x"\n' > "$repo/cmux-tui/crates/x/Cargo.toml"
 printf 'pub const V: &str = include_str!("../../../../schemas/new/v.json");\n' > "$repo/cmux-tui/crates/x/src/lib.rs"
 echo '{}' > "$repo/schemas/new/v.json"
@@ -29,15 +31,16 @@ echo old > "$repo/Packages/macOS/CmuxNext/ci-target-graph.json"
 echo old > "$repo/plans/cmux-next/actions.md"
 echo new > "$gen/Packages/macOS/CmuxNext/ci-target-graph.json"
 echo new > "$gen/plans/cmux-next/actions.md"
+echo 'on: push' > "$gen/.github/workflows/cmux-tui-artifacts.yml"
 git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm fixture
 
 bash "$FIX" --no-fmt --generated "$gen" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed"
 [[ "$(cat "$repo/Packages/macOS/CmuxNext/ci-target-graph.json")" == new ]] || fail "a regenerated file must be copied in"
 [[ "$(cat "$repo/plans/cmux-next/actions.md")" == old ]] || fail "a frozen path must never be written"
 grep -q '^skipped (frozen): plans/cmux-next/actions.md' "$tmp/out" || fail "a skipped frozen path must be reported"
-grep -qx 'blob schemas/new/v.json' "$repo/scripts/cmux-next/cmux-tui-tree-inputs.txt" || fail "the missing embed must be a tree input"
-grep -q '^      - "schemas/new/v.json"$' "$repo/.github/workflows/cmux-tui-artifacts.yml" || fail "the missing embed must be an artifacts path"
-grep -q '^  workflow_dispatch:' "$repo/.github/workflows/cmux-tui-artifacts.yml" || fail "the rest of the workflow must stay"
+grep -q '^skipped (frozen): .github/workflows/cmux-tui-artifacts.yml' "$tmp/out" || fail "a regenerated workflow file must be skipped and reported"
+grep -q '^left: cmux-tui tree input blob schemas/new/v.json' "$tmp/out" || fail "a missing tree input must be reported"
+grep -q 'schemas/new' "$repo/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$repo/.github/workflows/cmux-tui-artifacts.yml" && fail "a missing tree input must not be written to either list"
 
 git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm fixed
 bash "$FIX" --no-fmt --generated "$gen" "$repo" > "$tmp/out" 2>&1 || fail "a second run must succeed"
