@@ -25,6 +25,7 @@ pub mod images;
 mod inbox;
 mod mux_ack;
 mod outbox;
+mod prewarm;
 mod recover;
 mod side;
 mod spawns;
