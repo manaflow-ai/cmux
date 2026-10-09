@@ -75,10 +75,21 @@ final class FieldChrome: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
-    /// Only the buttons take clicks; the field's clicks reach the text view.
+    /// The field's text view. A click in the field hits `pressSensor` (the field glass's content
+    /// view), so the interactive glass sees the press as its own (Messages: the field brightens about
+    /// 1.2 levels from +6 ms after the release, gone by +0.36 s); the sensor hands the event to
+    /// the text view, which tracks the drag itself.
+    weak var pressTarget: NSView? {
+        didSet { if pressTarget != nil, Self.pressGlow { pressSensor.target = pressTarget; field.contentView = pressSensor } }
+    }
+    private let pressSensor = PressSensor()
+    static let pressGlow = ProcessInfo.processInfo.arguments.contains("--field-press-sensor")
+    /// Only the buttons (and, with the sensor, the field) take clicks; else the field's clicks reach
+    /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
         for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+        if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
     @objc private func plusClicked() { onPlus() }
@@ -258,6 +269,17 @@ enum FieldAnimation: String {
     }
 }
 
+/// The field glass's content: takes the field's mouse events for the glass and gives them to the
+/// text view (FieldChrome.pressTarget).
+final class PressSensor: NSView {
+    weak var target: NSView?
+    override func mouseDown(with event: NSEvent) { target.map { $0.mouseDown(with: event) } ?? super.mouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { target.map { $0.rightMouseDown(with: event) } ?? super.rightMouseDown(with: event) }
+    override func otherMouseDown(with event: NSEvent) { target.map { $0.otherMouseDown(with: event) } ?? super.otherMouseDown(with: event) }
+    override func scrollWheel(with event: NSEvent) { target.map { $0.scrollWheel(with: event) } ?? super.scrollWheel(with: event) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { target?.acceptsFirstMouse(for: event) ?? false }
+}
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
@@ -355,7 +377,7 @@ final class TapbackPickerView: NSGlassEffectView {
         }
     }
 
-    private static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
+    static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
         switch kind {
         case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
         case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)

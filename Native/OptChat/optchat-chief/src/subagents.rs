@@ -20,9 +20,9 @@
 //!   subagent directory is used.
 //! - Its tools are zoom and date (its own MCP server says `--role
 //!   subagent`), not spawn. Its tool calls stay in its own session.
-//! - The brain (brain/spawns.rs) watches the sessions: when all of one
-//!   spawn's subagents finished a turn, their reports reach the chat as ONE
-//!   `user` message, `[id] report` each.
+//! - The brain (brain/spawns.rs) watches the sessions: when a
+//!   subagent finishes a turn, its report reaches the chat as its own
+//!   `user` message, `[id] report`.
 //!
 //! Deviation: `tell` reaches a running subagent after its current turn
 //! (acpmux queues the prompt; claude-sr offers no steering), not between its
@@ -405,6 +405,24 @@ impl Spawner {
     }
 }
 
+impl Spawner {
+    /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
+    pub fn agent_chat_page(&self, id: &str, at: u64, page: u64) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::SubSession {
+            id: id.to_owned(),
+            reply,
+        })?;
+        let session = answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+            .ok_or_else(|| format!("no subagent {id} with a session"))?;
+        let events = self.agents.events(&session, 0)?;
+        let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
+        Ok(crate::agent_chat::page(id, &text, at, page))
+    }
+}
+
 /// `asked` as a directory on this host: `~` and `~/...` are `home`; it must
 /// be absolute and exist.
 pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
@@ -503,9 +521,13 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             lines.join("\n")
         ))
+    }
+
+    fn agent_chat(&self, id: &str, at: u64) -> Result<String, String> {
+        self.agent_chat_page(id, at, crate::agent_chat::PAGE)
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {
