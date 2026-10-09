@@ -59,7 +59,8 @@ enum PaneHandlers {
     /// then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
-        guard let pane = ctx.daemonPane(invocation), let connection = ctx.connection() else { return }
+        guard let pane = ctx.daemonPane(invocation), ctx.connection() != nil else { return }
+        let daemon = ctx.services.activeDaemon
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
@@ -88,10 +89,11 @@ enum PaneHandlers {
         default: nil
         }
         let intent = content?.beginFocusIntent()
+        let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
+                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
         ctx.registry.track(Task {
             do {
-                let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
-                if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
+                let created = try await command.send(on: daemon)
                 content?.expectFocus(on: created.surface, generation: intent)
                 content?.layoutModel.applySplitSizing(sizing)
                 return nil
