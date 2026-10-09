@@ -24,9 +24,8 @@
 //!   subagent finishes a turn, its report reaches the chat as its own
 //!   `user` message, `[id] report`.
 //!
-//! Deviation: `tell` reaches a running subagent after its current turn
-//! (acpmux queues the prompt), not between its tool calls; it does not
-//! steer yet.
+//! - `tell` to a running subagent is steered into its session (read
+//!   between its tool calls; brain/spawns.rs), else it is its next prompt.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

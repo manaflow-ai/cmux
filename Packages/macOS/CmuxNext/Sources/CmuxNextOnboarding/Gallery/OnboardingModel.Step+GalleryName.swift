@@ -13,6 +13,7 @@ extension OnboardingModel.Step {
         case .theme: "Theme"
         case .computerUse: "Computer Use"
         case .accounts: "Accounts"
+        case .tabKeys: "Number Keys"
         }
     }
 }

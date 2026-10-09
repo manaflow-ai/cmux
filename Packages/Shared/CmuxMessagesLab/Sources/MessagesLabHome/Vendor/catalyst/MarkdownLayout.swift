@@ -40,7 +40,7 @@ struct MDFrag {
 }
 
 struct MDBox {
-    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint }
+    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(CGImage) }
     var rect: CGRect
     var kind: Kind
     var region: Int
@@ -123,6 +123,37 @@ extension Markdown {
 }
 
 // MARK: - Layout
+
+/// Images the host app chooses to show in markdown (shared/MARKDOWN.md, Security). The engine
+/// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
+/// the image only when the host returns one (an attachment, a local file the host allows).
+/// Without a provider (the default) an image is a link or the text "[Image: alt]".
+protocol MarkdownImageProvider: AnyObject {
+    /// The image for `source` (the destination exactly as written), or nil. Called during layout,
+    /// off the main thread: return only what the host already has, never fetch here. Answers
+    /// must be stable per source (block layouts are cached by content and width).
+    func markdownImage(source: String, alt: String) -> CGImage?
+}
+
+enum MarkdownImages {
+    private static let lock = NSLock()
+    private static weak var current: MarkdownImageProvider?
+    /// The host's provider (weak; nil by default). Set it before the first layout.
+    static var provider: MarkdownImageProvider? {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+    /// Largest image height in a bubble (points).
+    static let maxHeight: CGFloat = 320
+
+    /// The provider's image for a paragraph that is exactly one image, or nil.
+    static func image(_ t: MDText) -> (CGImage, String)? {
+        guard let p = provider, t.spans.count == 1, let sp = t.spans.first, let src = sp.image,
+              sp.location == 0, sp.length == (t.string as NSString).length else { return nil }
+        guard let img = p.markdownImage(source: src, alt: t.string), img.width > 0, img.height > 0 else { return nil }
+        return (img, src)
+    }
+}
 
 enum MarkdownLayoutEngine {
     /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
@@ -279,7 +310,18 @@ enum MarkdownLayoutEngine {
             let top = y, p0 = plainLen
             switch k {
             case let .paragraph(t):
-                text(t, x: x, width: w, font: Fixture.bodyFont, role: depth > 0 && quoteDepth > 0 ? .quote : .body)
+                if let (img, _) = MarkdownImages.image(t) {
+                    // A host-provided image (MarkdownImageProvider), fitted to the width; 2x pixels.
+                    let natural = CGSize(width: CGFloat(img.width) / 2, height: CGFloat(img.height) / 2)
+                    let scale = min(1, max(1, w) / natural.width, MarkdownImages.maxHeight / natural.height)
+                    let size = CGSize(width: max(1, (natural.width * scale).rounded()), height: max(1, (natural.height * scale).rounded()))
+                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(img), region: -1))
+                    y += (size.height / Markdown.lineHeight).rounded(.up) * Markdown.lineHeight
+                    out.extent = max(out.extent, x + size.width)
+                    appendPlain(t.string)
+                } else {
+                    text(t, x: x, width: w, font: Fixture.bodyFont, role: depth > 0 && quoteDepth > 0 ? .quote : .body)
+                }
                 out.ax.append(MDAXNode(kind: .paragraph, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top)))
             case let .heading(level, t):
                 text(t, x: x, width: w, font: Markdown.headingFont(level), role: .body)
@@ -635,7 +677,7 @@ enum MarkdownLayoutEngine {
 
 extension Markdown {
     static func moreCharacters(_ n: Int) -> String {
-        String(format: String(localized: "markdown.code.more", defaultValue: "… %@ more characters"),
+        String(format: MessagesLabLocalization.string("markdown.code.more", "… %@ more characters"),
                NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal))
     }
 }
