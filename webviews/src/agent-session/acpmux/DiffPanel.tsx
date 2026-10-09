@@ -25,6 +25,9 @@ import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
+import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
+import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -62,6 +65,9 @@ export function DiffPanel({
   review,
   reviewFiles,
   turn,
+  gitIntent,
+  onGitIntentHandled,
+  writeKeys,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -76,11 +82,41 @@ export function DiffPanel({
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
+  /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
+  /// pushes, as the toolbar's buttons do.
+  gitIntent?: { op: GitWriteOp; nonce: number };
+  /// The view took `gitIntent`; the page clears it so a later view never replays it.
+  onGitIntentHandled?: () => void;
+  /// The session's idempotency keys, kept by the page across a close and reopen of the view.
+  writeKeys?: WriteKeys;
 }) {
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope);
+  const [commitOpen, setCommitOpen] = useState(false);
+  // A commit closes the form and reloads the scope; a push changes only the branch state.
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    writeKeys,
+  );
+  const commitMessage = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (commitOpen) commitMessage.current?.focus();
+  }, [commitOpen]);
+  const handledIntent = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!gitIntent || handledIntent.current === gitIntent.nonce) return;
+    handledIntent.current = gitIntent.nonce;
+    if (gitIntent.op === "push") void git.push();
+    else if (commitOpen) commitMessage.current?.focus();
+    else setCommitOpen(true);
+    onGitIntentHandled?.();
+  }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed or empty.
@@ -294,6 +330,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
+          <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -324,6 +361,13 @@ export function DiffPanel({
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      <GitWriteBar
+        git={git}
+        formOpen={commitOpen}
+        onCloseForm={() => setCommitOpen(false)}
+        messageRef={commitMessage}
+        reloadKey={load.state === "loaded" ? load.changeSet : load.state}
+      />
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">

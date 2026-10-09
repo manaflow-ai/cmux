@@ -376,6 +376,8 @@ fn identify_advertises_additive_capabilities() {
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::git_ops::COMMIT_CAPABILITY,
+        crate::git_ops::PUSH_CAPABILITY,
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }

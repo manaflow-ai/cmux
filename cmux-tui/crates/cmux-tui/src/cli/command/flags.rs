@@ -52,6 +52,11 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-default-session",
     "clear-zoom",
     "clear-top-index",
+    "include-untracked",
+    "amend",
+    "no-verify",
+    "set-upstream",
+    "no-set-upstream",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no
