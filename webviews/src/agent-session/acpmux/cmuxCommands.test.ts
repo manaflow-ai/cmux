@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CMUX_COMMANDS, commandArgs, continueTargets, mergedCommands, resolveHarnessTarget } from "./cmuxCommands";
+import {
+  CMUX_COMMANDS,
+  commandArgs,
+  continueTargets,
+  mergedCommands,
+  resolveHarnessTarget,
+} from "./cmuxCommands";
 
 describe("cmux slash commands", () => {
   test("merges cmux commands before harness commands and deduplicates names", () => {
@@ -7,15 +13,23 @@ describe("cmux slash commands", () => {
       { name: "import", description: "agent import", source: "agent" },
       { name: "compact", description: "agent compact", source: "agent" },
     ]);
-    expect(commands.map((command) => command.name)).toEqual(["import", "continue", "compact"]);
+    expect(commands.map((command) => command.name)).toEqual(["import", "continue", "fork", "compact"]);
     expect(commands[0]?.source).toBe("cmux");
     expect(commands[1]?.source).toBe("cmux");
+  });
+
+  test("filters unavailable cmux commands while retaining the harness list", () => {
+    const enabled = new Set<string>(["import", "fork"]);
+    const commands = mergedCommands([{ name: "compact", description: "agent compact", source: "agent" }], enabled);
+    expect(commands.map((command) => command.name)).toEqual(["import", "fork", "compact"]);
+    expect(commands.find((command) => command.name === "continue")).toBeUndefined();
   });
 
   test("extracts optional command arguments", () => {
     expect(commandArgs("/import", CMUX_COMMANDS[0]!)).toBe("");
     expect(commandArgs("/import session.jsonl", CMUX_COMMANDS[0]!)).toBe("session.jsonl");
     expect(commandArgs("say /import", CMUX_COMMANDS[0]!)).toBeUndefined();
+    expect(commandArgs("/fork", CMUX_COMMANDS.find((command) => command.name === "fork")!)).toBe("");
   });
 
   test("resolves continue targets by id or visible name and rejects extra words", () => {
