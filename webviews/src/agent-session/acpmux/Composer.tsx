@@ -757,7 +757,6 @@ export function Composer({
             type="file"
             multiple
             hidden
-            aria-hidden="true"
             onChange={(event) => {
               const files = [...(event.currentTarget.files ?? [])];
               // Cleared, choosing the same file again still fires change.
