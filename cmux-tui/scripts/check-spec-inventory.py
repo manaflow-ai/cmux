@@ -746,13 +746,22 @@ def event_streams() -> dict[str, set[str]]:
     return streams_by_event
 
 
+def config_source() -> str:
+    """config.rs and its child modules (config/*.rs, not tests): the Action catalog source."""
+    root = TUI / "crates/cmux-tui/src"
+    paths = [root / "config.rs", *sorted((root / "config").glob("*.rs"))]
+    return "\n".join(
+        path.read_text() for path in paths if path.name != "tests.rs" and path.is_file()
+    )
+
+
 def action_variants() -> set[str]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     return rust_enum_variants(source, "Action")
 
 
 def action_metadata() -> dict[str, dict[str, object]]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     body = rust_function_body(source, "metadata")
     metadata: dict[str, dict[str, object]] = {}
     for variant, key, classification, route, execution in re.findall(

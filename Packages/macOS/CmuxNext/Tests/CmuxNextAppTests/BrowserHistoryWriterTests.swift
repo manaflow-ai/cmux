@@ -94,14 +94,14 @@ struct BrowserHistoryWriterTests {
         let store = services.daemon.store
         store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: Self.tabRecord(url: recordURL)))
         let browserTabs = try #require(services.cache.browserTabs)
-        browserTabs.update = { _, _ in true }
+        browserTabs.update = { _, _, _ in true }
         let saved = FrontendBrowserHistory(entries: [Self.entry("a", scrollY: 10), Self.entry("b", scrollY: 300), Self.entry("c")], index: 1)
         var fetched: [SurfaceID] = []
-        browserTabs.fetchHistory = { surface in
+        browserTabs.fetchHistory = { _, surface in
             fetched.append(surface)
             return saved
         }
-        browserTabs.storeHistory = { _, _ in true }
+        browserTabs.storeHistory = { _, _, _ in true }
         let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
         let model = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         browserTabs.track(page, for: model)
@@ -123,11 +123,11 @@ struct BrowserHistoryWriterTests {
         store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: Self.tabRecord(url: "about:blank")))
         let browserTabs = try #require(services.cache.browserTabs)
         var touched = false
-        browserTabs.fetchHistory = { _ in
+        browserTabs.fetchHistory = { _, _ in
             touched = true
             return nil
         }
-        browserTabs.storeHistory = { _, _ in
+        browserTabs.storeHistory = { _, _, _ in
             touched = true
             return true
         }

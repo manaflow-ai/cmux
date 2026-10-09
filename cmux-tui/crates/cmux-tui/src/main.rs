@@ -1695,7 +1695,7 @@ fn run_main() {
     if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
-        client_log::exit(acp::run(args));
+        client_log::exit(acp::run_scope(head, args));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
