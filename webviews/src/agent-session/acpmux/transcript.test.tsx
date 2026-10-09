@@ -3521,3 +3521,139 @@ describe("agent pane header", () => {
     },
   );
 });
+
+describe("transcript reading continuity", () => {
+  test("prepending history preserves the reading anchor within one pixel", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: list,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+    try {
+      await draw(rows);
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      act(() => {
+        scroller.scrollTop = 600;
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+      const position = () => {
+        const row = document.querySelector<HTMLElement>('[data-row-id="row-10"]')!;
+        return Number(/translateY\(([-\d.]+)px\)/.exec(row.style.transform)![1]) - scroller.scrollTop;
+      };
+      const before = position();
+      await draw([{ id: "older", version: 1, at: -1, kind: "assistant", text: "Earlier history" }, ...rows]);
+      expect(Math.abs(position() - before)).toBeLessThan(1);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("a rendered prompt remains browser-selectable while the transcript updates", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+      const bubble = document.querySelector('[data-row-id="row-198"] .cv-user__bubble')!;
+      const range = document.createRange();
+      range.selectNodeContents(bubble);
+      const selection = dom.window.getSelection()!;
+      act(() => {
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new dom.window.Event("selectionchange"));
+      });
+      const text = selection.toString();
+      expect(text.length).toBeGreaterThan(0);
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      act(() => {
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+      await act(async () => root.render(createElement(VirtualTranscript, {
+        rows: [...rows, { id: "live-answer", version: 1, at: 999, kind: "assistant", text: "New output" }],
+        onToggleActivity: () => {}, expanded: new Set<string>(),
+      })));
+      expect(selection.toString()).toBe(text);
+      expect(bubble.isConnected).toBe(true);
+      act(() => {
+        selection.removeAllRanges();
+        document.dispatchEvent(new dom.window.Event("selectionchange"));
+      });
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("elapsed time updates without a React commit", async () => {
+    const { WorkingFor } = await import("./conversation/WorkingFor");
+    const { Profiler } = await import("react");
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    let clock = 42000;
+    let commits = 0;
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            Profiler,
+            {
+              id: "timer",
+              onRender: () => {
+                commits += 1;
+              },
+            },
+            createElement(WorkingFor, { row: { id: "w", version: 1, at: 0, kind: "working" }, now: () => clock }),
+          ),
+        ),
+      );
+      const initial = commits;
+      clock = 61000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+      expect(document.querySelector(".cv-worked__label")?.textContent).toBe("Working for 1m 1s");
+      expect(commits).toBe(initial);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
+
+
+test("Worked for retains focus when details open and the reader scrolls away", async () => {
+  const restore = fakeViewport({ width: 760, height: 600 });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  let expanded = new Set<string>();
+  const disclosure: AcpmuxRow = { id: "worked-focus", version: 1, at: 999, kind: "worked", durationMs: 42000 };
+  const draw = () => root.render(createElement(VirtualTranscript, {
+    rows: [...rows, disclosure, ...(expanded.size ? [{ id: "details", version: 1, at: 1000, kind: "notice", text: "Work details" }] : [])],
+    expanded,
+    onToggleActivity: (id: string) => { expanded = expanded.has(id) ? new Set() : new Set([id]); draw(); },
+  }));
+  try {
+    await act(async () => draw());
+    const button = document.querySelector<HTMLButtonElement>(".cv-worked.is-toggle")!;
+    act(() => button.focus());
+    // Native buttons synthesize this click for both Enter and Space. The gallery play
+    // drives the actual keys; jsdom does not implement default keyboard activation.
+    act(() => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(button);
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    act(() => { scroller.scrollTop = 0; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+    expect(document.activeElement).toBe(button);
+    act(() => button.click());
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(button);
+  } finally { await act(async () => root.unmount()); restore(); }
+});

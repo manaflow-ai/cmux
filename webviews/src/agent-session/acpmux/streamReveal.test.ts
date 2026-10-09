@@ -127,3 +127,28 @@ describe("StreamReveal", () => {
     expect(reveal.settled).toBe(true);
   });
 });
+
+describe("transcript grapheme pacing", () => {
+  test("every reveal boundary keeps emoji, flags, combining marks and Indic clusters intact", () => {
+    const text = "👩🏽‍💻🇯🇵e\u0301क्‍ष家族👨‍👩‍👧‍👦 ".repeat(30);
+    const boundaries = new Set([
+      0,
+      ...Array.from(
+        new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text),
+        (part) => part.index + part.segment.length,
+      ),
+    ]);
+    const reveal = new StreamReveal();
+    for (let frame = 0; frame < 120; frame += 1) {
+      expect(boundaries.has(reveal.advance(text, frame * FRAME, false))).toBe(true);
+    }
+  });
+
+  test("a completed burst drains in a 150 ms horizon", () => {
+    const reveal = new StreamReveal();
+    const text = "word ".repeat(600);
+    reveal.advance(text, 0, true);
+    for (let frame = 1; frame <= 10; frame += 1) reveal.advance(text, frame * (1000 / 60), true);
+    expect(reveal.settled).toBe(true);
+  });
+});
