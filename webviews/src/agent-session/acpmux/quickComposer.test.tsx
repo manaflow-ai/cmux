@@ -237,7 +237,8 @@ test("Return in a tab's pane only sends", async () => {
 });
 
 test("the quick surface lists projects and shows its folder row above the prompt", async () => {
-  await mount("quick", snapshot(undefined));
+  // A live acpmux host says a chat without a session is new (AgentPaneHandshake.acpmux).
+  await mount("quick", snapshot(undefined), true);
   expect(projectLists).toBeGreaterThan(0);
   const page = container();
   const context = page.querySelector(".acpmux-quick .acpmux-composer-context");

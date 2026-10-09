@@ -1,3 +1,5 @@
+import Foundation
+
 /// Start Agent's Return (`quick.startInBackground`, cx-hkat): the quick
 /// panel's chat has started, and goes to the sidebar without taking focus.
 public nonisolated struct AgentPaneQuickStart: Sendable, Equatable {
