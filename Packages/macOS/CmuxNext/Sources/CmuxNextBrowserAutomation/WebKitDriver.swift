@@ -79,7 +79,9 @@ public final class WebKitDriver: DriverCallHandler {
             typealias Action = @convention(block) () -> Void
             typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
             let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-            function(webView, selector) { continuation.resume() }
+            // WebKit keeps the block until the update: it must be an escaping one.
+            let action: Action = { continuation.resume() }
+            function(webView, selector, action)
         }
     }
 
