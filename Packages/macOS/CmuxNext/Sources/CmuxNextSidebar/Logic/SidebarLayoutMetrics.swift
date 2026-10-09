@@ -58,6 +58,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Show the machine header even when only one machine is listed,
     /// titled "Projects" (the sidebar list sets it). Off in bare layouts.
     public var showsSoleMachineHeader = false
+    /// One workspace list (`sidebar.groupByComputer` off): machine sections
+    /// show no header and no gap between them, and a row of a computer other
+    /// than this Mac names it on its second line.
+    public var flattensMachines = false
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
@@ -67,6 +71,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
+    /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
+    public var hidesWorkspaces = false
 
     public init() {}
 }

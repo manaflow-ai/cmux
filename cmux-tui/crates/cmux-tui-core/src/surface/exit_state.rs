@@ -104,3 +104,56 @@ impl Surface {
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 }
+
+#[cfg(unix)]
+pub(super) fn mark_hosted_runtime_exited(
+    pty: &PtySurface,
+    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
+) {
+    let mut runtime = pty.runtime.lock().unwrap();
+    let matches = match &*runtime {
+        PtyRuntime::Hosted(host) => host.identity() == *identity,
+        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
+    };
+    if matches {
+        if let PtyRuntime::Hosted(host) = &*runtime {
+            host.disconnect();
+        }
+        *runtime = PtyRuntime::ExitedHosted;
+        pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
+        drop(runtime);
+        pty.finish_hosted_exit();
+    }
+}
+
+pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
+        return;
+    }
+    if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
+    {
+        return;
+    }
+    pty.dead.store(true, Ordering::Release);
+    if let Some(mux) = pty.mux.upgrade() {
+        mux.surface_exited(surface.id);
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    let master = {
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { master, .. } = &mut *runtime;
+        master.take()
+    };
+    // portable-pty's ConPTY reader keeps a separate output handle. Closing
+    // the master closes the pseudoconsole, which lets that reader drain the
+    // final bytes and then observe EOF.
+    drop(master);
+}
+
+#[cfg(not(windows))]
+pub(super) fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}

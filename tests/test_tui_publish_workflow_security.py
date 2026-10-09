@@ -151,9 +151,9 @@ def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     assert 'require_exact_test()' in job
     assert 'pending_wrap_replay_preserves_cursor_with_origin_mode' in job
     for test_name in (
-        "config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
-        "config::tests::ghostty_file_reader_enforces_byte_limit_during_read",
-        "config::tests::ghostty_config_helper_output_reader_enforces_byte_limit",
+        "config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver",
+        "config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read",
+        "config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit",
     ):
         assert test_name in job
 
@@ -198,13 +198,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    # The filter is the tree key's input list (checked item by item in
+    # test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths); here only
+    # that it starts with the cmux-tui sources.
     paths = pr_trigger.get("paths")
-    assert paths == [
-        "cmux-tui/**",
-        "ghostty",
-        "ghostty-next",
-        "scripts/cmux-next/build-layout-reducer-ffi.sh",
-    ]
+    assert paths and paths[0] == "cmux-tui/**"
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger
@@ -299,7 +297,7 @@ def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
         if not line or line.startswith("#"):
             continue
         kind, path = line.split(maxsplit=1)
-        key_paths.append("cmux-tui/**" if kind == "tree" and path == "cmux-tui" else path)
+        key_paths.append(f"{path}/**" if kind == "tree" else path)
     triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
     assert triggers["pull_request_target"]["paths"] == key_paths
     assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")

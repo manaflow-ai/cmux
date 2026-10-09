@@ -25,6 +25,7 @@ public nonisolated enum StatusIndicatorTunables {
         default: 8, range: 4...24, step: 1, unit: .count, code: "StatusIndicatorTunables.nativeSteps")
 
     public static var all: [TunableDescriptor] {
-        [style.descriptor, arcLength.descriptor, trackOpacity.descriptor, dotScale.descriptor, pulseLow.descriptor, nativeSteps.descriptor]
+        [style.descriptor, arcLength.descriptor, trackOpacity.descriptor, dotScale.descriptor, pulseLow.descriptor, nativeSteps.descriptor,
+         StatusIconSet.tunable.descriptor]
     }
 }

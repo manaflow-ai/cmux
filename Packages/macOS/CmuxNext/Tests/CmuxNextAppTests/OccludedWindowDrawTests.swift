@@ -48,6 +48,7 @@ struct OccludedWindowDrawTests {
     /// Posts an occlusion change for `window`, then waits (bounded, test only)
     /// until `condition` holds.
     private static func occlusionChanged(_ window: NSWindow, until condition: () -> Bool) async {
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         for _ in 0..<100 where !condition() { try? await Task.sleep(for: .milliseconds(5)) }
     }

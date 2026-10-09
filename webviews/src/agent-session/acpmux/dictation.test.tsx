@@ -4,6 +4,8 @@ import type { DictationUpdate } from "./dictationText";
 import type { AcpmuxSnapshot } from "./model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  // An origin, so the page's draft cache (localStorage) works as in the app.
+  url: "https://cmux.test/agent-pane",
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
@@ -13,6 +15,7 @@ const saved = Object.fromEntries(
     "window",
     "document",
     "navigator",
+    "localStorage",
     "HTMLElement",
     "customElements",
     "Node",
@@ -31,6 +34,7 @@ Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
+  localStorage: dom.window.localStorage,
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Event: dom.window.Event,
@@ -96,6 +100,10 @@ const snapshot: AcpmuxSnapshot = {
 /// the WebKit host takes everything else, dictation included.
 async function mountPane(options: { refuse?: string } = {}) {
   const posted: Posted[] = [];
+  // The composer restores session "s1"'s unsent prompt on mount (composerDraft.ts): an earlier
+  // test's words must not reach this pane. The host below answers chat.readDraft with nothing;
+  // this clears the page's synchronous draft cache.
+  localStorage.clear();
   host.cmuxAcpmuxActions = {
     ready: async () => ({ protocolVersion: 1, transport: "test" }),
     "chat.send": async (params) => {
@@ -251,9 +259,15 @@ describe("composer dictation", () => {
       await pane.send({ state: "listening", text: "ship it" });
       await pane.send({ state: "idle", text: "ship it" });
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-      expect(pane.posted.at(-1)).toMatchObject({ method: "chat.send", params: { text: "ship it" } });
-      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
+      // The send clears the prompt, and the host then persists the empty draft (chat.writeDraft).
+      expect(pane.methods()).toEqual(["chat.send"]);
+      expect(pane.posted.find((message) => message.method === "chat.send")).toMatchObject({
+        params: { text: "ship it" },
+      });
+      expect(pane.prompt().value).toBe("");
     } finally {
+      // Layout is pane-global: a failed assertion above must not leave auto-send on for later tests.
+      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
       await pane.unmount();
     }
   });
@@ -278,6 +292,16 @@ describe("composer dictation", () => {
       await pane.send({ state: "idle", text: "ok" });
       expect(pane.prompt().value).toBe("ok");
       expect(pane.mic().dataset.state).toBe("idle");
+    } finally {
+      await pane.unmount();
+    }
+  });
+
+  test("each pane starts from an empty prompt, whatever an earlier pane left unsent", async () => {
+    localStorage.setItem("cmux.acpmux.composer-draft.s1", "left over");
+    const pane = await mountPane();
+    try {
+      expect(pane.prompt().value).toBe("");
     } finally {
       await pane.unmount();
     }
@@ -370,8 +394,8 @@ describe("composer dictation", () => {
       await pane.send({ state: "idle", text: "first message" });
       expect(pane.methods()).not.toContain("chat.send");
       expect(pane.prompt().value).toBe("typing new");
-      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
     } finally {
+      await act(async () => host.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
       await pane.unmount();
     }
   });

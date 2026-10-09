@@ -31,6 +31,24 @@ struct AgentTabStoreTests {
         #expect(fixture.tabs.session(of: "tab_restored") == "s-7")
     }
 
+    /// A New Tab page the store restored (quit and relaunch) has no chat yet: it opens as the
+    /// page again, titled New Tab, not as an empty chat labeled Agent. A blank chat this run
+    /// opened stays a chat.
+    @Test func aRestoredTabWithoutAChatOpensAsTheNewTabPage() async throws {
+        let record = AgentSessionRef(host: AgentTabFixture.host)
+        let fixture = try AgentTabFixture(tree: [AgentTabFixture.tab(50, "tab_restored", record)])
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                                        listProjects: { _ in [] })
+        fixture.tabs.firstPageNewTab = { _ in (AgentPaneNewTab(kind: .agent), handler) }
+        let view = try #require(fixture.tabs.view(for: "tab_restored"))
+        #expect(view.model.newTab != nil)
+        #expect(fixture.tabs.pageTabs.ids == ["tab_restored"])
+
+        let blank = try await fixture.open()
+        #expect(try #require(fixture.tabs.view(for: blank)).model.newTab == nil)
+        #expect(fixture.tabs.pageTabs.ids == ["tab_restored"])
+    }
+
     /// Only the Mac whose acpmux runs the session attaches to it.
     @Test func aTabOfAnotherHostGetsNoView() throws {
         let record = AgentSessionRef(host: "install:other-mac", session: "s-7")
@@ -262,36 +280,3 @@ struct AgentTabLifecycleTests {
     }
 }
 
-/// The one-time import of the agent tabs an older build recorded in the window document.
-@MainActor
-@Suite struct AgentTabImportTests {
-    @Test func theImportEmptiesTheRecordsAndSelectsTheStoreTabs() {
-        var document = WindowStateDocument(
-            windows: [WindowRecord(id: "w1", workspaceKey: nil, selectedTabs: ["pane_p": "local-agent:one", "pane_q": "tab_x"])],
-            legacyAgentTabs: ["pane_p": [AgentTabRecord(id: "local-agent:one", session: "s-1")],
-                              "pane_q": [AgentTabRecord(id: "local-agent:two", session: "s-2")]]
-        )
-        let kept = ["pane_q": [AgentTabRecord(id: "local-agent:two", session: "s-2")]]
-        AgentTabImport.finish(&document, imported: ["local-agent:one": "tab_new"], remaining: kept)
-        #expect(document.legacyAgentTabs == kept, "a record the daemon refused stays for the next launch")
-        #expect(document.windows[0].selectedTabs == ["pane_p": "tab_new", "pane_q": "tab_x"])
-        AgentTabImport.finish(&document, imported: ["local-agent:two": "tab_two"], remaining: [:])
-        #expect(document.legacyAgentTabs.isEmpty)
-    }
-
-    @Test func theDocumentWritesTheRecordsOnlyWhileItHasSome() throws {
-        var document = WindowStateDocument()
-        let empty = try #require(String(data: try JSONEncoder().encode(document), encoding: .utf8))
-        #expect(!empty.contains("agent_tabs"))
-        document.legacyAgentTabs["pane-a"] = [AgentTabRecord(id: "local-agent:one", session: "s-1")]
-        let data = try JSONEncoder().encode(document)
-        #expect(try JSONDecoder().decode(WindowStateDocument.self, from: data).legacyAgentTabs == document.legacyAgentTabs)
-        let old = try JSONDecoder().decode(WindowStateDocument.self, from: Data(#"{"windows":[]}"#.utf8))
-        #expect(old.legacyAgentTabs.isEmpty)
-    }
-
-    @Test func importKeysAreStablePerOldTab() {
-        #expect(AgentTabImport.key(for: "local-agent:one") == AgentTabImport.key(for: "local-agent:one"))
-        #expect(AgentTabImport.key(for: "local-agent:one") != AgentTabImport.key(for: "local-agent:two"))
-    }
-}

@@ -232,8 +232,9 @@ fn idle_end_sends_the_app_what_close_sends() {
 }
 
 /// The session's end asks the app to close its tabs with reason
-/// `session_end` (the store leaves them out of Reopen Closed); the agent's
-/// own `tabs.close` carries no reason, even when the agent sends one.
+/// `session_end` (the store leaves them out of Reopen Closed). The agent's
+/// own `tabs.close` of a tab its session opened takes the same close once;
+/// the reason is the host's, never taken from the agent's params.
 #[test]
 fn session_end_closes_carry_the_session_end_reason() {
     let f = Fixture::start("reason", &["N1", "N2", "U"], Duration::from_secs(600));
@@ -262,7 +263,11 @@ fn session_end_closes_carry_the_session_end_reason() {
     let first = |target: &str| {
         closes.iter().find(|params| params["targetId"] == target).cloned().unwrap_or_default()
     };
-    assert!(first("N2").get("reason").is_none(), "the agent's close has no reason: {closes:?}");
+    // The agent's close of a tab its session opened is a session-end close
+    // too (the app closes no tab without one); the host sets the reason
+    // itself, never from the agent's params.
+    assert_eq!(first("N2")["reason"], "session_end", "{closes:?}");
+    assert_eq!(closes.iter().filter(|params| params["targetId"] == "N2").count(), 1, "{closes:?}");
     assert_eq!(first("N1")["reason"], "session_end", "{closes:?}");
     assert!(first("N1")["timeoutMs"].is_u64(), "{closes:?}");
 }

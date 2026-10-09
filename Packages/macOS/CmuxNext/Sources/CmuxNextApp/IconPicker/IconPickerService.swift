@@ -11,7 +11,8 @@ import CmuxNextSidebar
 /// `debug.popups` lists, so preflights prove it opened.
 @MainActor
 final class IconPickerService {
-    static let size = NSSize(width: 420, height: 460)
+    /// Eight large square tiles per row (the page derives the tile pitch from its width).
+    static let size = NSSize(width: 600, height: 520)
 
     /// Where the picker opens: a rect in `view`'s coordinates (the sidebar row, or the top
     /// middle of the window).
@@ -99,7 +100,9 @@ final class IconPickerService {
 
     private func makeWarm(catalog: IconPickerSymbolCatalog) -> Warm? {
         let provider = IconPickerProvider(prefs: prefs, catalog: catalog, maxEmojiVersion: maxEmojiVersion)
-        let routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
+        var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
+        // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
+        if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
         guard let page = PageWebView(descriptor: .iconPicker, routes: routes, dynamicResources: symbols) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
@@ -124,7 +127,7 @@ final class IconPickerService {
     /// An anchor at personal group `id`'s header in the active window, else
     /// the middle of the active window's content.
     func anchor(group id: String) -> Anchor? {
-        guard let controller = services?.windows?.active, let content = controller.window?.contentView else { return nil }
+        guard let controller = services?.windows.active, let content = controller.window?.contentView else { return nil }
         if let screen = controller.sidebar.container.sidebarView.groupRowFrameOnScreen(for: CmuxNextSidebar.GroupID(id)),
            let window = content.window {
             return Anchor(view: content, rect: content.convert(window.convertFromScreen(screen), from: nil))
@@ -134,7 +137,7 @@ final class IconPickerService {
 
     /// An anchor at the top middle of the active window (objects with no row on screen).
     func activeWindowAnchor() -> Anchor? {
-        services?.windows?.active?.window?.contentView.map { centerAnchor(in: $0) }
+        services?.windows.active?.window?.contentView.map { centerAnchor(in: $0) }
     }
 
     private func centerAnchor(in content: NSView) -> Anchor {

@@ -7,9 +7,8 @@ import Testing
 /// the sidebar's bottom-left is one control, the current profile's avatar
 /// (its initial in a 16 pt circle) with a small chevron; a click opens the
 /// profile menu. The gear is gone (Settings is in the menu). The space dots
-/// sit in the same row right after the control, anchored leading, so adding
-/// or removing a space moves no existing dot and not the control (Leo: no
-/// reflow). The footer row takes no drag and drop for now.
+/// sit in the same row after the control, centered on the sidebar
+/// (cx-5k3r), so adding or removing a space never moves the control. The footer row takes no drag and drop for now.
 @MainActor @Suite(.serialized) struct SidebarProfileControlTests {
     static let account = LayoutItemID("itm_account")
     static let avatar = SidebarAvatar(name: "Work", color: nil)
@@ -86,19 +85,22 @@ import Testing
         #expect(view.footer.frame.height == 0, "no separate dots row")
     }
 
-    /// Adding a space moves no existing dot, not the control and not the
-    /// bar (Leo: no reflow); removing one does not either.
-    @Test func addingOrRemovingASpaceMovesNothingElse() throws {
+    /// Adding or removing a space moves neither the control nor the bar;
+    /// the strip re-centers on the sidebar (cx-5k3r, Lawrence 2026-10-08,
+    /// replaces amendment 2's leading anchor).
+    @Test func addingOrRemovingASpaceKeepsTheControlAndRecentersTheStrip() throws {
         let view = sidebar(profiles: 2)
         let controlFrame = view.convert(try control(view).frame, from: view.footerRegion)
         let barFrame = view.convert(view.profileBar.frame, from: view.profileBar.superview)
-        let slot = Double(Metrics.roomDotSlot), leading = Double(view.profileBar.slotsLeading)
-        let two = ProfileBarLogic.slotXs(count: 2, slot: slot, leading: leading)
+        func stripMid() -> CGFloat {
+            let frames = view.profileBar.slotRects().prefix(view.model.profiles.count).map { view.profileBar.convert($0, to: view) }
+            return ((frames.first?.minX ?? 0) + (frames.last?.maxX ?? 0)) / 2
+        }
+        #expect(abs(stripMid() - view.bounds.midX) <= 0.5)
         view.model.profiles = Self.profiles
         view.needsLayout = true
         view.layoutSubtreeIfNeeded()
-        let three = ProfileBarLogic.slotXs(count: 3, slot: slot, leading: Double(view.profileBar.slotsLeading))
-        #expect(Array(three.prefix(2)) == Array(two.prefix(2)), "existing dots stay: \(two) \(three)")
+        #expect(abs(stripMid() - view.bounds.midX) <= 0.5)
         #expect(view.convert(try control(view).frame, from: view.footerRegion) == controlFrame)
         #expect(view.convert(view.profileBar.frame, from: view.profileBar.superview) == barFrame)
         view.model.profiles = Array(Self.profiles.prefix(2))
@@ -125,9 +127,8 @@ import Testing
         #expect(view.footerRegion.reorder == nil)
 
         let bar = view.profileBar
-        let slot = Metrics.roomDotSlot
         func event(_ type: NSEvent.EventType, slotIndex: Int) throws -> NSEvent {
-            let x = bar.slotsLeading + slot * (CGFloat(slotIndex) + 0.5)
+            let x = bar.slotRects()[slotIndex].midX
             let point = bar.convert(NSPoint(x: x, y: bar.bounds.midY), to: nil)
             return try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))

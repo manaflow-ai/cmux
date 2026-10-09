@@ -179,7 +179,7 @@ MACOS_RELAY_RUNNER = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
     "vars.CI_PR_POOL_OWNED == '1' && "
     "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
-    "github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || "
+    "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
     "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
 )
 
@@ -189,9 +189,9 @@ def test_macos_runs_the_chatmux_relay_tests() -> None:
 
     9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
     the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
-    mode with the chatmux_relay selector). The relay job takes the owned AWS
-    minis through CI_AWS_SIDE_RUNNER on attempt 1 (CI_SIDE_LANE_RUNNER when it
-    is empty), and a rerun returns to the background lane.
+    mode with the chatmux_relay selector). The relay job takes the owned minis
+    through CI_SIDE_LANE_RUNNER on attempt 1, and a rerun returns to the
+    background lane.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["macos-relay"]
@@ -221,7 +221,12 @@ def test_macos_runs_the_chatmux_relay_tests() -> None:
 ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 
 
-def test_artifacts_macos_legs_take_the_aws_side_runner_on_attempt_one() -> None:
+def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
+    """Attempt 1 takes the owned minis' side lane; a rerun goes back to the PR pool.
+
+    The legs are on the PR critical path, so both fall back to MACOS_RUNNER_PR,
+    never the background lane, and neither names the retired glaeda-aws pools.
+    """
     workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
     builds = [
         job for job in workflow["jobs"].values()
@@ -229,9 +234,14 @@ def test_artifacts_macos_legs_take_the_aws_side_runner_on_attempt_one() -> None:
     ]
     assert builds
     for job in builds:
-        runner = job["with"]["macos_runner"]
-        assert runner.startswith("${{ inputs.macos_runner || ")
-        assert MACOS_RELAY_RUNNER.removeprefix("${{ ") in runner
+        assert job["with"]["macos_runner"] == (
+            "${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "vars.CI_PR_POOL_OWNED == '1' && "
+            "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+            "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
+            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+        )
         assert job["with"]["macos_retry_runner"] == (
-            "${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
         )

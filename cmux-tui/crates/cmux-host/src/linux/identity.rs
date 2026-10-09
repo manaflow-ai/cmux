@@ -216,7 +216,8 @@ pub fn rekey(paths: &Paths, instance_id: &str) -> io::Result<()> {
                 .and_then(|seed| write_atomic(&paths.at(RANDOM_SEED_FILE), &seed, 0o600)),
         );
     }
-    step("ssh", rekey_ssh(paths, instance_id));
+    eprintln!("cmux-host: rekey for instance {instance_id}");
+    step("ssh", rekey_ssh(paths));
     match first_error {
         Some(err) => Err(err),
         None => Ok(()),
@@ -241,7 +242,18 @@ fn relink(link: &Path, target: &Path) -> io::Result<()> {
     fs::rename(&tmp, link)
 }
 
-fn rekey_ssh(paths: &Paths, instance_id: &str) -> io::Result<()> {
+/// `root@<hostname>`, the comment `ssh-keygen -A` writes (the image identity
+/// contract checks it). The static name in `/etc/hostname`, else the kernel's.
+fn ssh_key_comment(paths: &Paths) -> String {
+    let read = |path: PathBuf| fs::read_to_string(path).ok().map(|s| s.trim().to_owned());
+    let host = read(paths.at("/etc/hostname"))
+        .filter(|s| !s.is_empty())
+        .or_else(|| read(PathBuf::from("/proc/sys/kernel/hostname")).filter(|s| !s.is_empty()))
+        .unwrap_or_else(|| "localhost".to_owned());
+    format!("root@{host}")
+}
+
+fn rekey_ssh(paths: &Paths) -> io::Result<()> {
     let ssh_dir = paths.at(SSH_DIR);
     let Some(keygen) = which("ssh-keygen") else { return Ok(()) };
     if !ssh_dir.is_dir() {
@@ -253,7 +265,7 @@ fn rekey_ssh(paths: &Paths, instance_id: &str) -> io::Result<()> {
     fs::set_permissions(&stage, fs::Permissions::from_mode(0o700))?;
     let key = stage.join("ssh_host_ed25519_key");
     let status = Command::new(keygen)
-        .args(["-q", "-t", "ed25519", "-N", "", "-C", instance_id, "-f"])
+        .args(["-q", "-t", "ed25519", "-N", "", "-C", &ssh_key_comment(paths), "-f"])
         .arg(&key)
         .stdin(Stdio::null())
         .status();
@@ -368,6 +380,23 @@ mod tests {
         assert_eq!(fs::metadata(paths.at(RANDOM_SEED_FILE)).unwrap().len(), 512);
         rekey(&paths, "vm-1").unwrap();
         assert_ne!(fs::read_to_string(paths.at(MACHINE_ID_FILE)).unwrap(), first);
+    }
+
+    /// The image identity contract (devboxIdentityCheckCommand): the host key
+    /// comment is `root@<hostname>`, as `ssh-keygen -A` writes it, never the
+    /// platform instance id.
+    #[test]
+    fn rekey_ssh_comment_is_root_at_the_hostname() {
+        if which("ssh-keygen").is_none() {
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::new(root.path());
+        fs::create_dir_all(paths.at(SSH_DIR)).unwrap();
+        fs::write(paths.at("/etc/hostname"), "cmux\n").unwrap();
+        rekey(&paths, "vm-1").unwrap();
+        let public = fs::read_to_string(paths.at("/etc/ssh/ssh_host_ed25519_key.pub")).unwrap();
+        assert_eq!(public.split_whitespace().nth(2), Some("root@cmux"), "{public}");
     }
 
     #[test]

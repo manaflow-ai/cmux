@@ -285,9 +285,34 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let existing_sid = session.meta().agent_session_id.clone();
+        let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
+        // Resume a Claude conversation only from a store that has it: one
+        // that never finished a turn may not be stored at all, and one that
+        // another profile ran lives in that profile's store (a failover onto
+        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // with the restored transcript, never a turn failed on `--resume`.
+        if is_claude
+            && fork_from.is_none()
+            && let Some(why) =
+                existing_sid.as_deref().and_then(|sid| claude_resume_refusal(&meta, profile, sid))
+            && let Some(sid) = existing_sid.take()
+        {
+            tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
+            self.append(
+                session,
+                "mux",
+                "resume_failed",
+                json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
+            );
+            {
+                let mut m = session.meta.lock().unwrap();
+                m.agent_session_id = None;
+                m.claude_unstored = false;
+            }
+            session.rehydrate.store(true, Ordering::SeqCst);
+        }
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -299,6 +324,7 @@ impl Hub {
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
                 .as_ref()
@@ -325,6 +351,7 @@ impl Hub {
                     mode: mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
+                    fast,
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -343,6 +370,7 @@ impl Hub {
                     &model,
                     &effort,
                 );
+                *tr.fast.lock().await = fast;
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
@@ -462,6 +490,10 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
+                m.claude_unstored = level == "new";
+                if level != "exact" {
+                    m.claude_profile = Some(m.harness.clone());
+                }
                 drop(m);
                 self.write_mode_state(
                     session,
@@ -672,7 +704,12 @@ impl Hub {
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
         };
-        let mut handles = Vec::new();
+        // Claude Code's and Codex's own lists, beside the ACP probes.
+        let live = {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait).await })
+        };
+        let mut handles = vec![live];
         for (name, profile) in agents {
             let hub = self.clone();
             handles.push(tokio::spawn(async move {
@@ -719,7 +756,10 @@ impl Hub {
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
@@ -850,4 +890,25 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+}
+
+/// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
+/// it can): it never finished a turn, or another profile ran it and this
+/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
+fn claude_resume_refusal(
+    meta: &SessionMeta,
+    profile: &HarnessProfile,
+    sid: &str,
+) -> Option<&'static str> {
+    if meta.claude_unstored {
+        return Some("never finished a turn");
+    }
+    let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
+    if ran_elsewhere {
+        let store = crate::adopt::HarnessHomes::from_env().with_env(&[&profile.env]).claude;
+        if !crate::adopt::claude_session_exists(&store, sid) {
+            return Some("is not in this profile's Claude store");
+        }
+    }
+    None
 }

@@ -99,7 +99,7 @@ pub enum Command {
     #[command(alias = "guide")]
     Skill,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
     /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
@@ -200,6 +200,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Replace the dashboard token now: the old link, `ws://` peers that
+        /// were given it and open dashboard connections stop working.
+        #[arg(long)]
+        rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
     #[command(subcommand, alias = "hosts")]
@@ -360,6 +364,32 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a
+        /// profile that starts it at the registry's pinned version (its
+        /// installed program, else npx, else uvx).
+        #[arg(long, conflicts_with_all = ["command", "example"])]
+        registry: bool,
+    },
+    /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
+    /// for Claude Code). `--status` checks it; `--list` shows the methods.
+    Login {
+        id: String,
+        /// The sign-in method id (default: the harness's first browser or
+        /// terminal sign-in).
+        #[arg(long)]
+        method: Option<String>,
+        /// Show the sign-in methods and whether the harness is signed in.
+        #[arg(long)]
+        list: bool,
+        /// Only check whether the harness is signed in.
+        #[arg(long)]
+        status: bool,
+    },
+    /// The ACP Registry's agents and how each can start here.
+    Registry {
+        /// Fetch the registry now instead of reading the cached copy.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.
@@ -416,6 +446,11 @@ pub enum HarnessCmd {
     /// Print the guide an agent follows to integrate a harness (schema,
     /// doctor loop, examples, security rules).
     Guide,
+    /// Move a profile file from your harness folder to a backup
+    /// (~/.acpmux/harness-backups); `restore` brings it back.
+    Remove { id: String },
+    /// Move a backup that `remove` made back into your harness folder.
+    Restore { backup: String },
 }
 
 #[derive(Subcommand)]

@@ -21,7 +21,8 @@ struct TabPaneTerminalBindingTests {
         let services = Coverage.boundServices()
         let group = ActionTargetRef(kind: .tabGroup, id: "g1")
         for id in ["tabGroup.rename", "tabGroup.color.red", "tabGroup.moveLeft", "tabGroup.save"] {
-            #expect(Coverage.run(services, id, target: group) == .refused("needs daemon capability tab-groups-v1"), "\(id)")
+            let outcome = Coverage.run(services, id, target: group)
+            #expect(CapabilityRefusalTests.refusedByGate(outcome), "\(id): \(outcome)")
         }
     }
 

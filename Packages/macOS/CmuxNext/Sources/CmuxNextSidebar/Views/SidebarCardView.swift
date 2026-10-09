@@ -22,12 +22,15 @@ final class SidebarCardView: NSView {
     private let bar = CALayer()
     private var buttons: [NSButton] = []
     private let close = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: Strings.dismissCard)
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private var hovered = false
+    private var pointerHover: PointerHover?
 
     override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
         wantsLayer = true
         layer?.cornerRadius = Self.radius
         layer?.cornerCurve = .continuous
@@ -137,20 +140,9 @@ final class SidebarCardView: NSView {
         return true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-        close.isHidden = !(card.dismissible && !isPeek)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
-        close.isHidden = true
+    private func setHovered(_ hovering: Bool) {
+        hovered = hovering
+        close.isHidden = !(hovering && card.dismissible && !isPeek)
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -121,7 +121,7 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
     guard let context else { return }
     let address = UInt(bitPattern: context)
     let deliver: @Sendable () -> Void = {
-        MainActor.assumeIsolated {
+        MainActor.assumeIsolated { // main-proof: deliver runs only in the Thread.isMainThread branch or as a CFRunLoopGetMain() block (below)
             CEFRuntime.from(address)?.pump?.request(milliseconds: delayMilliseconds)
         }
     }

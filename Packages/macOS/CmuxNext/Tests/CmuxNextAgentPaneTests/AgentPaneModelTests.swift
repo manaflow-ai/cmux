@@ -88,6 +88,25 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(await host.asked.isEmpty)
     }
 
+    /// Saved replies true, a cancelled panel false, and no saver or a failed
+    /// write a failure the page answers by copying the log.
+    @Test func theInspectorExportRepliesSavedCancelledOrFailed() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let request = AgentPaneRequest.saveLog(text: "{}\n", suggestedName: "acp.jsonl")
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        // The saver gets the page's text and name; it reports a mismatch as a cancel.
+        model.onSaveLog = { text, name in text == "{}\n" && name == "acp.jsonl" }
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(reply["value"] as? Bool == true)
+        model.onSaveLog = { _, _ in false }
+        #expect(await model.respond(to: request)["value"] as? Bool == false)
+        model.onSaveLog = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        let failed = await model.respond(to: request)
+        #expect(failed["ok"] as? Bool == false)
+        #expect((failed["error"] as? [String: Any])?["code"] as? String == "save_failed")
+    }
+
     @Test func aHostFailureBecomesALocalizedMessage() async throws {
         let model = AgentPaneModel(host: FailingHost(error: .daemonFailed(logPath: "/tmp/acpmux/daemon.log")))
         let reply = await model.respond(to: .ready)
@@ -226,6 +245,37 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(model.sessionId == "s-6")
     }
 
+    /// `quick.startInBackground` (Start Agent's Return, cx-hkat): the
+    /// started session, its folder and a name from the prompt. A missing
+    /// session is refused; an empty folder or name is none.
+    @Test func quickStartInBackgroundDecodes() {
+        let body: [String: Any] = ["method": "quick.startInBackground",
+                                   "params": ["sessionId": "s-8", "cwd": "/repo", "name": "fix the flaky test"]]
+        #expect(AgentPaneRequest(body: body) == .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-8", cwd: "/repo", name: "fix the flaky test")))
+        let bare: [String: Any] = ["method": "quick.startInBackground", "params": ["sessionId": "s-8", "cwd": "", "name": ""]]
+        #expect(AgentPaneRequest(body: bare) == .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-8", cwd: nil, name: nil)))
+        #expect(AgentPaneRequest(body: ["method": "quick.startInBackground"] as [String: Any]) == .unsupported("quick.startInBackground"))
+    }
+
+    /// The quick panel's page hands its started session to the host and
+    /// adopts it, like `quick.openInWindow`; a tab refuses it.
+    @Test func quickStartInBackgroundReachesItsClosure() async {
+        let model = AgentPaneModel(host: RecordingHost())
+        var started: [AgentPaneQuickStart] = []
+        var reported: [String] = []
+        model.onQuickStartInBackground = { start in started.append(start) }
+        model.onSessionChange = { reported.append($0) }
+        let start = AgentPaneQuickStart(sessionId: "s-9", cwd: "/repo", name: "ship it")
+        #expect(await model.respond(to: .quickStartInBackground(start))["ok"] as? Bool == true)
+        #expect(started == [start])
+        #expect(reported == ["s-9"])
+        #expect(model.sessionId == "s-9")
+
+        let tab = AgentPaneModel(host: MockAgentPaneHost())
+        let reply = await tab.respond(to: .quickStartInBackground(start))
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
+    }
+
     /// A pane tab is not the quick panel: it refuses both messages.
     @Test func aTabRefusesQuickPanelMessages() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
@@ -250,15 +300,3 @@ private actor RecordingHost: AgentPaneHostProviding {
     }
 }
 
-/// The page's `pane.context` answer (#16620).
-@Suite struct AgentPaneContextTests {
-    @Test func readsTheCwdAndWebURLs() {
-        let context = AgentPaneContext(page: ["cwd": "/w/app", "urls": ["http://localhost:5173/", "javascript:alert(1)", 7, "https://github.com/o/r/pull/2"]])
-        #expect(context == AgentPaneContext(cwd: "/w/app", urls: [URL(string: "http://localhost:5173/")!, URL(string: "https://github.com/o/r/pull/2")!]))
-    }
-
-    @Test func anEmptyOrMissingAnswerIsNotAContext() {
-        #expect(AgentPaneContext(page: nil) == nil)
-        #expect(AgentPaneContext(page: ["cwd": "", "urls": []]) == AgentPaneContext())
-    }
-}

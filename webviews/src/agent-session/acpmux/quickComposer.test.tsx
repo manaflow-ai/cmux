@@ -93,6 +93,8 @@ const snapshot = (sessionId: string | undefined, rows: AcpmuxSnapshot["rows"] = 
 
 let root: ReturnType<typeof createRoot>;
 let calls: [string, Record<string, unknown>][];
+/// `project.list` reads: the folder picker's choices, counted apart from the calls under test.
+let projectLists = 0;
 /// Mounts the page against a host whose `ready` reply carries `surface`, then shows `first`.
 const mount = async (
   surface: string | undefined,
@@ -116,7 +118,12 @@ const mount = async (
     }),
     "chat.send": record("chat.send"),
     "quick.dismiss": record("quick.dismiss"),
+    "project.list": async () => {
+      projectLists += 1;
+      return { projects: [] };
+    },
     "quick.openInWindow": record("quick.openInWindow"),
+    "quick.startInBackground": record("quick.startInBackground"),
   };
   await act(async () => root.render(createElement(AcpmuxApp)));
   await act(async () => host.cmuxAcpmuxBridge!.receive(first));
@@ -135,6 +142,7 @@ const key = (name: string, init: KeyboardEventInit = {}) =>
 
 beforeEach(() => {
   calls = [];
+  projectLists = 0;
   root = createRoot(container());
 });
 afterEach(async () => {
@@ -156,7 +164,8 @@ test("a ready reply with surface quick shows only the composer and its key hints
   expect(page.querySelector(".acpmux-quick-thread")).toBeNull();
   const hints = page.querySelector(".acpmux-quick-keys")!;
   expect([...hints.querySelectorAll(".acpmux-keycap")].map((cap) => cap.textContent)).toEqual(["↩", "⌘↩", "esc"]);
-  expect(hints.textContent).toBe("↩send·⌘↩open in window·escclose");
+  // Start Agent (cx-hkat): Return starts in the background, ⌘Return starts and opens.
+  expect(hints.textContent).toBe("↩start·⌘↩start and open·escclose");
 });
 
 test("the quick surface shows the chat's transcript above the composer once it has a prompt", async () => {
@@ -190,6 +199,84 @@ test("Escape that closes the command menu does not dismiss the quick surface", a
   // A second Escape, with nothing left open, dismisses.
   await key("Escape");
   expect(methods()).toEqual(["quick.dismiss"]);
+});
+
+test("Return in the quick surface sends, then starts the chat in the background once its session exists", async () => {
+  await mount("quick", snapshot(undefined));
+  // acpmux takes the prompt: the in-page client calls `accepted`.
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params.accepted as () => void)();
+    return null;
+  };
+  await type("fix the flaky test\nin the sidebar suite");
+  await key("Enter");
+  expect(methods()).toEqual(["chat.send"]);
+  await act(async () =>
+    host.cmuxAcpmuxBridge!.receive({
+      ...snapshot("s6", [{ id: "u1", version: 1, at: 1, kind: "user", text: "fix the flaky test" }]),
+      summary: { sessionId: "s6", turnCount: 1, cwd: "/repo" },
+    }),
+  );
+  expect(calls.slice(1)).toEqual([
+    ["quick.startInBackground", { sessionId: "s6", cwd: "/repo", name: "fix the flaky test" }],
+  ]);
+});
+
+test("a prompt acpmux has not taken stays in the panel: no background start", async () => {
+  await mount("quick", snapshot(undefined));
+  await type("start something");
+  await key("Enter");
+  await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("s8")));
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("a peer chat's background start names no local folder", async () => {
+  await mount("quick", snapshot(undefined));
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params.accepted as () => void)();
+    return null;
+  };
+  await type("check the build box");
+  await key("Enter");
+  await act(async () =>
+    host.cmuxAcpmuxBridge!.receive({
+      ...snapshot("s9", [{ id: "u1", version: 1, at: 1, kind: "user", text: "check the build box" }]),
+      summary: { sessionId: "s9", turnCount: 1, cwd: "/home/me/repo", peer: "build-box" },
+    }),
+  );
+  expect(calls.slice(1)).toEqual([["quick.startInBackground", { sessionId: "s9", name: "check the build box" }]]);
+});
+
+test("a failed send keeps the quick chat: no background start", async () => {
+  await mount("quick", snapshot(undefined));
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    throw new Error("acpmux went away");
+  };
+  await type("start something");
+  await key("Enter");
+  await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("s7")));
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("Return in a tab's pane only sends", async () => {
+  await mount(undefined, snapshot("s1"));
+  await type("hello");
+  await key("Enter");
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("the quick surface lists projects and shows its folder row above the prompt", async () => {
+  // A live acpmux host says a chat without a session is new (AgentPaneHandshake.acpmux).
+  await mount("quick", snapshot(undefined), true);
+  expect(projectLists).toBeGreaterThan(0);
+  const page = container();
+  const context = page.querySelector(".acpmux-quick .acpmux-composer-context");
+  expect(context).not.toBeNull();
+  // The pickers head the panel (Start Agent's header): the folder row comes before the prompt.
+  expect(context!.compareDocumentPosition(prompt().element) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("⌘Return sends the prompt, then asks to open the chat in a window", async () => {
@@ -428,6 +515,59 @@ test("the first prompt starts the chat in the inline project's folder", async ()
     ["chat.new", { cwd: "/src/app" }],
     ["chat.send", { text: "hello", attachments: [], accepted: expect.any(Function) }],
   ]);
+});
+
+/// cx-nn3e P0b (nxdog81): the first prompt of a new chat in an unanswered folder was dropped. The
+/// pane starts the chat (`chat.new`) before it sends the prompt; acpmux refused that start with
+/// trust.pending, so the prompt never reached the trust question's re-send and the composer
+/// emptied. Now the question shows, the prompt stays, and Trust sends it exactly once.
+test("a new chat refused for trust keeps the prompt, asks, and Trust sends it once", async () => {
+  const fresh = snapshot(undefined);
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh, true);
+  let trusted = false;
+  let readable = false;
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+    if (!trusted) {
+      readable = true;
+      throw Object.assign(new Error("trust.pending: answer first (/src/app)"), {
+        reason: "trust.pending",
+        cwd: "/src/app",
+      });
+    }
+  };
+  // Before the refusal the pane cannot read the folder's trust (it is never asked about then).
+  host.cmuxAcpmuxActions!["acp.trust.get"] = async ({ cwd }) =>
+    readable ? { cwd, level: trusted ? "trusted" : "unknown" } : null;
+  host.cmuxAcpmuxActions!["acp.trust.set"] = async ({ cwd, level }) => {
+    calls.push(["acp.trust.set", { cwd, level }]);
+    trusted = level === "trusted";
+    return { cwd, level };
+  };
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    (params as { accepted?: () => void }).accepted?.();
+  };
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
+  await settled();
+  await type("hello");
+  await key("Enter");
+  await settled();
+  expect(methods()).not.toContain("chat.send");
+  expect(prompt().handle.plainText()).toBe("hello");
+  const trust = [...container().querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+    (button) => button.textContent === "Trust",
+  );
+  expect(trust).toBeDefined();
+  await act(async () => trust!.click());
+  await settled();
+  await settled();
+  const sends = calls.filter(([method]) => method === "chat.send");
+  expect(sends.length).toBe(1);
+  expect(sends[0]![1].text).toBe("hello");
 });
 
 /// A started local chat in /src/app, with another known folder (/src/other) on this Mac.

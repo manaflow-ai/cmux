@@ -53,10 +53,27 @@ impl FakeApp {
                         })
                     }
                     // tabs.open answers the tab named by the URL's last
-                    // path segment (tests announce it up front).
+                    // path segment, or `new` without a URL (tests announce
+                    // it up front).
                     Frame::Call { id, method, params } if method == "tabs.open" => {
                         let url = params["url"].as_str().unwrap_or("");
-                        let target = url.rsplit('/').next().unwrap_or("").to_owned();
+                        let target = match url.rsplit('/').next().unwrap_or("") {
+                            "" => "new".to_owned(),
+                            last => last.to_owned(),
+                        };
+                        // As the app does: a new Chromium tab's access
+                        // report goes out before the reply names the tab.
+                        if params["engine"] == "cef" {
+                            let access = Frame::TabAccess {
+                                target_id: target.clone(),
+                                extension_host_access: false,
+                                user_override: false,
+                                extensions: Vec::new(),
+                            };
+                            if write_frame(&mut *thread_writer.lock().unwrap(), &access).is_err() {
+                                break;
+                            }
+                        }
                         Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method, "targetId": target})),
@@ -77,6 +94,12 @@ impl FakeApp {
                             "Page.getFrameTree" => json!({"frameTree": {"frame": {
                                 "id": format!("CDP-{target_id}"), "loaderId": "L1",
                                 "url": "https://a.test/"}}}),
+                            // The page loaded before the relay attached.
+                            "Runtime.evaluate"
+                                if message["params"]["expression"] == "document.readyState" =>
+                            {
+                                json!({"result": {"type": "string", "value": "complete"}})
+                            }
                             _ => json!({}),
                         };
                         let mut reply = json!({"id": message["id"], "result": result});
@@ -448,7 +471,7 @@ fn a_policy_on_a_provider_session_fails_closed() {
 /// the profile and workspace.
 #[test]
 fn tabs_open_drops_agent_chosen_profile_and_workspace() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call(
         "tabs.open",
@@ -463,7 +486,7 @@ fn tabs_open_drops_agent_chosen_profile_and_workspace() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
+    assert_eq!(open, json!({"engine": "cef"}));
 }
 
 /// Private data P1: an incognito tab opens only in a non-persistent store.
@@ -484,7 +507,7 @@ fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
 
 #[test]
 fn tabs_open_goes_to_the_app_with_the_session_engine() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
     let frames = app.frames.lock().unwrap();
@@ -496,6 +519,177 @@ fn tabs_open_goes_to_the_app_with_the_session_engine() {
         })
         .unwrap();
     assert_eq!(open["engine"], "cef");
+}
+
+/// A Chromium session's `tabs.open {url}` opens a blank tab in the app,
+/// then navigates it through the tab's CDP relay and waits for the commit,
+/// as a headless tab does: the reply means the document committed, and the
+/// navigation passes the session's checks like any other. Before, the URL
+/// went to the app, which loaded nothing for a Chromium tab until the first
+/// CDP touch, and never waited for the commit.
+#[test]
+fn a_cef_tabs_open_with_a_url_navigates_the_blank_tab_through_cdp() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
+    let cef = engine(&provider, "cef");
+    let opened = cef.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    assert_eq!(opened["targetId"], "new");
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"engine": "cef"}), "the app opens a blank Chromium tab");
+    let navigations: Vec<Value> =
+        app.cdp_messages("new").into_iter().filter(|m| m["method"] == "Page.navigate").collect();
+    assert_eq!(navigations.len(), 1, "one CDP navigation: {navigations:?}");
+    assert_eq!(navigations[0]["params"]["url"], "https://b.test/page");
+}
+
+/// An agent's `tabs.close` on a tab its own session opened closes it the
+/// way the session's end would (a store close kept out of Reopen Closed),
+/// for either engine. A tab the session did not open belongs to the
+/// person's layout: a Chromium session closes nothing there. Before, every
+/// Chromium `tabs.close` reached the WebKit driver and failed (no tab).
+#[test]
+fn a_cef_session_closes_the_tab_it_opened_and_nothing_else() {
+    let (app, provider) =
+        FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef"), tab("C2", "cef")]);
+    app.access(&provider, "C2");
+    let cef = engine(&provider, "cef");
+    cef.call("tabs.open", &json!({})).unwrap();
+    cef.call("tabs.close", &json!({"targetId": "new"})).unwrap();
+    assert_eq!(cef.call("tabs.close", &json!({"targetId": "C2"})).unwrap(), Value::Null);
+    let closes: Vec<Value> = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.close" => Some(params.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closes.len(), 1, "only the session's own tab closes: {closes:?}");
+    assert_eq!(closes[0]["targetId"], "new");
+    assert_eq!(closes[0]["reason"], "session_end");
+}
+
+/// In `tabs.list`, a tab the session opened is `active` when it is the
+/// session's current tab (its last foreground `tabs.open`), as on a
+/// headless session. Before, rows were active only while the person saw
+/// them, so an agent's own background tabs were never active.
+#[test]
+fn the_sessions_last_opened_tab_is_active_in_its_list() {
+    let (_app, provider) = FakeApp::start(vec![
+        tab("W", "webkit"),
+        TabAnnounce { visible: false, ..tab("a", "webkit") },
+        TabAnnounce { visible: false, ..tab("b", "webkit") },
+    ]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({"url": "https://a.test/a"})).unwrap();
+    session.call("tabs.open", &json!({"url": "https://a.test/b"})).unwrap();
+    let rows = session.call("tabs.list", &json!({})).unwrap();
+    let active = |id: &str| {
+        rows.as_array().unwrap().iter().find(|r| r["targetId"] == id).unwrap()["active"].clone()
+    };
+    assert_eq!(active("b"), true, "{rows}");
+    assert_eq!(active("a"), false, "{rows}");
+    assert_eq!(active("W"), true, "the person's shown tab stays active: {rows}");
+}
+
+/// An agent's clipboard on the person's Chromium tab is the tab's own
+/// virtual clipboard, as on headless: `clipboard.write` and `clipboard.read`
+/// work, and nothing reaches the person's system clipboard. Before, both
+/// were unsupported on app tabs.
+#[test]
+fn a_cef_tab_has_the_agents_virtual_clipboard() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let items = json!([{"type": "text/plain", "base64": "aGk="}]);
+    cef.call("clipboard.write", &json!({"targetId": "c1", "items": items})).unwrap();
+    let read = cef.call("clipboard.read", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(read["items"], items, "{read}");
+}
+
+/// `tab.bringToFront` on a Chromium tab goes to the app, which owns tab
+/// selection, as `tabs.activate` does. Before, it went to the tab's page
+/// relay, where CDP cannot activate a target (bringToFront: ok false).
+#[test]
+fn a_cef_bring_to_front_goes_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    cef.call("tab.bringToFront", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(calls(&app, "tab.bringToFront"), 1);
+    assert!(app.cdp_messages("c1").iter().all(|m| m["method"] != "Target.activateTarget"));
+}
+
+/// A download in one of the person's tabs reaches the session as the app's
+/// `download.started` / `download.finished` events; `download.path` answers
+/// from the finished event (waiting for it), as on headless. Before,
+/// `download.path` on a provider session had no answer at all.
+#[test]
+fn download_path_answers_from_the_apps_finished_event() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    let cef = engine(&provider, "cef");
+    let finished = |id: &str, outcome: Value| {
+        let mut payload = json!({"targetId": "c1", "downloadId": id});
+        payload.as_object_mut().unwrap().extend(outcome.as_object().unwrap().clone());
+        Frame::Event { name: "download.finished".into(), payload }
+    };
+    app.send(finished("d1", json!({"path": "/tmp/d1.txt"})));
+    let path = cef.call("download.path", &json!({"downloadId": "d1"})).unwrap();
+    assert_eq!(path, json!({"path": "/tmp/d1.txt"}));
+    // A path asked for before the download ends waits for it.
+    let late = std::thread::spawn(move || {
+        engine(&provider, "cef")
+            .call("download.path", &json!({"downloadId": "d2", "timeoutMs": 5000}))
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    app.send(finished("d2", json!({"error": "canceled"})));
+    let error = late.join().unwrap().unwrap_err();
+    assert!(error.message.contains("canceled"), "{error}");
+    // An unknown download times out at the call's deadline.
+    let unknown = cef.call("download.path", &json!({"downloadId": "nope", "timeoutMs": 50}));
+    assert_eq!(unknown.unwrap_err().code, crate::protocol::ErrorCode::Timeout);
+}
+
+/// A Chromium page that finished loading before the relay attached (a
+/// popup, a tab the person opened) is `load` at once: the driver reads its
+/// readyState when it attaches. Before, it waited for a load event that had
+/// already passed (popup.waitForLoadState timed out).
+#[test]
+fn a_page_loaded_before_the_relay_attached_is_loaded() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let info = cef.call("tab.info", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(info["loadState"], "load", "{info}");
+}
+
+/// A WebKit session's URL still goes to the app (its driver navigates).
+#[test]
+fn a_webkit_tabs_open_passes_the_url_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("page", "webkit")]);
+    let webkit = engine(&provider, "webkit");
+    webkit.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"url": "https://b.test/page", "engine": "webkit"}));
 }
 
 /// A CEF tab's automation.input names the tab as the app knows it, so

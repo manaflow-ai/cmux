@@ -128,7 +128,8 @@ class ChecksJobStructure(unittest.TestCase):
         _, checks, _ = self.split()
         pin = [step for step in checks if "check-app-ffi-pin.sh" in step["run"]]
         self.assertEqual(len(pin), 1, [step["name"] for step in checks])
-        self.assertEqual(pin[0]["run"].strip(), "scripts/cmux-next/check-app-ffi-pin.sh --verify-release")
+        self.assertIn("scripts/cmux-next/check-app-ffi-pin.sh --verify-release", pin[0]["run"])
+        self.assertIn("base=(--base HEAD^1)", pin[0]["run"])
         script_tests = next(step for step in checks if step.get("id") == "script-tests")
         self.assertIn("bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh", script_tests["run"])
         # Only there: the macOS swift test job no longer carries a copy.
@@ -468,9 +469,13 @@ class PathRoutingStructure(unittest.TestCase):
         time window; nightly.yml's own concurrency group coalesces them: the running build
         finishes and only the newest pending one runs next."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        run = jobs["request-nightly-next"]["steps"][0]["run"]
-        self.assertIn("-f promote_nightly_next_sha=", run)
-        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        run = "\n".join(step.get("run", "") for step in jobs["request-nightly-next"]["steps"])
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh", run)
+        # Behavior (requests only a green commit with a published tree) is covered by
+        # scripts/cmux-next/tests/request-nightly-next.test.sh.
+        script = (WORKFLOW.parents[2] / "scripts/cmux-next/request-nightly-next.sh").read_text(encoding="utf-8")
+        self.assertIn("-f promote_nightly_next_sha=", script)
+        self.assertNotIn("promote_nightly_next_debounce=true", script)
         nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
         group = nightly["concurrency"]["group"]
         self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
@@ -654,6 +659,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
     that can run on a mini is followed at once by the reset step.
     """
 
+    CHECKOUT_FAILED = "steps.checkout.outcome == 'failure'"
+
     def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         checked = []
@@ -666,13 +673,20 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     continue
                 if str(step.get("with", {}).get("submodules", False)).lower() in ("true", "recursive"):
                     continue
+                # A failed checkout's retry pair (tests/test_cmux_next_checkout_retry.py)
+                # sits between the checkout and the reset, which follows either way.
+                if step.get("if") == self.CHECKOUT_FAILED:
+                    continue
                 checked.append(job_id)
                 with self.subTest(job=job_id):
-                    following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
+                    after = index + 1
+                    while after < len(job_steps) and job_steps[after].get("if") == self.CHECKOUT_FAILED:
+                        after += 1
+                    following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "swift-test"])
+                                           "request-nightly-next", "swift-test"])
 
 
 

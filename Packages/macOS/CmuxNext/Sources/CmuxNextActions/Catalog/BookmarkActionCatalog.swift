@@ -64,6 +64,14 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
                             ActionArgument(name: "url", title: t("argument.bookmark.url", "URL"), kind: .string, isRequired: false)],
                 targets: [.bookmark], cliName: "bookmark edit"
             ),
+            // Chrome's bookmark menu copies a bookmark's address (cx-k9go). A
+            // folder has none, so its menu leaves the row out.
+            ActionDescriptor(
+                id: "bookmark.copyLink", title: t("action.bookmark.copyLink", "Copy Bookmark Link"),
+                keywords: ["bookmark", "copy", "link", "url", "address", "clipboard"], category: .browser, symbol: "link",
+                surfaces: [.palette, .contextMenu], arguments: [query], targets: [.bookmark],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.clipboard), contextMenus: [ActionSurfaceCatalog.p(.bookmark, .inspect, 150)])
+            ),
             ActionDescriptor(
                 id: "bookmark.move", title: t("action.bookmark.move", "Move Bookmark…"),
                 keywords: ["bookmark", "folder", "reorder", "move"], category: .browser, symbol: "arrow.up.arrow.down",

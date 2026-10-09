@@ -384,3 +384,29 @@ async fn web_modes_policies_and_rules_are_allow_lists() {
     }
     let _ = std::fs::remove_dir_all(&d.base);
 }
+
+// Chief policy 2026-10-09: fast mode costs more per token, so only the app's trusted pages and the
+// CLI may toggle it, never a Web origin. `fast-mode` stays out of web_modes FREE_CONFIG_IDS.
+#[tokio::test]
+async fn fast_mode_is_never_web_changeable() {
+    let d = dirs("fast");
+    let hub = hub();
+    let cwd = std::fs::canonicalize(&d.real).unwrap().to_string_lossy().into_owned();
+    let mut local = Client::new(&hub, Origin::Local);
+    let id = local.call("session/new", new_session(&cwd, json!({}))).await["result"]["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut web = Client::new(&hub, Origin::Web);
+    for value in ["on", "off"] {
+        let p = json!({"sessionId": id, "configId": "fast-mode", "value": value});
+        let r = web.call("session/set_config_option", p.clone()).await;
+        assert!(refused_for_web(&r), "Web fast-mode={value}: {r}");
+        for origin in [Origin::LocalApp, Origin::Local] {
+            let mut c = Client::new(&hub, origin);
+            let r = c.call("session/set_config_option", p.clone()).await;
+            assert!(!err(&r).contains(WEB_ONLY), "{origin:?} fast-mode={value}: {r}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d.base);
+}

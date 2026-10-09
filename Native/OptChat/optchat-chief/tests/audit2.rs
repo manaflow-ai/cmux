@@ -387,8 +387,12 @@ fn a_lost_binding_on_a_cursor_write_reconnects() {
     assert_eq!(h.owner.lock().unwrap().reconnects, 1);
 }
 
+/// Decision 2026-10-09 (replaces the 2026-10-04 stop): a human message
+/// never stops a turn. This fake session does not steer, so the message
+/// waits and the next turn answers it, with the view of everything the
+/// first turn did. Only chief.stop stops a turn (engine_control.rs).
 #[test]
-fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
+fn a_human_message_waits_for_a_turn_that_cannot_steer_and_the_next_turn_answers() {
     let mut h = Harness::new(talk_only());
     h.agents.hold(true);
     h.connect();
@@ -397,30 +401,36 @@ fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
     h.step(); // the turn's session exists
     h.agents.wait_prompts(1);
     h.say("user_local", "stop, wrong repo");
-    // The stop reaches acpmux (off the brain thread) and ends turn 1.
-    {
-        let deadline = std::time::Instant::now() + WAIT;
-        let mut inner = h.agents.inner.lock().unwrap();
-        while inner.cancels.is_empty() {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            assert!(!left.is_zero(), "the running turn was never stopped");
-            inner = h.agents.changed.wait_timeout(inner, left).unwrap().0;
+    for _ in 0..10 {
+        if let Ok(input) = h.rx.recv_timeout(std::time::Duration::from_millis(30)) {
+            h.brain.step(input);
         }
     }
-    // The next turn runs with the new message.
+    assert!(
+        h.agents.inner.lock().unwrap().cancels.is_empty(),
+        "a message never stops the turn"
+    );
+    h.agents.hold(false);
     h.agents.release();
-    h.settle();
-    assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
+    h.agents.release();
+    h.settle_posts();
+    assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
     assert_eq!(new_messages(&h), vec!["edit repo A", "stop, wrong repo"]);
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
-    let view = prompts[1][0]["text"].as_str().unwrap();
+    let view: String = prompts[1][..prompts[1].len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
     assert!(
         view.contains("Let me check."),
-        "the stopped turn's steps are in the view: {view}"
+        "the first turn's steps are in the view: {view}"
     );
     let sends = h.owner.lock().unwrap().sends();
-    assert_eq!(sends.len(), 1, "the stopped turn posts nothing: {sends:?}");
-    assert!(!sends[0].1.contains("turn failed"), "{sends:?}");
+    assert_eq!(sends.len(), 2, "each turn posts its reply: {sends:?}");
+    assert!(
+        sends.iter().all(|(_, t)| !t.contains("turn failed")),
+        "{sends:?}"
+    );
 }
 
 #[test]
@@ -482,8 +492,21 @@ fn a_host_stopped_mid_turn_folds_what_its_session_did_since() {
             ("tool", "Bash {\"command\":\"git push\"}"),
             ("echo", "pushed main"),
             ("talk", "Pushed."),
+            // The cut turn then resumes once (E23) and answers.
+            (
+                "user",
+                "The server restarted, cutting the turn; nothing was lost: go on."
+            ),
+            ("talk", "Checking."),
+            ("tool", "Bash {\"command\":\"ls\"}"),
+            ("echo", "a.txt"),
+            ("talk", "answer 0"),
         ],
         "the push's result and the reply reach the log"
     );
-    assert_eq!(h.agents.inner.lock().unwrap().ended, vec!["s7"]);
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert_eq!(sends[0].1, "answer 0", "{sends:?}");
+    // The orphan, then the resume turn's own session.
+    assert_eq!(h.agents.inner.lock().unwrap().ended, vec!["s7", "s1"]);
 }

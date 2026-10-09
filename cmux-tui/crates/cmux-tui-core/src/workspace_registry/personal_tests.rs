@@ -22,7 +22,7 @@ fn seed(registry: &mut WorkspaceRegistry, keys: &[&str]) {
         });
         registry
             .commit(
-                &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
+                &WorkspaceMutation::daemon(format!("create-{key}"), "test").unwrap(),
                 &json!({"op":"create","key":key}),
                 None,
                 Some(revision),

@@ -29,8 +29,8 @@ final class ImportSummaryBody: NSView {
     private let model: ImportStepModel
     private let headline = OnboardingLabel.make(font: .systemFont(ofSize: 17, weight: .medium))
     private let detail = OnboardingLabel.make(color: Palette.textSecondary)
-    private var disclosure: NSButton!
-    private var edit: NSButton!
+    private lazy var disclosure: NSButton = NSButton(title: "", target: self, action: #selector(disclose))  // no IUO (crash program)
+    private lazy var edit: NSButton = OnboardingControl.plainButton(ImportVariantStrings.edit, target: self, action: #selector(discloseFromLabel))  // no IUO (crash program)
     private let editors: NSView
     private var loop: RenderLoop?
 
@@ -40,12 +40,10 @@ final class ImportSummaryBody: NSView {
         let kinds = ImportKindPicker(model: model, style: .inline)
         editors = VariantLayout.column([list, VariantLayout.hairline(), kinds], spacing: 16, fill: [list])
         super.init(frame: .zero)
-        disclosure = NSButton(title: "", target: self, action: #selector(disclose))
         disclosure.bezelStyle = .disclosure
         disclosure.setButtonType(.pushOnPushOff)
         disclosure.contentTintColor = Palette.textSecondary
         disclosure.setAccessibilityLabel(ImportVariantStrings.edit)
-        edit = OnboardingControl.plainButton(ImportVariantStrings.edit, target: self, action: #selector(discloseFromLabel))
         let editRow = NSStackView(views: [disclosure, edit])
         editRow.spacing = 4
         editors.isHidden = true

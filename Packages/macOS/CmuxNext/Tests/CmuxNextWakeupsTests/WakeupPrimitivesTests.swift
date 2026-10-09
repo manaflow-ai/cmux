@@ -82,6 +82,18 @@ private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ cond
         #expect(abs(low.next().inSeconds - 0.8) < 0.001)
         #expect(abs(high.next().inSeconds - 1.2) < 0.001)
     }
+
+    /// Settings outside the documented ranges used to trap in the initializer.
+    @Test func outOfRangeSettingsAreCorrectedInsteadOfTrapping() {
+        var backoff = Backoff(initial: .zero, maximum: .zero, multiplier: 0.5, jitter: 2, random: { 0.5 })
+        #expect(backoff.initial == .milliseconds(100))
+        #expect(backoff.maximum == .milliseconds(100))
+        #expect(backoff.multiplier == 1)
+        #expect(backoff.jitter == 1)
+        #expect(backoff.next() == .milliseconds(100))
+        let nanJitter = Backoff(jitter: .nan)
+        #expect(nanJitter.jitter == 0)
+    }
 }
 
 @Suite struct DemandTimerTests {
@@ -130,56 +142,3 @@ private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ cond
     }
 }
 
-@Suite struct WakeupLedgerTests {
-    @Test func ratesCoverTheLastCompleteSeconds() {
-        let now = Mutex<UInt64>(100_000_000_000)
-        let ledger = WakeupLedger(uptime: { now.withLock { $0 } })
-        for _ in 0..<50 { ledger.record("pump", reason: "timer") }
-        now.withLock { $0 += 1_000_000_000 }
-        let entry = ledger.snapshot().first
-        #expect(entry?.count == 50)
-        #expect(entry?.perSecond == 5)
-        // Idle: the rate decays to zero once the window passes.
-        now.withLock { $0 += 30_000_000_000 }
-        #expect(ledger.snapshot().first?.perSecond == 0)
-        #expect(ledger.snapshot().first?.count == 50)
-    }
-
-    @Test func ownersAndReasonsAreSeparate() {
-        let ledger = WakeupLedger()
-        ledger.record("a", reason: "x")
-        ledger.record("a", reason: "y")
-        ledger.record("b")
-        #expect(ledger.snapshot().count == 3)
-        #expect(ledger.activitySequence == 3)
-    }
-}
-
-@Suite struct UpdateCycleTests {
-    @Test func reportsReentry() {
-        let ledger = WakeupLedger()
-        let detector = UpdateCycleDetector(owner: "store", ledger: ledger)
-        detector.run { detector.run {} }
-        #expect(detector.reentryCount == 1)
-        detector.run {}
-        #expect(detector.reentryCount == 1)
-    }
-
-    @Test func sameValueDoesNotAssign() {
-        final class Box { var value = 1; var sets = 0 }
-        let box = Box()
-        #expect(!assignIfChanged(box, \.value, 1))
-        #expect(assignIfChanged(box, \.value, 2))
-        #expect(box.value == 2)
-    }
-}
-
-@Suite struct ProcessUsageTests {
-    @Test func samplesThisProcess() throws {
-        let usage = try #require(ProcessUsage.sample(getpid()))
-        #expect(usage.cpuNanos > 0)
-        #expect(usage.path.hasSuffix(usage.name))
-        #expect(usage.parent > 0)
-        #expect(!ProcessUsage.arguments(of: getpid()).isEmpty)
-    }
-}

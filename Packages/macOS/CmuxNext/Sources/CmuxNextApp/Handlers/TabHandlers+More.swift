@@ -39,7 +39,7 @@ extension TabHandlers {
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            let windows = ctx.services.windows!
+            let windows = ctx.services.windows
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: whether this run may change the view,
             // and the window it acts in.
@@ -57,7 +57,7 @@ extension TabHandlers {
         })
         registry.bind("tab.moveToNewWindow", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            let windows = ctx.services.windows!
+            let windows = ctx.services.windows
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: a run this client's user did not start
             // opens the window behind, never key.
@@ -72,7 +72,7 @@ extension TabHandlers {
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.shared.notificationAck), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported("tab-mark-unread")) }
+            guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported) }
             let surface = tab.surface
             ctx.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
         })

@@ -136,7 +136,7 @@ impl Inspector {
                 "node_bytes": optchat_core::NODE,
                 "view_bytes": optchat_core::VIEW,
                 "marks": optchat_core::MARKS,
-                "grid": crate::prompt::GRID,
+                "grid_lines": optchat_core::BLOCK_LINES,
                 "placeholder": optchat_core::PLACEHOLDER,
             },
         })
@@ -163,6 +163,10 @@ impl Inspector {
         // A turn Claude Code refused the marker on ran again without it.
         if events.iter().any(|e| e["ev"] == "turn.unmarked") {
             start["layout"]["marker"] = json!(false);
+        }
+        // A turn whose route refused the 1-hour TTL ran again at 5 minutes.
+        if events.iter().any(|e| e["ev"] == "turn.ttl_refused") {
+            start["layout"]["ttl"] = json!("5m");
         }
         let prompt = turn_prompt(&self.chat, &start, &self.system_text);
         let mut out = turns::prompt_json(&prompt, &start);

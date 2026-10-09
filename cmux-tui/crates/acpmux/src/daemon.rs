@@ -52,6 +52,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    // config.json holds the dashboard token: owner-only, also when another
+    // tool wrote it with the umask's mode and the daemon never saves it.
+    narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
@@ -174,6 +177,26 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
     }
+    // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
+    // that changes which installed agents are harnesses reloads them (and
+    // only then: a reload restarts pooled sessions).
+    // `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
+    if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+            let before = installed().await.ok();
+            match crate::registry::refresh(&home()).await {
+                Ok(true) if installed().await.ok() != before => {
+                    if let Err(e) = hub.reload_catalog().await {
+                        tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
+            }
+        });
+    }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
     hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
@@ -198,6 +221,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    // The listener's token is on the hub before the unix socket serves, so a
+    // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
+    let ws_listener = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        hub.web_token.set(token.clone());
+        (l, token)
+    });
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
@@ -233,8 +264,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
-        // `needs_token` above gave the saved listener a token.
-        let token = token.unwrap_or_else(random_token);
         let auth = crate::server::WsAuth { local_app, peer };
         tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });
@@ -339,6 +368,19 @@ fn write_ready(fd: i32, ready: &Value) {
 /// refuses it, so a dev page origin never becomes a LocalApp origin there.
 pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
     debug_build || dev_flag
+}
+
+/// Clears the group and other bits of `path`, if it exists.
+fn narrow_to_owner(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return };
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0
+        && let Err(e) =
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+    {
+        tracing::warn!("could not make {} owner-only: {e}", path.display());
+    }
 }
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).

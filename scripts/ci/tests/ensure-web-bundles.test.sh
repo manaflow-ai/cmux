@@ -59,6 +59,38 @@ rm -rf "$WORK/state" "$WORK/cache"; mkdir -p "$WORK/state"; : > "$WORK/calls"
 if run > "$WORK/out" 2>&1; then fail "a failed bundle build must fail the lane"; fi
 [ ! -e "$WORK/cache/web-bundles/k1" ] || fail "a failed build must not be cached"
 
+# Two jobs on one host miss the same key at once (cx-t3e5 review of hq PR 1610): each
+# builds into its own temp dir, and the loser of the publish discards its build
+# instead of nesting it inside the winner's entry.
+cat > "$WORK/build" <<'EOF2'
+#!/usr/bin/env bash
+echo "$*" >> "$CALLS"
+case "$1" in
+  --verify) [ -f "$STATE/installed" ] ;;
+  --out-root)
+    mkdir -p "$2/Packages"; echo mine > "$2/Packages/built"
+    # The other job published the same key while this build ran.
+    mkdir -p "$CMUX_CI_CACHE_DIR/web-bundles/k1/Packages"; echo theirs > "$CMUX_CI_CACHE_DIR/web-bundles/k1/Packages/built" ;;
+  --from) [ -f "$2/Packages/built" ] && touch "$STATE/installed" ;;
+esac
+EOF2
+chmod +x "$WORK/build"
+rm -rf "$WORK/state" "$WORK/cache"; mkdir -p "$WORK/state"; : > "$WORK/calls"
+run > "$WORK/out" 2>&1 || { cat "$WORK/out"; fail "a lost publish race must still install the published build"; }
+[ "$(cat "$WORK/cache/web-bundles/k1/Packages/built")" = theirs ] || fail "the published entry was overwritten"
+leftovers=$(find "$WORK/cache/web-bundles" -name 'k1.tmp*' | wc -l | tr -d ' ')
+[ "$leftovers" = 0 ] || fail "a lost race left $leftovers temp dir(s): $(find "$WORK/cache/web-bundles")"
+[ ! -e "$WORK/cache/web-bundles/k1/k1.tmp" ] || fail "the build was nested inside the published entry"
+
+# CMUX_WEB_BUNDLES_NO_INSTALL=1 (nx-remote): a missing pinned bun is an error, never a curl.
+printf '#!/bin/sh\necho 1.0.0\n' > "$WORK/bin/bun"
+printf '#!/bin/sh\necho "curl ran" >> "%s/curl"\nexit 1\n' "$WORK" > "$WORK/bin/curl"; chmod +x "$WORK/bin/curl"
+rm -rf "$WORK/state"; mkdir -p "$WORK/state"
+if CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1; then fail "NO_INSTALL with the wrong bun must fail"; fi
+[ ! -e "$WORK/curl" ] || fail "NO_INSTALL must never run curl"
+grep -q "CMUX_WEB_BUNDLES_NO_INSTALL" "$WORK/out" || fail "NO_INSTALL failure must say why: $(cat "$WORK/out")"
+printf '#!/bin/sh\necho 1.4.2\n' > "$WORK/bin/bun"
+
 # The Swift lane calls it before it builds a CmuxNext package.
 for phase_fn in run_suite run_package_tests; do
   body=$(awk "/^$phase_fn\\(\\) \\{/,/^\\}/" scripts/ci/package-test-lane.sh)

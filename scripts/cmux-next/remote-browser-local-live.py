@@ -2,6 +2,8 @@
 """Live check: Open Remote Browser Tab (Local Host) against the real remote browser host.
 
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <cmux-remote-browser-host.app> [--out DIR]
+  scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled [--out DIR]
+(--bundled: the host the DEV build embeds in Contents/Helpers, with CMUX_NEXT_RB_HOST unset)
 
 Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app
 (no activation, automation socket, CMUX_NEXT_RB_HOST=--host-app), serves a local test page,
@@ -11,7 +13,8 @@ loads (the omnibar path) and Back returns (rb.history); hover reports a pointer 
 (rb.cursor); the wheel scrolls the page; right-click opens a native menu; a <select> near the
 bottom edge opens a native menu and the chosen item reaches the page; a date input opens a
 popup surface; a target=_blank link opens a second remote tab on its own host (rb.open_tab);
-closing a tab stops its host. Ends with quitEndSessions and the tag teardown.
+closing a tab stops its host; an <input list> shows its datalist suggestions as an autofill
+surface (CEF API 21) and a click on a suggestion fills the field. Ends with quitEndSessions and the tag teardown.
 """
 import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
 
@@ -20,7 +23,9 @@ from tag_teardown import TagTeardown  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
-parser.add_argument("--host-app", required=True)
+host_source = parser.add_mutually_exclusive_group(required=True)
+host_source.add_argument("--host-app")
+host_source.add_argument("--bundled", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -30,6 +35,10 @@ if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+if opts.bundled:
+    opts.host_app = os.path.join(APP, "Contents/Helpers/cmux-remote-browser-host.app")
+    if not os.path.isdir(opts.host_app):
+        sys.exit(f"{APP} embeds no remote browser host")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 
 # Page 1: a pointer link, a long body (wheel), a select near the bottom edge, a date input,
@@ -46,12 +55,17 @@ a{display:block;margin:12px;font-size:20px} #sel{position:fixed;left:20px;bottom
 <script>addEventListener('scroll',()=>{document.title='rb scrolled '+Math.round(scrollY)})</script>
 </body></html>"""
 SIZE = "<!doctype html><html><head><title>rb size</title></head><body><script>document.title='rb size '+innerWidth+'x'+innerHeight+' @'+devicePixelRatio</script></body></html>"
+LIST = """<!doctype html><html><head><title>rb list</title></head><body style="margin:0;font:16px sans-serif">
+<input id="dl" list="fruits" autocomplete="off" style="position:fixed;left:40px;top:200px;width:240px;font-size:16px"
+ oninput="document.title='rb list '+this.value" onchange="document.title='rb list '+this.value">
+<datalist id="fruits"><option value="Apple"><option value="Apricot"><option value="Avocado"></datalist>
+</body></html>"""
 PAGE2 = "<!doctype html><html><head><title>rb two</title></head><body style='background:#dfe'>page two</body></html>"
 
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = (SIZE if self.path.startswith("/size") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
+        body = (SIZE if self.path.startswith("/size") else LIST if self.path.startswith("/list") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -139,7 +153,9 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820", "CMUX_NEXT_RB_HOST": os.path.abspath(opts.host_app)}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820"}
+if not opts.bundled:
+    env["CMUX_NEXT_RB_HOST"] = os.path.abspath(opts.host_app)
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
@@ -287,6 +303,37 @@ try:
                                                   capture_output=True).returncode != 0, 30)
     step("closing a tab stops its host (stdin lifeline)", after is not None and exited,
          {"before": before, "after": after, "stopped": gone})
+
+    # <input list>: typing shows the datalist suggestions (an autofill surface, CEF API 21) and
+    # a click on the first suggestion fills the field.
+    tab1 = (session_where(lambda s: True) or {}).get("tab")
+    rb("navigate", tab=tab1, url=BASE + "/list")
+    wait(title_is("rb list"), 30)
+    rb("click", tab=tab1, x=120, y=210, button="left")
+    time.sleep(0.5)
+    rb("type", tab=tab1, text="a")
+
+    def autofill():
+        s = session_where(lambda s: s["tab"] == tab1)
+        return next((i for i in (s or {}).get("surface_info") or [] if i.get("kind") == "autofill"), None)
+    suggestions = wait(autofill, 15)
+    shot("datalist")
+    filled = None
+    for _ in range(3):
+        if not suggestions or filled:
+            break
+        # Chromium ignores clicks on a popup in its first 500 ms; the first row is ~30 CSS px down.
+        time.sleep(1.0)
+        suggestions = autofill() or suggestions
+        width = int(suggestions["frame"].split(" ")[1].split("x")[0])
+        rb("surface_click", tab=tab1, surface=suggestions["id"], x=max(10, width // 2), y=30)
+        filled = wait(lambda: session_where(lambda s: s["tab"] == tab1 and (s.get("title") or "") in (
+            "rb list Apple", "rb list Apricot", "rb list Avocado")), 5)
+        suggestions = suggestions if filled else autofill()
+    if suggestions:
+        shot("datalist-filled")
+    step("an <input list> shows its suggestions (autofill surface) and a click fills the field",
+         suggestions and filled, {"surface": suggestions, "session": filled or session_where(lambda s: s["tab"] == tab1)})
 finally:
     report["final_state"] = rb("state")
     host_pids = [h["pid"] for h in (report["final_state"].get("local_hosts") or [])] \

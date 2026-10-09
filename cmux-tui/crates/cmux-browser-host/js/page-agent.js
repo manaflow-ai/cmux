@@ -288,9 +288,12 @@
 
   function pseudoText(el, pseudo) {
     const cs = styleOf(el, pseudo);
-    if (!cs || cs.display === "none" || cs.visibility === "hidden") return "";
+    if (!cs) return "";
+    // `content` first: most elements have no ::before/::after text, and
+    // each read of a pseudo style resolves it again.
     const content = cs.content;
     if (!content || content === "none" || content === "normal") return "";
+    if (cs.display === "none" || cs.visibility === "hidden") return "";
     let out = "";
     const re = /"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)'/g;
     let m;

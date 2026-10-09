@@ -6,7 +6,7 @@
     "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
     "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
-    "_acpmux/status",
+    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
@@ -18,7 +18,7 @@
   "gesture_ticket_key": "cmuxGesture",
   "session_scoped": [
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-    "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
+    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "source_scoped": [
@@ -52,7 +52,9 @@
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": [], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
-    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId"], "acpmux": []},
+    "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
+    "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},
     "_acpmux/handoff_draft": {"params": ["handoffId", "revision", "draftKey", "capsule", "checkpoint"], "acpmux": []},
@@ -73,5 +75,13 @@
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
-    "folder", "folders", "root", "roots", "worktree", "worktreePath"]
+    "folder", "folders", "root", "roots", "worktree", "worktreePath"],
+  "question_answers": {
+    "description": "Answers are allowed only for a pending question (toolCall._meta.acpmux.question), as an object of 1 to maximum_items of its item ids or prompts; each value is a string, a list of at most maximum_list_strings strings, or Codex's {answers: [string]}. Each id and each string is at most maximum_value_bytes UTF-8 bytes; the bound is per string, never a list's strings together. Swift (AcpmuxPaneMethods+Answers.swift) and Rust (src/answers.rs) enforce the same rule.",
+    "method": "_acpmux/permission_respond",
+    "param": "answers",
+    "maximum_items": 64,
+    "maximum_list_strings": 64,
+    "maximum_value_bytes": 4096
+  }
 }

@@ -464,25 +464,104 @@ fn cursor_prompt_detection_restores_private_screen_modes_in_wire_order() {
     assert!(terminal.cursor_is_at_prompt());
 }
 
+/// Cmd-K (cx-qko5): like Ghostty's clear_screen, the preserved prompt moves
+/// to the top row; no blanked rows stay visible above it.
 #[test]
-fn clear_history_preserves_the_active_prompt_and_cursor() {
+fn clear_history_moves_the_active_prompt_to_the_top_row() {
     let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
     for line in 0..10 {
         terminal.vt_write(format!("history-{line}\r\n").as_bytes());
     }
     terminal.vt_write(b"\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
-    let cursor_before = terminal.cursor_position();
+    let (cursor_x, cursor_y) = terminal.cursor_position().unwrap();
+    assert_eq!(cursor_y, 3);
 
     let ClearHistoryOutcome::Cleared(clear) = terminal.clear_history_preserving_prompt() else {
         panic!("active prompt was wholly inside the viewport");
     };
 
     assert_eq!(terminal.history_rows(), 0);
-    assert_eq!(terminal.cursor_position(), cursor_before);
+    assert_eq!(terminal.cursor_position(), Some((cursor_x, 0)));
     let viewport = terminal.viewport_text().unwrap();
-    assert!(viewport.contains("prompt> pending"));
+    assert!(viewport.starts_with("prompt> pending"), "{viewport:?}");
     assert!(!viewport.contains("history-"));
     assert!(!clear.contains(&b'\x0c'));
+    assert!(terminal.cursor_is_at_prompt());
+}
+
+/// The clear bytes are the only thing mirrors receive, so replaying them on a
+/// mirror with the same prior stream must give the same screen and cursor.
+#[test]
+fn clear_history_bytes_replay_to_the_same_screen_on_a_mirror() {
+    let stream: Vec<u8> = (0..10)
+        .flat_map(|line| format!("history-{line}\r\n").into_bytes())
+        .chain(
+            b"\x1b]133;A\x07line-one\r\n\x1b]133;A\x07line-two> \x1b]133;B\x07ls".iter().copied(),
+        )
+        .collect();
+    let mut source = Terminal::new(20, 6, 1_000, Callbacks::default()).unwrap();
+    let mut mirror = Terminal::new(20, 6, 1_000, Callbacks::default()).unwrap();
+    source.vt_write(&stream);
+    mirror.vt_write(&stream);
+
+    let ClearHistoryOutcome::Cleared(clear) = source.clear_history_preserving_prompt() else {
+        panic!("active prompt was wholly inside the viewport");
+    };
+    mirror.vt_write(&clear);
+
+    let viewport = source.viewport_text().unwrap();
+    assert!(viewport.starts_with("line-one\nline-two> ls"), "{viewport:?}");
+    assert_eq!(source.cursor_position(), Some((12, 1)));
+    assert_eq!(mirror.viewport_text().unwrap(), viewport);
+    assert_eq!(mirror.cursor_position(), source.cursor_position());
+    assert_eq!(mirror.history_rows(), 0);
+}
+
+/// Moving the prompt keeps soft wraps: wrapped input stays one logical line
+/// (copy, reflow and the next clear depend on it).
+#[test]
+fn clear_history_keeps_soft_wrapped_input_wrapped_after_moving_it_up() {
+    let mut terminal = Terminal::new(20, 6, 1_000, Callbacks::default()).unwrap();
+    for line in 0..10 {
+        terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+    }
+    terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07echo 0123456789abcdefghijklmnop");
+    let (cursor_x, cursor_y) = terminal.cursor_position().unwrap();
+    assert_eq!(cursor_y, 5);
+    assert_eq!(terminal.active_row_wrap_continuation(5), Some(true));
+
+    let ClearHistoryOutcome::Cleared(_) = terminal.clear_history_preserving_prompt() else {
+        panic!("active prompt was wholly inside the viewport");
+    };
+
+    assert_eq!(terminal.cursor_position(), Some((cursor_x, 1)));
+    assert_eq!(terminal.history_rows(), 0);
+    assert_eq!(terminal.active_row_wrap_continuation(1), Some(true));
+    let viewport = terminal.viewport_text().unwrap();
+    assert!(viewport.starts_with("$ echo 0123456789abc"), "{viewport:?}");
+}
+
+/// Inside a non-default scrolling region a line delete cannot move the
+/// prompt, so the clear blanks the rows above it and keeps the cursor.
+#[test]
+fn clear_history_blanks_rows_in_place_when_a_scrolling_region_is_set() {
+    let mut terminal = Terminal::new(20, 4, 1_000, Callbacks::default()).unwrap();
+    for line in 0..10 {
+        terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+    }
+    terminal.vt_write(b"\x1b[2;4r\x1b[4;1H\x1b]133;A\x07prompt> \x1b]133;B\x07pending");
+    let cursor_before = terminal.cursor_position();
+    assert_eq!(cursor_before.map(|(_, y)| y), Some(3));
+
+    let ClearHistoryOutcome::Cleared(_) = terminal.clear_history_preserving_prompt() else {
+        panic!("active prompt was wholly inside the viewport");
+    };
+
+    assert_eq!(terminal.history_rows(), 0);
+    assert_eq!(terminal.cursor_position(), cursor_before);
+    let viewport = terminal.viewport_text().unwrap();
+    assert!(viewport.contains("prompt> pending"), "{viewport:?}");
+    assert!(!viewport.contains("history-"), "{viewport:?}");
 }
 
 #[test]

@@ -6,7 +6,7 @@ import Testing
 /// The palette is an overlay surface: under Reduce Transparency (injected,
 /// never the system toggle) it draws the opaque theme fill, and it follows
 /// the setting live.
-@MainActor @Suite struct PaletteReduceTransparencyTests {
+@MainActor @Suite(.paletteRanker) struct PaletteReduceTransparencyTests {
     @Test func thePaletteResolvesThroughTheOverlaySurface() throws {
         ReduceTransparency.shared.override = true
         defer { ReduceTransparency.shared.override = nil }

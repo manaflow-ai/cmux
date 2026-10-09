@@ -50,7 +50,7 @@ import PackageDescription
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
-//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
+//   CmuxNextApps -> Design, Icons, Wakeups (app platform: manifest model, scene store + native renderer, JavaScriptCore
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
@@ -68,6 +68,8 @@ import PackageDescription
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
+//   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
+//     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -101,8 +103,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-51ced0d4ee783fb6bd7bacbe26c6eec801eb73ae/CCmuxAppFFI.xcframework.zip",
-    checksum: "445e54014d50ea0ff602d4c450114fd1baa1afcdd2fb3d1e9eda82c9019fef0e"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-52ac077be908e2cd6d9eeb5dd35573e331dab4d1/CCmuxAppFFI.xcframework.zip",
+    checksum: "0c417fb6d94a249f1cca71dc279196a198a176ae0c0ed95971dce0edd4443532"
 )
 
 let package = Package(
@@ -117,6 +119,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
+        .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
@@ -130,6 +133,10 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
+        // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
+        .package(path: "../../Shared/CmuxSentryTelemetry"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
@@ -144,6 +151,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextCrashReporting",
                 "CmuxNextHome",
                 "CmuxNextAgentQuestion",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -353,6 +361,7 @@ let package = Package(
             name: "CmuxNextHomeTests",
             dependencies: [
                 "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -462,7 +471,7 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
@@ -639,13 +648,14 @@ let package = Package(
             dependencies: [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud"],
+            dependencies: ["CmuxNextCloud", .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore")],
             swiftSettings: daemonSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -692,6 +702,24 @@ let package = Package(
         .testTarget(
             name: "CmuxNextProcessEnvironmentTests",
             dependencies: ["CmuxNextProcessEnvironment"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Crash and exception reports to Sentry (cx-urd.58): consent, channel
+        // environment, release, fingerprint, scrubbing, signal handler order.
+        .target(
+            name: "CmuxNextCrashReporting",
+            dependencies: [
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCrashReportingTests",
+            dependencies: [
+                "CmuxNextCrashReporting",
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -813,15 +841,10 @@ let package = Package(
             dependencies: ["CmuxNextTerminalFind"],
             swiftSettings: daemonSwiftSettings
         ),
-        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
-        // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
+        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit;
+        // CmuxNextTerminal drives Ghostty's keyboard-copy API.
         .target(
             name: "CmuxNextCopyMode",
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextCopyModeTests",
-            dependencies: ["CmuxNextCopyMode"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -967,7 +990,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],

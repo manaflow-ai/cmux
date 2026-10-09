@@ -41,10 +41,10 @@ import Testing
         let (window, _, c) = pane()
         defer { window.close() }
         c.host.layoutSubtreeIfNeeded()
-        c.demo.layoutIfNeeded()
-        c.demo.collection.layoutIfNeeded()
-        #expect(!c.demo.collection.visibleCells.isEmpty)
-        #expect(HomeFlightRecorder.coverageGaps(c.demo).isEmpty, "\(HomeFlightRecorder.coverageGaps(c.demo))")
+        c.demo!.layoutIfNeeded()
+        c.demo!.collection.layoutIfNeeded()
+        #expect(!c.demo!.collection.visibleCells.isEmpty)
+        #expect(HomeFlightRecorder.coverageGaps(c.demo!).isEmpty, "\(HomeFlightRecorder.coverageGaps(c.demo!))")
     }
 
     @Test func saveLastSecondsWritesTheRingUnderTheAppsLogFolder() throws {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "176aa0cece7a9c80c8dd811192b161cf3264a86b77297ab88990744aa457bafc";
+pub const ir_sha256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -49,7 +49,7 @@ pub const AgentReportSource = enum {
 pub const AgentSessionSource = struct {
     /// The agent kind the chat was started with.
     harness: wire.Field([]const u8) = .absent,
-    /// install: and the stable install id of the machine whose acpmux runs the session.
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     host: []const u8,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     host_name: wire.Field([]const u8) = .absent,
@@ -1519,12 +1519,37 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsResourceProjection = struct {
+    commit_apply_us: ServerStatsHistogram,
+    commit_journal_us: ServerStatsHistogram,
+    commit_prune_us: ServerStatsHistogram,
+    commit_us: ServerStatsHistogram,
+    commits: u64,
+    crosscheck_mismatches: u64,
+    crosschecks: u64,
+    diff_us: ServerStatsHistogram,
+    full_projections: u64,
+    index_us: ServerStatsHistogram,
+    journaled_changes: ServerStatsHistogram,
+    projected_changes: ServerStatsHistogram,
+    projections: u64,
+    read_us: ServerStatsHistogram,
+    scope_fallbacks: u64,
+    scoped_projections: u64,
+    written_changes: ServerStatsHistogram,
+};
+
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "resource_projection",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -6872,7 +6897,9 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
-pub const ServerStatsRequest = struct {};
+pub const ServerStatsRequest = struct {
+    include: wire.Field([]const []const u8) = .absent,
+};
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
     return client.callTyped(
