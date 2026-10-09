@@ -2,15 +2,20 @@ public import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The virtualized Chats section: search, grouping and minimal chat rows.
-public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+/// The virtualized All chats section (cx-xub5): every coding agent chat on
+/// this computer, newest first, at the bottom of the sidebar. Its header row
+/// (the title, search, project filter and grouping) shows only while the
+/// pointer is over the sidebar, or while a search or filter is in effect.
+/// The section draws its own header: the band adds none (no `title(for:)`).
+public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewDelegate, SidebarHoverRevealing {
     public nonisolated static var contribution: String { SidebarLayoutDocument.recentsContribution }
-    public static var title: String { String(localized: "sidebar.chats.title", defaultValue: "Chats", bundle: .module) }
+    public static var title: String { String(localized: "sidebar.chats.title", defaultValue: "All chats", bundle: .module) }
     public static var searchPlaceholder: String { String(localized: "sidebar.chats.search", defaultValue: "Search chats", bundle: .module) }
     public static var groupLabel: String { String(localized: "sidebar.chats.group", defaultValue: "Group by", bundle: .module) }
     public static var harnessGroup: String { String(localized: "sidebar.chats.group.harness", defaultValue: "Harness", bundle: .module) }
     public static var folderGroup: String { String(localized: "sidebar.chats.group.folder", defaultValue: "Folder", bundle: .module) }
     public static var accountGroup: String { String(localized: "sidebar.chats.group.account", defaultValue: "Account", bundle: .module) }
+    public static var newestGroup: String { String(localized: "sidebar.chats.group.newest", defaultValue: "Newest", bundle: .module) }
     public static var offMessage: String { String(localized: "sidebar.chats.off", defaultValue: "Chats are off. Turn them on in Settings.", bundle: .module) }
     public static var emptyMessage: String { String(localized: "sidebar.chats.empty", defaultValue: "No chats yet.", bundle: .module) }
     public static var newChatTitle: String { String(localized: "sidebar.chats.newChat", defaultValue: "New chat", bundle: .module) }
@@ -34,9 +39,17 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     public var onOpen: ((String) -> Void)?
+    /// The header's right-click menu (Hide Section); the App builds it from the registry.
+    public var headerMenu: (() -> NSMenu?)?
+    /// Rows shown before the list scrolls inside; nil follows `sidebar.allChatsRows`.
+    public var rowLimit: Int? { didSet { if oldValue != rowLimit { refilter() } } }
     public private(set) var rows: [Row] = []
-    public private(set) var preferredHeight: CGFloat = Metrics.sidebarRowHeight
-    private let search = NSSearchField()
+    /// The header row: hidden (faded out, no clicks) unless revealed.
+    let header = SidebarChatsHeader()
+    let titleLabel = NSTextField(labelWithString: SidebarChatsView.title)
+    /// The sidebar's hover state (`setHoverRevealed`).
+    private(set) var isHoverRevealed = false
+    let search = NSSearchField()
     private let grouping = NSPopUpButton()
     /// The project filter (`SidebarChatsView+ProjectFilter`) and the project it shows, nil for all.
     let filterButton = SidebarIconButton(symbol: "line.3.horizontal.decrease", label: SidebarChatsView.filterTitle)
@@ -44,7 +57,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     private let table = NSTableView()
     private let scroll = NSScrollView()
     private var items: [Item] = []
-    private var selectedGrouping: SidebarChatsGrouping = .harness
+    private(set) var selectedGrouping: SidebarChatsGrouping = .newest
     private let defaults: UserDefaults
     private let preferenceKey = "sidebar.chats.grouping"
     private var lastEnabled = true
@@ -53,7 +66,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public init(frame: NSRect = .zero, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         super.init(frame: frame)
-        selectedGrouping = SidebarChatsGrouping(rawValue: defaults.string(forKey: preferenceKey) ?? "") ?? .harness
+        selectedGrouping = SidebarChatsGrouping(rawValue: defaults.string(forKey: preferenceKey) ?? "") ?? .newest
         configure()
     }
 
@@ -66,6 +79,10 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public override var isFlipped: Bool { true }
 
     private func configure() {
+        titleLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        performWithTheme { titleLabel.textColor = Palette.textSecondary }
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setAccessibilityRole(.staticText)
         search.placeholderString = Self.searchPlaceholder
         search.controlSize = .small
         search.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -79,7 +96,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         grouping.controlSize = .small
         grouping.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         grouping.isBordered = false
-        grouping.addItems(withTitles: [Self.harnessGroup, Self.folderGroup, Self.accountGroup])
+        grouping.addItems(withTitles: SidebarChatsGrouping.allCases.map(Self.groupTitle))
         grouping.selectItem(at: SidebarChatsGrouping.allCases.firstIndex(of: selectedGrouping) ?? 0)
         grouping.target = self
         grouping.action = #selector(groupingChanged)
@@ -100,10 +117,11 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         filterButton.onPress = { [weak self] in self?.showProjectMenu() }
-        addSubview(search)
-        addSubview(filterButton)
-        addSubview(grouping)
+        header.onMenu = { [weak self] in self?.headerMenu?() }
+        for control in [titleLabel, search, filterButton, grouping] as [NSView] { header.addSubview(control) }
+        addSubview(header)
         addSubview(scroll)
+        applyHeaderReveal(animated: false)
         update([], enabled: true, ready: true)
     }
 
@@ -124,18 +142,55 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             }
             if visible.isEmpty { items = [.message(Self.emptyMessage)] }
             else {
-                let label: (Row) -> String? = switch selectedGrouping {
+                let label: ((Row) -> String?)? = switch selectedGrouping {
+                case .newest: nil
                 case .harness: { Self.harnessName($0.harness) }
                 case .folder: { $0.folder.map { ($0 as NSString).lastPathComponent } }
                 case .account: { $0.account }
                 }
-                items = Self.grouped(visible, label: { label($0) ?? Self.emptyGroup })
+                items = label.map { label in Self.grouped(visible, label: { label($0) ?? Self.emptyGroup }) } ?? visible.map(Item.chat)
             }
         }
         table.reloadData()
-        let shown = min(max(items.count, 1), Self.maxVisibleRows)
-        preferredHeight = Metrics.sidebarRowHeight * CGFloat(1 + shown)
+        applyHeaderReveal(animated: false)
         needsLayout = true
+    }
+
+    /// The section's height: the header row and up to `maxVisibleRows` rows
+    /// (then the list scrolls inside, so the bottom band keeps room for the footer).
+    public var preferredHeight: CGFloat {
+        Metrics.sidebarRowHeight * CGFloat(1 + min(max(items.count, 1), maxVisibleRows))
+    }
+
+    /// The most chat rows the section shows before it scrolls inside (`sidebar.allChatsRows`).
+    var maxVisibleRows: Int {
+        let range = SidebarSectionsPreferences.allChatsRowsRange
+        return min(max(rowLimit ?? DesignSettings.shared.sidebarSections.allChatsRows, range.lowerBound), range.upperBound)
+    }
+
+    // MARK: Hover header
+
+    public func setHoverRevealed(_ revealed: Bool) {
+        guard revealed != isHoverRevealed else { return }
+        isHoverRevealed = revealed
+        applyHeaderReveal(animated: true)
+    }
+
+    /// The header shows while hovered, and while a search or project filter
+    /// is in effect (a hidden filter would leave rows missing with no sign why).
+    var isHeaderRevealed: Bool {
+        isHoverRevealed || !search.stringValue.isEmpty || selectedProject != nil
+    }
+
+    private func applyHeaderReveal(animated: Bool) {
+        let alpha: CGFloat = isHeaderRevealed ? 1 : 0
+        header.isRevealed = isHeaderRevealed
+        guard header.alphaValue != alpha else { return }
+        if animated {
+            Motion.animate(.hover, in: self) { header.animator().alphaValue = alpha }
+        } else {
+            header.alphaValue = alpha
+        }
     }
 
     /// Applies the search, grouping or project filter again to the same rows.
@@ -146,9 +201,14 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         items.compactMap { if case .chat(let row) = $0 { row.id } else { nil } }
     }
 
-    /// The most chat rows the section shows before it scrolls inside, so the
-    /// bottom band keeps room for the footer.
-    static let maxVisibleRows = 6
+    static func groupTitle(_ grouping: SidebarChatsGrouping) -> String {
+        switch grouping {
+        case .newest: newestGroup
+        case .harness: harnessGroup
+        case .folder: folderGroup
+        case .account: accountGroup
+        }
+    }
 
     /// A harness's product name for group headers (proper nouns; same in every language).
     static func harnessName(_ id: String) -> String {
@@ -180,7 +240,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     @objc private func searchChanged() { onSearchChanged?() }
     @objc private func groupingChanged() {
         let index = grouping.indexOfSelectedItem
-        selectedGrouping = SidebarChatsGrouping.allCases.indices.contains(index) ? SidebarChatsGrouping.allCases[index] : .harness
+        selectedGrouping = SidebarChatsGrouping.allCases.indices.contains(index) ? SidebarChatsGrouping.allCases[index] : .newest
         defaults.set(selectedGrouping.rawValue, forKey: preferenceKey)
         onSearchChanged?()
     }
@@ -198,8 +258,13 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let y = (top - controlHeight) / 2
         let groupWidth: CGFloat = 76
         let filterWidth = filterButton.isHidden ? 0 : controlHeight + Metrics.space1
-        let searchWidth = max(0, bounds.width - Metrics.space3 - groupWidth - Metrics.space2 - filterWidth)
-        search.frame = NSRect(x: Metrics.space3, y: y, width: searchWidth, height: controlHeight)
+        header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: top)
+        let titleWidth = min(ceil(titleLabel.intrinsicContentSize.width), max(0, bounds.width * 0.4))
+        titleLabel.frame = NSRect(x: Metrics.space3, y: (top - titleLabel.intrinsicContentSize.height) / 2,
+                                  width: titleWidth, height: titleLabel.intrinsicContentSize.height)
+        let searchX = titleLabel.frame.maxX + Metrics.space2
+        let searchWidth = max(0, bounds.width - searchX - groupWidth - Metrics.space2 - filterWidth)
+        search.frame = NSRect(x: searchX, y: y, width: searchWidth, height: controlHeight)
         filterButton.frame = NSRect(x: search.frame.maxX + Metrics.space1, y: y, width: controlHeight, height: controlHeight)
         grouping.frame = NSRect(x: max(0, bounds.width - groupWidth - Metrics.space1), y: y, width: groupWidth, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
