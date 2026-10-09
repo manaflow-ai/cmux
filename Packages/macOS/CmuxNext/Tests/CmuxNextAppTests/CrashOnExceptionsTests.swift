@@ -2,17 +2,17 @@ import Foundation
 @testable import CmuxNextApp
 import Testing
 
-/// cx-r3q: DEV and NIGHTLY builds crash at an exception's throw site
+/// cx-r3q: every cmux-next build crashes at an exception's throw site
 /// (NSApplicationCrashOnExceptions) instead of letting AppKit catch it and
-/// fail later somewhere else; Release and RC keep AppKit's default.
+/// fail later somewhere else (Release and RC since 2026-10-08).
 @Suite struct CrashOnExceptionsTests {
-    @Test func devAndNightlyCrashOnExceptionsReleaseDoesNot() {
+    @Test func everyChannelCrashesOnExceptions() {
         let key = CrashOnExceptions.key
         #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app.debug.hmdm2", isDebugBuild: true)[key] as? Bool == true)
         #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app.nightly", isDebugBuild: false)[key] as? Bool == true)
         #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app.nightly.nxdog66-v1", isDebugBuild: false)[key] as? Bool == true)
-        #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app", isDebugBuild: false).isEmpty)
-        #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app.rc", isDebugBuild: false).isEmpty)
+        #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app", isDebugBuild: false)[key] as? Bool == true)
+        #expect(CrashOnExceptions.defaults(bundleID: "com.cmuxterm.app.rc", isDebugBuild: false)[key] as? Bool == true)
     }
 
     @Test func registeringUsesTheVolatileDomainSoAUserSettingWins() throws {

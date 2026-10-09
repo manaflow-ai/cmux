@@ -125,6 +125,11 @@ pub struct TurnStats {
     pub requests: usize,
     pub tools: usize,
     pub tool_errors: usize,
+    /// From the turn's start (the settled view) to its prompt going out:
+    /// the harness session's start, ms.
+    pub start_ms: Option<u64>,
+    /// The first request's time to first token (`fold::Request::ttft_ms`).
+    pub ttft_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -142,6 +147,8 @@ pub struct TurnOutcome {
     /// The gate refused the harness (`error` says why): nothing ran on it,
     /// or acpmux moved the session onto a refused profile.
     pub refused: bool,
+    /// The turn's last draft (`done`), published after its reply is posted.
+    pub done_draft: Option<crate::draft::Draft>,
 }
 
 /// A turn the harness gate refused: traced, and posted as its error.
@@ -166,7 +173,32 @@ pub fn run(
     progress: &dyn Fn(&str, u64),
     trace: &Trace,
 ) -> TurnOutcome {
+    run_with_drafts(
+        agents,
+        chat,
+        start,
+        interrupt,
+        log,
+        progress,
+        trace,
+        &|_| {},
+    )
+}
+
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`).
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_drafts(
+    agents: &dyn AgentPort,
+    chat: &OptChat,
+    start: &TurnStart,
+    interrupt: &Interrupt,
+    log: &dyn Fn(&str),
+    progress: &dyn Fn(&str, u64),
+    trace: &Trace,
+    draft: &dyn Fn(crate::draft::Draft),
+) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
+    let began = Instant::now();
     // The limit covers the session's start too: a harness that never
     // initializes must not hold the turn (and every later message) forever.
     let deadline = start.limit.map(|limit| Instant::now() + limit);
@@ -231,6 +263,16 @@ pub fn run(
         }
     };
     folding.replace(Some(session.clone()));
+    let drafter = std::cell::RefCell::new(crate::draft::Drafter::new(
+        &start.key,
+        Some(admitted.profile.clone()),
+    ));
+    let publish = |fold: &mut TurnFold| {
+        let (closed, open) = fold.take_segments();
+        for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
+            draft(d);
+        }
+    };
     // The session is on record before it can act: a host that stops from
     // here on folds what it did at the next start, even if the brain never
     // saved the id (it hears of it through `progress`, later).
@@ -246,6 +288,7 @@ pub fn run(
             ..TurnOutcome::default()
         };
     }
+    let start_ms = Some(began.elapsed().as_millis() as u64);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
@@ -258,9 +301,12 @@ pub fn run(
             append_at(entries, fold.seq());
             optchat_host::fault("turn:after-fold");
             progress(&session, fold.seq());
+            publish(fold);
         }
         Ok(())
     };
+    let mut last_fetch = Instant::now();
+    let mut stream_due: Option<Instant> = None;
     let mut orphan = None;
     let mut totals = None;
     let mut cost = None;
@@ -293,14 +339,16 @@ pub fn run(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
-        let wake = match (deadline, resend) {
-            (Some(d), Some(r)) => Some(d.min(r)),
-            (d, r) => d.or(r),
-        };
+        let wake = [deadline, resend, stream_due].into_iter().flatten().min();
         let signal = match wake {
             None => rx.recv().unwrap_or(TurnSignal::Lost),
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(signal) => signal,
+                Err(RecvTimeoutError::Timeout)
+                    if stream_due.is_some_and(|due| Instant::now() >= due) =>
+                {
+                    TurnSignal::Changed
+                }
                 Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
                     continue;
                 }
@@ -321,13 +369,22 @@ pub fn run(
                 Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
             },
         };
+        // Streamed text is read at most every STREAM_GAP; a change at once.
+        let signal = match signal {
+            TurnSignal::Streamed if last_fetch.elapsed() < crate::draft::STREAM_GAP => {
+                stream_due.get_or_insert(last_fetch + crate::draft::STREAM_GAP);
+                continue;
+            }
+            TurnSignal::Streamed => TurnSignal::Changed,
+            other => other,
+        };
         // Coalesce a burst of change signals into one fetch.
         let signal = match signal {
             TurnSignal::Changed => {
                 let mut last = TurnSignal::Changed;
                 loop {
                     match rx.try_recv() {
-                        Ok(TurnSignal::Changed) => {}
+                        Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
                         Ok(other) => {
                             last = other;
                             break;
@@ -340,7 +397,10 @@ pub fn run(
             other => other,
         };
         match signal {
+            TurnSignal::Streamed => {}
             TurnSignal::Changed => {
+                stream_due = None;
+                last_fetch = Instant::now();
                 if let Err(e) = fetch(&mut fold) {
                     log(&format!("turn {}: {e}", start.key));
                 }
@@ -386,11 +446,15 @@ pub fn run(
             }
         }
     }
+    // What the turn's end closed, then the last draft (the brain publishes
+    // it once the reply is posted).
+    publish(&mut fold);
+    let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
     let until = Instant::now() + ANSWER_WAIT;
     while !answered {
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
-            Ok(TurnSignal::Changed) => {}
+            Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
@@ -411,6 +475,7 @@ pub fn run(
             id: String::new(),
             model: start.session.model.clone(),
             usage: u,
+            ..crate::fold::Request::default()
         });
     }
     crate::trace::requests(trace, &scope, &requests);
@@ -442,6 +507,7 @@ pub fn run(
     };
     TurnOutcome {
         reply: fold.final_text().map(str::to_owned),
+        done_draft,
         cancelled,
         error,
         orphan,
@@ -454,6 +520,8 @@ pub fn run(
             requests: requests.len(),
             tools,
             tool_errors,
+            start_ms,
+            ttft_ms: requests.first().and_then(|r| r.ttft_ms),
         },
     }
 }

@@ -129,8 +129,17 @@ impl CompactModel for AnthropicModel {
                 .into_json()
                 .map_err(|e| ModelError::new(format!("bad response body: {e}")))?,
             Err(ureq::Error::Status(code, r)) => {
+                let wait = r
+                    .header("retry-after")
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .filter(|s| s.is_finite() && *s >= 0.0)
+                    .map(std::time::Duration::from_secs_f64);
                 let text = r.into_string().unwrap_or_default();
-                return Err(ModelError::new(format!("HTTP {code}: {}", clip(&text))));
+                let error = ModelError::new(format!("HTTP {code}: {}", clip(&text)));
+                return Err(match wait {
+                    Some(wait) => error.with_retry_after(wait),
+                    None => error,
+                });
             }
             Err(e) => return Err(ModelError::new(e.to_string())),
         };
@@ -201,8 +210,8 @@ mod tests {
         assert_eq!(body["system"][0]["text"], "SYS");
         assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["cache_control"]["type"], "ephemeral");
-        assert_eq!(body["model"], "claude-sonnet-5-5");
-        assert_eq!(body["output_config"]["effort"], "medium");
+        assert_eq!(body["model"], "claude-haiku-5-5");
+        assert_eq!(body["output_config"]["effort"], "high");
         assert!(body.get("tools").is_none());
         let m = body["messages"].as_array().unwrap();
         assert_eq!(m.len(), 3);

@@ -1,5 +1,9 @@
 import AppKit
 import Foundation
+import os
+
+/// Faults from shim callbacks that arrive off the CEF UI (main) thread.
+private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
 /// C entry for shim events (main thread).
 let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request, a, b, s1, s2 in
@@ -13,10 +17,10 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } }
+        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
         return
     }
-    MainActor.assumeIsolated {
+    MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         CEFRuntime.from(address)?.handle(event)
     }
 }
@@ -28,7 +32,7 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent, Thread.isMainThread else { return 0 }
     let address = UInt(bitPattern: context)
     let eventAddress = UInt(bitPattern: nsEvent)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
         let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
@@ -40,9 +44,14 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
 /// inspected page.
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent else { return 0 }
+    // Keys arrive on the main thread; off it, the DevTools page keeps the key.
+    guard Thread.isMainThread else {
+        callbackLogger.fault("DevTools key callback off the main thread; the key goes to the page")
+        return 0
+    }
     let address = UInt(bitPattern: context)
     let eventAddress = UInt(bitPattern: nsEvent)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
         let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()

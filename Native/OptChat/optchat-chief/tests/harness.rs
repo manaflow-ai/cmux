@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{Tools, cached_layout, claude_md, system_text, turn_blocks};
+use optchat_chief::prompt::{
+    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
+};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -97,13 +99,23 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(markers(blocks), vec![t.len() - 3]);
     let marked = &t[t.len() - 3];
     assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
+    // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral"})
+        json!({"type": "ephemeral", "ttl": "1h"})
     );
     assert_eq!(
         *blocks,
-        cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
+        cached_layout_marked(
+            &claude_md(None),
+            &view,
+            "where is project 7?",
+            Some(Mark {
+                piece: t.len() - 3,
+                ttl: CacheTtl::OneHour
+            })
+        )
+        .blocks
     );
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
@@ -425,7 +437,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
-        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+        optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
         node: optchat_host::NodeId::new(0, 0),
@@ -611,6 +623,35 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None
     );
+}
+
+/// A plain `claude` turn signs in with the user's own Claude login. That
+/// login is found through the user's Claude home: with `CLAUDE_CONFIG_DIR`
+/// pointed at an empty directory, Claude Code reports `loggedIn: false`
+/// (checked 2026-10-08 with `claude auth status`), so an isolated turn
+/// preset must not set it. Isolation stays: no auto-memory, no CLAUDE.md
+/// files (the preset's system prompt carries the instructions), and the
+/// session directory's project settings (no hooks, denied tools).
+#[test]
+fn an_isolated_claude_turn_keeps_the_users_login() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    for harness in ["claude", "claude-sr"] {
+        let preset = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        assert!(
+            !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+            "{harness}: {:?}",
+            preset.env
+        );
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+        assert_eq!(preset.system_prompt.as_deref(), Some("SYS"));
+    }
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(!codex.env.contains_key("CLAUDE_CONFIG_DIR"), "{:?}", codex.env);
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

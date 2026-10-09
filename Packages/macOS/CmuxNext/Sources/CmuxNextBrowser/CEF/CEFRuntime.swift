@@ -347,7 +347,7 @@ final class CEFRuntime {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 // The App shuts CEF down from applicationShouldTerminate. Reaching
                 // willTerminate with CEF live means that path was skipped; never
                 // spin the run loop here (architecture.md 5a), just let helpers

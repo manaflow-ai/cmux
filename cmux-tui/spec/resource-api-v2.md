@@ -113,8 +113,12 @@ absent otherwise); screen `pinned`, `color`, `icon`,
 of every terminal) and `program_status` (the OSC 7501 program status records
 of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
 updated_seq, updated_at_ms}`; `state` is `idle`, `working`, `done`, `blocked`
-or `error`; `title` and `msg` are untrusted display text without control or
-invisible formatting characters, at most 256 and 1024 characters; a primary
+or `error`; `app` is the record's own app, else that of its nearest ancestor
+record that has one (OSC 7501 app inheritance); `title` and `msg` are
+untrusted display text without control or invisible formatting characters,
+at most 256 and 1024 characters; a record that starts waiting on the user
+(`blocked`) or fails (`error`) posts one rate-limited `terminal` notification
+on its terminal; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
 there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and

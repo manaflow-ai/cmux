@@ -11105,7 +11105,7 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
     /// released the terminal lock; the reader already applied the rate limit.
     pub(crate) fn post_terminal_notifications(
         &self,
@@ -11118,7 +11118,7 @@ impl Mux {
                     &Actor::Daemon,
                     notification.title,
                     notification.body,
-                    NotificationLevel::Info,
+                    notification.level,
                     Some(surface),
                     NotificationSource::Terminal,
                 )
@@ -12189,7 +12189,10 @@ impl Mux {
         self.begin_session_shutdown();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
-        if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
+        if !self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
+        ) {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();

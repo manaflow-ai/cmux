@@ -57,7 +57,8 @@ extension MessagesWindowView {
             o.hover(local)
             if let code = o.copyHit(local) { return .copied(code) }
         }
-        if let s = md.link(at: local), let url = URL(string: s) { return .link(url) }
+        // cmux: re-checked at click time (MarkdownLinkPolicy).
+        if let s = md.link(at: local), let url = MarkdownLinkPolicy.url(s) { return .link(url) }
         return nil
     }
 
@@ -68,6 +69,13 @@ extension MessagesWindowView {
             guard let o = cell.markdownOverlay else { continue }
             o.hover(target?.hit.key == cell.spec?.key ? target?.local : nil)
         }
+    }
+
+    /// Whether a window point is over a block that scrolls horizontally (code wider than the
+    /// bubble, a wide table). Gestures there scroll the block; swipe-to-reply skips them.
+    func markdownScrollable(at p: CGPoint) -> Bool {
+        guard let (_, md, local) = markdownHit(p), let r = md.region(at: local) else { return false }
+        return md.regions[r].scrollable
     }
 
     /// A horizontal scroll over a scrollable block: scrolls it. Returns the (key, region)

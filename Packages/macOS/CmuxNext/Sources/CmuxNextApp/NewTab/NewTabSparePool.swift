@@ -105,7 +105,7 @@ final class NewTabSparePool {
         windowObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) {
             [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self, let window = window.flatMap(self.mainWindow) else { return }
                 self.retarget(window)
             }
@@ -113,7 +113,7 @@ final class NewTabSparePool {
         windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
             [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self, let window, window === self.target else { return }
                 let next = self.services.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
                 if let next { self.retarget(next) } else { self.dropAll() }
@@ -279,7 +279,7 @@ final class NewTabSparePool {
         guard memoryPressure == nil else { return }
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.dropAll() }
+            MainActor.assumeIsolated { self?.dropAll() } // main-proof: dispatch source on queue: .main
         }
         source.resume()
         memoryPressure = source
