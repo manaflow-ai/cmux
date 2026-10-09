@@ -1,0 +1,203 @@
+import CNCore
+import Foundation
+import Observation
+
+public enum HostConnectionState: Sendable, Hashable {
+    case idle
+    case connecting
+    case connected(PathInfo)
+    /// Waiting before reconnect attempt `attempt` (1-based).
+    case reconnecting(attempt: Int, lastError: String?)
+    case failed(String)
+
+    public var isConnected: Bool { if case .connected = self { true } else { false } }
+
+    public var pathInfo: PathInfo? { if case .connected(let p) = self { p } else { nil } }
+}
+
+/// Exponential reconnect delays.
+public struct ReconnectBackoff: Sendable, Hashable {
+    public var initial: Duration
+    public var multiplier: Double
+    public var maximum: Duration
+    /// Attempts before giving up with `.failed`. Nil retries forever.
+    public var maxAttempts: Int?
+
+    public init(initial: Duration = .milliseconds(500), multiplier: Double = 2, maximum: Duration = .seconds(15), maxAttempts: Int? = 10) {
+        self.initial = initial; self.multiplier = multiplier; self.maximum = maximum; self.maxAttempts = maxAttempts
+    }
+
+    public func delay(forAttempt attempt: Int) -> Duration {
+        let factor = pow(multiplier, Double(max(0, attempt - 1)))
+        let d = initial * factor
+        return d > maximum ? maximum : d
+    }
+}
+
+/// The app's connection to one host: connects through a `Connector`, says
+/// hello, keeps RTT fresh with `host.ping`, and reconnects with backoff.
+/// Event subscriptions made here survive reconnects.
+@MainActor
+@Observable
+public final class HostConnection {
+    public private(set) var state: HostConnectionState = .idle
+    public private(set) var hostId: String?
+    public private(set) var hostInfo: HostInfo?
+    /// The live client, nil while not connected.
+    public private(set) var client: HostClient?
+    /// Increments on every successful (re)connect. Views reload their data
+    /// when it changes.
+    public private(set) var generation = 0
+
+    @ObservationIgnored public let connector: any Connector
+    @ObservationIgnored public let clientInfo: ClientInfo
+    @ObservationIgnored public let backoff: ReconnectBackoff
+    @ObservationIgnored public let pingInterval: Duration
+    @ObservationIgnored private let clock: any Clock<Duration>
+    @ObservationIgnored private let hub = EventHub(persistent: true)
+    @ObservationIgnored private var runTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionTasks: [Task<Void, Never>] = []
+
+    public init(
+        connector: any Connector,
+        clientInfo: ClientInfo,
+        backoff: ReconnectBackoff = ReconnectBackoff(),
+        pingInterval: Duration = .seconds(10),
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
+        self.connector = connector
+        self.clientInfo = clientInfo
+        self.backoff = backoff
+        self.pingInterval = pingInterval
+        self.clock = clock
+    }
+
+    public var pathInfo: PathInfo? { state.pathInfo }
+
+    /// Connects to `hostId`, replacing any current connection.
+    public func connect(hostId: String) {
+        stop()
+        self.hostId = hostId
+        runTask = Task { [weak self] in await self?.run(hostId: hostId) }
+    }
+
+    /// Reconnects now (for example from `.failed` or when the app returns to
+    /// the foreground while `.reconnecting`).
+    public func retry() {
+        guard let hostId else { return }
+        connect(hostId: hostId)
+    }
+
+    public func disconnect() {
+        stop()
+        state = .idle
+    }
+
+    private func stop() {
+        runTask?.cancel()
+        runTask = nil
+        client?.close()
+        tearDownSession()
+    }
+
+    private func tearDownSession() {
+        for t in sessionTasks { t.cancel() }
+        sessionTasks.removeAll()
+        client = nil
+    }
+
+    // MARK: Calls
+
+    /// The live client or `HostClientError.notConnected`.
+    public func requireClient() throws -> HostClient {
+        guard let client else { throw HostClientError.notConnected }
+        return client
+    }
+
+    public func request<R: Decodable & Sendable, P: Encodable & Sendable>(_ method: String, _ params: P, as type: R.Type = R.self) async throws -> R {
+        try await requireClient().request(method, params, as: R.self)
+    }
+
+    /// Events for `topic` from every connection generation.
+    public nonisolated func events(topic: String? = nil) -> AsyncStream<HostEvent> {
+        hub.subscribe(topic: topic)
+    }
+
+    /// Decoded pushes from every connection generation.
+    public nonisolated func pushes() -> AsyncStream<HostPush> {
+        hub.subscribe(topic: nil).pushes()
+    }
+
+    // MARK: Loop
+
+    private func run(hostId: String) async {
+        var attempt = 0
+        var lastError: String?
+        while !Task.isCancelled {
+            state = attempt == 0 ? .connecting : .reconnecting(attempt: attempt, lastError: lastError)
+            do {
+                let transport = try await connector.connect(hostId: hostId)
+                if Task.isCancelled { transport.close(); return }
+                let client = HostClient(transport: transport, clock: clock)
+                let info = try await client.hello(clientInfo)
+                if Task.isCancelled { client.close(); return }
+                self.client = client
+                self.hostInfo = info
+                generation += 1
+                attempt = 0
+                var path = await transport.pathInfo()
+                path.rttMs = await measureRTT(client)
+                state = .connected(path)
+                startSession(client: client, transport: transport)
+                let reason = await client.waitUntilClosed()
+                tearDownSession()
+                lastError = reason ?? "Connection closed"
+            } catch {
+                lastError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            }
+            if Task.isCancelled { return }
+            attempt += 1
+            if let max = backoff.maxAttempts, attempt > max {
+                state = .failed(lastError ?? "Could not connect")
+                return
+            }
+            state = .reconnecting(attempt: attempt, lastError: lastError)
+            do { try await clock.sleep(for: backoff.delay(forAttempt: attempt)) } catch { return }
+        }
+    }
+
+    private func startSession(client: HostClient, transport: any LinkTransport) {
+        let hub = self.hub
+        let forward = Task {
+            for await event in client.events() { hub.publish(event) }
+        }
+        let interval = pingInterval
+        let clock = self.clock
+        let ping = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await clock.sleep(for: interval) } catch { return }
+                guard let self else { return }
+                guard let rtt = await self.measureRTT(client) else {
+                    // An unanswered ping means the path is dead; reconnect.
+                    client.close()
+                    return
+                }
+                var path = await transport.pathInfo()
+                path.rttMs = rtt
+                if case .connected = self.state, self.client === client { self.state = .connected(path) }
+            }
+        }
+        sessionTasks = [forward, ping]
+    }
+
+    private func measureRTT(_ client: HostClient) async -> Double? {
+        let start = ContinuousClock.now
+        do {
+            _ = try await client.request(HostMethod.ping.rawValue, as: PingResult.self, timeout: .seconds(8))
+        } catch {
+            return nil
+        }
+        let elapsed = ContinuousClock.now - start
+        return Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+    }
+}
