@@ -117,8 +117,11 @@ public struct CloudPortShareService: Sendable {
         return (200..<400).contains(status) || status == 401
     }
 
-    /// A signed-out POST to a protected link. cmux's authorization check
+    /// A signed-out HEAD to a protected link. cmux's authorization check
     /// answers it with 401 without starting a sign-in or reaching the machine.
+    /// HEAD stays safe if a protected publication becomes public while the
+    /// request is in flight: the edge can forward it to the user's app, but
+    /// it cannot carry a request body or trigger a POST mutation.
     public static let signedOutStatus: Probe = { url in
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
@@ -127,7 +130,7 @@ public struct CloudPortShareService: Sendable {
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = "HEAD"
         guard let (_, response) = try? await session.data(for: request) else { return nil }
         return (response as? HTTPURLResponse)?.statusCode
     }

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -58,6 +59,11 @@ struct CloudTreeNodeActions {
     /// rather than falling back to an all-views rename the way a terminal pool
     /// row does. A display open in two workspaces is exactly that case.
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
+    /// Renames a display for every client: its rows and every pane showing it.
+    var renameDisplay: @MainActor (_ resource: SurfaceResource) -> Void = { _ in }
+    /// Takes a display out of one Cloud workspace on this Mac: closes its pane
+    /// there and removes this Mac's membership for it.
+    var removeDisplayFromWorkspace: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
@@ -67,24 +73,33 @@ struct CloudTreeNodeActions {
     var sharePort: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
+    /// Starts guest display discovery, which also warms the machine's standby display.
+    /// Returns false when the machine cannot run discovery now.
+    var discoverDisplays: @MainActor (SurfaceMachineID, _ completion: @escaping @MainActor (Bool) -> Void) -> Bool = { _, _ in false }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Runs CodeRouter's add flow for one account type in a terminal.
+    var addCoderouterAccount: @MainActor (_ provider: CoderouterProvider) -> Void = { _ in }
+    /// Confirms, then removes one account from the selected team's CodeRouter organization.
+    var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
+    /// Re-reads the selected team's CodeRouter accounts now.
+    var refreshCoderouter: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
-    /// Pops up a row's context menu from its trailing "⋯" button. The outline
-    /// coordinator binds it per cell, so the button and a right-click show the
-    /// same menu.
+    /// Pops up a row's context menu from its trailing "⋯" button. Bound per
+    /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
-    /// Opens a machine's detail tab, or closes it when it is open. Bound per
-    /// cell by the outline coordinator.
+    /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
+    var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -151,9 +166,11 @@ struct CloudTreeNodeActions {
             _ key: String,
             _ label: String,
             _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void,
-            failureDescription: (@MainActor (Error) -> String)? = nil
+            failureDescription: (@MainActor (Error) -> String)? = nil,
+            fallbackToUnownedTask: Bool = true
         ) -> Bool {
             guard let controller = operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController else {
+                guard fallbackToUnownedTask else { return false }
                 _ = run(label, operation, failureDescription: failureDescription)
                 return true
             }
@@ -193,6 +210,21 @@ struct CloudTreeNodeActions {
         }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
+        }
+        /// A Cloud row click is a content-focus action. Browser panes reset their
+        /// omnibar focus while they are being materialized, so selecting the pane
+        /// alone can leave the address field active even though the page was opened.
+        /// Reassert WebKit focus after the shared pane focus operation, preserving
+        /// the same behavior for ports, displays, and other browser resources.
+        @MainActor
+        func focusProjection(_ projection: SurfaceProjection) {
+            SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+            if let browser = SurfacePaneFactory.browserPanel(
+                panelID: projection.panelID,
+                in: projection.workspaceID
+            ) {
+                browser.focusContentAfterAttachment()
+            }
         }
         var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
@@ -251,26 +283,27 @@ struct CloudTreeNodeActions {
                     // pane opened as an additional tab does not by itself become the
                     // SELECTED tab in its column — explicitly select it too, so
                     // clicking a sidebar row always lands you looking at it.
-                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                    focusProjection(projection)
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
                 // A daemon view must use the same captured destination as a pool resource.
                 let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
+                    let opened = try await catalog.project(
                         resource,
                         into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view
                     )
+                    focusProjection(opened.projection)
                 }
             },
             projectInLocalWorkspace: { resource, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
                     if let port = resource.forwardedPort {
-                        _ = try await catalog.openCloudPort(
+                        let opened = try await catalog.openCloudPort(
                             machine: resource.machine,
                             port: port,
                             into: .workspace(id: workspaceID, placement: .split),
@@ -278,20 +311,22 @@ struct CloudTreeNodeActions {
                             reuseExisting: true,
                             reuseInWorkspace: workspaceID
                         )
+                        focusProjection(opened.projection)
                     } else {
-                        _ = try await catalog.project(
+                        let opened = try await catalog.project(
                             resource,
                             into: .workspace(id: workspaceID, placement: .split),
                             focus: true,
                             reuseExisting: true,
                             reuseInWorkspace: workspaceID
                         )
+                        focusProjection(opened.projection)
                     }
                 }
             },
             projectRemoteViewInLocalWorkspace: { resource, view, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
+                    let opened = try await catalog.project(
                         resource,
                         into: .workspace(id: workspaceID, placement: .split),
                         focus: true,
@@ -299,6 +334,7 @@ struct CloudTreeNodeActions {
                         reuseInWorkspace: workspaceID,
                         remoteView: view
                     )
+                    focusProjection(opened.projection)
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
@@ -328,7 +364,7 @@ struct CloudTreeNodeActions {
                         reuseExisting: true,
                         remoteView: remoteView
                     )
-                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                    focusProjection(projection)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
@@ -355,7 +391,7 @@ struct CloudTreeNodeActions {
                             reuseExisting: true,
                             remoteView: remoteView
                         )
-                        SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                        focusProjection(projection)
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
@@ -573,6 +609,11 @@ struct CloudTreeNodeActions {
             _ = runKeyed(key, label, { catalog in
                 guard let current = try catalog.currentCloudWorkspace(group),
                       catalog.provider(for: machine) === provider else {
+                    // Cancellation is silent by design; log it so a row that
+                    // resolves to nothing is diagnosable from the debug log.
+#if DEBUG
+                    cmuxDebugLog("cloudTree.openWorkspace unresolved machine=\(machine.rawValue) workspace=\(workspace.id)")
+#endif
                     throw CancellationError()
                 }
                 let currentWorkspace = SurfaceRemoteWorkspace(
@@ -601,6 +642,28 @@ struct CloudTreeNodeActions {
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
+        actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }
+        actions.renameDisplay = { resource in
+            let current = resource.title.isEmpty ? resource.id.key : resource.title
+            guard let name = promptForName(
+                title: String(format: String(localized: "cloudTree.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                current: current,
+                // Clearing restores the numbered name ("Display 2").
+                allowsClear: true
+            ), name != current else { return }
+            let operationLabel = name.isEmpty
+                ? String(format: String(localized: "cloudTree.operation.clearName", defaultValue: "Clearing %@\u{2026}"), current)
+                : String(format: String(localized: "cloudTree.operation.rename", defaultValue: "Renaming %@\u{2026}"), current)
+            run(operationLabel) { catalog in
+                try await catalog.renameDisplay(resource.id, name: name)
+            }
+        }
+        actions.removeDisplayFromWorkspace = { resource, view in
+            // Removes the display from that Cloud workspace for every client,
+            // as closing its pane does.
+            let catalog = catalog()
+            catalog.cloudPlacementCoordinator.removeDisplay(resource.id, fromCloudWorkspace: view.workspace.id, catalog: catalog)
+        }
         actions.newDisplay = { machine in
             let target = try? destination(.split)
             if let target,
@@ -642,7 +705,9 @@ struct CloudTreeNodeActions {
             // clipboard meanwhile, don't replace it. The row says the link is
             // ready instead, and the next click copies it straight away.
             let clipboardAtClick = NSPasteboard.general.changeCount
-            run(
+            let operationKey = "cloud-port-share:\(resource.machine.rawValue):\(port)"
+            let started = runKeyed(
+                operationKey,
                 String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}"),
                 { catalog in
                     do {
@@ -652,6 +717,10 @@ struct CloudTreeNodeActions {
                         }
                         let publication = try await CloudPortShareService(api: client)
                             .share(vmID: provider.machineID, port: port, teamID: provider.ownerTeamID)
+                        // Cloud sign-out, team changes, and feature shutdown cancel
+                        // the owning controller task. Do not let a late network
+                        // completion copy the previous account's link.
+                        try Task.checkCancellation()
                         if NSPasteboard.general.changeCount == clipboardAtClick {
                             Self.copyToPasteboard(publication.url)
                             store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
@@ -677,8 +746,14 @@ struct CloudTreeNodeActions {
                         // CLI ("Run `cmux ...`"); the sidebar gets plain copy.
                         return String(localized: "cloudTree.port.share.error.unavailable", defaultValue: "The Cloud service couldn't create a link for this port. Try again.")
                     }
-                }
+                },
+                fallbackToUnownedTask: false
             )
+            if !started {
+                // No lifecycle owner admitted the work (for example while
+                // Cloud is being torn down), so do not leave a spinner behind.
+                store.clear(key)
+            }
         }
         return actions
     }

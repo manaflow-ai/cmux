@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
@@ -80,8 +81,10 @@ enum SessionPersistencePolicy {
         return String(text[safeStart...])
     }
 
-    /// If truncation starts in the middle of an ANSI CSI escape sequence, advance to
-    /// the first printable character after that sequence to avoid replaying malformed control bytes.
+    /// If truncation starts in the middle of an ANSI control sequence, advance
+    /// past its terminator so replay never begins with a partial escape payload.
+    private static let maxAnsiStringSequenceScanCharacters = 1_024
+
     private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
         guard initialStart > text.startIndex else { return initialStart }
         let escape = "\u{001B}"
@@ -89,24 +92,61 @@ enum SessionPersistencePolicy {
         guard let lastEscape = text[..<initialStart].lastIndex(of: Character(escape)) else {
             return initialStart
         }
-        let csiMarker = text.index(after: lastEscape)
-        guard csiMarker < text.endIndex, text[csiMarker] == "[" else {
-            return initialStart
-        }
+        let marker = text.index(after: lastEscape)
+        guard marker < text.endIndex else { return initialStart }
 
-        // If a final CSI byte exists before the truncation boundary, we are not
-        // inside a partial sequence.
-        if csiFinalByteIndex(in: text, from: csiMarker, upperBound: initialStart) != nil {
-            return initialStart
-        }
+        switch text[marker] {
+        case "[":
+            // If a final CSI byte exists before the truncation boundary, we are
+            // not inside a partial sequence.
+            if csiFinalByteIndex(in: text, from: marker, upperBound: initialStart) != nil {
+                return initialStart
+            }
+            guard let final = csiFinalByteIndex(
+                in: text,
+                from: marker,
+                upperBound: text.endIndex
+            ) else {
+                return initialStart
+            }
+            let next = text.index(after: final)
+            return next < text.endIndex ? next : text.endIndex
 
-        // We are inside a CSI sequence. Skip to the first character after the
-        // sequence terminator if it exists.
-        guard let final = csiFinalByteIndex(in: text, from: csiMarker, upperBound: text.endIndex) else {
+        case "]", "P", "X", "_", "^":
+            let allowsBEL = text[marker] == "]"
+            if allowsBEL,
+               hasRecentBELTerminator(
+                   in: text,
+                   after: marker,
+                   before: initialStart
+               ) {
+                return initialStart
+            }
+            if allowsBEL,
+               ansiStringSequenceEnd(
+                   in: text,
+                   from: text.index(after: marker),
+                   upperBound: initialStart,
+                   allowsBEL: true
+               ) != nil {
+                return initialStart
+            }
+            return ansiStringSequenceEnd(
+                in: text,
+                from: initialStart,
+                upperBound: text.endIndex,
+                allowsBEL: allowsBEL
+            ) ?? initialStart
+
+        case "\\":
+            // The cut itself can land on the second byte of an ST terminator.
+            guard marker == initialStart else { return initialStart }
+            let next = text.index(after: marker)
+            return next < text.endIndex ? next : text.endIndex
+
+        default:
             return initialStart
         }
-        let next = text.index(after: final)
-        return next < text.endIndex ? next : text.endIndex
     }
 
     private static func csiFinalByteIndex(
@@ -124,6 +164,45 @@ enum SessionPersistencePolicy {
                 return index
             }
             index = text.index(after: index)
+        }
+        return nil
+    }
+
+    private static func hasRecentBELTerminator(
+        in text: String,
+        after marker: String.Index,
+        before boundary: String.Index
+    ) -> Bool {
+        var index = marker
+        while index < boundary {
+            if text[index] == "\u{0007}" {
+                return true
+            }
+            index = text.index(after: index)
+        }
+        return false
+    }
+
+    private static func ansiStringSequenceEnd(
+        in text: String,
+        from start: String.Index,
+        upperBound: String.Index,
+        allowsBEL: Bool
+    ) -> String.Index? {
+        var index = start
+        var scanned = 0
+        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
+            if allowsBEL, text[index] == "\u{0007}" {
+                return text.index(after: index)
+            }
+            if text[index] == "\u{001B}" {
+                let next = text.index(after: index)
+                if next < upperBound, text[next] == "\\" {
+                    return text.index(after: next)
+                }
+            }
+            index = text.index(after: index)
+            scanned += 1
         }
         return nil
     }
@@ -1490,6 +1569,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var wasAgentRunning: Bool?
     /// Whether the terminal has received user input. Nil means unknown in older snapshots.
     var hasReceivedExplicitInput: Bool?
+    /// The Claude Code background session this pane was viewing through
+    /// `claude attach`. Restore reattaches it instead of resuming a second writer.
+    var claudeBackgroundViewer: ClaudeBackgroundSessionViewer?
 
     init(
         workingDirectory: String? = nil,
@@ -1505,7 +1587,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        hasReceivedExplicitInput: Bool? = nil
+        hasReceivedExplicitInput: Bool? = nil,
+        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1521,6 +1604,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
+        self.claudeBackgroundViewer = claudeBackgroundViewer
     }
 }
 

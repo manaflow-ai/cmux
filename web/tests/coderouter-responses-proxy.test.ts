@@ -1,6 +1,5 @@
 import { vmToken } from "./vm-authorization-fixture";
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import * as analytics from "../services/coderouter/analytics";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 import { newCoderouterRequestContext, runWithCoderouterRequest } from "../services/coderouter/requestTelemetry";
 import {
@@ -768,6 +767,56 @@ describe("codex responses proxy session routing", () => {
   });
 });
 
+describe("codex responses proxy with no account configured", () => {
+  function noAccountProxy(configured: boolean) {
+    const selects: number[] = [];
+    const configuredChecks: string[] = [];
+    const sleptBefore = sleeps.length;
+    const proxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        selects.push(1);
+        return null;
+      },
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      hasConfiguredAccount: async (input) => {
+        configuredChecks.push(input.teamId);
+        return configured;
+      },
+    }, holdRuntime);
+    return { proxy, selects, configuredChecks, slept: () => sleeps.length - sleptBefore };
+  }
+
+  test("answers a team without any Codex account with a terminal 403", async () => {
+    const run = noAccountProxy(false);
+    const response = await run.proxy(responsesRequest());
+    // Codex retries 429 and 5xx; a 403 surfaces once with the recovery step.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
+    expect(run.selects).toHaveLength(1);
+    expect(run.configuredChecks).toEqual(["team-1"]);
+    expect(run.slept()).toBe(0);
+  });
+
+  test("a team whose accounts are all unavailable still gets a retryable 503", async () => {
+    const run = noAccountProxy(true);
+    const response = await run.proxy(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+    expect(((await response.json()) as { error: string }).error).toBe("no_usable_account");
+  });
+});
+
 describe("codex responses proxy capacity hold", () => {
   /**
    * One-account pool that models cooldowns on the logical clock, the way the
@@ -945,40 +994,25 @@ describe("codex responses proxy VM-bound route tokens", () => {
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 
-  test("a bound token without x-cmux-vm-id is rejected as vm_mismatch", async () => {
-    accountsToServe = [{ id: "acct-1", sticky: false }];
-    const capture = spyOn(analytics, "captureCoderouterEvent");
-    try {
-      const response = await proxy(edgeRequest({
-        "x-coderouter-route-token": BOUND_TOKEN,
-      }));
-      expect(response.status).toBe(401);
-      const body = await response.json() as { error: string; message: string };
-      expect(body.error).toBe("unauthorized");
-      expect(body.message).toBe(
-        "This machine's coderouter credential does not match the machine it was issued to.",
-      );
-      expect(selectInputs).toHaveLength(0);
-      const rejection = capture.mock.calls
-        .map((call) => call[0])
-        .find((event) => event.event === "coderouter_auth_rejected");
-      expect(rejection?.properties).toEqual({
-        surface: "responses",
-        reason: "vm_mismatch",
-      });
-    } finally {
-      capture.mockRestore();
-    }
-  });
-
-  test("a bound token with another machine's x-cmux-vm-id is rejected", async () => {
+  test("a signed token without x-cmux-vm-id uses its VM claim", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(edgeRequest({
-      "x-coderouter-route-token": BOUND_TOKEN,
+      authorization: `Bearer ${BOUND_TOKEN}`,
+    }));
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed token ignores a forged x-cmux-vm-id", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      authorization: `Bearer ${BOUND_TOKEN}`,
       "x-cmux-vm-id": "vm-2",
     }));
-    expect(response.status).toBe(401);
-    expect(selectInputs).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 
   test("a VM header cannot substitute an unbound token", async () => {

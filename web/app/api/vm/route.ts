@@ -276,15 +276,11 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Start the provider probe only after authentication. It is shared by
-      // concurrent creates, so the first authenticated request pays the cold
-      // connection once and unauthenticated traffic cannot consume provider
-      // capacity. The await below is bounded by the probe's own timeout.
-      const warmupStartedAt = performance.now();
-      const freestyleWarmup = preconnectFreestyle();
-      const connectionInitDuration = freestyleWarmup.then(
-        () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
-      );
+      // Start the provider probe after authentication, but never make machine
+      // creation wait for it. The provider request owns its connection setup;
+      // a best-effort probe cannot guarantee socket reuse and otherwise adds
+      // its full latency to the first create.
+      void preconnectFreestyle();
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -351,16 +347,9 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
-      // Only Freestyle creation needs this probe. Other providers must not
-      // wait behind an unrelated connection check, while the Freestyle path
-      // still overlaps the probe with authentication and request parsing.
-      if (provider === "freestyle") {
-        const connectionInit = await connectionInitDuration;
-        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
-      }
-      // Admission starts after provider-specific connection readiness. Its
-      // budget describes only request validation; the durable begin_create
-      // phase is recorded inside the workflow and remains authoritative.
+      // Admission starts after request validation. Its budget describes only
+      // request validation; the durable begin_create phase is recorded inside
+      // the workflow and remains authoritative.
       admissionStartedAt = performance.now();
       recordAdmission();
 

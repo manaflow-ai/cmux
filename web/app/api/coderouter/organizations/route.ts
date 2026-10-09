@@ -1,6 +1,8 @@
 import { organizationsGet } from "../../subrouter/teams/route";
-import { authorizedCoderouterTeams } from "../../../../services/coderouter/permissions";
 
 export async function GET(request: Request): Promise<Response> {
-  return organizationsGet(request, authorizedCoderouterTeams);
+  // The catalog exposes membership capabilities, not API-key administration.
+  // Keep the per-team API-key permission lookups on the dashboard that uses
+  // them; doing them here delays both CLI listing and organization switching.
+  return organizationsGet(request);
 }

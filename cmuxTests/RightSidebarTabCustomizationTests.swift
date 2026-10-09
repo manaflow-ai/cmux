@@ -16,21 +16,16 @@ import XCTest
 final class RightSidebarTabCustomizationTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
-    private var savedCloudRemoteOverride: Bool?
 
     override func setUp() {
         super.setUp()
         suiteName = "RightSidebarTabCustomizationTests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        savedCloudRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
     }
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
-        CmuxFeatureFlags.shared.setOverride(savedCloudRemoteOverride, for: CmuxFeatureFlags.cloudMachinesFlag)
-        savedCloudRemoteOverride = nil
         defaults = nil
         super.tearDown()
     }
@@ -62,7 +57,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testVisibleModesDropUserHiddenTabs() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableAllModeGates()
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertEqual(
@@ -172,9 +166,10 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     func testModeBarDragLayoutLeavesTheBarOnlyWellOutsideIt() {
         let tab = CGRect(x: 0, y: 7, width: 40, height: 24)
-        XCTAssertFalse(RightSidebarModeBarDragLayout.leavesBar(pointerY: 40, tabFrame: tab, barHeight: 38))
-        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointerY: 51, tabFrame: tab, barHeight: 38))
-        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointerY: -13, tabFrame: tab, barHeight: 38))
+        XCTAssertFalse(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 40), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 51), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: -13), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: -1, y: 40), tabFrame: tab, barHeight: 38))
         XCTAssertNil(RightSidebarModeBarDragLayout(frames: [], source: 0))
     }
 
@@ -194,7 +189,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     /// With Feed and Dock hidden through the regular tab-visibility controls,
     /// Cloud is the 4th visible tab, so ctrl+4 must focus it.
     func testCloudDefaultsToControlFourWhenFeedAndDockAreHidden() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableMachinesGate()
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
@@ -209,7 +203,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testAllTabsVisibleKeepsHistoricDigits() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableAllModeGates()
         let expected: [(RightSidebarMode, String)] = [
             (.files, "1"), (.find, "2"), (.sessions, "3"), (.feed, "4"), (.dock, "5"), (.machines, "6"),
@@ -224,7 +217,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testHiddenTabDefaultsToUnboundAndLaterDigitsShift() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableAllModeGates()
         RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults)
         XCTAssertEqual(
@@ -238,7 +230,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testReorderMovesDigitsWithTheTabs() {
-        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableAllModeGates()
         RightSidebarTabPreferences.move(.machines, offset: -5, defaults: defaults)
         XCTAssertEqual(

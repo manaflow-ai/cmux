@@ -165,6 +165,20 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
+    /// Updates only one machine's user label while a rename command is in flight.
+    public static func applyingLabel(
+        to snapshots: [MachineSnapshot],
+        machineID: String,
+        label: String?
+    ) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            guard snapshot.id == machineID else { return snapshot }
+            var next = snapshot
+            next.label = label
+            return next
+        }
+    }
+
     /// Recomputes only the free-access facet of existing snapshots against a
     /// fresh clock — no network, stats and identity preserved.
     public static func applyingFreeAccess(

@@ -1,0 +1,145 @@
+name: Resume nightly notarization
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Failed nightly workflow run that uploaded the recovery artifact
+        required: true
+        type: string
+      recovery_artifact:
+        description: Exact recovery artifact name from that run
+        required: true
+        type: string
+      channel:
+        description: Channel recorded by the source nightly run
+        required: true
+        type: choice
+        options:
+          - nightly
+          - rc
+      variant:
+        description: Architecture variant recorded by the recovery manifest
+        required: true
+        type: choice
+        options:
+          - arm64
+          - x86_64
+          - universal
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact }}
+      REQUESTED_CHANNEL: ${{ inputs.channel }}
+      REQUESTED_VARIANT: ${{ inputs.variant }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Verify trusted source workflow run
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "source_run_id must be numeric" >&2; exit 2; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          read -r source_head_sha source_run_attempt < <(python3 - "$RUNNER_TEMP/source-run.json" "$GITHUB_REPOSITORY" "$REQUESTED_CHANNEL" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          run = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          repository, channel = sys.argv[2:]
+          if run.get("path") != ".github/workflows/nightly.yml":
+              raise SystemExit("source run is not the trusted nightly workflow")
+          if run.get("repository", {}).get("full_name") != repository:
+              raise SystemExit("source run belongs to a different repository")
+          if run.get("head_repository", {}).get("full_name") != repository:
+              raise SystemExit("source run was created from a different repository")
+          if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
+              raise SystemExit("source run event is not a published nightly event")
+          branch = run.get("head_branch") or ""
+          if channel == "nightly" and branch not in {"main", "nightly-next"}:
+              raise SystemExit("nightly recovery source is not on a published branch")
+          if channel == "rc" and not branch.startswith("rc/"):
+              raise SystemExit("RC recovery source is not on an RC branch")
+          if run.get("conclusion") not in {"failure", "success", "timed_out", "cancelled"}:
+              raise SystemExit("source run did not complete before recovery")
+          head_sha = run.get("head_sha", "")
+          if not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
+              raise SystemExit("source run has no valid head SHA")
+          run_attempt = run.get("run_attempt")
+          if not isinstance(run_attempt, int) or run_attempt < 1:
+              raise SystemExit("source run has no valid run attempt")
+          print(head_sha, run_attempt)
+          PY
+          )
+          {
+            echo "SOURCE_HEAD_SHA=$source_head_sha"
+            echo "SOURCE_RUN_ATTEMPT=$source_run_attempt"
+          } >> "$GITHUB_ENV"
+
+      - name: Download exact recovery artifact
+        run: |
+          set -euo pipefail
+          [[ "$RECOVERY_ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid recovery artifact name" >&2; exit 2; }
+          rm -rf recovery
+          mkdir -p recovery
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$RECOVERY_ARTIFACT" \
+            --dir recovery
+          test -f recovery/cmux-nightly-notarization-recovery.json
+          test -f recovery/cmux-nightly-notarization-recovery-app.tar.gz
+
+      - name: Resolve and verify exact recovery manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$REQUESTED_CHANNEL" "$REQUESTED_VARIANT" \
+            --source-run-attempt "$SOURCE_RUN_ATTEMPT" --extract-app > "$RUNNER_TEMP/recovery.env"
+          while IFS='=' read -r key value; do
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
+          done < "$RUNNER_TEMP/recovery.env"
+
+      - name: Wait, staple, and validate exact submitted DMG
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          ./scripts/ci/resume-nightly-notarization.sh \
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+
+      - name: Upload verified recovery artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
+          path: |
+            recovery
+            verified
+          if-no-files-found: error
+          retention-days: 14

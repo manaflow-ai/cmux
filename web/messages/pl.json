@@ -2158,6 +2158,7 @@
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
           "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "showLinkHoverURL": "Pokazuje adres docelowy linku w lewym dolnym rogu panelu przeglądarki, gdy wskaźnik znajduje się nad linkiem lub gdy link ma fokus klawiatury.",
           "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."
         },
         "workspaceGroups": {
@@ -2876,7 +2877,7 @@
       "metaTitle": "cmux Cloud",
       "metaDescription": "Uruchamiaj trwałe maszyny Linux w chmurze z poziomu cmux, aby agenci kodujący pracowali dalej po zamknięciu Twojego Maca.",
       "intro": "cmux Cloud daje Ci trwałe maszyny Linux w chmurze, które otwierają się jak zwykłe obszary robocze cmux. Terminale działają dalej, gdy zamkniesz panel, stracisz połączenie z siecią lub wyłączysz laptopa, więc agenci kodujący mogą pracować dalej, a Ty możesz ponownie się połączyć z dowolnego zalogowanego Maca.",
-      "betaNote": "cmux Cloud jest we wczesnym dostępie i jest włączany na komputerach Mac etapami. Aby z niego korzystać, Twój Mac musi być objęty wdrożeniem i musisz włączyć Settings › Beta Features › Cloud Machines. Jeśli Twój Mac nie jest jeszcze objęty wdrożeniem, polecenia Cloud wyświetlają komunikat „Cloud Machines są tymczasowo niedostępne”.",
+      "betaNote": "cmux Cloud jest we wczesnym dostępie i jest dostępny, o ile Twoja organizacja go nie wyłączy. Aby z niego korzystać, włącz Settings › Beta Features › Cloud Machines.",
       "whatTitle": "Czym jest maszyna",
       "whatDesc": "Maszyna to trwały komputer w chmurze, który należy do Ciebie lub do Twojego zespołu. Zachowuje swoje pliki, zainstalowane narzędzia i działające terminale. Traktuj ją jak zwierzę domowe, a nie jak bydło: instalujesz to, czego potrzebujesz, jeden raz i wracasz do niej później.",
       "whatDaemon": "Każda maszyna uruchamia demona cmux TUI. Demon przechowuje obszary robocze i terminale maszyny. Panel cmux na Twoim Macu tylko wyświetla terminal, który działa na maszynie, więc zamknięcie panelu nigdy nie zatrzymuje procesu.",
@@ -2885,7 +2886,7 @@
       "requirementsTitle": "Czego potrzebujesz",
       "reqMac": "Aplikacja cmux na macOS, uruchomiona i zalogowana. CLI cmux komunikuje się z aplikacją, a aplikacja przechowuje Twoje dane uwierzytelniające.",
       "reqPlan": "Płatny plan cmux. Konta darmowe nie mogą tworzyć maszyn. Aktualne plany znajdziesz na stronie z cennikiem.",
-      "reqBeta": "Mac objęty wdrożeniem wczesnego dostępu do Cloud, z włączonym Cloud Machines w Settings › Beta Features.",
+      "reqBeta": "Cloud Machines włączone w Settings › Beta Features i brak zasad organizacji wyłączających Cloud.",
       "reqNoVpn": "Bez konfigurowania VPN, kluczy SSH czy przekierowania portów. cmux łączy się z Twoimi maszynami przez sieć prywatną, która uruchamia się automatycznie.",
       "quickstartTitle": "Szybki start",
       "stepSignIn": "Zaloguj się. Użyj karty Cloud na prawym pasku bocznym lub uruchom polecenie logowania w terminalu.",
@@ -3085,9 +3086,9 @@
       "symptomColumn": "Problem",
       "fixColumn": "Rozwiązanie",
       "errNotSeen": "Brak karty Cloud lub polecenia New Cloud Machine",
-      "fixNotSeen": "Włącz Settings › Beta Features › Cloud Machines. Jeśli Cloud nadal się nie pojawia, Twój Mac nie jest jeszcze objęty wdrożeniem. Jeśli pojawia się informacja, że Cloud Machines wyłączył administrator, skontaktuj się z administratorem.",
-      "errUnavailable": "Cloud Machines są tymczasowo niedostępne",
-      "fixUnavailable": "Twój Mac nie jest jeszcze objęty wdrożeniem Cloud albo Cloud jest tymczasowo wyłączony. Sam przełącznik w Settings nie włącza Cloud. Spróbuj ponownie później.",
+      "fixNotSeen": "Włącz Settings › Beta Features › Cloud Machines. Jeśli Cloud nadal się nie pojawia, sprawdź, czy administrator wyłączył Cloud Machines.",
+      "errUnavailable": "Cloud Machines są wyłączone lub niedostępne",
+      "fixUnavailable": "Cloud Machines są wyłączone, ponieważ lokalny przełącznik w Settings jest wyłączony albo administrator wyłączył Cloud. Włącz przełącznik albo poproś administratora o zezwolenie na Cloud.",
       "errSignIn": "Dostęp do maszyn wirtualnych Cloud wymaga zalogowania",
       "fixSignIn": "Uruchom cmux auth login i spróbuj ponownie. Jeśli Twoja sesja została odrzucona, najpierw uruchom cmux auth logout.",
       "errPlan": "Maszyny wirtualne Cloud wymagają płatnego planu",
@@ -5343,7 +5344,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro jest aktywny",
     "title": "Witamy w cmux Pro",
-    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "body": "Pro obejmuje do 5 maszyn Cloud współdzielących 20 vCPU i 40 GB pamięci RAM oraz dostęp do cmux iOS przez TestFlight.",
     "done": "Przejdź do panelu",
     "steps": {
       "iosApp": {

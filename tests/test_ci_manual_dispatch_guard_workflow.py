@@ -19,7 +19,7 @@ def trigger(document: dict) -> dict:
 def test_watcher_is_requested_ci_workflow_run() -> None:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     event = trigger(document)
-    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"]}
+    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"], "branches": ["main"]}
     assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
     assert document["permissions"] == {}
     watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
@@ -28,13 +28,20 @@ def test_watcher_is_requested_ci_workflow_run() -> None:
     assert "GITHUB_EVENT_NAME" not in watcher_env
 
 
-def test_full_suite_coverage_marker_is_only_for_full_suite() -> None:
+def test_full_suite_coverage_marker_runs_inside_changes() -> None:
     document = yaml.safe_load(CI.read_text(encoding="utf-8"))
-    marker = document["jobs"]["full-suite-coverage"]
-    assert marker["needs"] == "changes"
-    assert "needs.changes.outputs.full_suite == 'true'" in marker["if"]
-    assert marker.get("name", "full-suite-coverage") == "full-suite-coverage"
-    assert "coverage_fingerprint" in document["jobs"]["changes"]["outputs"]
+    changes = document["jobs"]["changes"]
+    marker_steps = [
+        step for step in changes["steps"]
+        if step.get("name") == "Mark full-suite coverage"
+    ]
+    assert len(marker_steps) == 1
+    marker = marker_steps[0]
+    assert marker["if"] == "${{ steps.suite.outputs.full_suite == 'true' }}"
+    assert marker["run"] == 'echo "full-suite coverage selected"'
+    assert "full-suite-coverage" not in document["jobs"]
+    assert "full-suite-coverage" not in document["jobs"]["macos-admission-gate"]["needs"]
+    assert "coverage_fingerprint" in changes["outputs"]
 
 
 def test_only_manual_dispatches_get_a_writer() -> None:
@@ -42,7 +49,8 @@ def test_only_manual_dispatches_get_a_writer() -> None:
     guard = document["jobs"]["guard"]
     assert guard["if"] == (
         "github.event.workflow_run.path == '.github/workflows/ci.yml' && "
-        "github.event.workflow_run.event == 'workflow_dispatch'"
+        "github.event.workflow_run.event == 'workflow_dispatch' && "
+        "github.event.workflow_run.head_branch == 'main'"
     )
     assert guard["permissions"] == {
         "actions": "write",
