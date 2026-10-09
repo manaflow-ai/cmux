@@ -56,6 +56,11 @@ pub trait ConversationPort: Send {
     /// Commits `op` as `agent_mux`; returns the change on success.
     fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError>;
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError>;
+    /// Publishes a draft of the running turn's reply (`conversation.draft`,
+    /// never stored). A daemon without drafts takes none.
+    fn draft(&mut self, _conversation: &str, _draft: &crate::draft::Draft) -> Result<(), OpError> {
+        Ok(())
+    }
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
     /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
     /// when the owner has not sent all of it (`local-attachments-v1`).
