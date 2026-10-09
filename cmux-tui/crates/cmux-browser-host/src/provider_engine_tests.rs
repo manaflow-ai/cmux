@@ -594,6 +594,21 @@ fn the_sessions_last_opened_tab_is_active_in_its_list() {
     assert_eq!(active("W"), true, "the person's shown tab stays active: {rows}");
 }
 
+/// An agent's clipboard on the person's Chromium tab is the tab's own
+/// virtual clipboard, as on headless: `clipboard.write` and `clipboard.read`
+/// work, and nothing reaches the person's system clipboard. Before, both
+/// were unsupported on app tabs.
+#[test]
+fn a_cef_tab_has_the_agents_virtual_clipboard() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let items = json!([{"type": "text/plain", "base64": "aGk="}]);
+    cef.call("clipboard.write", &json!({"targetId": "c1", "items": items})).unwrap();
+    let read = cef.call("clipboard.read", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(read["items"], items, "{read}");
+}
+
 /// A WebKit session's URL still goes to the app (its driver navigates).
 #[test]
 fn a_webkit_tabs_open_passes_the_url_to_the_app() {
