@@ -132,6 +132,36 @@ import Testing
         #expect(chrome.toolbarButtons.state(.devTools)?.isEnabled == false)
     }
 
+    /// Page activity that does not change a button (title, progress and
+    /// address churn on a busy page) leaves the buttons alone: no new
+    /// symbol images, so AppKit does not lay out and redraw the toolbar on
+    /// every Chromium state event (browser perf report, root cause R2).
+    @Test func pageActivityLeavesUnchangedButtonsAlone() async throws {
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let (chrome, window) = await makeChrome(width: 1000, tab: tab)
+        defer { window.close() }
+        tab.load(URL(string: "https://example.com/busy")!)
+        for _ in 0..<20 { await Task.yield() }
+        let buttons = try BrowserToolbarButton.allCases.map { try #require(chrome.toolbarButtons.button($0) as? NSButton) }
+        // Strong references: a replaced image cannot reuse an address.
+        let images = buttons.map(\.image)
+        let tooltips = buttons.map(\.toolTip)
+        for index in 0..<30 {
+            tab.simulate(.titleChanged("Busy page \(index)"))
+            tab.simulate(.progress(Double(index % 10) / 10))
+            for _ in 0..<5 { await Task.yield() }
+        }
+        #expect(tab.state.title == "Busy page 29")
+        for (button, image) in zip(buttons, images) { #expect(button.image === image, "\(button.accessibilityIdentifier())") }
+        #expect(buttons.map(\.toolTip) == tooltips)
+        // A change that does affect a button still applies.
+        chrome.toolbarButtons.modes.colorScheme = .dark
+        for _ in 0..<20 { await Task.yield() }
+        #expect(chrome.toolbarButtons.state(.theme)?.symbol == "moon")
+        let theme = try #require(chrome.toolbarButtons.button(.theme) as? NSButton)
+        #expect(theme.image !== images[BrowserToolbarButton.allCases.firstIndex(of: .theme)!])
+    }
+
     /// The chosen color scheme follows the chrome to a new page; design
     /// mode starts off on a new page and when the page navigates.
     @Test func pageModesFollowTheTab() async {
