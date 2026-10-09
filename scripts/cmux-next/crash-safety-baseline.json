@@ -130,14 +130,11 @@
   },
   "precondition": {
    "CMUXMobileCore": 14,
-   "CmuxAuthRuntime": 1,
    "CmuxIrohTransport": 15,
    "CmuxMobileSSH": 1,
    "CmuxMobileShellModel": 3,
-   "CmuxNextBrowserImport": 2,
    "CmuxNextSettings": 2,
-   "CmuxNextSidebar": 1,
-   "CmuxNextWakeups": 1
+   "CmuxNextSidebar": 1
   },
   "unchecked": {
    "CMUXAuthCore": 3,
