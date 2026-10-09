@@ -532,10 +532,7 @@ fn a_turn_says_which_subagents_are_at_work_after_the_view() {
     s.h.settle();
     // a1's report turn: a2 still works.
     let tail = turn_tail(&s, "[a1] done");
-    assert!(
-        tail.starts_with("Subagents at work now: a2.\n\n"),
-        "{tail}"
-    );
+    assert!(tail.starts_with("Subagents at work now: a2.\n\n"), "{tail}");
     finish(&mut s, "s2", "s1", "a2");
     s.h.settle();
     let tail = turn_tail(&s, "[a2] done");
