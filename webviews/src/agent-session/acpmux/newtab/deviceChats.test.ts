@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { deviceChats, setDeviceChats } from "./deviceChats";
 import { applyHostEvent } from "../pageHost";
 
+(globalThis as any).window ??= globalThis;
+
 test("the host's deviceChats push sets the list; malformed entries are dropped", () => {
   applyHostEvent({ kind: "deviceChats", value: [
     { key: "codex:1", harness: "codex", title: "Fix", updatedAt: 5 },

@@ -48,8 +48,9 @@ import Testing
     }
 
     /// At the narrowest sidebar the header still fits: the whole title, then
-    /// icon buttons (search, filter, group), nothing overlapping or cut off.
-    @Test(arguments: [Metrics.sidebarMinWidth, 200, 260])
+    /// icon buttons (search, filter, group), nothing overlapping or cut off. 160 pt is the
+    /// default `sidebarMinWidth`.
+    @Test(arguments: [CGFloat(160), 200, 260])
     func theHeaderFitsAtEveryWidth(width: CGFloat) {
         let view = chats([Self.row("codex:a", harness: "codex", folder: "/p/alpha"), Self.row("codex:b", harness: "codex", folder: "/p/beta")])
         view.frame.size.width = width
