@@ -6,80 +6,92 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
-echo "==> Initializing submodules..."
-git submodule update --init --recursive
-
-echo "==> Checking for zig..."
-if ! command -v zig &> /dev/null; then
-    echo "Error: zig is not installed."
-    echo "Install via: brew install zig"
+# Check full Xcode before anything else. On a Command Line Tools-only machine,
+# or before the Xcode license is accepted, `xcodebuild -version` fails, and the
+# later steps would fail with less direct errors.
+echo "==> Checking for Xcode..."
+if ! xcodebuild -version >/dev/null 2>&1; then
+    echo "Error: full Xcode is required, but xcodebuild could not run."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "Install Xcode from the App Store and select it:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+    echo "If Xcode is already selected, open it once to finish setup, or accept the license:"
+    echo "    sudo xcodebuild -license accept"
+    echo "Run 'xcodebuild -version' for details."
     exit 1
 fi
 
-GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
-CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
-CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
-CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
-LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
-LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
-LOCK_DIR="$CACHE_ROOT/$GHOSTTY_SHA.lock"
-
-mkdir -p "$CACHE_ROOT"
-
-echo "==> Ghostty submodule commit: $GHOSTTY_SHA"
-
-LOCK_TIMEOUT=300
-LOCK_START=$SECONDS
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
-        echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
-        rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
-        continue
-    fi
-    echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_SHA..."
-    sleep 1
-done
-trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
-
-if [ -d "$CACHE_XCFRAMEWORK" ]; then
-    echo "==> Reusing cached GhosttyKit.xcframework"
-else
-    # Only reuse local xcframework if its SHA stamp matches the current ghostty commit.
-    # Without this check, a stale build from a previous commit could be cached under
-    # the wrong SHA, producing ABI mismatches.
-    LOCAL_SHA=""
-    if [ -f "$LOCAL_SHA_STAMP" ]; then
-        LOCAL_SHA="$(cat "$LOCAL_SHA_STAMP")"
-    fi
-
-    if [ -d "$LOCAL_XCFRAMEWORK" ] && [ "$LOCAL_SHA" = "$GHOSTTY_SHA" ]; then
-        echo "==> Seeding cache from existing local GhosttyKit.xcframework (SHA matches)"
-    else
-        echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
-        (
-            cd ghostty
-            zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
-        )
-        # Stamp the build output with the SHA it was built from
-        echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
-    fi
-
-    if [ ! -d "$LOCAL_XCFRAMEWORK" ]; then
-        echo "Error: GhosttyKit.xcframework not found at $LOCAL_XCFRAMEWORK"
-        exit 1
-    fi
-
-    TMP_DIR="$(mktemp -d "$CACHE_ROOT/.ghosttykit-tmp.XXXXXX")"
-    mkdir -p "$CACHE_DIR"
-    cp -R "$LOCAL_XCFRAMEWORK" "$TMP_DIR/GhosttyKit.xcframework"
-    rm -rf "$CACHE_XCFRAMEWORK"
-    mv "$TMP_DIR/GhosttyKit.xcframework" "$CACHE_XCFRAMEWORK"
-    rmdir "$TMP_DIR"
-    echo "==> Cached GhosttyKit.xcframework at $CACHE_XCFRAMEWORK"
+# Xcode 26 ships the Metal compiler as a separately downloaded component rather
+# than inside Xcode.app. Without it the app target fails partway through the
+# build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
+# the Swift modules have already compiled. Fail here instead, where the fix is
+# one command. Older Xcode bundles metal, so this check simply passes there.
+# The Command Line Tools do not ship metal at all, so the message names both
+# causes rather than assuming the component is merely missing.
+echo "==> Checking for the Metal toolchain..."
+if ! xcrun metal --version &> /dev/null; then
+    echo "Error: the Metal compiler is not available."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "For Xcode 26 or later, install the toolchain component:"
+    echo "    xcodebuild -downloadComponent MetalToolchain"
+    echo "If it is the Command Line Tools, select Xcode first:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+    echo "If DEVELOPER_DIR is exported, unset it or point it to the intended Xcode;"
+    echo "it overrides the system selection."
+    exit 1
 fi
 
-echo "==> Creating symlink for GhosttyKit.xcframework..."
-ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
+echo "==> Initializing submodules..."
+git submodule update --init --recursive
+
+echo "==> Checking Zig version..."
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
+ghostty_require_compatible_zig "$PROJECT_DIR"
+
+echo "==> Checking for Rust..."
+# Xcode uses a non-login shell, so verify the same PATH used by the sidecar
+# build phase rather than relying on the caller's interactive shell setup.
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+if ! command -v rustup &> /dev/null; then
+    echo "Error: Rust is not installed."
+    echo "Install via: https://rustup.rs"
+    exit 1
+fi
+DIFF_RUST_TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' Native/DiffSidecar/rust-toolchain.toml)"
+rustup toolchain install "$DIFF_RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
+rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
+rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
+
+# Every app build also runs scripts/build-cmux-cua.sh, which compiles the
+# bundled cmux-cua engine with Cargo (default toolchain). Verify a working
+# cargo is on PATH so the first tagged reload does not fail mid-build.
+echo "==> Checking for cargo (bundled cmux-cua)..."
+if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
+    echo "Install via rustup: https://rustup.rs"
+    echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
+    echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
+    exit 1
+fi
+
+# The Cloud tunnel system extension embeds wireguard-go, built by
+# scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
+# without it gets a stub engine (the extension cannot load in a Debug build
+# anyway), so this is advisory rather than fatal.
+echo "==> Checking for Go (Cloud tunnel extension)..."
+export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH}"
+if command -v go &> /dev/null; then
+    go version
+else
+    echo "Note: go is not installed; Debug builds will use a stub WireGuard engine."
+    echo "Install via: brew install go (required for Release builds)"
+fi
+
+"$SCRIPT_DIR/ensure-ghosttykit.sh"
+
+"$SCRIPT_DIR/install-git-hooks.sh"
 
 echo "==> Setup complete!"
 echo ""

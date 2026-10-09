@@ -1,1 +1,0 @@
-{"version":3,"file":"edge-runtime.js","sourceRoot":"","sources":["../src/edge-runtime.ts"],"names":[],"mappings":";;;AAAA,uCAAwD;AAA/C,iGAAA,MAAM,OAAe","sourcesContent":["export { EdgeVM as EdgeRuntime } from '@edge-runtime/vm'\n"]}

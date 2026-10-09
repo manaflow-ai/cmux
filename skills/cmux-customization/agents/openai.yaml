@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Customization"
+  short_description: "Customize cmux viewers, actions, UI, layouts, and presets."
+  default_prompt: "Use $cmux-customization to identify the viewer type, read the viewer customization matrix, choose any matching shipped workflow example with cmux docs workflows --json, edit only schema-backed configuration, validate it, and reload cmux."

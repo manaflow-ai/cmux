@@ -12,7 +12,7 @@ Usage:
   # Then open: tests/terminal_input_report.html
 
 Environment:
-  CMUX_SOCKET or CMUX_SOCKET_PATH can override the socket path.
+  CMUX_SOCKET_PATH can override the socket path.
 """
 
 import base64
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET") or os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmux-debug.sock"
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH") or "/tmp/cmux-debug.sock"
 HTML_REPORT = Path(__file__).parent / "terminal_input_report.html"
 
 

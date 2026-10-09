@@ -55,7 +55,7 @@ export function useMobileDrawer() {
   // Lock body scroll on mobile
   useEffect(() => {
     if (!open) return;
-    const mq = window.matchMedia("(min-width: 768px)");
+    const mq = window.matchMedia("(min-width: 940px)");
     if (mq.matches) return;
     document.body.style.overflow = "hidden";
     return () => {
@@ -70,7 +70,7 @@ export function MobileDrawerOverlay({ open, onClose }: { open: boolean; onClose:
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-40 bg-black/50 md:hidden"
+      className="fixed inset-0 z-40 bg-black/50 min-[940px]:hidden"
       aria-hidden="true"
       onClick={onClose}
     />
@@ -96,7 +96,7 @@ export function MobileDrawerToggle({
       aria-expanded={open}
       className={
         className ??
-        "md:hidden w-8 h-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
+        "min-[940px]:hidden w-8 h-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
       }
       aria-label={open ? "Close menu" : "Open menu"}
     >
