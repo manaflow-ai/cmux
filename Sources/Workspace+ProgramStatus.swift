@@ -47,21 +47,30 @@ extension Workspace {
         let app = store.effectiveApp(for: record)
         let message = sanitizedProgramStatusText(record.message)
         let title = sanitizedProgramStatusText(record.title)
-        let fallback: String = switch state {
-        case .blocked where record.kind == .permission:
-            String(localized: "programStatus.state.needsPermission", defaultValue: "Needs permission")
-        case .blocked where record.kind == .question:
-            String(localized: "programStatus.state.needsAnswer", defaultValue: "Needs an answer")
-        case .blocked where record.kind == .auth:
-            String(localized: "programStatus.state.needsSignIn", defaultValue: "Needs sign-in")
+        let fallback: String
+        let icon: String
+        switch state {
         case .blocked:
-            String(localized: "programStatus.state.needsInput", defaultValue: "Needs input")
+            icon = "bell.fill"
+            switch record.kind {
+            case .permission:
+                fallback = String(localized: "programStatus.state.needsPermission", defaultValue: "Needs permission")
+            case .question:
+                fallback = String(localized: "programStatus.state.needsAnswer", defaultValue: "Needs an answer")
+            case .auth:
+                fallback = String(localized: "programStatus.state.needsSignIn", defaultValue: "Needs sign-in")
+            case .none:
+                fallback = String(localized: "programStatus.state.needsInput", defaultValue: "Needs input")
+            }
         case .working:
-            String(localized: "programStatus.state.working", defaultValue: "Working")
+            icon = "bolt.fill"
+            fallback = String(localized: "programStatus.state.working", defaultValue: "Working")
         case .done:
-            String(localized: "programStatus.state.done", defaultValue: "Done")
+            icon = "checkmark.circle.fill"
+            fallback = String(localized: "programStatus.state.done", defaultValue: "Done")
         case .error:
-            String(localized: "programStatus.state.failed", defaultValue: "Failed")
+            icon = "exclamationmark.triangle.fill"
+            fallback = String(localized: "programStatus.state.failed", defaultValue: "Failed")
         case .idle, .clear:
             return
         }
@@ -71,13 +80,7 @@ extension Workspace {
         let entry = SidebarStatusEntry(
             key: Self.programStatusKey,
             value: value,
-            icon: switch state {
-            case .blocked: "bell.fill"
-            case .working: "bolt.fill"
-            case .done: "checkmark.circle.fill"
-            case .error: "exclamationmark.triangle.fill"
-            case .idle, .clear: nil
-            },
+            icon: icon,
             color: state == .blocked ? "#4C8DFF" : nil,
             priority: ProgramStatusRecordStore.urgencyRank(state),
             timestamp: Date()

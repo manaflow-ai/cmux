@@ -7,6 +7,7 @@ import CmuxTerminalSharing
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxSidebar
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport
@@ -3325,22 +3326,26 @@ class GhosttyApp {
                 guard let pointer else { return nil }
                 return String(cString: pointer)
             }
+            let state: ProgramStatusState
+            switch status.state {
+            case GHOSTTY_PROGRAM_STATUS_WORKING: state = .working
+            case GHOSTTY_PROGRAM_STATUS_DONE: state = .done
+            case GHOSTTY_PROGRAM_STATUS_BLOCKED: state = .blocked
+            case GHOSTTY_PROGRAM_STATUS_ERROR: state = .error
+            case GHOSTTY_PROGRAM_STATUS_CLEAR: state = .clear
+            default: state = .idle
+            }
+            let kind: ProgramStatusKind
+            switch status.kind {
+            case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: kind = .permission
+            case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: kind = .question
+            case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: kind = .auth
+            default: kind = .none
+            }
             let report = ProgramStatusReport(
-                event: status.event == GHOSTTY_PROGRAM_STATUS_EVENT_PROMPT_START ? .promptStart : .report,
-                state: switch status.state {
-                case GHOSTTY_PROGRAM_STATUS_WORKING: .working
-                case GHOSTTY_PROGRAM_STATUS_DONE: .done
-                case GHOSTTY_PROGRAM_STATUS_BLOCKED: .blocked
-                case GHOSTTY_PROGRAM_STATUS_ERROR: .error
-                case GHOSTTY_PROGRAM_STATUS_CLEAR: .clear
-                default: .idle
-                },
-                kind: switch status.kind {
-                case GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION: .permission
-                case GHOSTTY_PROGRAM_STATUS_KIND_QUESTION: .question
-                case GHOSTTY_PROGRAM_STATUS_KIND_AUTH: .auth
-                default: .none
-                },
+                event: status.event == GHOSTTY_PROGRAM_STATUS_EVENT_PROMPT_START ? ProgramStatusEvent.promptStart : .report,
+                state: state,
+                kind: kind,
                 progress: status.progress >= 0 ? Int(status.progress) : nil,
                 id: copyCString(status.id),
                 app: copyCString(status.app),
