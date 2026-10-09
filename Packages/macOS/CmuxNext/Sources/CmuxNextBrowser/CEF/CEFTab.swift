@@ -336,20 +336,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Shows the page window (and a docked DevTools) at once, or hides it by
     /// the end of this run-loop turn, before the frame commits. Nothing here
     /// awaits: the hide reads the host's state when it runs, so a later show
-    /// can never be undone by it (the old implementation hid the page after
-    /// awaiting a screenshot, and that late hide could land on a page shown
-    /// again meanwhile).
+    /// can never be undone by it (an older hide that awaited a screenshot
+    /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
-        // Showing is immediate. Hiding is applied at the end of this run-loop
-        // turn from the host's state then: a same-pane tab switch conceals the
-        // old tab and presents the new one in one turn, and the page window
-        // must not go off screen and back for it (cx-asb1).
-        if host.visibleTab === self {
-            if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() }
-        }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
+        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
     }
 
