@@ -1076,7 +1076,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **Single-flight** releases waiting calls at the writer's response start
   (on acpmux: its first streamed output), and the prefix then counts as
   written for 5 minutes, so later calls on it go at once.
-- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+- **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another). An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have
