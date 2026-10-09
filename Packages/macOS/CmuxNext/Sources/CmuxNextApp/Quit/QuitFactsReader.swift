@@ -12,7 +12,7 @@ enum QuitFactsReader {
 
     static func read(_ services: AppServices) async -> QuitFacts {
         let local = services.machines.local
-        let windows = services.windows!
+        let windows = services.windows
         var kept: [SurfaceID] = []
         var incognito: [SurfaceID] = []
         var seen = Set<String>()

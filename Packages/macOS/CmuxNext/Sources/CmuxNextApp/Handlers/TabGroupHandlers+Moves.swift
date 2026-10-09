@@ -61,7 +61,7 @@ extension TabGroupHandlers {
 
     private static func moveToNewWorkspace(_ invocation: ActionInvocation, newWindow: Bool, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx), connection(for: pane, ctx) != nil else { return }
-        let windows = ctx.services.windows!
+        let windows = ctx.services.windows
         let origin = windows.moveOrigin(of: ctx.services.workspaceID(of: pane))
         Task {
             guard let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: ctx.services,

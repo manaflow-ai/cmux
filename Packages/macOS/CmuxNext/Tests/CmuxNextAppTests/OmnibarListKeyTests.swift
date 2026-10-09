@@ -13,7 +13,7 @@ struct OmnibarListKeyTests {
     typealias M = KeyOwnershipMatrixTests
 
     @Test func controlKeysMoveTheOpenSuggestionList() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let addressBar = M.focused(.browser, tab: "b1", target: .addressBar)
         for (event, action) in try ListNavigationKeyTests.keys() {
             guard case .run(let candidate) = router.decide(event, focus: addressBar, keyWindow: .content,
@@ -27,7 +27,7 @@ struct OmnibarListKeyTests {
     }
 
     @Test func aClosedListLeavesTheControlKeysToTheField() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let addressBar = M.focused(.browser, tab: "b1", target: .addressBar)
         for (event, action) in try ListNavigationKeyTests.keys() {
             if case .run(let candidate) = router.decide(event, focus: addressBar, keyWindow: .content, facts: KeyRouter.Facts()) {

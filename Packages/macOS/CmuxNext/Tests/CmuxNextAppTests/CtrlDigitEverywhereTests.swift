@@ -18,7 +18,7 @@ struct CtrlDigitEverywhereTests {
 
     @Test func controlDigitsRunTheirActionInEverySurface() throws {
         let services = M.services()
-        let router = services.keyRouter!
+        let router = services.keyRouter
         var failures: [String] = []
         for surface in M.surfaces where !["browser focus mode", "palette open"].contains(surface.name) {
             for digit in "123456789" {

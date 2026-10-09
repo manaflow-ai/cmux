@@ -49,14 +49,12 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextApp": 48,
    "CmuxNextSettings": 6,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 4,
    "MessagesLabSidebar": 2
   },
   "iuo": {
-   "CmuxNextApp": 27,
    "CmuxNextSidebar": 5
   },
   "precondition": {

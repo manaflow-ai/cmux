@@ -24,7 +24,7 @@ extension BrowserProfileService {
             return
         }
         // The pane is not on screen: create the tab there directly.
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine) else { return }
         let handle = pane.handle
         services.registry.track(Task {

@@ -95,7 +95,7 @@ enum WorkspaceVerbHandlers {
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
                               newTabPage: Bool, then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
         var spawn = WorkspaceSpawn(cwd: cwd)
@@ -130,7 +130,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar of the window that lists `workspace`, else the active one.
     static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarBridge {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         if let owner = windows.registry.value.owner(of: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
         return try context.sidebar()
     }

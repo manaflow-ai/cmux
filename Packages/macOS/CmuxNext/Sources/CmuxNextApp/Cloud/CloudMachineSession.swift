@@ -38,7 +38,7 @@ final class CloudMachineSession {
     @ObservationIgnored private var connectHop: Task<Void, Never>?
     @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
-    @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
+    @ObservationIgnored let emptyWorkspaces: EmptyWorkspaceRepair
 
     convenience init(machine: CloudMachine, link: CloudMachineLink) {
         self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil })

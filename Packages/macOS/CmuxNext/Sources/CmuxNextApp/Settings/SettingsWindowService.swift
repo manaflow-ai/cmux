@@ -62,18 +62,18 @@ final class SettingsWindowService: InternalPageProvider {
         let route = Self.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
-        if focus, let window = services.windows?.active { revealSettingsTab(of: window) }
+        if focus, let window = services.windows.active { revealSettingsTab(of: window) }
         // A user run in a window whose workspace has no pane to hold a tab (an empty workspace,
         // or Home standing for the home workspace) shows Settings as the window's top page
         // (nxdog70: Cmd-, on Home with an empty workspace showed nothing).
-        if focus, let window = services.windows?.active, !Self.holdsTab(window, services) {
+        if focus, let window = services.windows.active, !Self.holdsTab(window, services) {
             waiting = nil
             showTopPage(in: window, route: route)
             return
         }
-        guard let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
+        guard case let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
             waiting = (target, setting, focus)
-            if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
+            if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
         waiting = nil
@@ -85,7 +85,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// A window installed its workspace content or mounted a pane: a show that waited for a window
     /// with a pane runs now.
     func windowDidShowContent() {
-        guard let request = waiting, let window = services.windows?.active, Self.hasPane(window) else { return }
+        guard let request = waiting, let window = services.windows.active, Self.hasPane(window) else { return }
         waiting = nil
         try? show(section: request.section, setting: request.setting, focus: request.focus)
     }

@@ -33,7 +33,7 @@ struct PageKeyOwnershipTests {
     @Test func bareKeysRunOnlyInAnOwningPageWithoutATextField() {
         let services = KeyOwnershipMatrixTests.services()
         services.registry.bind("diffViewerNextLine") {}
-        let router = services.keyRouter!
+        let router = services.keyRouter
         let j = Self.key("j", code: 38)
         #expect(router.bareKeyWinner(j, context: Self.context(page: "cmux.diff"))?.command == "diffViewerNextLine")
         #expect(router.bareKeyWinner(j, context: Self.context(page: "cmux.diff", editing: true)) == nil, "a text field types j")

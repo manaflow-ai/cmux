@@ -8,8 +8,8 @@ import CmuxNextDaemon
 /// keyboard guard (`InputVerificationService+NoActivateGuard.swift`). One per
 /// app, owned by `AppServices.input`; observers live as long as the app.
 final class InputVerificationService {
-    /// Input invariants and desync reports; set by `start`.
-    private(set) var monitor: InputInvariantMonitor!
+    /// Input invariants and desync reports; set by `start` (nil before it).
+    private(set) var monitor: InputInvariantMonitor?
     private var geometryObservers: [any NSObjectProtocol] = []
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?

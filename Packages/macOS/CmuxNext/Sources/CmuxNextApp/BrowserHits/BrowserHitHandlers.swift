@@ -114,7 +114,7 @@ enum BrowserHitHandlers {
         guard daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.frontendBrowserTabs))
         }
-        guard let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let address = url.absoluteString
         WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { connection, terminal in
             guard let pane = terminal.pane else { return }

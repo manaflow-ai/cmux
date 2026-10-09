@@ -76,7 +76,7 @@ extension HomeService {
     /// The signed-in user's chief placed on a paired server (G6), or nil:
     /// signed out, none placed, or the read failed (logged; the local chief stays).
     func readPlacedChief() async -> CloudChief? {
-        guard services.cloud.auth.isSignedIn, let feed = services.feed else { return nil }
+        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return nil }
         do {
             return try await HomeChiefSource.readPlaced { path, body in try await feed.call(path, body) }
         } catch {

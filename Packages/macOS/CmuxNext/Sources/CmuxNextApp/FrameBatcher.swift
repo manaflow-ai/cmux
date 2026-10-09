@@ -13,13 +13,18 @@ import CmuxNextWakeups
 @MainActor
 final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     private var pending: [@MainActor @Sendable () -> Void] = []
-    private var client: FrameClient!
+    private let owner: String
+    private let scheduler: FrameScheduler
+    /// Built in init (lazy because its callback captures self; no IUO).
+    private lazy var client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in
+        self?.drain() ?? false
+    }
 
     /// `owner` names the batcher in the wakeup ledger and debug.wakeups.
     init(owner: String, scheduler: FrameScheduler = .app) {
-        client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in
-            self?.drain() ?? false
-        }
+        self.owner = owner
+        self.scheduler = scheduler
+        _ = client  // built here, as before
     }
 
     /// Hops through the main run loop in the common modes, not a main-actor

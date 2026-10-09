@@ -116,7 +116,7 @@ enum DebugKey {
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
             // notice, and key-downs that reached the system beep.
-            let palette = services.palette!
+            let palette = services.palette
             return .object([
                 // With no main window the palette is the dispatch's only window.
                 "handled_by": .string(handledBy == "page" || (controller == nil && ["window", "responder"].contains(handledBy)) ? "palette" : handledBy),

@@ -136,7 +136,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// selection or focus changes. The session owns the tab: its end closes it
     /// (``endSessionTab(_:)``) unless it was kept. The driver navigates it.
     func openAutomationTab(url: URL?) async throws -> WebKitTab {
-        guard let services, let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
+        guard let services, case let browserTabs = services.cache.browserTabs, browserTabs.isAvailable() else {
             throw AutomationTabError.unavailable
         }
         guard let pane = services.windows.active?.focusedPane, !browserTabs.isIncognitoPane(pane.pane.handle) else {

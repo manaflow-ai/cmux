@@ -11,7 +11,7 @@ import CmuxNextDaemon
 /// as a sheet (and in the log), refusals reach the control socket.
 enum CloudHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
@@ -88,7 +88,7 @@ enum CloudHandlers {
 
     /// Shows `workspaceID` in the active window (or a new one).
     static func show(_ workspaceID: String, _ context: AppActionContext) {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 

@@ -44,15 +44,15 @@ extension DebugHome {
                 ])
             }
         }
-        return .object([
+        let fields: [String: JSONValue] = [
             "online": .bool(store.isOnline),
             "me": store.me.map { .string($0.id.rawValue) } ?? .null,
             "shown": view?.shown.map { .string($0.rawValue) } ?? .null,
             // The opened transcript as the store holds it, to compare with the row's preview_source.
-            "shown_transcript": view?.shown.map { id in
+            "shown_transcript": view?.shown.map { id -> JSONValue in
                 let items = store.transcript(for: id)
-                return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)),
-                                "last_seq": items.compactMap(\.seq).max().map { .number(Double($0)) } ?? .null])
+                let lastSeq: JSONValue = items.compactMap(\.seq).max().map { .number(Double($0)) } ?? .null
+                return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)), "last_seq": lastSeq])
             } ?? .null,
             // Teammates with no DM yet (the search's Teammates section draws from these).
             "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
@@ -72,7 +72,7 @@ extension DebugHome {
                 ])
             } ?? .null,
             // Every window's Home sidebar: its width and divider (window points from the top-left).
-            "sidebar_windows": .array(services.windows.controllers.compactMap { controller in
+            "sidebar_windows": .array(services.windows.controllers.compactMap { controller -> JSONValue? in
                 guard let page = controller.topPages.views[.home] as? TopHomePageView else { return nil }
                 return .object([
                     "window": .string(controller.state.id),
@@ -80,12 +80,13 @@ extension DebugHome {
                     "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
                 ])
             }),
-            "chiefs": .array(home.directory.chiefs.map { chief in
+            "chiefs": .array(home.directory.chiefs.map { chief -> JSONValue in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
                          "main_conversation": chief.mainConversation.map { .string($0) } ?? .null])
             }),
             "archived_chiefs": .array(home.directory.archivedChiefs.sorted().map { .string($0) }),
             "team_members": .number(Double(home.directory.teamMembers.count)),
-        ])
+        ]
+        return .object(fields)
     }
 }

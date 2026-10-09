@@ -63,7 +63,7 @@ final class TabContentCache {
     let pageInstalls = PageInstallCounter()
     /// Tab `key`'s browser profile: an incognito window's, else nil (default).
     var browserProfile: ((String) -> BrowserProfileID?)?
-    private(set) var browserTabs: BrowserTabService!
+    let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
     private var pendingBrowsers: Set<String> = []

@@ -14,7 +14,7 @@ struct PageHistoryKeyTests {
     static let storePage = M.focused(.page, tab: "local-page:app-store:1")
 
     @Test func commandBracketsRunGoBackAndForwardOnAPageWithHistory() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let cases: [(String, UInt16, ActionID)] = [("[", 33, "focusHistoryBack"), ("]", 30, "focusHistoryForward")]
         for (key, code, action) in cases {
             let event = try K.key(key, keyCode: code, [.command])
@@ -29,7 +29,7 @@ struct PageHistoryKeyTests {
     }
 
     @Test func otherChordsKeepTheirOwnersOnAPageWithHistory() throws {
-        let router = M.services().keyRouter!
+        let router = M.services().keyRouter
         let event = try K.key("s", keyCode: 1, [.command, .shift])
         let plain = router.decide(event, focus: Self.storePage, keyWindow: .content, facts: KeyRouter.Facts())
         #expect(router.decide(event, focus: Self.storePage, keyWindow: .content, facts: KeyRouter.Facts(showsPageHistory: true)) == plain)

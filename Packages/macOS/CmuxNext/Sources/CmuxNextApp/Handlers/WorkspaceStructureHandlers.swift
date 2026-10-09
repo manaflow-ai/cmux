@@ -58,14 +58,15 @@ enum WorkspaceStructureHandlers {
         let withBrowsers = browsers && daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
         var blueprint = WorkspaceBlueprint(workspace)
         if !withBrowsers { blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context)) }
-        let windows = context.services.windows!
+        let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? context.activeWindow?.state.id)
         var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: workspace.displayName)
         spawn.slot = .below(workspace.id)
-        let engine: BrowserEngine = context.services.cache.browserTabs.map { tabs in
-            if case .open(let choice) = tabs.resolve(requested: nil) { return choice.engine }
-            return .webkit
-        } ?? .webkit
+        let engine: BrowserEngine = if case .open(let choice) = context.services.cache.browserTabs.resolve(requested: nil) {
+            choice.engine
+        } else {
+            .webkit
+        }
         let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
         context.services.registry.track(Task {
             do {
