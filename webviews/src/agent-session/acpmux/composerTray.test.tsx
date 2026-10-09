@@ -9,7 +9,7 @@ import type { AcpmuxSnapshot } from "./model";
 // which the pane does not load.
 const css = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const dom = new JSDOM(
-  `<!doctype html><style>${[
+  `<!doctype html><style>:root{--layer-dropdown:50}</style><style>${[
     "./styles.css",
     "./composerControls.css",
     "./composerStates.css",
@@ -19,7 +19,7 @@ const dom = new JSDOM(
     "./header/header.css",
   ]
     .map(css)
-    .join("\n")}</style><div id=root></div>`,
+    .join("\n")} .ui-positioner{z-index:50}</style><div id=root></div>`,
   { url: "http://localhost/", pretendToBeVisual: true, virtualConsole: new VirtualConsole() },
 );
 const globals = globalThis as Record<string, unknown>;

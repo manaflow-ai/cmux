@@ -352,6 +352,24 @@ export default agentPaneEntry({
         });
       },
     },
+    "picker-toggle": {
+      note: "Play: open the permission picker, then press its trigger again; the menu closes and does not reopen on the same WebKit click.",
+      snapshot: withSummary(chat(finished, { title: "Picker toggle" }), {
+        sessionId: "gallery-picker-toggle",
+        harness: "claude",
+        model: "claude-opus-5-5",
+        cwd: CWD,
+        turnCount: 1,
+        modes: composerControls.modes,
+      }),
+      play: async (ctx) => {
+        const trigger = '[aria-label="Mode"]';
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.click({ selector: trigger });
+        await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+      },
+    },
     "reasoning-menu": {
       note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
       snapshot: chat(finished, {

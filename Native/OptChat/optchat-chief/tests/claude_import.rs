@@ -30,6 +30,8 @@ fn assistant(uuid: &str, at: &str, id: &str, block: Value) -> Value {
 
 fn fixture(dir: &Path) {
     let paste = "x".repeat(800);
+    // The imported chat's replies and tool calls are another AI's, not the
+    // Chief's: kind "ai", as the reference client logs them.
     write_session(
         dir,
         "-w-app",
@@ -169,17 +171,17 @@ fn sessions_become_user_messages_final_replies_and_tool_summaries_with_their_dat
                 Some("2026-03-01T10:00:00.000Z")
             ),
             (
-                Kind::Tool,
+                Kind::Ai,
                 "Claude Code tools: Read ×2, Bash ×1 (files: /w/app/build.rs, /w/app/Cargo.toml)",
                 Some("2026-03-01T10:00:07.000Z")
             ),
             (
-                Kind::Talk,
+                Kind::Ai,
                 "Fixed: build.rs used a removed API.",
                 Some("2026-03-01T10:00:20.000Z")
             ),
             (Kind::User, paste.as_str(), Some("2026-03-01T10:02:00.000Z")),
-            (Kind::Talk, "Got the log.", Some("2026-03-01T10:02:05.000Z")),
+            (Kind::Ai, "Got the log.", Some("2026-03-01T10:02:05.000Z")),
             (
                 Kind::Note,
                 "Claude Code session s2 in /w/app",
@@ -190,7 +192,7 @@ fn sessions_become_user_messages_final_replies_and_tool_summaries_with_their_dat
                 "and again tomorrow",
                 Some("2026-03-02T09:00:01.000Z")
             ),
-            (Kind::Talk, "Will do.", Some("2026-03-02T09:00:04.000Z")),
+            (Kind::Ai, "Will do.", Some("2026-03-02T09:00:04.000Z")),
         ]
     );
     // Thinking, tool input values (the command), tool output, meta lines,
