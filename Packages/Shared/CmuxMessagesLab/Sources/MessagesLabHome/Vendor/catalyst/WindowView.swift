@@ -1059,7 +1059,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { model.count }
 
     func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
-        let cell = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip) as! RowCell
+        let dequeued = cv.dequeueReusableCell(withReuseIdentifier: RowCell.id, for: ip)
+        guard let cell = dequeued as? RowCell else { return dequeued }
         decorate(cell, ip.item)
         return cell
     }
