@@ -129,7 +129,10 @@ final actor CloudHomeSource: HomeSource {
         var mapped = try map(intent.op)
         if case .sendMessage = intent.op { mapped.params["client_msg_id"] = .string(intent.key.rawValue) }
         let reply: CloudOpReply
-        do { reply = try await api.mutate(mapped.op, params: mapped.params, key: intent.key.rawValue, as: .install) }
+        // Home mutations are user actions. The install principal is reserved
+        // for reads and event sockets; CloudDO rejects conversation writes
+        // without the signed-in session credential.
+        do { reply = try await api.mutate(mapped.op, params: mapped.params, key: intent.key.rawValue, as: .session) }
         catch CloudAPIError.transport { throw HomeRejection.indeterminate }
         catch CloudAPIError.unauthenticated { throw HomeRejection.notAuthorized }
         switch reply {

@@ -20,6 +20,10 @@ struct AccountSection: View {
                       systemImage: "person.crop.circle")
             }
             .accessibilityIdentifier("shell.settings.profile")
+            // Keep the profile row discoverable as one element in XCTest and
+            // VoiceOver. SwiftUI otherwise exposes the LabeledContent's
+            // internal label/value children separately on recent iOS builds.
+            .accessibilityElement(children: .combine)
             if let account = model.accountModel, !account.snapshot.teams.isEmpty {
                 TeamPicker(model: account)
             }
