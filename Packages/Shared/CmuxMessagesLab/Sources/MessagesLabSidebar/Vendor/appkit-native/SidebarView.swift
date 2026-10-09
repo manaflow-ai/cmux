@@ -148,8 +148,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         scrollView.documentView = document
         document.controller = self
         root.addSubview(scrollView)
-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(colorsChanged), name: NSColor.systemColorsDidChangeNotification, object: nil)
+        // cmux: block observers on queue: .main (inline for a post on main), not selectors: a selector into
+        // this main-actor controller trapped on a post off main (crash program).
+        let nc = NotificationCenter.default
+        clipObservers = [
+            nc.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in self?.clipMoved() },
+            nc.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.colorsChanged() },
+        ]
 
         menuRing.cornerRadius = SidebarMetrics.selectionRadius
         menuRing.borderWidth = 2
@@ -166,7 +171,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         root.addSubview(noResults)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    private var clipObservers: [NSObjectProtocol] = []  // cmux
+    deinit { clipObservers.forEach { NotificationCenter.default.removeObserver($0) } }  // cmux
 
     // MARK: Data
 
@@ -345,7 +351,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
 
     // MARK: Tiling (O(visible))
 
-    @objc private func clipMoved() { tile(force: false) }
+    private func clipMoved() { tile(force: false) }  // cmux: no selector
 
     var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
@@ -1006,7 +1012,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         bellSelected = Self.bell(NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
         invalidateAll()
     }
-    @objc private func colorsChanged() {
+    private func colorsChanged() {  // cmux: no selector
         guard isViewLoaded else { return }
         palette = resolvePalette()
         invalidateAll()

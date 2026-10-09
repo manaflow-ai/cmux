@@ -525,6 +525,7 @@ impl Brain {
             system_prompt,
             key,
             limit: self.settings.turn_limit,
+            idle_limit: self.settings.turn_idle_limit,
         })
     }
 
@@ -1022,8 +1023,8 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
-        self.prewarm_next_turn();
         self.maybe_start_turn();
+        self.prewarm_next_turn();
     }
 }
 
