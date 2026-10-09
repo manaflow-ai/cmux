@@ -177,7 +177,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-reboot-recovery-"));
     try {
       const state = path.join(root, "remote");
-      const session = path.join(state, "sessions", "cloud");
+      const session = path.join(state, "sessions", "Y2xvdWQ");
       const bootFile = path.join(root, "daemon-boot-id");
       const bootSource = path.join(root, "boot-id");
       const succeededOutcome = JSON.stringify({ version: 1, lifecycle_id: "predecessor", status: "succeeded" });
@@ -190,7 +190,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       const functionBody = devboxBoot.slice(start, end);
       const runRecovery = async () =>
         runChild("sh", ["-c", [
-          `BOOT_ID_FILE='${bootFile}' BOOT_ID_SOURCE='${bootSource}' REMOTE_STATE_DIR='${state}'`,
+          `BOOT_ID_FILE='${bootFile}' BOOT_ID_SOURCE='${bootSource}' REMOTE_STATE_DIR='${state}' REMOTE_SESSION_COMPONENT='Y2xvdWQ'`,
           functionBody,
           "recover_rebooted_daemon_state",
         ].join("\n")], { timeout: 5_000 });

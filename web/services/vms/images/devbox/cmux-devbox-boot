@@ -117,6 +117,8 @@ BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
 BOOT_ID_FILE=/etc/cmux/daemon-boot-id
 BOOT_ID_SOURCE=/proc/sys/kernel/random/boot_id
+# daemon_paths() URL-safe-base64 encodes the fixed cloud session component.
+REMOTE_SESSION_COMPONENT=Y2xvdWQ
 METADATA=http://169.254.169.254
 PARKED_TICK=0.05
 TEMPLATE_RUN_DIR=/run/cmux
@@ -170,7 +172,7 @@ recover_rebooted_daemon_state() {
   [ "$boot_id_recovered" = "$current_boot_id" ] && return 0
   previous_boot_id=$(cat "$BOOT_ID_FILE" 2>/dev/null || true)
   if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
-    session_state="$REMOTE_STATE_DIR/sessions/cloud"
+    session_state="$REMOTE_STATE_DIR/sessions/$REMOTE_SESSION_COMPONENT"
     outcome="$session_state/shutdown.json"
     if [ ! -e "$outcome" ] || {
       command -v jq >/dev/null 2>&1 && jq -e -s \
