@@ -91,6 +91,8 @@ mod apps;
 pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[cfg(unix)]
+mod scripts;
 #[path = "server/window_title.rs"]
 mod window_title;
 use window_title::sanitize_window_title;
@@ -5176,6 +5178,8 @@ pub(crate) struct ClientRegistry {
     agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    /// Script sessions by connection (`script-*`, crate::scripts).
+    pub(crate) scripts: crate::scripts::ScriptsSlot,
     origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
@@ -5198,6 +5202,7 @@ impl ClientRegistry {
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
@@ -6256,6 +6261,7 @@ impl ClientRegistry {
         #[cfg(unix)]
         self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
+        self.scripts.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -10471,6 +10477,10 @@ fn handle_connection_frame(
     }
     #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]

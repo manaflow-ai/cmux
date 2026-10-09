@@ -57,6 +57,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         effort: None,
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
+        user_env: Default::default(),
     }
 }
 
@@ -856,15 +857,19 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let id = optchat_chief::paths::home_id(&home);
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
-        // acpmux's allowlist: no tools, no MCP servers, no transcript; the
-        // system prompt is the preset's text, never a path in the cwd.
+        // acpmux's allowlist: no tools, no MCP servers, no transcript, no
+        // user settings, no skills; the system prompt is the preset's text,
+        // never a path in the cwd.
         assert_eq!(
             p.args,
             vec![
                 "--tools",
                 "",
                 "--strict-mcp-config",
-                "--no-session-persistence"
+                "--no-session-persistence",
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands"
             ]
         );
         assert!(p.system_prompt.is_some(), "installed with a system prompt");
@@ -1468,9 +1473,7 @@ fn the_compactor_notice_is_posted_once_across_restarts_and_retracted_when_it_wor
     let posted = owner
         .messages
         .iter()
-        .find(|m| {
-            matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text)
-        })
+        .find(|m| matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text))
         .map(|m| m.id.clone())
         .unwrap();
     assert!(
@@ -1604,5 +1607,149 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     for k in 1..=11 {
         assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
     }
-    assert_eq!(markers(&inner.prompts[12]).len(), 1, "the 12th node tries the mark again");
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "the 12th node tries the mark again"
+    );
+}
+
+/// Claude Code without the model in its own table answers a failed call
+/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
+/// the compactor falls back to the turn model then too.
+#[test]
+fn an_unrecognized_model_counts_as_unavailable() {
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(!optchat_chief::compactor::is_model_unavailable(
+        "API Error: 529 overloaded"
+    ));
+}
+
+/// An acpmux older than the isolation args refuses them: the preset is
+/// installed with the args it knows (`--tools ""` and the rest) kept.
+#[test]
+fn an_older_acpmux_keeps_the_args_it_knows() {
+    use optchat_chief::acpmux::without_isolation_args;
+    let args: Vec<Value> = optchat_chief::compactor::COMPACTOR_ARGS
+        .iter()
+        .map(|a| json!(a))
+        .collect();
+    assert_eq!(
+        without_isolation_args(&args).unwrap(),
+        vec![
+            json!("--tools"),
+            json!(""),
+            json!("--strict-mcp-config"),
+            json!("--no-session-persistence")
+        ]
+    );
+    assert_eq!(without_isolation_args(&[json!("--tools"), json!("")]), None);
+    // A turn's built-in list goes too (its denied tools still apply).
+    let turn: Vec<Value> = optchat_chief::host::turn_isolation_args()
+        .into_iter()
+        .map(Value::String)
+        .collect();
+    assert_eq!(without_isolation_args(&turn), Some(Vec::new()));
+    // An acpmux that knows the setting source but not a --tools list loses
+    // only the list: the turn keeps its setting-source isolation.
+    use optchat_chief::acpmux::without_tools_list;
+    assert_eq!(
+        without_tools_list(&turn),
+        Some(vec![
+            json!("--setting-sources"),
+            json!("project"),
+            json!("--disable-slash-commands")
+        ])
+    );
+    assert_eq!(without_tools_list(&args), None, "--tools \"\" stays");
+}
+
+/// A compactor slot loads no user setting source, so its project settings
+/// carry the env of the user's Claude Code settings (the user's API route).
+#[test]
+fn a_compactor_slot_carries_the_users_settings_env() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [(
+            "ANTHROPIC_BASE_URL".to_owned(),
+            "http://router:31415".to_owned(),
+        )]
+        .into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let settings: Value = serde_json::from_slice(
+        &std::fs::read(work.join("slot-0").join(".claude").join("settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+}
+
+/// Claude Code 2.1.287 does not know `claude-haiku-5-5`
+/// ("[claude-code:unrecognized_model]") but takes the `haiku` alias, which
+/// it maps to its current Haiku. A Claude Code compactor asks for the
+/// alias; the Messages API route keeps the full id; another harness keeps
+/// its own default.
+#[test]
+fn the_compactor_model_resolves_per_harness() {
+    use optchat_chief::compactor::compactor_model_for;
+    assert_eq!(
+        compactor_model_for(Family::Claude).as_deref(),
+        Some("haiku")
+    );
+    assert_eq!(compactor_model_for(Family::Codex), None);
+    assert_eq!(compactor_model_for(Family::Other), None);
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+}
+
+/// The slot settings may hold the user's settings env (an API token among
+/// it): the file is the user's alone (0600).
+#[test]
+fn a_compactor_slots_settings_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let file = work.join("slot-0").join(".claude").join("settings.json");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+}
+
+/// The API takes at most 4 marks per request, and Claude Code marks its two
+/// system blocks plus the last two messages of every request after a
+/// session's first (a size-loop follow-up): a node that carries our mark
+/// runs Claude Code without its own; a node too short for one keeps them.
+#[test]
+fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let settings = |k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let marked = CompactRequest {
+        context: chat_of(150),
+        ..request(0)
+    };
+    run_node(&compactor, &marked).unwrap();
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
+    assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(markers(&agents.inner.lock().unwrap().prompts[1]).is_empty());
+    let s = settings(1);
+    assert!(s["env"].get("DISABLE_PROMPT_CACHING").is_none(), "{s}");
 }

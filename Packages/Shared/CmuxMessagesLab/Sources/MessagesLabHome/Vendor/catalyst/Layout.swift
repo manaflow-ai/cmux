@@ -43,8 +43,9 @@ struct TextLayout: Hashable {
     func attributed(color: UIColor, linkColor: UIColor, kern: CGFloat = Fixture.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: kern])
         for r in runs {
-            let range = NSRange(location: r.start, length: r.length)
-            guard NSMaxRange(range) <= a.length else { continue }
+            // cmux: a run that does not fit this text is skipped: negative, or past the end
+            // without overflowing (NSMaxRange of Int.max traps; addAttribute raises NSRangeException).
+            guard let range = Self.range(r.start, r.length, in: a.length) else { continue }
             var traits: UIFontDescriptor.SymbolicTraits = []
             for s in r.style ?? [] {
                 switch s {
@@ -56,8 +57,9 @@ struct TextLayout: Hashable {
                 }
             }
             if r.mention != nil { traits.insert(.traitBold) }
-            if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
-                a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+            if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
+                a.addAttribute(.font, value: f, range: range)
             }
             // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
             // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
@@ -70,6 +72,13 @@ struct TextLayout: Hashable {
             if r.detected != nil { a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         }
         return a
+    }
+
+    /// cmux: `start..<start+length` as a range when it lies inside a text of
+    /// `count` UTF-16 units, else nil. No arithmetic can overflow.
+    static func range(_ start: Int, _ length: Int, in count: Int) -> NSRange? {
+        guard start >= 0, length >= 0, start <= count, length <= count - start else { return nil }
+        return NSRange(location: start, length: length)
     }
 
     /// A line after a hard newline advances as far as a wrapped line, on both
@@ -97,6 +106,8 @@ struct TextLayout: Hashable {
         let i = Int(floor(p.y / Fixture.lineHeight))
         guard i >= 0, i < lines.count else { return nil }
         let attr = attributed(color: .white, linkColor: .white)
+        // cmux: lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
+        guard Self.range(lines[i].range.location, lines[i].range.length, in: attr.length) != nil else { return nil }
         let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lines[i].range.location
         return runs.first { $0.link != nil && idx >= $0.start && idx < $0.start + $0.length }?.link
@@ -620,7 +631,7 @@ enum RowBuilder {
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
-            if prev == nil || m.date.timeIntervalSince(prev!.date) > separatorGap {
+            if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // cmux: no force unwrap
                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
                                     gap: prev == nil ? 12 : 0, height: 35.5))
                 gap = 0
@@ -665,8 +676,9 @@ enum RowBuilder {
             if m.retractedAt != nil {
                 rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
             } else {
-                let lastOfGroup = next == nil || next!.senderId != m.senderId || next!.date.timeIntervalSince(m.date) >= groupGap
-                    || next!.retractedAt != nil || next!.replyTo != m.replyTo
+                // cmux: no force unwrap (crash program)
+                let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
+                    || next.retractedAt != nil || next.replyTo != m.replyTo } ?? true
                 for (pi, part) in m.parts.enumerated() {
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                     let (size, tl) = (measured.size, measured.text)

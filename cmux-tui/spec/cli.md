@@ -19,6 +19,9 @@ cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
+cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
+cmux script repl [--timeout MS]
+cmux script types
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -65,6 +68,25 @@ waits at most 3 seconds for the run to answer `cmux.op.cancelled`, prints
 then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
 second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
 taken effect; retry it with the same `--idempotency-key`.
+
+`script run` runs JavaScript in a sandboxed script session of the session
+daemon (`script-run`; plans/cmux-next/scripting-runtime.md) and prints the
+value of its last expression statement: nothing for null, a string as is,
+other values as JSON (compact JSON for every value with `--json`). `KEY=VALUE`
+words and `--args JSON` become `cmux.args`. Console output arrives as
+`script-log` events before the answer and is printed as it comes (info and
+debug on stdout, warn and error on stderr; all on stderr with `--json`). A
+script calls ops through the global `cmux` with the rights of the calling
+connection, only ops the daemon owns, and has no network, filesystem or
+process access. An error exits 1 with its `error_code` (an op's own code, or
+`script.error`, `script.timeout`, `script.memory`, `script.cpu`,
+`script.host`); a usage error or a TypeScript file exits 2; Ctrl-C sends
+`cancel-request` for the running cell and exits 130. `script repl` keeps one
+session across lines (one line per cell; a line that ends with `\`
+continues), prints each value, and opens a new session when a cell ended its
+session. `script types` prints the TypeScript declarations of the `cmux`
+global. Connections bound to an agent, and remote connections, answer
+`script.forbidden`.
 
 `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID

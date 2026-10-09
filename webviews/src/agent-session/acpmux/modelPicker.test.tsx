@@ -190,6 +190,32 @@ describe("T3 model picker", () => {
     expect(modelButton().getAttribute("aria-expanded")).toBe("true");
   });
 
+  test.each([
+    ["harness row", ".acpmux-mp-harness"],
+    ["model row", ".acpmux-mp-row"],
+    ["favorite button", ".acpmux-mp-favorite"],
+  ])("Escape from the %s closes the picker and restores the trigger", async (_name, selector) => {
+    await render();
+    await act(async () => modelButton().click());
+    const control = menu()!.querySelector<HTMLElement>(selector)!;
+    control.focus();
+    await key(control, "Escape");
+    expect(menu() === null).toBe(true);
+    expect(doc.activeElement === modelButton()).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  test("an Escape consumed by a picker control keeps the picker open", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const favorite = menu()!.querySelector<HTMLElement>(".acpmux-mp-favorite")!;
+    favorite.focus();
+    favorite.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+    await key(favorite, "Escape");
+    expect(menu() !== null).toBe(true);
+    expect(doc.activeElement === favorite).toBe(true);
+  });
+
   test("shows the harness fast-mode toggle when ACP exposes it", async () => {
     await render({
       ...snapshot(),
@@ -216,14 +242,71 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["config fast-mode on"]);
   });
 
-  test("shows T3 subtitles, stable command hotkeys, and local favorites", async () => {
+  // Lawrence 2026-10-08: match the T3 rail picker; one-line rows, no command badges or headings.
+  test("rows are one line with no command badge, and the star toggles on the row", async () => {
     await render();
     await act(async () => modelButton().click());
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")?.textContent).toContain("Claude Code");
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
+    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
+    expect(modelRows()[0]!.textContent).not.toContain("⌘");
     const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
     expect(favorite.getAttribute("aria-pressed")).toBe("false");
     await act(async () => favorite.click());
-    expect(favorite.getAttribute("aria-pressed")).toBe("true");
+    expect(modelRows()[0]!.parentElement!.querySelector(".acpmux-mp-favorite")!.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  // Lawrence 2026-10-08: "no concept of starred, starred should just show up in its own column".
+  // A star never reorders or heads a harness's list; the rail's Starred tab lists every starred model.
+  test("starred models show under the rail's Starred tab, and a harness's list keeps its order", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const before = labels();
+    const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
+    await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
+    expect(labels()).toEqual(before);
+    expect(menu()!.querySelector(".acpmux-mp-section")).toBeNull();
+    const starred = menu()!.querySelector<HTMLButtonElement>('[aria-label="Starred"]')!;
+    await act(async () => starred.click());
+    expect(labels()).toEqual(["Sonnet 5.5"]);
+  });
+
+  // Lawrence 2026-10-08: "should swap on hover not click for each category".
+  test("hovering a rail tab shows that harness's models without a click", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
+    await act(async () => {
+      codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    });
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "o3",
+      "GPT-6-Astra",
+    ]);
+  });
+
+  // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
+  // "Claude Code". The chip draws one harness: the running one, or the one a switch is starting.
+  test("the chip keeps one harness's mark and name while another harness is browsed", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
+    await act(async () => codex.click());
+    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("claude");
+    expect(modelButton().textContent).toContain("Opus 5.5");
+    expect(modelButton().textContent).not.toContain("Codex");
+  });
+
+  test("a harness switch in flight draws the new harness's mark and name together", async () => {
+    await render({ ...snapshot(), switching: { harness: "codex", name: "Codex", phase: "starting" } });
+    // Codex draws the OpenAI mark.
+    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
+    expect(modelButton().textContent).toContain("Codex");
+    expect(modelButton().textContent).not.toContain("Opus 5.5");
   });
 });

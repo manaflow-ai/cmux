@@ -1,3 +1,18 @@
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
@@ -27,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
             let role = match permission {
                 RelayPermission::Register => RelayRole::Daemon,
                 RelayPermission::Connect => RelayRole::Client,
-                RelayPermission::Join => unreachable!("CLI cannot mint join tickets"),
+                RelayPermission::Join => return Err(anyhow!("the CLI cannot mint join tickets")),
             };
             let claims = RelayTicketClaims {
                 version: RelayTicketClaims::VERSION,
@@ -76,14 +91,19 @@ async fn main() -> anyhow::Result<()> {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler");
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => {
-                let _ = result;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        let _ = result;
+                    }
+                    _ = terminate.recv() => {}
+                }
             }
-            _ = terminate.recv() => {}
+            Err(error) => {
+                eprintln!("cmux-relay: no SIGTERM handler ({error}); stopping on Ctrl-C only");
+                let _ = tokio::signal::ctrl_c().await;
+            }
         }
     }
 
