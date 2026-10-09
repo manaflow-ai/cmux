@@ -2643,6 +2643,7 @@ function AcpmuxPane() {
                 )
               }
               chips={registryChips ?? NewTabComposerChips}
+              focusField={newTab.focusesField !== false}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,

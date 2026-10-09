@@ -314,6 +314,7 @@ extension NewTabPage {
         let cwd = pane.selectedTab?.cwd
         var page = Self.page(services, selected: pane.selectedTab)
         page.inputToken = inputToken
+        if omnibar { page.focusesField = false }
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
         }
