@@ -1258,6 +1258,7 @@ final class ClaudeHookSessionStore {
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
+            let settlesTurn = depthAfterStop == 0
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1267,13 +1268,13 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: settlesTurn ? agentLifecycle : .running,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
-                updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
+                updateLastNotificationStatus: settlesTurn && updateLastNotificationStatus,
+                runtimeStatus: settlesTurn ? runtimeStatus : .running,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
@@ -6050,7 +6051,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Pro goes up to 32g; 64g needs cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
+                            Pro goes up to 16g; 24g, 32g, and 64g need cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -6065,7 +6066,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>  4g to 32g on Pro; 64g needs cmux Max
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 16g on Pro; 24g, 32g, and 64g need cmux Max
                           --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
                           --network-policy <json>  full network policy object
                           --agent-updates <latest|image>  \(String(localized: "cli.vm.new.agentUpdatesFlag", defaultValue: "latest keeps coding agents up to date; image (default) keeps the baked versions"))
@@ -27101,8 +27102,19 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-openagent"
     private static let legacyOmoPluginName = "oh-my-opencode"
-    private static let openCodeSessionPluginConfigSpec = "./plugins"
-
+    private static let openCodeSessionPluginConfigSpec = "./plugins/cmux"
+    private static let openCodeTUIPluginDirectoryName = "cmux"
+    private static let openCodeTUIPluginPackageSource = #"""
+{
+  "name": "cmux-opencode-plugin",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./tui": "./tui.js"
+  }
+}
+"""#
+    private static let openCodeTUIPluginOwnershipMarker = "cmux-opencode-tui-plugin-ownership-marker v2"
     func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
         let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
             .split(separator: ":")
@@ -30286,7 +30298,8 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             // A completed Claude turn stays idle when the delayed waiting nag
             // arrives. Permission prompts and errors still carry their own state.
-            let idleReminderForCompletedSession = notifyCategory == .idleReminder
+            let idleReminderForCompletedSession = notificationType == "idle_prompt"
+                && notifyCategory == .idleReminder
                 && classifiedSubtitle != "Error"
                 && mappedSession?.agentLifecycle == .idle
             let suppressNeedsInputState = notifyCategory == .idleReminder
@@ -34606,7 +34619,7 @@ struct CMUXCLI {
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -34802,13 +34815,18 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "enqueue", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
+    const child = spawn(cmux, ["hooks", "enqueue", "opencode", subcommand], {
       env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
       stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
+      detached: true,
     });
+    // Admission must never block OpenCode's shared service.
+    child.on("error", () => {});
+    child.stdin?.on("error", () => {}).end(JSON.stringify(payload));
+    const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+    timeout.unref?.();
+    child.once("close", () => clearTimeout(timeout));
+    child.unref();
   } catch (_) {}
 }
 
@@ -34889,23 +34907,93 @@ export const CMUXSessionRestore = async (ctx) => {
 };
 
 export default {
-  id: "cmux.session",
-  async setup(ctx) {
-    const controller = new AbortController();
-    const hooks = await createCMUXSessionRestore(ctx);
-    void (async () => {
-      try {
-        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          await hooks.event({ event });
-        }
-      } catch (_) {
-        // Abort is the normal plugin shutdown path.
-      }
-    })();
-    return () => controller.abort();
-  },
+  id: "cmux.server",
+  // Keep the legacy server entry inert in V2. Session hooks run from the
+  // per-TUI ./tui entrypoint so a shared service never reuses one TUI's IDs.
+  server() { return {}; },
+  // Compatibility alias for older V2 snapshots that called setup().
+  setup() { return () => {}; },
 };
 """#
+
+    private func openCodeTUIPluginDirectory(in configDir: URL) -> URL {
+        configDir.appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(Self.openCodeTUIPluginDirectoryName, isDirectory: true)
+    }
+
+    private func bundledOpenCodeTUIPluginSource() throws -> String {
+        for url in openCodePluginResourceCandidates(filename: "opencode-tui-plugin.js") {
+            if let source = try? String(contentsOf: url, encoding: .utf8) { return source }
+        }
+        throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
+    }
+
+    private func openCodeTUIPluginOwnershipURL(in configDir: URL) -> URL {
+        openCodeTUIPluginDirectory(in: configDir).appendingPathComponent(".cmux-owned", isDirectory: false)
+    }
+
+    private func openCodeTUIPluginPathIsSymlink(_ url: URL) -> Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    private func openCodeTUIPluginDirectoryIsSymlink(in configDir: URL) -> Bool {
+        openCodeTUIPluginPathIsSymlink(openCodeTUIPluginDirectory(in: configDir))
+    }
+
+    private func openCodeTUIPluginFileIsOwned(_ name: String, in directory: URL) -> Bool {
+        let url = directory.appendingPathComponent(name, isDirectory: false)
+        guard !openCodeTUIPluginPathIsSymlink(url) else { return false }
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        switch name {
+        case "package.json":
+            return contents.contains("\"name\": \"cmux-opencode-plugin\"")
+        case "index.js":
+            return contents.contains("cmux-opencode-tui-plugin-server-marker")
+        case "tui.js":
+            return contents.contains("cmux-opencode-tui-plugin-marker")
+        case ".cmux-owned":
+            return contents.contains(Self.openCodeTUIPluginOwnershipMarker)
+        default:
+            return false
+        }
+    }
+
+    private func validateOpenCodeTUIPluginDirectory(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
+        if openCodeTUIPluginDirectoryIsSymlink(in: configDir) {
+            throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+        }
+        if fileManager.fileExists(atPath: directory.path) {
+            for name in [".cmux-owned", "package.json", "index.js", "tui.js"] {
+                if openCodeTUIPluginPathIsSymlink(directory.appendingPathComponent(name, isDirectory: false)) {
+                    throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+                }
+            }
+            let marked = openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory)
+                || openCodeTUIPluginFileIsOwned("index.js", in: directory)
+            guard marked else {
+                throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+            }
+            for name in ["package.json", "index.js", "tui.js"] where fileManager.fileExists(atPath: directory.appendingPathComponent(name).path) {
+                guard openCodeTUIPluginFileIsOwned(name, in: directory) else {
+                    throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+                }
+            }
+        }
+    }
+
+    private func writeOpenCodeTUIPlugin(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
+        try validateOpenCodeTUIPluginDirectory(in: configDir)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n" + (try bundledOpenCodePluginSource())
+        try serverSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
+        try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
+        try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: openCodeTUIPluginOwnershipURL(in: configDir), atomically: true, encoding: .utf8)
+    }
 
     private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
@@ -34941,6 +35029,7 @@ export default {
             if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
             if spec == Self.openCodeSessionPluginConfigSpec {
                 return value == "./plugins"
+                    || value == Self.openCodeSessionPluginConfigSpec
                     || value == "./plugins/\(Self.openCodeSessionPluginFilename)"
                     || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
                     || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
@@ -35052,6 +35141,8 @@ export default {
                 return true
             }
             return value != Self.openCodeSessionPluginConfigSpec
+                && value != "./plugins"
+                && value != "./plugins/\(Self.openCodeTUIPluginDirectoryName)"
                 && value != "cmux-session"
                 && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
                 && !value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
@@ -35068,17 +35159,20 @@ export default {
         } else {
             config = [:]
         }
-        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
+        // OpenCode V2's schema uses the singular `plugin` array. Accept the
+        // legacy plural spelling while migrating it to the V2 contract so an
+        // installed bridge is loadable by the current CLI.
+        let configuredPlugins = (config["plugin"] as? [Any] ?? []) + (config["plugins"] as? [Any] ?? [])
         var plugins = Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
             plugins.append(Self.openCodeSessionPluginConfigSpec)
         }
-        config.removeValue(forKey: "plugin")
         if shouldInstall || !plugins.isEmpty {
-            config["plugins"] = plugins
+            config["plugin"] = plugins
         } else {
-            config.removeValue(forKey: "plugins")
+            config.removeValue(forKey: "plugin")
         }
+        config.removeValue(forKey: "plugins")
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
@@ -35091,7 +35185,9 @@ export default {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try validateOpenCodeTUIPluginDirectory(in: configDir)
         if existing == Self.openCodeSessionPluginSource {
+            try writeOpenCodeTUIPlugin(in: configDir)
             print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
             return
         }
@@ -35106,28 +35202,64 @@ export default {
             }
         }
         try writeOpenCodeSessionPlugin(in: configDir)
+        try writeOpenCodeTUIPlugin(in: configDir)
         _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
         print("OpenCode hooks installed at \(pluginURL.path)")
+    }
+
+    private func removeOpenCodeTUIPlugin(in configDir: URL) throws {
+        let directory = openCodeTUIPluginDirectory(in: configDir)
+        let fileManager = FileManager.default
+        if openCodeTUIPluginDirectoryIsSymlink(in: configDir) {
+            throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+        }
+        let markerURL = openCodeTUIPluginOwnershipURL(in: configDir)
+        let markerOwned = openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory)
+        let legacyOwned = openCodeTUIPluginFileIsOwned("index.js", in: directory)
+        guard markerOwned || legacyOwned else { return }
+        if legacyOwned && !markerOwned {
+            guard !openCodeTUIPluginPathIsSymlink(markerURL) else {
+                throw CLIError(message: String(localized: "cli.hooks.error.pluginDirectoryOwned", defaultValue: "cmux could not install the selected agent integration because its plugin directory is already in use."))
+            }
+            try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: markerURL, atomically: true, encoding: .utf8)
+        }
+        for name in ["package.json", "index.js", "tui.js"] where openCodeTUIPluginFileIsOwned(name, in: directory) {
+            let url = directory.appendingPathComponent(name, isDirectory: false)
+            if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
+        }
+        let remaining = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        if remaining.count == 1, openCodeTUIPluginFileIsOwned(".cmux-owned", in: directory) {
+            try fileManager.removeItem(at: markerURL)
+        }
+        if (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?.isEmpty == true {
+            try fileManager.removeItem(at: directory)
+        }
     }
 
     private func uninstallOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let pluginURL = openCodeSessionPluginURL(for: def)
-        guard fm.fileExists(atPath: pluginURL.path) else {
-            print("No OpenCode cmux plugin found at \(pluginURL.path)")
-            return
+        var removedLegacyPlugin = false
+        if fm.fileExists(atPath: pluginURL.path) {
+            let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+            if !existing.contains(Self.openCodeSessionPluginMarker) {
+                print("Refusing to remove \(pluginURL.path): missing cmux marker")
+            } else {
+                try fm.removeItem(at: pluginURL)
+                removedLegacyPlugin = true
+            }
         }
-        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
-        guard existing.contains(Self.openCodeSessionPluginMarker) else {
-            print("Refusing to remove \(pluginURL.path): missing cmux marker")
-            return
-        }
-        try fm.removeItem(at: pluginURL)
+        let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+        try removeOpenCodeTUIPlugin(in: configDir)
         _ = try updateOpenCodePluginRegistration(
-            configDir: URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true),
+            configDir: configDir,
             shouldInstall: false
         )
-        print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+        if removedLegacyPlugin {
+            print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+        } else {
+            print("Removed OpenCode cmux TUI package from \(configDir.path)")
+        }
     }
 
     func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
@@ -39166,6 +39298,26 @@ export default {
             let suppressPendingWaitingState = summary.notifyCategory == .idleReminder
                 && hasActiveAntigravityBackgroundWork()
 
+            // Stop settles a completed turn to idle, but providers can deliver
+            // their structured idle_prompt Notification asynchronously
+            // afterwards. Keep that reminder visible while preserving the
+            // completed session's lifecycle; prose waiting requests remain
+            // real attention events.
+            let isStructuredIdleReminder = AgentHookNotificationClassifier.isStructuredIdleReminder(
+                input.rawObject
+            )
+            let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
+                && summary.status == .needsInput
+                && isStructuredIdleReminder
+                && (mapped?.agentLifecycle == .idle || mapped?.agentLifecycle == .running)
+            let idleReminderForCompletedSession = idleReminderForSettledSession
+                && mapped?.agentLifecycle == .idle
+            let idleReminderForActiveSession = idleReminderForSettledSession
+                && mapped?.agentLifecycle == .running
+            let idleReminderAfterSessionEnd = idleReminderForCompletedSession
+                && mapped?.hookEventName == "SessionEnd"
+            let suppressIdleReminderState = suppressPendingWaitingState || idleReminderForSettledSession
+
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.notification.summary agent=\(def.name) session=\(agentHookDebugShort(sessionId)) status=\(summary.status?.rawValue ?? "nil") fallback=\(summary.isFallback ? 1 : 0) subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
@@ -39255,7 +39407,7 @@ export default {
                 return
             }
 
-            if !sessionId.isEmpty {
+            if !sessionId.isEmpty, !idleReminderAfterSessionEnd {
                 let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
@@ -39263,8 +39415,14 @@ export default {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
-                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
+                let lifecycle = idleReminderForCompletedSession
+                    ? .idle
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)))
+                let storedRuntimeStatus = idleReminderForCompletedSession
+                    ? .idle
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)))
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (notificationCompletesTurn
@@ -39284,8 +39442,13 @@ export default {
                         hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
+                        lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
@@ -39308,8 +39471,13 @@ export default {
                         hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
+                        lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
@@ -39327,10 +39495,13 @@ export default {
                 summary: summary
             )
             let notificationJournalKind: AgentJournalEventKind =
-                suppressPendingWaitingState
+                isStructuredIdleReminder
                     && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
-                    ? .stateChanged
-                    : mappedJournalKind
+                    ? .idleObserved
+                    : (suppressPendingWaitingState
+                        && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
+                        ? .stateChanged
+                        : mappedJournalKind)
             emitJournal(
                 notificationJournalKind,
                 workspaceId: workspaceId,
@@ -39437,9 +39608,9 @@ export default {
             }
 
             switch summary.status {
-            case .needsInput? where suppressPendingWaitingState:
-                // Suppressed pending waiting cue: leave the Running pill in
-                // place; the fullyIdle turn boundary reconciles.
+            case .needsInput? where suppressIdleReminderState:
+                // Suppressed waiting cue: leave the already-settled lifecycle
+                // in place; a late idle reminder does not reopen attention.
                 break
             case .needsInput?:
                 let statusValue = agentNeedsInputStatusValue(for: def)
@@ -39504,8 +39675,14 @@ export default {
                         transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: localAgentPID(mapped: mapped),
                         launchCommand: relayOrigin ? nil : mapped.launchCommand,
+                        agentLifecycle: .idle,
+                        hookEventName: "SessionEnd",
                         lastSubtitle: nil,
                         lastBody: nil,
+                        lastNotificationStatus: nil,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: .idle,
+                        updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -39760,6 +39937,30 @@ export default {
             transcriptPath: parsedInput.transcriptPath
         ) {
             event["context"] = context
+        }
+        if hookEventName == "Notification" {
+            // Preserve the provider's structured idle marker for the sidebar
+            // lifecycle reducer. The notification body is intentionally not
+            // copied into Feed telemetry, but these discriminator fields let
+            // it distinguish an idle reminder from a real request.
+            if AgentHookNotificationClassifier.isStructuredIdleReminder(fallbackObject) {
+                // Some providers nest `notificationType` under `notification`,
+                // `data`, or `extra`. Keep one typed marker at the feed
+                // boundary so WorkstreamEvent and the mobile reducer do not
+                // need to recover provider-specific nesting after telemetry
+                // compaction.
+                event["_is_idle_reminder"] = true
+            }
+            if let notificationType = firstString(
+                in: fallbackObject,
+                keys: ["notification_type", "notificationType"]
+            ), notificationType.caseInsensitiveCompare("idle_prompt") == .orderedSame {
+                event["notification_type"] = "idle_prompt"
+            }
+            if let reason = firstString(in: fallbackObject, keys: ["reason"]),
+               reason.caseInsensitiveCompare("idle_prompt") == .orderedSame {
+                event["reason"] = "idle_prompt"
+            }
         }
         enrichUserPromptSubmitFeedEvent(
             &event,
@@ -41597,13 +41798,14 @@ export default {
                 return contents
             }
         }
-        throw CLIError(message: "bundled opencode-plugin.js not found (Bundle.main, app bundle, executable, and repo fallbacks)")
+        throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
     }
 
-    private func openCodePluginResourceCandidates() -> [URL] {
+    private func openCodePluginResourceCandidates(filename: String = "opencode-plugin.js") -> [URL] {
         let fileManager = FileManager.default
         var candidates: [URL] = []
         var seen: Set<String> = []
+        let resourceName = (filename as NSString).deletingPathExtension
 
         func appendIfExisting(_ url: URL?) {
             guard let url else { return }
@@ -41613,30 +41815,31 @@ export default {
             candidates.append(standardized)
         }
 
-        appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
-        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
+        appendIfExisting(Bundle.main.url(forResource: resourceName, withExtension: "js"))
+        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent(filename, isDirectory: false))
 
         if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
            !runtimeRoot.isEmpty {
             appendIfExisting(
                 URL(fileURLWithPath: runtimeRoot, isDirectory: true)
-                    .appendingPathComponent("src/Resources/opencode-plugin.js")
+                    .appendingPathComponent("src/Resources", isDirectory: true)
+                    .appendingPathComponent(filename, isDirectory: false)
             )
         }
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
-            for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {
+            for relativePath in [filename, "../\(filename)", "../../Resources/\(filename)", "../../../Contents/Resources/\(filename)"] {
                 appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL)
             }
 
             var current = execDir
             for _ in 0..<4 {
                 if current.pathExtension == "app" {
-                    appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
+                    appendIfExisting(current.appendingPathComponent("Contents/Resources", isDirectory: true).appendingPathComponent(filename, isDirectory: false))
                     break
                 }
                 let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
-                let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+                let repoResource = current.appendingPathComponent("Resources", isDirectory: true).appendingPathComponent(filename, isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoResource.path) {
                     appendIfExisting(repoResource)
@@ -41649,7 +41852,8 @@ export default {
         let devRelative = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Resources/opencode-plugin.js")
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
         appendIfExisting(devRelative)
         return candidates
     }
@@ -41673,7 +41877,12 @@ export default {
         )
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
+        let pluginConfigDir = projectLocal
+            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
+            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
+        try validateOpenCodeTUIPluginDirectory(in: pluginConfigDir)
         if existing == source {
+            try writeOpenCodeTUIPlugin(in: pluginConfigDir)
             print("OpenCode plugin already up to date at \(path)")
             return
         }
@@ -41691,23 +41900,26 @@ export default {
             }
         }
         try source.write(toFile: path, atomically: true, encoding: .utf8)
+        try writeOpenCodeTUIPlugin(in: pluginConfigDir)
         print("OpenCode plugin installed at \(path)")
     }
 
     private func uninstallOpenCodePlugin(projectLocal: Bool = false) throws {
         let fm = FileManager.default
-        for path in [openCodePluginPath(projectLocal: false),
-                     openCodePluginPath(projectLocal: true)] {
-            guard fm.fileExists(atPath: path) else { continue }
-            guard let existing = try? String(contentsOfFile: path, encoding: .utf8),
-                  existing.contains(Self.openCodePluginMarker)
-            else {
+        let path = openCodePluginPath(projectLocal: projectLocal)
+        if fm.fileExists(atPath: path) {
+            let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            if !existing.contains(Self.openCodePluginMarker) {
                 print("Skipping \(path) (no cmux marker)")
-                continue
+            } else {
+                try fm.removeItem(atPath: path)
+                print("OpenCode plugin removed from \(path)")
             }
-            try fm.removeItem(atPath: path)
-            print("OpenCode plugin removed from \(path)")
         }
+        let configDir = projectLocal
+            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
+            : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
+        try removeOpenCodeTUIPlugin(in: configDir)
     }
 
     // MARK: - Feed (workstream) hook bridge
@@ -42252,6 +42464,12 @@ export default {
             transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
         ) {
             eventDict["context"] = context
+        }
+        if hookEventName == "Notification",
+           AgentHookNotificationClassifier.isStructuredIdleReminder(stdinObj) {
+            // Preserve nested provider markers after the feed payload is
+            // compacted to its common schema.
+            eventDict["_is_idle_reminder"] = true
         }
         enrichUserPromptSubmitFeedEvent(
             &eventDict,

@@ -505,11 +505,11 @@
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
-            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM",
+            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
             "cmux-appen for iOS"
           ],
           "max": [
-            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM",
+            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM. Max gir tilgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
@@ -2924,7 +2924,7 @@
       "createCli": "Fra CLI-en oppretter cmux vm new en maskin og åpner et arbeidsområde på den. Bruk --detach for å opprette den uten å åpne noe. Hvis en opprettelsesforespørsel sendes på nytt, gjenbruker cmux den samme forespørselen, så du ikke får to maskiner.",
       "createFailed": "Hvis opprettelsen mislykkes, lar varselet deg prøve på nytt, vise feilen eller kopiere den til en supportforespørsel.",
       "sizesTitle": "Størrelser",
-      "sizesDesc": "Hver størrelse angir minne, vCPU og disk samlet. Velg en størrelse i opprettelsesdialogen eller med --size.",
+      "sizesDesc": "Hver størrelse angir minne, vCPU og disk samlet. Velg en størrelse i opprettelsesdialogen eller med --size. Pro og Team støtter 4g, 8g og 16g (2, 4 og 8 vCPU). Max låser også opp 24g og 32g (12 og 16 vCPU), samt 64g (32 vCPU).",
       "sizeColumn": "Størrelse",
       "memoryColumn": "Minne",
       "cpuColumn": "vCPU",
@@ -2938,7 +2938,7 @@
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
       "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 aktive maskiner som deler 20 vCPU-er og 40 GB minne. En maskin er aktiv mens den kjører eller starter.",
       "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
-      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én maskin kan ha opptil 32 GB og 16 vCPU-er med Pro og Team, eller opptil 64 GB og 32 vCPU-er med Max.",
+      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én Max-maskin kan bruke opptil 64 GB og 32 vCPU-er, inkludert størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper på 16 GB og 8 vCPU-er.",
       "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
       "agentUpdatesTitle": "Hold kodeagenter oppdatert",
@@ -2948,7 +2948,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
       "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB. Minnet vokser opptil 32 GB og CPU opptil 16 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Go er begrenset til 16 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -3099,7 +3099,7 @@
       "errPlan": "Cloud-VM-er krever et betalt abonnement",
       "fixPlan": "Gratiskontoer kan ikke opprette maskiner. Oppgrader på prissiden.",
       "errSize": "En størrelse krever et større abonnement",
-      "fixSize": "Maskiner større enn 32 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
+      "fixSize": "Maskiner større enn 16 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
       "errLimit": "Grensen for aktive maskiner er nådd",
       "fixLimit": "Sett en maskin på pause eller slett den, og prøv igjen.",
       "errPool": "Ikke nok Cloud VM-ressurser",
@@ -5349,7 +5349,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer opptil 5 Cloud VM-er som deler 20 vCPU-er og 40 GB RAM, samt tilgang til cmux iOS via TestFlight.",
+    "body": "Pro inkluderer opptil 5 Cloud VM-er som deler 20 vCPU-er og 40 GB RAM, samt tilgang til cmux iOS via TestFlight. Én VM kan bruke opptil 16 GB RAM / 8 vCPU. Størrelsene 24 GB / 12 vCPU og 32 GB / 16 vCPU krever Max.",
     "done": "Gå til kontrollpanelet",
     "steps": {
       "iosApp": {
