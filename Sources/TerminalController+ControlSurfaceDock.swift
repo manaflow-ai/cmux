@@ -370,6 +370,9 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
+        }
         if !force,
            let panel = windowDock.panel(for: TabID(uuid: surfaceId)),
            windowDock.dockPanelNeedsConfirmClose(panel) {

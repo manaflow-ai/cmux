@@ -6559,6 +6559,23 @@ class TerminalController {
     /// asks it, so no method reads, evaluates, captures or sends input to
     /// such a tab; listing tabs (id, title, URL) still shows it.
     func v2BrowserReplTabRefusal(_ surfaceId: UUID) -> V2CallResult? {
+        guard let message = browserReplTabRefusalMessage(surfaceId) else { return nil }
+        return .err(
+            code: "denied",
+            message: message,
+            data: ["surface_id": surfaceId.uuidString, "reason": "browser_repl_tab"]
+        )
+    }
+
+    /// Why another socket client may not use, close, move, detach, reload
+    /// or navigate tab `surfaceId`, or nil: a browser REPL session drives it
+    /// or typed a secret into it (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``).
+    /// Every socket method that closes, moves, detaches, reloads or
+    /// navigates a surface asks it for each tab it would change, so another
+    /// local client cannot take a session's tab away from it. The user's
+    /// own window controls (tab close buttons, drags, menus) are not socket
+    /// clients and keep working.
+    func browserReplTabRefusalMessage(_ surfaceId: UUID) -> String? {
         guard let refusal = BrowserReplTabAttachments.shared.outsideClientRefusal(panelID: surfaceId) else { return nil }
         let message: String
         switch refusal {
@@ -6573,11 +6590,7 @@ class TerminalController {
                 defaultValue: "A browser REPL session typed a secret into this tab, so other clients cannot read or drive it until it closes. Use `cmux browser repl` to drive it."
             )
         }
-        return .err(
-            code: "denied",
-            message: message,
-            data: ["surface_id": surfaceId.uuidString, "reason": "browser_repl_tab"]
-        )
+        return message
     }
 
     func v2ResolveBrowserPanelContext(
@@ -11218,6 +11231,10 @@ class TerminalController {
                     return
                 }
 
+                if let refusal = v2BrowserReplTabRefusal(targetId) {
+                    result = refusal
+                    return
+                }
                 if dock.panels.count <= 1 {
                     result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                     return
@@ -11266,6 +11283,10 @@ class TerminalController {
                 return
             }
 
+            if let refusal = v2BrowserReplTabRefusal(targetId) {
+                result = refusal
+                return
+            }
             if ws.panels.count <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
                 return
