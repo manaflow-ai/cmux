@@ -43,7 +43,12 @@ nonisolated struct CloudApprovalAnswer: Sendable {
 
     /// The id of the open approve item whose approval is `request`.
     static func item(carrying request: String, in reply: [String: Any]) -> String? {
-        nil // red
+        let items = (reply["value"] as? [String: Any])?["items"] as? [[String: Any]] ?? []
+        return items.first { item in
+            let prompt = item["prompt"] as? [String: Any]
+            let input = (prompt?["action"] as? [String: Any])?["input"] as? [String: Any]
+            return (input?["approval"] as? [String: Any])?["request"] as? String == request
+        }?["id"] as? String
     }
 }
 

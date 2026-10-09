@@ -55,11 +55,37 @@ struct CloudMachineCreateFlow {
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2).
     func create(name: String?, startedByPerson: Bool) async throws -> JSONValue {
-        // red: no confirmation, no approval handling
+        var confirmed = false
+        if !startedByPerson {
+            guard await confirm(.agentRequest) else { throw Failure.declined }
+            confirmed = true
+        }
         var args: [String: JSONValue] = ["size": Self.defaultSize]
         if let name, !name.isEmpty { args["name"] = .string(name) }
-        let answer = try await run("cloud.machine.create", .object(args), newKey(), .user)
-        return answer["machine"] ?? answer
+        let key = newKey()
+        var approved: String?
+        var attempt = 0
+        while true {
+            do {
+                let answer = try await run("cloud.machine.create", .object(args), key, .user)
+                return answer["machine"] ?? answer
+            } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
+                guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
+                if let approved {
+                    // The answer is in; the approved op runs in the backend.
+                    guard approved == request, attempt < retries else { throw Failure.stillPending(request: request) }
+                    attempt += 1
+                    try await pause(attempt)
+                    continue
+                }
+                if !confirmed {
+                    guard await confirm(.approval(request: request)) else { throw Failure.declined }
+                    confirmed = true
+                }
+                try await approve(request)
+                approved = request
+            }
+        }
     }
 
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
