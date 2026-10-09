@@ -95,7 +95,7 @@ final class SidebarAvatarCache {
 
 /// The drawing: pure functions of a summary and a render context (any thread).
 enum SidebarDraw {
-    static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
+    static let p3 = CGColorSpace(name: CGColorSpace.displayP3) ?? CGColorSpaceCreateDeviceRGB() // cmux: no force unwrap
     /// Where `AvatarSpec.image` paths resolve (the host sets it; default: the app bundle's
     /// "assets" folder).
     static var assetDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("assets")
@@ -191,7 +191,8 @@ enum SidebarDraw {
         case let .monogram(m):
             g.saveGState()
             g.addEllipse(in: r); g.clip()
-            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])!
+            // cmux: an optional gradient draws nothing when it fails (SidebarCrashSafe).
+            let grad = CGGradient(colorsSpace: nil, colors: [p.monogramTop, p.monogramBottom] as CFArray, locations: [0, 1])
             g.drawLinearGradient(grad, start: CGPoint(x: r.midX, y: r.minY), end: CGPoint(x: r.midX, y: r.maxY), options: [])
             g.restoreGState()
             let font = monogramFont((r.width * 0.42).rounded()) // cmux: held, no force unwrap (cx-qpqs)
@@ -251,7 +252,7 @@ enum SidebarDraw {
     /// the visible rows' text at the exact width in every frame.
     static func rowTime(_ c: ConversationSummary, emphasized: Bool, ctx: SidebarRenderContext, time: ConversationTimeFormatter) -> CGImage {
         let p = ctx.palette
-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
+        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
         // `.distantPast`: a row without a time (the host's extra search results).
         let tl = line(c.lastAt == .distantPast ? "" : time.string(c.lastAt, now: ctx.now), timeFont, secondary)
         let bell = c.muted ? (emphasized ? ctx.bellSelected : ctx.bellSecondary) : nil
@@ -490,7 +491,7 @@ final class SidebarTextCache {
         if let m = map[k] { lock.unlock(); return m }
         lock.unlock()
         let nameColor = emphasized ? p.selectedText : p.name
-        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82)! : p.secondary
+        let secondary = emphasized ? p.selectedText.copy(alpha: 0.82) ?? p.selectedText : p.secondary // cmux: no force unwrap
         let text = (c.lastReaction.map(SidebarStrings.reaction) ?? c.preview).replacingOccurrences(of: "\n", with: " ")
         let attr = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): SidebarDraw.previewFont,

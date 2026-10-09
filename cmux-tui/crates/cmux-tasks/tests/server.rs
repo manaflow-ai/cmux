@@ -5,11 +5,13 @@
 
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use cmux_tasks::client::Conn;
 use cmux_tasks::engine::{Engine, system_clock};
 use cmux_tasks::owner::{LocalOwner, Owner, resolve};
 use cmux_tasks::protocol::{ErrorCode, ServerLine};
+use cmux_tasks::store::Limits;
 use cmux_tasks_core::ids::Principal;
 use serde_json::json;
 
@@ -180,4 +182,35 @@ fn a_connection_without_hello_acts_as_the_local_person() {
         _ => None,
     };
     assert_eq!(cmux_tasks::owner::person_from(env), Principal::user("usr_lawrence"));
+}
+
+/// A failed log write leaves memory ahead of disk. The server stops and
+/// `serve` returns the error (the CLI exits 70 and the supervisor restarts
+/// it from disk); it never ends the process from inside the writer thread.
+#[test]
+fn a_log_write_failure_stops_serve_with_an_error() {
+    let dir = short_tempdir();
+    let Owner::Local(owner) = resolve(Some("local"), Some(dir.path().to_owned())).unwrap() else {
+        unreachable!()
+    };
+    // One-byte segments: the first commit rotates to the segment that
+    // starts at seq 2. A directory in its place makes that write fail.
+    let limits = Limits { segment_bytes: 1, snapshot_every: 1_000 };
+    let engine = Engine::open_with(&owner.dir, &owner.team, "CMX", system_clock(), limits).unwrap();
+    std::fs::create_dir(owner.dir.join("log").join(format!("{:020}.jsonl", 2))).unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let serving = owner.clone();
+    thread::spawn(move || {
+        let result =
+            cmux_tasks::server::serve(&serving, engine, move || ready_tx.send(()).unwrap());
+        done_tx.send(result.map_err(|error| error.to_string())).unwrap();
+    });
+    ready_rx.recv().unwrap();
+    let mut client = Conn::open(&owner, &Principal::user("usr_a"), "CMX").unwrap();
+    let _ =
+        client.call("task.create", json!({"id": "task_1", "title": "x"}), Some("k1".to_owned()));
+    let result = done_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+    let error = result.unwrap_err();
+    assert!(error.contains("log write failed"), "{error}");
 }

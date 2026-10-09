@@ -117,8 +117,9 @@ or `error`; `app` is the record's own app, else that of its nearest ancestor
 record that has one (OSC 7501 app inheritance); `title` and `msg` are
 untrusted display text without control or invisible formatting characters,
 at most 256 and 1024 characters; a record that starts waiting on the user
-(`blocked`) or fails (`error`) posts one rate-limited `terminal` notification
-on its terminal; a primary
+(`blocked`), fails (`error`) or finishes (`done`, level `info`; clients show
+it only for a terminal the user cannot see) posts one rate-limited `terminal`
+notification on its terminal; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
 there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
@@ -849,7 +850,12 @@ same owner and the same rules, with nothing added on the v2 path:
 
 - Trusted local (Unix) connections only. The caller's principal is the
   connection's conversation principal: `user_local`, or the agent
-  participant the connection bound with `conversation-bind`. Every read names
+  participant the connection bound with `conversation-bind`. As on the raw
+  commands, every unbound local connection is `user_local`: a process of
+  the user's account can read and write the person's conversations; only
+  MCP clients are kept off them (cli.md). A connection whose agent token
+  the person replaced is no principal (not `user_local`) until it binds
+  again. Every read names
   only conversations the principal takes part in: `list` filters, `get`,
   `history` and `events` refuse with `operation.failed` reason
   `not_participant`, and `search` searches only those conversations.
@@ -876,7 +882,10 @@ same owner and the same rules, with nothing added on the v2 path:
   another conversation or ahead of the head is `cursor.invalid`; an older one
   starts with a `snapshot` whose `reset_reason` is `cursor_expired`. A stream
   that misses a rev (its queue overflowed) ends with reason `gap` and the last
-  delivered cursor.
+  delivered cursor. A stream also ends (reason `closed`) when its
+  connection's principal changes or a `conversation` item no longer lists
+  it. `conversation-import` raises rev once and sends one `conversation`
+  item; its messages are read with `history`.
 
 A client tells when the Chief has answered a message with seq `S` from the
 items alone, the rule `cmux chief` uses and every client shares: the brain

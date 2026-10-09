@@ -675,7 +675,20 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     let isolated = ["--setting-sources", "project", "--disable-slash-commands"];
     for harness in ["claude", "claude-sr"] {
         let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
-        assert_eq!(turn.args, isolated, "{harness}");
+        // An allowlist of built-ins (checked on Claude Code 2.1.287: the
+        // session's init lists exactly these and the Chief's MCP tools), so
+        // a built-in a later Claude Code adds is not offered to a turn.
+        assert_eq!(
+            turn.args,
+            [
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands",
+                "--tools",
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+            ],
+            "{harness}"
+        );
     }
     for preset in
         optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude)
@@ -742,6 +755,37 @@ fn the_session_settings_carry_the_users_settings_env() {
         format!("{}:/ours", paths.bin.display()),
         "the session's own env wins"
     );
+}
+
+/// The session's project settings may hold the user's settings env (an
+/// API token among it): both settings files are the user's alone (0600);
+/// the copy happens only on a macOS host (the user's own Mac, never a Linux
+/// VM or dev backend image) and `OPTCHAT_COPY_USER_ENV=0` turns it off.
+#[test]
+fn the_session_settings_files_are_private_and_the_copy_is_gated() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, copy_user_env_allowed, write};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+    };
+    write(&paths, &setup).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let file = paths.session.join(".claude").join(name);
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{name}: {mode:o}");
+    }
+    assert!(!copy_user_env_allowed(Some("0")));
+    assert_eq!(copy_user_env_allowed(None), cfg!(target_os = "macos"));
+    assert_eq!(copy_user_env_allowed(Some("1")), cfg!(target_os = "macos"));
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

@@ -4,7 +4,8 @@
   "swift.as_bang",
   "swift.assume_isolated",
   "swift.fatal_error",
-  "swift.objc_selector"
+  "swift.objc_selector",
+  "swift.precondition"
  ],
  "allow": [
   {
