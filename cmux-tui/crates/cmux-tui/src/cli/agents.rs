@@ -139,7 +139,7 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
         {
             let mut mapped = scoped_resource_path("pane", "current", "split");
             mapped.push(format!("--{direction}"));
-            let mut pane = None;
+            let mut pane: Option<String> = None;
             let mut index = 0;
             while index < rest.len() {
                 if rest[index] == "--surface" {
