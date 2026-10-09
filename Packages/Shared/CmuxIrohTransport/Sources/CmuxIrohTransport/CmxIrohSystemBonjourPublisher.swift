@@ -127,7 +127,7 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
                         advertisement.hostTarget,
                         record.type,
                         UInt16(kDNSServiceClass_IN),
-                        UInt16(bytes.count),
+                        UInt16(clamping: bytes.count), // an A or AAAA address, 4 or 16 bytes
                         bytes.baseAddress,
                         60,
                         cmxIrohBonjourRecordRegisterCallback,
@@ -158,7 +158,7 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
                     CmxIrohLANAdvertisement.domain,
                     advertisement.hostTarget,
                     advertisement.port.bigEndian,
-                    UInt16(bytes.count),
+                    UInt16(clamping: bytes.count), // CmxIrohLANTXTRecord bounds the record below 65,536
                     bytes.baseAddress,
                     cmxIrohBonjourServiceRegisterCallback,
                     context

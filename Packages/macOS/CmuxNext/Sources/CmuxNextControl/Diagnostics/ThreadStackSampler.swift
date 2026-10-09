@@ -58,25 +58,25 @@ final class ThreadStackSampler: @unchecked Sendable {
         var state = arm_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
                 thread_get_state(thread, ARM_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        pc = UInt(state.__pc)
-        fp = UInt(state.__fp)
-        lr = UInt(state.__lr)
+        pc = UInt(clamping: state.__pc)
+        fp = UInt(clamping: state.__fp)
+        lr = UInt(clamping: state.__lr)
         #elseif arch(x86_64)
         var state = x86_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
                 thread_get_state(thread, x86_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        pc = UInt(state.__rip)
-        fp = UInt(state.__rbp)
+        pc = UInt(clamping: state.__rip)
+        fp = UInt(clamping: state.__rbp)
         #endif
         var frames = 0
         buffer[frames] = Self.strip(pc)

@@ -5,7 +5,9 @@ import Testing
 /// Messages shows no hover highlight on a conversation row or a pinned tile:
 /// the pointer resting on one changes nothing that is drawn. These tests look
 /// at the list document's own layers (where a hover fill would go) before and
-/// after the pointer moves over a row and over a tile.
+/// after the pointer moves over a row and over a tile. MessagesLab f6fa7f5 has
+/// no hover code: the list asks for no mouse moves (no tracking area), and a
+/// mouse move AppKit still delivers to the list draws nothing.
 @MainActor @Suite(.serialized) struct SidebarNoHoverTests {
     /// The document's visible filled layers: frame and fill of each.
     private func fills(_ sidebar: SidebarController) -> [String] {
@@ -26,6 +28,21 @@ import Testing
         return (sidebar, host)
     }
 
+    /// A mouse move at a list document point, delivered to the document as AppKit would.
+    private func move(_ sidebar: SidebarController, to p: CGPoint) {
+        let inWindow = sidebar.document.convert(p, to: nil)
+        let e = NSEvent.mouseEvent(with: .mouseMoved, location: inWindow, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                   context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+        sidebar.document.mouseMoved(with: e)
+    }
+
+    @Test func theListTracksNoMouseMoves() {
+        let (sidebar, host) = makeSidebar(pin: ["c1"])
+        _ = host
+        sidebar.document.updateTrackingAreas()
+        #expect(sidebar.document.trackingAreas.allSatisfy { !$0.options.contains(.mouseMoved) })
+    }
+
     @Test func hoveringARowDrawsNoHighlight() {
         let (sidebar, host) = makeSidebar(pin: [])
         _ = host
@@ -33,9 +50,8 @@ import Testing
         let before = fills(sidebar)
         // Row 3: not selected, not the unread one.
         let r = sidebar.rowRect(3)
-        sidebar.mouseMoved(CGPoint(x: r.midX, y: r.midY))
+        move(sidebar, to: CGPoint(x: r.midX, y: r.midY))
         #expect(fills(sidebar) == before)
-        sidebar.mouseMoved(nil)
     }
 
     @Test func hoveringAPinnedTileDrawsNoHighlight() {
@@ -44,8 +60,7 @@ import Testing
         #expect(sidebar.pinnedItems.count == 2)
         let before = fills(sidebar)
         let t = sidebar.tileRect(0)
-        sidebar.mouseMoved(CGPoint(x: t.midX, y: t.midY))
+        move(sidebar, to: CGPoint(x: t.midX, y: t.midY))
         #expect(fills(sidebar) == before)
-        sidebar.mouseMoved(nil)
     }
 }

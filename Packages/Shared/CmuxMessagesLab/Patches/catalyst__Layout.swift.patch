@@ -100,7 +100,7 @@
      var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
      var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
  }
-@@ -391,8 +416,8 @@
+@@ -413,8 +438,8 @@
  
      private static func attr(_ tag: String, _ name: String) -> String? {
          guard let r = tag.range(of: name + "=\"") else { return nil }
@@ -111,7 +111,7 @@
      }
  
      private static func color(_ hex: String?) -> UIColor {
-@@ -406,8 +431,8 @@
+@@ -428,8 +453,8 @@
          var shapes: [(CGPath, UIColor)] = []
          var rest = Substring(text)
          while let r = rest.range(of: "<") {
@@ -122,7 +122,7 @@
              if tag.hasPrefix("<rect") {
                  let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
                  shapes.append((CGPath(rect: CGRect(x: v[0], y: v[1], width: v[2], height: v[3]), transform: nil), color(attr(tag, "fill"))))
-@@ -428,11 +453,13 @@
+@@ -450,11 +475,13 @@
              case "M": if nums.count >= 2 { p.move(to: CGPoint(x: nums[0], y: nums[1])) }
              case "L": if nums.count >= 2 { p.addLine(to: CGPoint(x: nums[0], y: nums[1])) }
              case "C":
@@ -141,7 +141,7 @@
                  }
              case "Z": p.closeSubpath()
              default: break
-@@ -497,36 +524,38 @@
+@@ -521,16 +548,18 @@
      /// Text: it scales a measurement taken at another width (no text layout;
      /// the row is re-measured before it draws). Exact misses measure now.
      func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
@@ -150,7 +150,7 @@
          // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
 -        if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
 +        if case let .text(t, _) = part, LongText.isLong(t) { // cmux: checked part
-             return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
+             return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown), text: nil, width: width)
          }
          // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
 -        if case let .custom(c) = m.parts[pi] {
@@ -160,10 +160,11 @@
          }
 -        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi]) &+ Markdown.versionSalt(m.id)
 +        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-         let k = Key(id: m.id, part: pi, version: version, width: width)
+         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown)
+         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
          lock.lock()
-         if let v = store[k] { hits += 1; lock.unlock(); return v }
-         if estimate, let old = latest[PartKey(id: m.id, part: pi, version: version)] {
+@@ -538,20 +567,20 @@
+         if estimate, let old = latest[pk] {
              estimates += 1
              lock.unlock()
 -            return MeasureCache.scale(old, to: width, part: m.parts[pi])
@@ -172,8 +173,8 @@
          misses += 1
          lock.unlock()
          var v: Value
--        if case let .text(t, _) = m.parts[pi], let md = Markdown.layout(t, message: m.id, width: width) {
-+        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, width: width) {
+-        if case let .text(t, _) = m.parts[pi], let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
++        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
              v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
          } else {
 -            let (size, tl) = Sizing.size(of: m.parts[pi], width: width)
@@ -182,13 +183,13 @@
          }
          lock.lock()
 -        store[k] = v
--        latest[PartKey(id: m.id, part: pi, version: version)] = v
+-        latest[pk] = v
 +        store.updateValue(v, forKey: k) // cmux: dictionary writes
-+        latest.updateValue(v, forKey: PartKey(id: m.id, part: pi, version: version))
++        latest.updateValue(v, forKey: pk)
          lock.unlock()
          return v
      }
-@@ -545,7 +574,7 @@
+@@ -570,7 +599,7 @@
          }
          let col = Metrics(width: width).maxTextWidth
          let total = tl.lines.reduce(0) { $0 + $1.width }
@@ -197,7 +198,7 @@
          let w = min(col, max(tl.width, total / CGFloat(lines))) + 2 * Fixture.bubblePadX
          return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                       text: nil, width: width, estimated: true)
-@@ -583,7 +612,7 @@
+@@ -608,7 +637,7 @@
          var rows: [RowSpec] = []
          let receipts = receiptTargets(messages, me: me)
          // Thread counts (roots with 2+ replies get a label).
@@ -206,7 +207,7 @@
          var replyCount: [ID: Int] = [:]
          if !threadMode {
              for idx in span {
-@@ -595,18 +624,14 @@
+@@ -620,18 +649,14 @@
          }
          // The message above the range: the nearest one that is not deleted.
          var prevIndex = span.lowerBound - 1
@@ -229,7 +230,7 @@
                  rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
                                      gap: prev == nil ? 12 : 0, height: 35.5))
                  gap = 0
-@@ -651,8 +676,9 @@
+@@ -676,8 +701,9 @@
              if m.retractedAt != nil {
                  rows.append(RowSpec(key: "unsent:\(m.id)", kind: .unsent(outgoing: outgoing), gap: max(gap, 8), height: 16))
              } else {
@@ -241,7 +242,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
                      let (size, tl) = (measured.size, measured.text)
-@@ -661,10 +687,10 @@
+@@ -686,10 +712,10 @@
                      // Link card then text: 3.5 pt (measured in the recording);
                      // every other pair in a group is 3 pt (macOS 26 references).
                      if g == 3, isText(part) {
@@ -254,7 +255,7 @@
                      // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                      // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                      // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
-@@ -683,7 +709,8 @@
+@@ -709,7 +735,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -264,7 +265,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -696,18 +723,22 @@
+@@ -722,18 +749,22 @@
              }
              prev = m
          }
@@ -290,7 +291,7 @@
      }
  
      /// Whether a row key belongs to a message (keys are "kind:messageID[:part]").
-@@ -725,9 +756,7 @@
+@@ -751,9 +782,7 @@
          var lastDelivered: (Int, Message)?
          // From the newest message back to my newest read one (a delivered one older than it
          // shows nothing): O(tail), not O(loaded window), per derive.
@@ -301,7 +302,7 @@
              if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
                  switch m.status {
                  case let .read(at): lastRead = (i, m, at); break scan
-@@ -735,7 +764,6 @@
+@@ -761,7 +790,6 @@
                  default: break
                  }
              }
@@ -309,7 +310,7 @@
          }
          var out: [ID: (String, String)] = [:]
          if let r = lastRead { out[r.1.id] = (Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))) }
-@@ -747,7 +775,7 @@
+@@ -773,7 +801,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -318,7 +319,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -766,7 +794,7 @@
+@@ -792,7 +820,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -327,7 +328,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -781,60 +809,62 @@
+@@ -807,8 +835,8 @@
          if days < 7 { return weekday.string(from: d) }
          return days < 300 ? monthDay.string(from: d) : monthDayYear.string(from: d)
      }
@@ -337,97 +338,24 @@
 +    static func duration(_ s: Double) -> String { let t = CrashGuard.int(s); return String(format: "%d:%02d", t / 60, t % 60) } // cmux: no trap on NaN
  }
  
-+/// cmux: `bundle: .module` (the catalog is the package's, not the app's).
- enum Strings {
--    static var today: String { String(localized: "separator.today", defaultValue: "Today") }
--    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday") }
--    static var read: String { String(localized: "receipt.read", defaultValue: "Read") }
--    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered") }
--    static var edited: String { String(localized: "label.edited", defaultValue: "Edited") }
--    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered") }
--    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message") }
--    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent") }
-+    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
-+    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
-+    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
-+    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered", bundle: .module) }
-+    static var edited: String { String(localized: "label.edited", defaultValue: "Edited", bundle: .module) }
-+    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
-+    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
-+    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
-     static func replies(_ n: Int) -> String {
--        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
-+        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
-     }
--    static var location: String { String(localized: "preview.location", defaultValue: "Location") }
-+    static var location: String { String(localized: "preview.location", defaultValue: "Location", bundle: .module) }
-     static func fileKind(_ a: Attachment) -> String {
-         switch (a.fileName as NSString).pathExtension.lowercased() {
--        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document")
--        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive")
--        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording")
--        default: return String(localized: "file.kind.document", defaultValue: "Document")
-+        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document", bundle: .module)
-+        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive", bundle: .module)
-+        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording", bundle: .module)
-+        default: return String(localized: "file.kind.document", defaultValue: "Document", bundle: .module)
+ /// Where every user-facing string of the MessagesLab code comes from (catalyst/Sources and
+@@ -821,7 +849,8 @@
+ enum MessagesLabLocalization {
+     private final class Token {}
+     private static let lock = NSLock()
+-    private static var current = Bundle(for: Token.self)
++    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
++    private static var current = Bundle.module
+     static var bundle: Bundle {
+         get { lock.lock(); defer { lock.unlock() }; return current }
+         set { lock.lock(); current = newValue; lock.unlock() }
+@@ -854,7 +883,8 @@
+         default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }
--    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "iMessage") }
--    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply") }
--    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply") }
--    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy") }
--    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit") }
--    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send") }
--    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…") }
--    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…") }
--    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…") }
--    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…") }
--    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…") }
--    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks") }
--    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks") }
--    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?") }
--    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.") }
--    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete") }
--    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel") }
--    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback") }
+-    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "iMessage") }
 +    // cmux: not "iMessage" (Apple's service name).
-+    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
-+    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply", bundle: .module) }
-+    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply", bundle: .module) }
-+    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
-+    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
-+    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
-+    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…", bundle: .module) }
-+    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…", bundle: .module) }
-+    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…", bundle: .module) }
-+    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…", bundle: .module) }
-+    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…", bundle: .module) }
-+    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks", bundle: .module) }
-+    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks", bundle: .module) }
-+    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?", bundle: .module) }
-+    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.", bundle: .module) }
-+    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete", bundle: .module) }
-+    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel", bundle: .module) }
-+    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
-     static func tapbackName(_ t: String) -> String {
-         switch t {
--        case "love": return String(localized: "tapback.love", defaultValue: "Love")
--        case "like": return String(localized: "tapback.like", defaultValue: "Like")
--        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike")
--        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh")
--        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize")
--        default: return String(localized: "tapback.question", defaultValue: "Question")
-+        case "love": return String(localized: "tapback.love", defaultValue: "Love", bundle: .module)
-+        case "like": return String(localized: "tapback.like", defaultValue: "Like", bundle: .module)
-+        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike", bundle: .module)
-+        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh", bundle: .module)
-+        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize", bundle: .module)
-+        default: return String(localized: "tapback.question", defaultValue: "Question", bundle: .module)
-         }
-     }
--    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA") }
-+    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA", bundle: .module) }
- }
- 
- extension CGSize: @retroactive Hashable {
++    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "Message") }
+     static var replyPlaceholder: String { MessagesLabLocalization.string("compose.placeholder.reply", "Reply") }
+     static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
+     static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }

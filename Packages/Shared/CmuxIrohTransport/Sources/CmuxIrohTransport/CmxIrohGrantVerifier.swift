@@ -156,7 +156,7 @@ public struct CmxIrohGrantVerifier: Sendable {
               Self.isCanonicalUUID(claims.bindingID),
               Self.isCanonicalUUID(claims.deviceID),
               Self.decodeBase64URL(claims.accountSubject)?.count == 32,
-              (1 ... Int(Int32.max)).contains(claims.identityGeneration),
+              claims.identityGeneration.isValidIdentityGeneration,
               claims.alpn == Self.alpn,
               claims.scope == Self.attestationScope,
               claims.notBefore >= notBeforeFloor,
@@ -302,7 +302,7 @@ public struct CmxIrohGrantVerifier: Sendable {
         isCanonicalUUID(peer.bindingID)
             && isCanonicalUUID(peer.deviceID)
             && (1 ... 64).contains(peer.tag.utf8.count)
-            && (1 ... Int(Int32.max)).contains(peer.identityGeneration)
+            && peer.identityGeneration.isValidIdentityGeneration
     }
 
     private static func isCanonicalUUID(_ value: String) -> Bool {
@@ -347,13 +347,12 @@ public struct CmxIrohGrantVerifier: Sendable {
     }
 
     private static func seconds(_ date: Date) throws -> Int64 {
-        let value = date.timeIntervalSince1970
-        guard value.isFinite,
-              value >= TimeInterval(Int64.min),
-              value <= TimeInterval(Int64.max) else {
+        // Int64(exactly:) is nil for NaN, infinity and 2^63 (TimeInterval(Int64.max)
+        // rounds up to 2^63, which the old range check let through to a trap).
+        guard let seconds = Int64(exactly: date.timeIntervalSince1970.rounded(.down)) else {
             throw CmxIrohGrantVerifierError.invalidClaims
         }
-        return Int64(value.rounded(.down))
+        return seconds
     }
 
     private static func sum(_ left: Int64, _ right: Int64) throws -> Int64 {

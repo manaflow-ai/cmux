@@ -98,8 +98,9 @@ struct ControlAuthorizer: Sendable {
         var current = Substring(line)
         for prefix in ["_cmux_capability_v1 ", "__cmux_automation_origin "] where current.hasPrefix(prefix) {
             let rest = current.dropFirst(prefix.count)
-            guard let space = rest.firstIndex(of: " ") else { return String(current) }
-            current = rest[rest.index(after: space)...]
+            let parts = rest.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, let after = parts.last else { return String(current) }
+            current = after
         }
         return String(current)
     }

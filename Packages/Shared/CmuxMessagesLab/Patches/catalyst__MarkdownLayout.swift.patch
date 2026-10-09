@@ -16,7 +16,7 @@
      static let codePadX: CGFloat = 8
      /// Space under a scrollable block's content for its scroll indicator.
      static let indicatorRoom: CGFloat = 5
-@@ -202,20 +202,27 @@
+@@ -233,20 +233,27 @@
          // Inner width: the widest content, at most the column. Stretchable boxes and
          // regions fill it; wider regions scroll.
          let inner = fill ? maxWidth : min(maxWidth, max(extent, 1).rounded(.up))
@@ -55,7 +55,7 @@
          }
          let size = CGSize(width: inner + 2 * padX, height: (y + 2 * padY).rounded(.up))
          var h = Hasher(); h.combine(source); h.combine(maxWidth)
-@@ -287,7 +294,7 @@
+@@ -329,7 +336,7 @@
                  blocks(bs, x: x + inner, width: w - inner, depth: depth + 1, listDepth: listDepth)
                  quoteDepth -= 1
                  out.boxes.append(MDBox(rect: CGRect(x: x + 1, y: top + 1, width: 3, height: max(14, y - top - 2)), kind: .quoteBar, region: -1))
@@ -64,7 +64,7 @@
                  out.ax.append(MDAXNode(kind: .quote, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top), children: kids))
              case let .list(l):
                  list(l, x: x, width: w, depth: depth, listDepth: listDepth)
-@@ -438,7 +445,7 @@
+@@ -480,7 +487,7 @@
                  if l.ordered { return "\(l.start + i)" + (it.marker.last == ")" ? ")" : ".") }
                  return ["•", "◦", "▪"][min(listDepth, 2)]
              }
@@ -73,7 +73,7 @@
              let markerW = max(anyTask ? 14 : 0, widest)
              let wanted = markerW + Markdown.markerGap + (listDepth == 0 && depth == 0 ? 2 : 0)
              let ind = MarkdownLayoutEngine.indent(x: x, wanted: wanted, width: w, level: listDepth + depth)
-@@ -466,7 +473,7 @@
+@@ -508,7 +515,7 @@
                  let n0 = out.ax.count
                  if it.blocks.isEmpty { y += Markdown.lineHeight }
                  else { blocks(it.blocks, x: x + ind, width: w - ind, depth: depth, listDepth: listDepth + 1, tight: !l.loose) }
@@ -82,7 +82,7 @@
                  kids.append(MDAXNode(kind: .item, range: NSRange(location: ip0, length: plainLen - ip0), frame: CGRect(x: x, y: itTop, width: w, height: y - itTop), children: sub))
                  out.extent = max(out.extent, x + ind + 4)
              }
-@@ -480,7 +487,7 @@
+@@ -522,7 +529,7 @@
              let rid = out.regions.count
              let cols = max(1, t.columns)
              let pad = Markdown.cellPadX
@@ -91,7 +91,7 @@
              let all: [[MDText]] = [t.header] + t.rows
              // Column widths: min = widest unbreakable word (capped), max = widest one-line cell.
              var minW = [CGFloat](repeating: 16, count: cols), maxW = [CGFloat](repeating: 16, count: cols)
-@@ -490,15 +497,16 @@
+@@ -532,15 +539,16 @@
              for (ri, row) in all.enumerated() {
                  var ra: [NSAttributedString] = []
                  for c in 0..<cols {
@@ -112,7 +112,7 @@
                      }
                  }
                  attrs.append(ra)
-@@ -509,18 +517,18 @@
+@@ -551,18 +559,18 @@
              var colW: [CGFloat]
              if let fixed = fixedColumns, !fixed.isEmpty {
                  // Continued table: the first block's widths; extra columns get their one-line width.
@@ -134,7 +134,7 @@
              }
              let tableW = colW.reduce(0, +) + chrome
              region = rid
-@@ -535,24 +543,24 @@
+@@ -577,24 +585,24 @@
                  var rowH: CGFloat = Markdown.lineHeight
                  var cellNodes: [MDAXNode] = []
                  let rp0 = plainLen
@@ -168,7 +168,7 @@
                  axRows.append(MDAXNode(kind: .row, range: NSRange(location: rp0, length: plainLen - rp0), frame: CGRect(x: x, y: rowTop, width: tableW, height: h), children: cellNodes))
                  y = rowTop + h
              }
-@@ -564,7 +572,7 @@
+@@ -606,7 +614,7 @@
              }
              for rt in rowTops.dropFirst() { out.boxes.append(MDBox(rect: CGRect(x: x, y: rt - 0.25, width: tableW, height: 0.5), kind: .gridH, region: rid)) }
              var gx = x + 0.5
@@ -177,7 +177,7 @@
              out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: tableW, height: bottom - top), kind: .tableBorder, region: rid))
              out.regions.append(MDRegion(kind: .table, frame: CGRect(x: x, y: top, width: min(w, tableW), height: bottom - top), contentWidth: tableW,
                                          range: NSRange(location: p0, length: plainLen - p0), stretch: false, copyText: tsv, lang: ""))
-@@ -613,8 +621,9 @@
+@@ -655,8 +663,9 @@
                  var traits: UIFontDescriptor.SymbolicTraits = []
                  if s.style.contains(.strong) { traits.insert(.traitBold) }
                  if s.style.contains(.emphasis) { traits.insert(.traitItalic) }
@@ -189,7 +189,7 @@
                  }
              }
              if let l = s.link { a.addAttribute(.link, value: l, range: r) }
-@@ -642,13 +651,13 @@
+@@ -684,13 +693,13 @@
      func get(_ k: K) -> V? {
          lock.lock(); defer { lock.unlock() }
          guard let v = map[k] else { return nil }

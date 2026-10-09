@@ -59,7 +59,11 @@ import Testing
             for _ in 0..<6 {
                 let p = CGPoint(x: CGFloat(next(500)) - 20, y: CGFloat(next(3000)) - 50)
                 if let h = sidebar.hit(p) { _ = sidebar.item(h); _ = sidebar.rect(h) }
-                sidebar.mouseMoved(p)
+                // No hover since MessagesLab f6fa7f5: a mouse move AppKit delivers to the list changes nothing.
+                if let e = NSEvent.mouseEvent(with: .mouseMoved, location: sidebar.document.convert(p, to: nil), modifierFlags: [], timestamp: 0,
+                                              windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                    sidebar.document.mouseMoved(with: e)
+                }
                 _ = sidebar.menu(at: p)
             }
             sidebar.moveSelection(next(7) - 3)
