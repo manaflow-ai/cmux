@@ -7,7 +7,7 @@ import Testing
 /// browser toolbar's omnibar at the toolbar's height and insets, and its suggestion card flush
 /// under the bar inside the surface it sits on.
 @MainActor
-@Suite(.serialized) struct OmnibarToolbarViewTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct OmnibarToolbarViewTests {
     @Test func theRowHasTheBrowserToolbarsHeightAndInsets() {
         let row = OmnibarToolbarView(suggestionEngine: OmniboxSuggestionEngine())
         row.frame = NSRect(x: 0, y: 0, width: 800, height: row.preferredHeight)
@@ -39,11 +39,8 @@ import Testing
         }
         await bar.suggestionEngine.historySettled()
         bar.debugType("git")
-        for _ in 0..<50 { await Task.yield() }
-        while let query = bar.controller.pendingQuery {
-            await query.value
-            if bar.controller.pendingQuery == query { break }
-        }
+        // Bounded: the card shows once the history query answers (a stalled host fails, never hangs).
+        for _ in 0..<500 where !bar.isShowingSuggestions { try await Task.sleep(for: .milliseconds(10)) }
         #expect(bar.isShowingSuggestions)
         let reported = try #require(bar.debugCard)
         #expect(reported.paneLayer && reported.isFlushUnderBar)
