@@ -59,8 +59,11 @@ enum PaneHandlers {
     /// then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
-        guard let pane = ctx.daemonPane(invocation), ctx.connection() != nil else { return }
-        let daemon = ctx.services.activeDaemon
+        guard let pane = ctx.daemonPane(invocation) else { return }
+        // The pane's own daemon: a CLI run can target a pane of a machine
+        // other than the active window's.
+        let daemon = ctx.services.daemon(for: pane)
+        guard daemon.connection != nil else { return ctx.refuse(MiscHandlerStrings.daemonOffline) }
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
