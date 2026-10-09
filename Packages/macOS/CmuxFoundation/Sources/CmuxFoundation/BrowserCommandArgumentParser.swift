@@ -86,7 +86,9 @@ public struct BrowserCommandArgumentParser: Sendable {
             }
 
             if valueOptions.contains(value) {
-                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
+                guard index + 1 < values.count,
+                      !values[index + 1].hasPrefix("-"),
+                      !values[index + 1].isEmpty || optionsAllowingEmptyValues.contains(value) else {
                     throw ParseError.missingValue(option: value)
                 }
                 index += 2

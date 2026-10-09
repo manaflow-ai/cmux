@@ -82,6 +82,9 @@ struct BrowserCommandArgumentParserTests {
         #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
             try parser.parse(["--selector="])
         }
+        #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
+            try parser.parse(["--selector", ""])
+        }
     }
 
     @Test("Reports a missing value using only the documented option")
@@ -90,6 +93,9 @@ struct BrowserCommandArgumentParserTests {
 
         #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
             try parser.parse(["--selector"])
+        }
+        #expect(throws: BrowserCommandArgumentParser.ParseError.missingValue(option: "--selector")) {
+            try parser.parse(["--selector", "--snapshot-after"])
         }
     }
 
