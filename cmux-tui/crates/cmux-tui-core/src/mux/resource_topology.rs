@@ -4824,8 +4824,7 @@ impl Mux {
         }
         .wire_name();
         if viewport_width.is_none() {
-            let state = self.state.lock().unwrap();
-            ensure_pane_column_not_agent_chat(operation, &state, target)?;
+            self.with_state(|state| ensure_pane_column_not_agent_chat(operation, state, target))?;
         }
         let workspace_key = self
             .workspace_key_for_pane(target)
