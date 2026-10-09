@@ -1,5 +1,6 @@
 import CmuxNextApps
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -61,7 +62,7 @@ import Testing
     }
 
     private func channel(_ recorded: RecordedLink, _ ops: GatedOps = GatedOps()) -> AppsProviderChannel {
-        let channel = AppsProviderChannel(link: recorded.link, backoff: { _ in .zero })
+        let channel = AppsProviderChannel(link: recorded.link, backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
         channel.attach(AppHostCapabilities([ops]))
         return channel
     }
@@ -116,11 +117,9 @@ import Testing
         #expect(await eventually { other.isRegistered })
     }
 
-    @Test func theBackoffDoublesUpToItsCap() {
-        #expect(AppsProviderChannel.backoff(0) == .milliseconds(500))
-        #expect(AppsProviderChannel.backoff(1) == .seconds(1))
-        #expect(AppsProviderChannel.backoff(3) == .seconds(4))
-        #expect(AppsProviderChannel.backoff(20) == .seconds(30))
+    @Test func theRegistrationBackoffDoublesUpToItsCap() {
+        let backoff = AppsProviderChannel.registerBackoff
+        #expect(backoff.initial == .milliseconds(500) && backoff.multiplier == 2 && backoff.maximum == .seconds(30))
     }
 
     /// A reconnect (epoch N to N+1, also inside one frame) cancels the old
