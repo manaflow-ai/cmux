@@ -115,6 +115,24 @@ test("marks fill in their vendor's colors by default, per theme lightness: Mocha
   }
 });
 
+test("a page without data-theme (Settings) takes the lightness from the root's color-scheme", async () => {
+  delete doc.documentElement.dataset.theme;
+  doc.documentElement.style.colorScheme = "light";
+  const root = await renderMarks(["codex"]);
+  try {
+    expect(fills()).toEqual([["openai", "#000000"]]);
+    // window.cmuxTheme.apply switching to a dark theme recolors the marks live.
+    await act(async () => {
+      doc.documentElement.style.colorScheme = "dark";
+      await settle();
+    });
+    expect(fills()).toEqual([["openai", "#FFFFFF"]]);
+  } finally {
+    doc.documentElement.style.colorScheme = "";
+    await act(async () => root.unmount());
+  }
+});
+
 test("the mono style fills every mark white on Mocha and black on Latte", async () => {
   applyAgentTheme(mocha);
   const root = await renderMarks(["claude", "codex", "gemini"]);
