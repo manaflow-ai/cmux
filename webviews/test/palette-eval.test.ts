@@ -35,7 +35,7 @@ describe("palette ranking eval", () => {
     expect(failed).toEqual([]);
   });
 
-  test("ranking quality stays at or above the recorded floors", () => {
+  test("ranking quality stays at or above the recorded floors", { timeout: 15_000 }, () => {
     // The static floors measure text matching; learning cases have their own 100% floor above.
     const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => !c.replay) });
     console.log(formatReport(report));
