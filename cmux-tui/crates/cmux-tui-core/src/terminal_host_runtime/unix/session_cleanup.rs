@@ -17,6 +17,8 @@ use std::sync::atomic::Ordering;
 use super::{HOST_KILL_WAIT, HostShared};
 use std::time::{Duration, Instant};
 
+pub(super) const SESSION_CLEANUP_FAILED_REASON: &str = "terminal session cleanup incomplete";
+
 #[derive(Debug)]
 pub(super) struct SessionCleanup {
     captured: Mutex<CaptureState>,
@@ -250,6 +252,10 @@ impl HostShared {
     pub(super) fn finish_group_escalation(&self) {
         if self.session_cleanup.wait_for_exit(HOST_KILL_WAIT) {
             self.publish_child_wait_predicate(&self.group_escalation_complete);
+        } else {
+            eprintln!("cmux-tui: terminal session cleanup did not complete within its bound");
+            self.group_escalation_failed.store(true, Ordering::Release);
+            self.publish_child_wait_predicate(&self.group_escalation_failed);
         }
     }
 }

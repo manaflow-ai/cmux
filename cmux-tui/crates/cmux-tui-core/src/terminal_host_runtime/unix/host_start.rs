@@ -161,6 +161,7 @@ pub(super) fn start_host_runtime(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
+        group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
         #[cfg(test)]
@@ -240,10 +241,16 @@ pub(super) fn start_host_runtime(
                 let signal = child_host.child_signal_lock.lock().unwrap();
                 let escalation_complete =
                     child_host.group_escalation_complete.load(Ordering::Acquire);
+                let escalation_failed = child_host.group_escalation_failed.load(Ordering::Acquire);
                 let termination_started = child_host.termination_started.load(Ordering::Acquire);
                 let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                if escalation_complete || (!termination_started && pty_drained) {
-                    let exit = child.wait_and_disarm();
+                if escalation_complete || escalation_failed || (!termination_started && pty_drained)
+                {
+                    let mut exit = child.wait_and_disarm();
+                    if escalation_failed {
+                        exit =
+                            TerminalExit::unknown(session_cleanup::SESSION_CLEANUP_FAILED_REASON);
+                    }
                     child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
                     *child_host.child_exit.0.lock().unwrap() = Some(exit);
