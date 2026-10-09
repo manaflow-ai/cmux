@@ -37,8 +37,9 @@ final class PageWKWebView: WKWebView {
         ) { [weak self] notification in
             // A synchronous callback records activation before AppKit invokes the menu action.
             // main-proof: NotificationCenter delivers this block on the main operation queue.
+            let menuID = (notification.object as? NSMenu).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
-                self?.menuWillSendAction(notification.object as? NSMenu)
+                self?.menuWillSendAction(menuID)
             }
         }
     }
@@ -83,13 +84,13 @@ final class PageWKWebView: WKWebView {
     /// An item of this view's context menu (or one of its submenus) is about to send its action:
     /// the person chose it, so the page call it leads to (a host-built Copy) follows a gesture.
     /// AppKit posts this only for a real menu choice; page script cannot.
-    private func menuWillSendAction(_ menu: NSMenu?) {
-        guard let opened = openedMenu, var menu else { return }
-        while menu !== opened {
-            guard let parent = menu.supermenu else { return }
-            menu = parent
-        }
+    private func menuWillSendAction(_ menuID: ObjectIdentifier?) {
+        guard let opened = openedMenu, let menuID, Self.containsMenu(menuID, in: opened) else { return }
         noteUserActivation(at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    private static func containsMenu(_ menuID: ObjectIdentifier, in menu: NSMenu) -> Bool {
+        ObjectIdentifier(menu) == menuID || menu.items.compactMap(\.submenu).contains { containsMenu(menuID, in: $0) }
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
