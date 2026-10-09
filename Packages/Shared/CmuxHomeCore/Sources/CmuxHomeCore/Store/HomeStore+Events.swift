@@ -22,6 +22,7 @@ extension HomeStore {
         } catch let rejection as HomeRejection {
             switch rejection {
             case .ownerUnreachable, .indeterminate:
+                possiblySent.insert(intent.key)
                 // Possibly committed: keep it and resend with the same key.
                 // Online: once at once, then after each backoff delay,
                 // then "Not Delivered" so later sends are not held forever.
@@ -56,6 +57,17 @@ extension HomeStore {
                 afterLogChange(intent.op)
                 throw rejection
             }
+        } catch is HomeOwnerOffline {
+            // Nothing left: its owner is down while another owner keeps the
+            // store online. A send waits for its recovery, as offline.
+            guard case .sendMessage = intent.op else {
+                log.discard(intent.key)
+                afterLogChange(intent.op)
+                throw HomeRejection.ownerUnreachable
+            }
+            waitForOwnerRecovery(intent.key)
+            afterLogChange(intent.op)
+            throw HomeSendState.pendingResend
         }
     }
 
@@ -106,6 +118,7 @@ extension HomeStore {
             // Offline intents wait for the reconnect, which resends them anyway.
             guard isOnline else { return }
             enqueueResends(log.takeResends())
+            resumeInterruptedUploads()
             for stream in mirror.stale { scheduleRefetch(stream) }
             rebuildRows()
         case .intentsRevoked(let keys):

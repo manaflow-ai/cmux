@@ -24,7 +24,11 @@ extension HomeStore {
         }
         if case .setTyping = op {
             // Ephemeral: no intent, nothing to settle or resend.
-            return try await source.submit(HomeIntent(key: key, op: op))
+            do {
+                return try await source.submit(HomeIntent(key: key, op: op))
+            } catch is HomeOwnerOffline {
+                throw HomeRejection.ownerUnreachable
+            }
         }
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
