@@ -56,6 +56,17 @@ final class CloudSheetWindow {
             window.setContentSize(initialContentSize)
         }
         applyPendingContentSize()
+        // AppKit may perform one more sheet-host layout on the next turn and
+        // reset the frame after beginSheet returns. Reapply after that pass so
+        // the first geometry report has a usable window to measure against.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let current = self.window.contentRect(forFrameRect: self.window.frame).size
+            if (current.width <= 1 || current.height <= 1), self.initialContentSize.width > 0, self.initialContentSize.height > 0 {
+                self.window.setContentSize(self.initialContentSize)
+            }
+            self.applyPendingContentSize()
+        }
     }
 
     /// Shows the sheet as a centered floating window when no host is on screen.
