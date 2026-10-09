@@ -64,6 +64,7 @@ final class SidebarToggleSlideProbe: NSObject {
     static func begin(visible: Bool, window: NSWindow, animator: SidebarToggleAnimator) -> SidebarToggleSlideProbe? {
         guard SidebarNavigationTimings.isEnabled, let view = window.contentView else { return nil }
         live?.finish()
+        SidebarToggleSlideEdges.record("start", window: window)
         let probe = SidebarToggleSlideProbe(visible: visible, window: window)
         let link = view.displayLink(target: probe, selector: #selector(tick(_:)))
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
@@ -100,11 +101,13 @@ final class SidebarToggleSlideProbe: NSObject {
     }
 
     func didLand(cpu: Double) {
+        SidebarToggleSlideEdges.record("landed", window: window)
         landingCPU = cpu
         landedWall = CACurrentMediaTime()
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        if landedWall == nil { SidebarToggleSlideEdges.record("frame", window: window) }
         let now = (wall: CACurrentMediaTime(), cpu: Self.threadCPU())
         if firstFrameMs == nil {
             firstFrameMs = (now.wall - startWall) * 1000

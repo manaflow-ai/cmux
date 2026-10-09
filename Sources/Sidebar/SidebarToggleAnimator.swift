@@ -34,9 +34,11 @@ final class SidebarToggleAnimator: ObservableObject {
     private var tabBarInsetDelta: () -> CGFloat = { 0 }
     /// How many action buttons a pane's tab bar shows on its trailing end.
     private var splitButtonCount: () -> Int = { 0 }
-    /// A hide's pictures, taken before the hidden layout commits.
-    private var pendingTabRow: SidebarSlideTabRowCapture?
-    private var pendingTrailingChrome: SidebarSlideTrailingChromeCapture?
+    /// A hide's start, taken before the hidden layout commits.
+    private var pendingStart: SidebarSlideStart?
+    /// The last hide's hidden and docked pane layouts: a show over the same
+    /// hidden layout lands on exactly that docked one.
+    private var paneLayouts: (hidden: SidebarSlidePaneLayout, docked: SidebarSlidePaneLayout, width: CGFloat)?
     private var machine = SidebarToggleSlideMachine(docked: true)
     /// What carries the running slide, captured when it starts and kept for
     /// every retarget until it lands.
@@ -159,16 +161,14 @@ final class SidebarToggleAnimator: ObservableObject {
                 } else {
                     slide = nil
                 }
-                pendingTabRow = captureTabRow(in: window, docked: true)
-                pendingTrailingChrome = captureTrailingChrome(in: window)
+                pendingStart = captureStart(in: window, docked: true)
                 commitAtomically(in: window) {
                     layout?.docksSidebar = false
                     dockedLayoutWillCommit(false)
                 } layers: {
                     if let slide { addSlideAnimation(slide, in: window) }
                 }
-                pendingTabRow = nil
-                pendingTrailingChrome = nil
+                pendingStart = nil
                 if let slide { machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime()) }
             case let .animate(slide):
                 CATransaction.begin()
@@ -246,16 +246,15 @@ final class SidebarToggleAnimator: ObservableObject {
         // drop the slide this was for; a session built for it would never land.
         guard machine.slide?.generation == slide.generation else { return }
         if session == nil, let views = Self.slidingViews(in: window), let layout {
-            let tabRow = pendingTabRow ?? captureTabRow(in: window, docked: false)
-            let trailingChrome = pendingTrailingChrome ?? captureTrailingChrome(in: window)
-            pendingTabRow = nil
-            pendingTrailingChrome = nil
+            let start = pendingStart ?? captureStart(in: window, docked: false)
+            pendingStart = nil
             session = SidebarToggleSlideSession(
                 views: views,
                 trailingStillWidth: trailingStillWidth(),
                 titleGlide: layout.titlebarTitle?.glide(sidebarWidth: layout.width),
-                tabRow: tabRow,
-                trailingChrome: trailingChrome
+                tabRow: start.tabRow,
+                lanes: start.lanes,
+                panes: paneLayouts(for: start, reference: views[0], width: layout.width, window: window)
             )
         }
         guard let session, !session.movingLayers.isEmpty else {
@@ -284,20 +283,30 @@ final class SidebarToggleAnimator: ObservableObject {
         // Chrome that rests elsewhere in the two layouts glides on top of the
         // content root's motion, by the same spring scaled (`SidebarSlideGlide`).
         for glide in session.glides {
-            let animation = slideSpring(from: slide.from * glide.factor, to: slide.to * glide.factor, velocity: velocity, duration: slide.duration, keyPath: glide.keyPath)
+            let animation = slideSpring(from: glide.base + slide.from * glide.factor, to: glide.base + slide.to * glide.factor, velocity: velocity, duration: slide.duration, keyPath: glide.keyPath)
             glide.layer.add(animation, forKey: Self.animationKey)
         }
     }
 
-    private func captureTabRow(in window: NSWindow, docked: Bool) -> SidebarSlideTabRowCapture? {
-        guard let reference = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]?.installedReferenceView,
-              let layout else { return nil }
-        return SidebarSlideTabRowCapture.capture(in: reference, docked: docked, inset: tabBarInsetDelta(), sidebarWidth: layout.width)
+    private func captureStart(in window: NSWindow, docked: Bool) -> SidebarSlideStart {
+        SidebarSlideStart.capture(in: window, docked: docked, inset: tabBarInsetDelta(), sidebarWidth: layout?.width ?? 0, buttonCount: splitButtonCount())
     }
 
-    private func captureTrailingChrome(in window: NSWindow) -> SidebarSlideTrailingChromeCapture? {
-        guard let reference = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]?.installedReferenceView else { return nil }
-        return SidebarSlideTrailingChromeCapture.capture(in: reference, buttonCount: splitButtonCount())
+    /// The hidden layout is on screen now; the docked one was measured at a
+    /// hide's press, seen at the last hide over this same hidden layout, or
+    /// failing both, predicted.
+    private func paneLayouts(for start: SidebarSlideStart, reference: NSView, width: CGFloat, window: NSWindow) -> SidebarToggleSlideSession.Panes {
+        let hidden = SidebarSlidePaneLayout.measure(in: reference)
+        let docked: SidebarSlidePaneLayout
+        if let measured = start.docked {
+            docked = measured
+            paneLayouts = (hidden, measured, width)
+        } else if let seen = paneLayouts, seen.width == width, seen.hidden.matches(hidden) {
+            docked = seen.docked
+        } else {
+            docked = hidden.predictedDocked(in: reference, sidebarWidth: width)
+        }
+        return .init(hidden: hidden, docked: docked, hostedViews: SidebarSlideStart.hostedViews(in: window), sidebarWidth: width)
     }
 
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {

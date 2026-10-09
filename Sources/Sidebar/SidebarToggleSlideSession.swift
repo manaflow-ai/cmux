@@ -16,19 +16,46 @@ final class SidebarToggleSlideSession {
     private let stillOverlay: NSView?
     private var tabRowOverlay: NSView?
     private var stillChrome: [NSView] = []
+    private var paneGlide: SidebarSlidePaneGlide?
+
+    /// The panes' rects in both layouts, for per-pane motion.
+    struct Panes {
+        let hidden: SidebarSlidePaneLayout
+        let docked: SidebarSlidePaneLayout
+        let hostedViews: [NSView]
+        let sidebarWidth: CGFloat
+    }
 
     convenience init(
         views: [NSView],
         trailingStillWidth: CGFloat,
         titleGlide: SidebarSlideGlide.Layer?,
         tabRow: SidebarSlideTabRowCapture?,
-        trailingChrome: SidebarSlideTrailingChromeCapture?
+        lanes: SidebarSlideTrailingChromeCapture?,
+        panes: Panes?
     ) {
         self.init(views: views, trailingStillWidth: trailingStillWidth)
-        if let reference = views.first, let container = reference.superview {
-            stillChrome = trailingChrome?.makeOverlays(above: reference, in: container) ?? []
-        }
         glides = [titleGlide].compactMap { $0 }
+        if let reference = views.first, let container = reference.superview, let last = views.last {
+            // Each pane moves on its own; without that, the trailing-edge
+            // panes' action buttons at least hold still.
+            if let panes, let glide = SidebarSlidePaneGlide(
+                reference: reference,
+                container: container,
+                above: last,
+                hostedViews: panes.hostedViews,
+                hidden: panes.hidden,
+                docked: panes.docked,
+                sidebarWidth: panes.sidebarWidth,
+                lanes: lanes?.lanes ?? [:]
+            ), let layer = glide.overlay?.layer {
+                paneGlide = glide
+                movingLayers.append(layer)
+                glides.append(contentsOf: glide.animations)
+            } else {
+                stillChrome = lanes?.makeOverlays(above: reference, in: container) ?? []
+            }
+        }
         // The tab row picture rides with the content root (below the right
         // sidebar's still snapshot) and glides inside it.
         if let tabRow, let reference = views.first, let container = reference.superview,
@@ -85,6 +112,7 @@ final class SidebarToggleSlideSession {
             layer.mask = nil
         }
         glides.forEach { $0.layer.removeAnimation(forKey: animationKey) }
+        paneGlide?.tearDown(animationKey: animationKey)
         tabRowOverlay?.removeFromSuperview()
         stillChrome.forEach { $0.removeFromSuperview() }
         stillOverlay?.removeFromSuperview()

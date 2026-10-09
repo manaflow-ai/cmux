@@ -23,10 +23,12 @@ enum SidebarSlideGlide {
 
     /// One layer the slide moves by `factor` points per point of content
     /// offset, on top of the content root's own translation.
+    /// The animated value is `base + factor * offset`.
     struct Layer {
         let layer: CALayer
         let keyPath: String
         let factor: Double
+        var base: Double = 0
     }
 }
 
@@ -261,7 +263,10 @@ struct SidebarSlideTabRowCapture {
 /// press, over the real ones, and drops it in the commit that lands.
 @MainActor
 struct SidebarSlideTrailingChromeCapture {
-    let pictures: [(image: CGImage, rect: NSRect)]
+    /// Every pane's action lane, keyed by the pane's hosting view.
+    let lanes: [ObjectIdentifier: (image: CGImage, rect: NSRect)]
+    /// The panes that end at the content's trailing edge.
+    let trailingEdge: Set<ObjectIdentifier>
 
     /// Bonsplit's action lane: 6 pt leading and 8 pt trailing padding, 22 pt
     /// per button and 4 pt between them, all shown up to five buttons.
@@ -291,20 +296,25 @@ struct SidebarSlideTrailingChromeCapture {
         }
         walk(reference)
         guard let trailing = rows.values.map(\.pane.maxX).max() else { return nil }
-        var pictures: [(image: CGImage, rect: NSRect)] = []
-        for row in rows.values where row.pane.maxX > trailing - 1 {
+        var lanes: [ObjectIdentifier: (image: CGImage, rect: NSRect)] = [:]
+        var trailingEdge: Set<ObjectIdentifier> = []
+        for (id, row) in rows {
             let lane = laneWidth(buttonCount: buttonCount, paneWidth: row.pane.width)
             let rect = NSRect(x: row.pane.maxX - lane, y: row.tabs.minY, width: lane, height: row.tabs.height)
-            if let image = SidebarSlideTabRowCapture.snapshot(reference, rect) { pictures.append((image, rect)) }
+            guard let image = SidebarSlideTabRowCapture.snapshot(reference, rect) else { continue }
+            lanes[id] = (image, rect)
+            if row.pane.maxX > trailing - 1 { trailingEdge.insert(id) }
         }
 #if DEBUG
-        SidebarNavigationTimings.record("slide.trailing rows=\(rows.count) pictures=\(pictures.count) buttons=\(buttonCount)")
+        SidebarNavigationTimings.record("slide.trailing rows=\(rows.count) lanes=\(lanes.count) buttons=\(buttonCount)")
 #endif
-        return pictures.isEmpty ? nil : Self(pictures: pictures)
+        return lanes.isEmpty ? nil : Self(lanes: lanes, trailingEdge: trailingEdge)
     }
 
+    /// Fallback without per-pane motion: still pictures of the trailing-edge
+    /// panes' lanes, which rest at the same x in both layouts.
     func makeOverlays(above reference: NSView, in container: NSView) -> [NSView] {
-        pictures.map { picture in
+        lanes.filter { trailingEdge.contains($0.key) }.values.map { picture in
             let view = SidebarSlidePassthroughView(frame: container.convert(picture.rect, from: reference))
             view.wantsLayer = true
             view.image = picture.image
