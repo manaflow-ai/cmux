@@ -1629,7 +1629,12 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
     const started = (async () => {
-      const sessionId = await this.startSession(harness, cwd, peer, () => void this.create(harness, cwd, peer).catch(() => undefined));
+      const sessionId = await this.startSession(
+        harness,
+        cwd,
+        peer,
+        () => void this.create(harness, cwd, peer).catch(() => undefined),
+      );
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -1644,7 +1649,10 @@ export class AcpmuxDirectClient {
   /// new chat and shows it once it is ready (harnessSwitch.ts).
   /// `again` re-runs the caller's step after a Trust answer (the trust route).
   async startSession(harness?: string, cwd?: string, peer?: string, again?: () => void): Promise<string | undefined> {
-    const result = await this.newSession(newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness), again);
+    const result = await this.newSession(
+      newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+      again,
+    );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     return result?.sessionId ? String(result.sessionId) : undefined;
@@ -1710,7 +1718,10 @@ export class AcpmuxDirectClient {
     let result: any;
     try {
       // After Trust the same chat is adopted again.
-      result = await this.newSession(newSessionParams({ adopt }), () => void this.adoptChat(adopt).catch(() => undefined));
+      result = await this.newSession(
+        newSessionParams({ adopt }),
+        () => void this.adoptChat(adopt).catch(() => undefined),
+      );
     } catch (error) {
       if (this.socket?.readyState !== WebSocket.OPEN) throw error;
       // The trust route asks about the folder; this is no failure to resume.

@@ -1562,10 +1562,15 @@ describe("direct client session state", () => {
   /// Every caller of session/new, and a refused prompt, goes through one route
   /// (`onTrustRefused`): the question for the folder acpmux named, and `again` re-runs that step.
   describe("one trust route for every session/new caller", () => {
-    const trustPending = { code: -32602, message: "trust.pending: answer first (/work)", data: { reason: "trust.pending", cwd: "/work" } };
+    const trustPending = {
+      code: -32602,
+      message: "trust.pending: answer first (/work)",
+      data: { reason: "trust.pending", cwd: "/work" },
+    };
     const route = (client: AcpmuxDirectClient) => {
       const seen: { reason: string; cwd?: string; again: boolean }[] = [];
-      client.onTrustRefused = (refusal, again) => seen.push({ reason: refusal.reason, cwd: refusal.cwd, again: again !== undefined });
+      client.onTrustRefused = (refusal, again) =>
+        seen.push({ reason: refusal.reason, cwd: refusal.cwd, again: again !== undefined });
       return seen;
     };
 
@@ -1596,8 +1601,9 @@ describe("direct client session state", () => {
       const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
       ScriptedSocket.held.add("session/new");
       ScriptedSocket.respond = ({ method }) => (method === "_acpmux/watch" ? { sessions: [] } : {});
-      const connecting = AcpmuxDirectClient.connect({ ...host, sessionId: undefined, newSession: true, adopt }, (snapshot) =>
-        snapshots.push(snapshot),
+      const connecting = AcpmuxDirectClient.connect(
+        { ...host, sessionId: undefined, newSession: true, adopt },
+        (snapshot) => snapshots.push(snapshot),
       );
       await settle();
       ScriptedSocket.current.fail("session/new", trustPending);
