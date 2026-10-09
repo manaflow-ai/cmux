@@ -33,6 +33,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::GlobalArgs;
+use super::fix_command::restart_daemon as fix_command;
 
 /// Set on the re-exec'd process to the build id it was started for.
 pub(super) const GUARD_ENV: &str = "CMUX_CLI_REEXEC";
@@ -220,19 +221,6 @@ pub(super) fn reexec_line(daemon: &DaemonBuild, own_build: &str) -> String {
     )
 }
 
-/// The one command that fixes a skew this CLI cannot resolve itself: stop
-/// the daemon (its terminals survive the handoff) and start it with this
-/// CLI's binary.
-pub(super) fn fix_command(own_exe: &Path, socket: &Path) -> String {
-    let exe = shell_quote(&own_exe.to_string_lossy());
-    let socket = shell_quote(&socket.to_string_lossy());
-    format!("{exe} daemon stop --socket {socket} && {exe} daemon ensure --socket {socket}")
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 /// The daemon `global` routes to, its build, and how it was reached; `None`
 /// when no local daemon answers (nothing is started) and always for a
 /// `--machine` (remote) route, which is never probed. SSH, relay and Cloud
@@ -319,7 +307,7 @@ fn reexec_with(
             return Err(Some(format!(
                 "cmux: the daemon runs build {} and its CLI cannot be used ({refusal}); fix: {}",
                 daemon.build_id,
-                fix_command(&exe, &socket)
+                fix_command(&super::fix_command::this_cli(), &socket)
             )));
         }
     };

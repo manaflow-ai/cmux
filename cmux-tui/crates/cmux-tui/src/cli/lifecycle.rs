@@ -221,7 +221,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
                     "server.stats_unsupported",
-                    crate::localization::catalog().local_server.stats_unsupported,
+                    &format!(
+                        "{} {}",
+                        crate::localization::catalog().local_server.stats_unsupported,
+                        super::fix_command::restart_daemon(
+                            &super::fix_command::this_cli(),
+                            std::path::Path::new(&socket_output),
+                        )
+                    ),
                     global.output,
                     1,
                 ),

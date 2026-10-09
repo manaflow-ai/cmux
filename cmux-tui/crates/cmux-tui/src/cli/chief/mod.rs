@@ -213,11 +213,12 @@ impl Session {
             LinkError::Transport(message) => (3, message),
             LinkError::Rejected { code, .. } if code.starts_with("validation.invalid") => {
                 // A daemon of another build: run its CLI (cli/skew.rs), else
-                // name the exact fix.
-                match super::skew::reexec_at_dead_end_on(&socket).err().flatten() {
-                    Some(fix) => (1, format!("{}\n{fix}", m.no_conversations)),
-                    None => (1, m.no_conversations.to_owned()),
-                }
+                // name the exact fix. Stopping is enough: opening the Chief
+                // again starts the home daemon with this build.
+                let _ = super::skew::reexec_at_dead_end_on(&socket);
+                let stop =
+                    super::fix_command::stop_daemon(&super::fix_command::this_cli(), &socket);
+                (1, m.no_conversations.replace("{stop}", &stop))
             }
             rejected => (1, rejected.to_string()),
         };

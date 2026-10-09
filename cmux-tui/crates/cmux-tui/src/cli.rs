@@ -24,6 +24,7 @@ mod command;
 mod docs;
 mod extra_help;
 mod federation;
+mod fix_command;
 #[cfg(unix)]
 mod frontend_browser;
 #[cfg(unix)]
