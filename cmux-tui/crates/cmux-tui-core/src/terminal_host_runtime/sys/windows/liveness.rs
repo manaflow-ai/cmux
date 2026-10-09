@@ -39,17 +39,7 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
-        // SAFETY: the handle this lease owns; the whole range it locked.
-        unsafe {
-            UnlockFileEx(
-                self.file.as_raw_handle() as HANDLE,
-                0,
-                u32::MAX,
-                u32::MAX,
-                &mut overlapped,
-            )
-        };
+        unlock_file(&self.file);
     }
 }
 
@@ -78,6 +68,13 @@ fn open(path: &Path, create: bool) -> io::Result<File> {
 /// else Ok(None) when another handle holds a conflicting lock.
 pub fn acquire(path: &Path, kind: LeaseKind, wait: bool) -> io::Result<Option<Lease>> {
     let file = open(path, true)?;
+    Ok(if lock_file(&file, kind, wait)? { Some(Lease { file, kind }) } else { None })
+}
+
+/// Locks the whole of an open `file` through this handle. `wait`: block
+/// until free; else Ok(false) when another handle holds a conflicting lock.
+/// The lock lives until [`unlock_file`] or the handle closes.
+pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     let mut flags = 0;
     if kind == LeaseKind::Exclusive {
         flags |= LOCKFILE_EXCLUSIVE_LOCK;
@@ -92,13 +89,20 @@ pub fn acquire(path: &Path, kind: LeaseKind, wait: bool) -> io::Result<Option<Le
         LockFileEx(file.as_raw_handle() as HANDLE, flags, 0, u32::MAX, u32::MAX, &mut overlapped)
     };
     if ok != 0 {
-        return Ok(Some(Lease { file, kind }));
+        return Ok(true);
     }
     let error = io::Error::last_os_error();
     if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
-        return Ok(None);
+        return Ok(false);
     }
     Err(error)
+}
+
+/// Releases this handle's whole-file lock.
+pub fn unlock_file(file: &File) {
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid handle; the whole range `lock_file` locked.
+    unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };
 }
 
 /// Whether a lease file's holder lives: tries an exclusive lock without

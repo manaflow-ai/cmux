@@ -12,4 +12,5 @@
 pub mod endpoint;
 pub mod jobs;
 pub mod liveness;
+pub mod seams;
 pub mod standby;
