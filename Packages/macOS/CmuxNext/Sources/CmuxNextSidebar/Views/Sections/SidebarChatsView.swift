@@ -7,7 +7,7 @@ import CmuxNextIcons
 /// (the title, search, project filter and grouping) shows only while the
 /// pointer is over the sidebar, or while a search or filter is in effect.
 /// The section draws its own header: the band adds none (no `title(for:)`).
-public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewDelegate, SidebarHoverRevealing {
+public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, SidebarHoverRevealing {
     public nonisolated static var contribution: String { SidebarLayoutDocument.recentsContribution }
     public static var title: String { String(localized: "sidebar.chats.title", defaultValue: "All chats", bundle: .module) }
     public static var searchPlaceholder: String { String(localized: "sidebar.chats.search", defaultValue: "Search chats", bundle: .module) }
@@ -87,6 +87,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         search.controlSize = .small
         search.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         search.target = self
+        search.delegate = self
         search.action = #selector(searchChanged)
         onSearchChanged = { [weak self] in
             guard let self else { return }
@@ -179,8 +180,12 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The header shows while hovered, and while a search or project filter
     /// is in effect (a hidden filter would leave rows missing with no sign why).
     var isHeaderRevealed: Bool {
-        isHoverRevealed || !search.stringValue.isEmpty || selectedProject != nil
+        isHoverRevealed || !search.stringValue.isEmpty || selectedProject != nil || search.currentEditor() != nil
     }
+
+    /// Typing in the search keeps the header shown; leaving it may hide it.
+    public func controlTextDidBeginEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
+    public func controlTextDidEndEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
 
     private func applyHeaderReveal(animated: Bool) {
         let alpha: CGFloat = isHeaderRevealed ? 1 : 0

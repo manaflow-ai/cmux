@@ -267,6 +267,7 @@ public final class SidebarView: NSView {
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + updateHeight + cardsHeight)
+        syncBelowBandAlpha()
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
