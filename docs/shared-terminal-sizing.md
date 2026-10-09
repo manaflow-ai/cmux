@@ -43,7 +43,9 @@ a smaller viewing Mac therefore shrinks the grid, as a phone does.
 Both hosts run the same reducer:
 
 - Swift: `Packages/Shared/CmuxTerminalSizing` (`TerminalSizingEngine`).
-- Rust: `cmux-tui/crates/cmux-tui-core/src/sizing_policy.rs`.
+- Rust: `cmux-tui/crates/cmux-terminal-sizing` (the daemon uses it as
+  `cmux_tui_core::sizing_policy`; the iOS and Android core bind it through
+  `cmux-mobile-ffi`).
 
 `schemas/terminal-sizing/fixtures.json` is the conformance corpus. Both test suites
 replay every case. A behavior change starts with a new fixture.

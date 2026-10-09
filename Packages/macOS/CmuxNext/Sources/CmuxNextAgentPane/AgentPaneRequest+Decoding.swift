@@ -18,19 +18,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "chat.readDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty {
-                self = .readDraft(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.writeDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty,
-               let text = params?["text"] as? String {
-                self = .writeDraft(id, text: String(text.prefix(Self.maximumDraftText)))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)

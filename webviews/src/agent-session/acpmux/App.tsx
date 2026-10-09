@@ -34,7 +34,7 @@ import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
-import { composerDraft } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
@@ -1820,6 +1820,9 @@ function AcpmuxPane() {
             composerHandle.current?.focus();
           },
           "chat.history": () => client.loadOlder(),
+          // Composer drafts belong to the daemon session so every host can restore them.
+          "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
+          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -1878,6 +1881,7 @@ function AcpmuxPane() {
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
         };
+        notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
           restore: restorePrompt,
           opened: (sessionId) => {
@@ -1957,6 +1961,7 @@ function AcpmuxPane() {
       directClient.current?.close();
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
+      notifyDraftActionsChanged();
     };
     // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
   }, [harnessSwitch, queryClient, toggleInspector]);
