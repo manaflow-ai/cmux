@@ -249,3 +249,18 @@ impl PgPlan {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name that does not quote (empty, or holding NUL) becomes a
+    /// zero-length identifier that Postgres refuses; it never panics and
+    /// never reaches the SQL unquoted.
+    #[test]
+    fn a_name_that_does_not_quote_is_refused_by_postgres_not_a_panic() {
+        assert_eq!(ident("app_x"), "\"app_x\"");
+        assert_eq!(ident(""), "\"\"");
+        assert_eq!(ident("a\0b"), "\"\"");
+    }
+}
