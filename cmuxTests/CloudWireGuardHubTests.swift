@@ -459,16 +459,16 @@ struct CloudWireGuardHubTests {
         // counter just before the shared startup task publishes `.stopped`.
         // Model restored-link demand as a real retry so it cannot join that
         // last failing task and mistake the handoff race for lost demand.
-        var restoredLink: (lease: CloudWireGuardHub.Lease, ready: CloudWireGuardHub.Ready)?
+        var restoredLinkResult: (lease: CloudWireGuardHub.Lease, ready: CloudWireGuardHub.Ready)?
         let retryDeadline = ContinuousClock.now + .seconds(10)
-        while restoredLink == nil, ContinuousClock.now < retryDeadline {
+        while restoredLinkResult == nil, ContinuousClock.now < retryDeadline {
             do {
-                restoredLink = try await h.hub.acquire()
+                restoredLinkResult = try await h.hub.acquire()
             } catch {
                 await Task.yield()
             }
         }
-        let restoredLink = try #require(restoredLink)
+        let restoredLink = try #require(restoredLinkResult)
         #expect(await attempts.value == 4)
         #expect(restoredLink.ready.socketPath == h.socketPath)
         #expect(await h.hub.status().leases == 2)
