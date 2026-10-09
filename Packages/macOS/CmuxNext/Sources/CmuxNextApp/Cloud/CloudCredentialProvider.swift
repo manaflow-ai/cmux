@@ -29,7 +29,17 @@ final class CloudCredentialProvider {
     /// Registers the family when `userOriginAllowed`; returns whether it is
     /// registered. A refusal is logged and not retried on this connection.
     static func register(userOriginAllowed: Bool, send: Register) async -> Bool {
-        false
+        guard userOriginAllowed else {
+            logger.info("credential provider: not the verified app connection; not registered")
+            return false
+        }
+        do {
+            _ = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
+            return true
+        } catch {
+            logger.error("credential provider: register refused: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     /// Handles one local daemon event: a provider call of the family starts

@@ -39,13 +39,77 @@ nonisolated struct CloudCredentialRelay: Sendable {
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
 
-    /// Answers one provider call of the `credential` family (red: not served yet).
+    /// Answers one provider call of the `credential` family.
     func answer(_ call: AppsProviderCall) async -> Answer {
-        Self.failure("operation.unsupported", "\(call.op) is not served yet")
+        switch call.op {
+        case Self.sessionOp:
+            let state = await session()
+            return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
+        case Self.relayOp:
+            return await relay(call.params)
+        default:
+            return Self.failure("operation.unsupported", "\(call.op) is not a credential op")
+        }
     }
 
+    private func relay(_ params: JSONValue) async -> Answer {
+        guard let op = params["op"]?.stringValue, !op.isEmpty else {
+            return Self.failure("validation.invalid", "credential.relay needs an op")
+        }
+        guard await session().signedIn else { return Self.notSignedIn }
+        let key = params["idempotency_key"]?.stringValue
+        var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
+        let path: String
+        if let key {
+            path = "v1/ops"
+            envelope["idempotency_key"] = .string(key)
+            envelope["origin"] = .string(params["origin"]?.stringValue ?? "script")
+        } else {
+            path = "v1/read"
+        }
+        guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else {
+            return Self.failure("validation.invalid", "credential.relay params are not JSON")
+        }
+        do {
+            var reply = try await post(path, body, try await token())
+            if reply.status == 401 {
+                // A stale token: mint once more, then the Worker's answer stands.
+                await invalidate()
+                reply = try await post(path, body, try await token())
+            }
+            return Self.answer(status: reply.status, body: reply.body)
+        } catch {
+            if await !session().signedIn { return Self.notSignedIn }
+            return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
+        }
+    }
+
+    /// Folds a Worker answer into the ABI body: `{ok: true, value,
+    /// revision?, replayed?}` keeps `value`, `revision` and `replayed`; an
+    /// `{ok: false, error}` answer gives its error as is; a non-200 answer
+    /// its `{code, message}` (retryable on 503).
     static func answer(status: Int, body: Data) -> Answer {
-        failure("operation.unsupported", "not served yet")
+        let reply = try? JSONDecoder().decode(JSONValue.self, from: body)
+        guard status == 200 else {
+            let code = reply?["code"]?.stringValue ?? "http_\(status)"
+            let message = reply?["message"]?.stringValue ?? "the cmux API answered HTTP \(status)"
+            return failure(code, message, retryable: status == 503)
+        }
+        guard let reply, let ok = reply["ok"]?.boolValue else {
+            return failure("owner.bad_reply", "the cmux API answered without ok", retryable: true)
+        }
+        guard ok else {
+            guard case .object(var error)? = reply["error"], error["code"]?.stringValue != nil else {
+                return failure("owner.bad_reply", "the cmux API refused without an error code", retryable: true)
+            }
+            if error["message"]?.stringValue == nil { error["message"] = .string("") }
+            if error["retryable"]?.boolValue == nil { error["retryable"] = .bool(false) }
+            return Answer(ok: false, body: .object(error))
+        }
+        var out: [String: JSONValue] = ["value": reply["value"] ?? .null]
+        if let revision = reply["revision"], revision != .null { out["revision"] = revision.stringValue.map(JSONValue.string) ?? revision }
+        if let replayed = reply["replayed"]?.boolValue { out["replayed"] = .bool(replayed) }
+        return Answer(ok: true, body: .object(out))
     }
 
     static let notSignedIn = failure("not_signed_in", "sign in to cmux")
