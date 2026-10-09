@@ -13,10 +13,24 @@ export interface Connection {
 }
 
 export interface BranchProvider {
-  /** Creates `name` from branch `from` (schema and data) and waits until it is ready. */
+  /** Creates `name` as a copy of branch `from` (schema, data and roles, as of 6 minutes ago) and waits until it is ready. */
   create(database: string, name: string, from: string): Promise<void>
-  /** A short-lived role on `branch`: admin (inherits postgres) or read (pg_read_all_data). */
-  connect(database: string, branch: string, access: "admin" | "read", label: string): Promise<Connection>
+  /** A short-lived role on `branch`: admin (inherits postgres) or read (pg_read_all_data), plus `inherit` (existing Postgres roles, e.g. the owner). */
+  connect(database: string, branch: string, access: "admin" | "read", label: string, inherit?: ReadonlyArray<string>): Promise<Connection>
+  /**
+   * The copy's default `postgres` role, by resetting its password (rehearsal branches only: the
+   * reset never touches the parent). A pscale role cannot inherit a non-builtin role, so this is
+   * how a rehearsal reaches the owner role the copy restored from its parent.
+   */
+  connectDefault(database: string, branch: string): Promise<Connection>
+  /**
+   * The copy's own record of PlanetScale role `roleName` (restored with the parent), by resetting
+   * its password on the copy (rehearsal branches only; the parent's role is never touched).
+   * undefined when the copy has no such record.
+   */
+  connectRole(database: string, branch: string, roleName: string): Promise<Connection | undefined>
+  /** Role names the branch lists (names only, for the rehearsal log). */
+  roleNames(database: string, branch: string): Promise<Array<string>>
   /** The Postgres role of an existing PlanetScale role, if the branch has one with that name (its login user name without the `.<branch id>` routing suffix). */
   roleUser(database: string, branch: string, roleName: string): Promise<string | undefined>
   delete(database: string, name: string): Promise<void>
@@ -70,15 +84,20 @@ interface RoleJson {
 export const roleUrl = (role: RoleJson): string => {
   if (!role.username || !role.password || !role.access_host_url) throw new Error("pscale role create returned no credentials")
   const db = role.database_name || "postgres"
-  return `postgresql://${encodeURIComponent(role.username)}:${encodeURIComponent(role.password)}@${role.access_host_url}:5432/${encodeURIComponent(db)}?sslmode=require`
+  return `postgresql://${encodeURIComponent(role.username)}:${encodeURIComponent(role.password)}@${role.access_host_url}:5432/${encodeURIComponent(db)}?sslmode=verify-full`
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export const pscaleProvider = (): BranchProvider => ({
+  // Rehearsal branches must be copies (schema, data, roles) of their parent; see create.
   async create(database, name, from) {
     if (!REHEARSAL_BRANCH.test(name)) throw new Error(`refusing to create ${name}: not a rehearsal branch name`)
-    await must(["branch", "create", database, name, "--from", from, "--wait"])
+    // A Postgres branch made with --from alone is an empty cluster (no schema, data or roles: the
+    // 2026-10-09 live rehearsal). A point-in-time restore of the parent 6 min ago (PlanetScale needs 5+) is a real copy;
+    // the rehearsal then checks the copy has exactly the parent's applied rows.
+    const point = new Date(Date.now() - 6 * 60_000).toISOString().replace(/\.\d+Z$/, "Z")
+    await must(["branch", "create", database, name, "--from", from, "--restore-point", point, "--replicas", "0", "--wait"])
     // --wait returns when the branch exists; poll `ready` too (Postgres branches restore data first).
     for (let i = 0; i < 120; i++) {
       const show = JSON.parse(await must(["branch", "show", database, name])) as { ready?: boolean; state?: string }
@@ -87,9 +106,9 @@ export const pscaleProvider = (): BranchProvider => ({
     }
     throw new Error(`branch ${name} not ready after 20 minutes`)
   },
-  async connect(database, branch, access, label) {
+  async connect(database, branch, access, label, inherit = []) {
     const roleName = `${label}-${Date.now().toString(36)}`.slice(0, 60)
-    const inherited = access === "admin" ? "postgres" : "pg_read_all_data"
+    const inherited = [access === "admin" ? "postgres" : "pg_read_all_data", ...inherit].join(",")
     const role = JSON.parse(await must(["role", "create", database, branch, roleName, "--inherited-roles", inherited, "--ttl", "2h"])) as RoleJson
     const url = roleUrl(role)
     return {
@@ -100,6 +119,22 @@ export const pscaleProvider = (): BranchProvider => ({
         if (run.code !== 0) console.warn(`warning: could not delete role ${roleName} on ${database}/${branch} (it expires in 2 h): ${errorText(run)}`)
       },
     }
+  },
+  async connectDefault(database, branch) {
+    if (!REHEARSAL_BRANCH.test(branch)) throw new Error(`refusing to reset the default role of ${branch}: rehearsal branches only`)
+    const role = JSON.parse(await must(["role", "reset-default", database, branch, "--force"])) as RoleJson
+    return { url: roleUrl(role), release: async () => {} }
+  },
+  async connectRole(database, branch, roleName) {
+    if (!REHEARSAL_BRANCH.test(branch)) throw new Error(`refusing to reset role ${roleName} on ${branch}: rehearsal branches only`)
+    const roles = JSON.parse(await must(["role", "list", database, branch])) as Array<RoleJson>
+    const id = roles.find((r) => r.name === roleName)?.id
+    if (!id) return undefined
+    const role = JSON.parse(await must(["role", "reset", database, branch, id, "--force"])) as RoleJson
+    return { url: roleUrl(role), release: async () => {} }
+  },
+  async roleNames(database, branch) {
+    return (JSON.parse(await must(["role", "list", database, branch])) as Array<RoleJson>).flatMap((r) => (r.name ? [r.name] : []))
   },
   async roleUser(database, branch, roleName) {
     const roles = JSON.parse(await must(["role", "list", database, branch])) as Array<RoleJson>

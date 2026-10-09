@@ -118,6 +118,23 @@ const asAdopted = (plan: Plan, files: ReadonlyArray<MigrationFile>, through: str
   return { tracking: "tracked", applied, pending: files.filter((f) => !applied.has(f.name)), unknown: [], mismatched: [] }
 }
 
+/**
+ * apply and adopt write as the target's owner role (objects and the tracking table keep that
+ * owner). Refuses another role; skipped with a warning when pscale cannot name the owner (CI).
+ */
+const requireOwner = async (deps: Deps, tree: Tree, target: Target, sql: Sql) => {
+  const current = (await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
+  let owner: string | undefined
+  try {
+    owner = await deps.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole)
+  } catch (e) {
+    deps.log(`warning: could not look up ${tree.ownerRole} on ${tree.database}/${tree.branches[target]} (${(e as Error).message.slice(0, 120)}); not checking the owner`)
+    return
+  }
+  deps.log(`connected as ${current}${owner ? ` (owner ${tree.ownerRole} is ${owner})` : ""}`)
+  if (owner && current !== owner) throw new Refused(`--url-env connects as ${current}, not the owner ${tree.ownerRole} (${owner}); objects and ${tree.trackingTable} must belong to the owner`)
+}
+
 /** rehearse and apply refuse a tree the linter refuses (rules, numbering, lock). */
 const lintOrRefuse = async (deps: Deps, tree: Tree) => {
   const report = await lintTree(tree, { root: deps.root, lock: readJson<Lock>(join(deps.root, LOCK_PATH)), contract: readJson<RoleContract>(join(deps.root, CONTRACT_PATH)) })
@@ -239,12 +256,15 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
           emit({ action: "branch-created", tree: tree.name, target, result: "pass", at: at(), branch: name, by })
           try {
             await deps.provider.create(tree.database, name, tree.branches[target])
-            const conn = await deps.provider.connect(tree.database, name, "admin", "rr-rehearse")
+            // Act as the target's owner role (the copy has the same roles), so the rehearsal meets the
+            // same ownership and privileges as the real apply; an admin role alone cannot read cmux_vm.
+            const owner = await deps.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole)
+            deps.log(`copy ${name} lists roles: ${(await deps.provider.roleNames(tree.database, name)).join(", ") || "none"}`)
+            const asOwner = await deps.provider.connectRole(tree.database, name, tree.ownerRole)
+            const conn = asOwner ?? (await deps.provider.connectDefault(tree.database, name))
             const sql = await deps.connect(conn.url)
             try {
-              // Act as the owner role when the copy has it, so ALTERs meet the same ownership as the real apply.
-              const owner = await deps.provider.roleUser(tree.database, tree.branches[target], tree.ownerRole)
-              if (owner) {
+              if (owner && !asOwner) {
                 const role = `"${owner.replace(/"/g, '""')}"`
                 try {
                   await sql.query(`SET ROLE ${role}`)
@@ -257,8 +277,8 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
                     warnings.push(`could not act as ${tree.ownerRole} (${owner}) on the copy (${(e as Error).message}); rehearsed as an admin role, so ownership errors may differ`)
                   }
                 }
-                deps.log(`rehearsal acts as: ${(await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u}`)
               }
+              deps.log(`rehearsal acts as: ${(await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u}`)
               let copyPlan = await planOf(sql, tree, files)
               if (copyPlan.tracking === "untracked" && adoptThrough) {
                 await adopt(sql, tree, files, adoptThrough, by)
@@ -327,6 +347,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
           if (!urlVar) throw new Refused("apply needs --url-env with the owner's credentials for the target")
           const db = await open(deps, tree, target, urlVar, "admin")
           try {
+            await requireOwner(deps, tree, target, db.sql)
             const plan = await planOf(db.sql, tree, files)
             const problems = planProblems(plan, tree, target)
             if (problems.length) throw new Refused(problems.join("; "))
@@ -383,6 +404,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         if (tree.name !== "cmux-vm") throw new Refused("only cmux-vm has untracked databases")
         const db = await open(deps, tree, target, urlVar, "admin")
         try {
+          await requireOwner(deps, tree, target, db.sql)
           const adopted = await adopt(db.sql, tree, files, through, by)
           emit({ action: "adopt", what: `record ${adopted.join(", ")} as applied (they were applied by hand)`, tree: tree.name, target, before: [], after: adopted, rollback: [`DELETE FROM ${tree.trackingTable} WHERE adopted (only the tracking rows; no schema change)`], result: "pass", at: at(), applied: adopted, by })
           return 0

@@ -365,3 +365,14 @@ describe("acceptance migration 0009 and the receipt format", () => {
     expect(w.provider.calls.filter((c) => c.startsWith("create"))).toEqual([])
   })
 })
+
+describe("owner role", () => {
+  it("apply refuses credentials that are not the target's owner role", async () => {
+    const w = await world()
+    expect(await w.run("rehearse", ...S)).toBe(0)
+    ;(w.provider as { roleUser: FakeProvider["roleUser"] }).roleUser = async () => "cmux_vm_owner_role"
+    expect(await w.run("apply", ...S)).toBe(1)
+    expect(w.errors.at(-1)).toContain("not the owner cmux-vm-owner (cmux_vm_owner_role)")
+    expect((await rows(w, w.staging).catch(() => [])).length).toBe(0)
+  })
+})

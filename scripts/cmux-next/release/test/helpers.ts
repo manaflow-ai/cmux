@@ -89,6 +89,16 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
       provider.calls.push(`connect ${access} ${database}/${branch}`)
       return { url: dbUrl(dbOf(database, branch)), release: async () => void provider.calls.push(`release ${database}/${branch}`) }
     },
+    async connectDefault(database, branch) {
+      provider.calls.push(`connect default ${database}/${branch}`)
+      return { url: dbUrl(dbOf(database, branch)), release: async () => {} }
+    },
+    async connectRole() {
+      return undefined
+    },
+    async roleNames() {
+      return []
+    },
     async roleUser(database, branch, roleName) {
       return roles[`${branch}/${roleName}`]
     },

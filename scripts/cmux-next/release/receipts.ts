@@ -130,4 +130,4 @@ export const withLocalLock = async <T>(dir: string, name: string, body: () => Pr
 
 /** One line for a bd comment. */
 export const summaryLine = (r: Receipt, file: string) =>
-  `db-release ${r.action} ${r.tree}/${r.target} ${r.result.toUpperCase()}${r.runId ? ` run=${r.runId}` : ""}${r.pending?.length ? ` files=${r.pending.map((p) => p.name.slice(0, 4)).join(",")}` : ""}${r.setHash ? ` set=${r.setHash.slice(0, 12)}` : ""}${r.branch ? ` branch=${r.branch}${r.branchDeleted ? " (deleted)" : " (NOT DELETED)"}` : ""} at=${r.at} by=${r.by} receipt=${file}`
+  `db-release ${r.action} ${r.tree}/${r.target} ${r.result.toUpperCase()}${r.runId ? ` run=${r.runId}` : ""}${r.pending?.length ? ` files=${r.pending.map((p) => p.name.slice(0, 4)).join(",")}` : ""}${r.setHash ? ` set=${r.setHash.slice(0, 12)}` : ""}${r.branch ? ` branch=${r.branch}${r.action === "rehearse" ? (r.branchDeleted ? " (deleted)" : " (NOT DELETED)") : ""}` : ""} at=${r.at} by=${r.by} receipt=${file}`
