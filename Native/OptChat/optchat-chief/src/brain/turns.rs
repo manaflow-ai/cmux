@@ -20,6 +20,31 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
+/// The notice for the first stuck view line (its node fails with a request
+/// error on every try); None when no line is stuck.
+/// A line held only by an exhausted route (a capacity error) is a quiet
+/// wait, logged by the host: no notice.
+pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
+    let error = |node: &optchat_core::NodeId| {
+        status
+            .failures
+            .iter()
+            .find(|f| f.node == *node)
+            .map(|f| f.error.as_str())
+    };
+    let node = status
+        .stuck
+        .iter()
+        .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
+    let class = error(node)
+        .and_then(optchat_host::error_class)
+        .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
+    Some(format!(
+        "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
+        node.name()
+    ))
+}
+
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
@@ -105,17 +130,8 @@ impl Brain {
                     // holds the turn: one notice says so, retracted once
                     // every stuck node is built.
                     let status = chat.status();
-                    if let Some(node) = status.stuck.first() {
-                        let class = status
-                            .failures
-                            .iter()
-                            .find(|f| f.node == *node)
-                            .and_then(|f| optchat_host::error_class(&f.error))
-                            .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
-                        let _ = tx.send(Input::CompactorStatus(Err(format!(
-                            "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
-                            node.name()
-                        ))));
+                    if let Some(text) = stuck_notice(&status) {
+                        let _ = tx.send(Input::CompactorStatus(Err(text)));
                     } else if status.recovered {
                         let _ = tx.send(Input::CompactorStatus(Ok(())));
                     }
@@ -163,7 +179,7 @@ impl Brain {
                             marked.then_some(CacheTtl::FiveMinutes)
                         };
                         let stale = ttl_stale.load(Ordering::SeqCst);
-                        match (&outcome.error, ours) {
+                        let outcome = match (&outcome.error, ours) {
                             // The API refused our TTL next to Claude Code's.
                             // A pooled session started under the other TTL
                             // (cache.ttl changed since the prewarm): the
@@ -237,7 +253,10 @@ impl Brain {
                                 turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
-                        }
+                        };
+                        crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                        })
                     }
                     Engine::Native(native) => {
                         let mailbox = || {
@@ -672,15 +691,29 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
-        // A pending approval holds the tool call: a newer message denies it,
-        // so the turn can stop and the next one answers.
-        self.deny_pending("a newer message");
+        // Decision 2026-10-09: a subagent report never stops the turn. It
+        // is steered in when the turn can take it, else it waits for the
+        // next turn. Only a human message stops a turn it cannot reach.
+        let side = self.turn_side();
+        let human = self
+            .queue
+            .iter()
+            .filter(|q| q.conversation == side)
+            .any(|q| matches!(q.source, Source::Message { .. }));
+        if human {
+            // A pending approval holds the tool call: a newer message denies
+            // it, so the turn can take the message or stop.
+            self.deny_pending("a newer message");
+        }
         if matches!(self.settings.engine, Engine::Acpmux) {
             // Parity item 7: between tool calls, when the session steers.
-            if self.try_steer() {
+            if self.try_steer() || !human {
                 return;
             }
             self.stop_wanted = true;
+        } else if !human {
+            // The native engine takes reports at its next tool boundary.
+            return;
         }
         self.interrupt.request();
     }
