@@ -1341,6 +1341,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tui-cloud-conversations"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-tui-core"
 version = "0.1.0"
 dependencies = [
@@ -1357,6 +1368,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-tui-cdp",
+ "cmux-tui-cloud-conversations",
  "cmux-unix-socket",
  "flate2",
  "fs4",
