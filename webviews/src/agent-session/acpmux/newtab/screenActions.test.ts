@@ -40,3 +40,18 @@ test("a local file uses the file opener and a URL uses the browser", () => {
     ["tab.open", { kind: "browser", text: "https://example.com" }],
   ]);
 });
+
+test("a device chat card leaves the new tab and opens through the host's shared Open Chat path", () => {
+  const calls: unknown[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      calls.push([method, params]);
+    },
+    leave: () => calls.push(["leave"]),
+    selectSession() {},
+    showAllChats() {},
+    runShell() {},
+  });
+  actions.onOpenChat?.("codex:01999a2b");
+  expect(calls).toEqual([["leave"], ["chats.open", { key: "codex:01999a2b" }]]);
+});
