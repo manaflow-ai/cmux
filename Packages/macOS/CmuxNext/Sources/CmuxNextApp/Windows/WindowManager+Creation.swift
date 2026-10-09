@@ -30,7 +30,8 @@ extension WindowManager {
         let target = targetWindow(preferring: state?.id)
         var spawn = WorkspaceSpawn(newTabPage: true)
         spawn.slot = slot
-        Task {
+        // [services]: the task pins the app's services until it ends (cx-6so P1b).
+        Task { [services] in
             do {
                 _ = try await createWorkspace(spawn, on: daemon, into: target)
             } catch {
@@ -44,7 +45,10 @@ extension WindowManager {
     @discardableResult
     func newWindow(frame: CGRect? = nil) -> String {
         let windowID = UUID().uuidString.lowercased()
-        Task { await createWorkspace(into: windowID, frame: frame, newTabPage: true) }
+        Task { [services] in
+            await createWorkspace(into: windowID, frame: frame, newTabPage: true)
+            withExtendedLifetime(services) {} // pins the app's services until the create ends (cx-6so P1b)
+        }
         return windowID
     }
 
