@@ -193,3 +193,55 @@ fn a_route_that_refuses_the_one_hour_ttl_reruns_the_turn_at_five_minutes() {
     let c = &inner.prompts[2];
     assert_eq!(c[markers(c)[0]]["cache_control"], json!({"type": "ephemeral"}));
 }
+
+#[test]
+fn the_pooled_session_reads_the_ttl_before_the_first_turn() {
+    // The pool starts the next turn's Claude Code when acpmux connects; it
+    // reads promptCacheTtl then, so the file must hold it already.
+    let mut h = claude_harness(None);
+    h.connect();
+    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "1h");
+}
+
+#[test]
+fn a_session_pooled_before_a_ttl_change_reruns_its_turn_once_at_the_old_ttl() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    // Turn 1 lands on a session the pool started under 1h, after the user
+    // set 5m: the API refuses our 5m mark before Claude Code's 1h end mark.
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 1 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": TTL_REFUSED}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::configured(dir, script, owner(), s, Arc::new(|_: &str| {}));
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    h.brain.set_setting("cache.ttl", "5m").unwrap();
+    h.agents.inner.lock().unwrap().answer_error = Some(TTL_REFUSED.into());
+    h.say("user_local", "two");
+    h.settle();
+    h.agents.inner.lock().unwrap().answer_error = None;
+    h.say("user_local", "three");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    let ttl = |k: usize| {
+        let b = &inner.prompts[k];
+        b[markers(b)[0]]["cache_control"].clone()
+    };
+    assert_eq!(inner.prompts.len(), 4, "one, two refused, two again, three");
+    assert_eq!(ttl(0), ONE_HOUR());
+    assert_eq!(ttl(1), json!({"type": "ephemeral"}));
+    assert_eq!(ttl(2), ONE_HOUR(), "the rerun matches the pooled session");
+    assert_eq!(ttl(3), json!({"type": "ephemeral"}), "the setting holds after it");
+    drop(inner);
+    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "5m");
+}
