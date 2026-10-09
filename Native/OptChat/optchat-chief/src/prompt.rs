@@ -234,6 +234,24 @@ impl CacheTtl {
     }
 }
 
+/// The turns' cache TTL from the host env, None when it names none:
+/// Claude Code's own switches first (`FORCE_PROMPT_CACHING_5M`,
+/// `CLAUDE_CODE_PROMPT_CACHE_TTL`), since every turn's harness inherits
+/// them and its marks must match ours, then `OPTCHAT_CACHE_TTL`.
+pub fn cache_ttl_from_env(env: &dyn Fn(&str) -> Option<String>) -> Option<CacheTtl> {
+    if env("FORCE_PROMPT_CACHING_5M").is_some_and(|v| !v.is_empty() && v != "0") {
+        return Some(CacheTtl::FiveMinutes);
+    }
+    env("CLAUDE_CODE_PROMPT_CACHE_TTL")
+        .as_deref()
+        .and_then(CacheTtl::parse)
+        .or_else(|| {
+            env("OPTCHAT_CACHE_TTL")
+                .as_deref()
+                .and_then(CacheTtl::parse)
+        })
+}
+
 /// Whether a failed turn's error is the API refusing a mark's TTL: a
 /// 1-hour mark after a 5-minute one ("a ttl='1h' cache_control block must
 /// not come after a ttl='5m' cache_control block"), or a route that takes
