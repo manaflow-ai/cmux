@@ -226,17 +226,18 @@ final actor CloudHomeSource: HomeSource {
             // Home mirror can update an open transcript without a snapshot
             // HTTP round-trip for every message.
             guard let effects = event.effects?.objectValue else { return }
-            let state = effects["state"] ?? effects["head"]
-            if let state, let summary = try? conversationSummary(state) {
-                publish(.conversationChanged(summary, stream: .conversation(id), rev: Revision(event.seq)))
-            }
-            for write in effects["writes"]?.arrayValue ?? [] {
+            guard let state = effects["state"] ?? effects["head"],
+                  let summary = try? conversationSummary(state) else { return }
+            let messages = (effects["writes"]?.arrayValue ?? []).compactMap { write -> Message? in
                 guard write["op"]?.stringValue != "delete",
                       let row = write["row"],
-                      write["table"]?.stringValue == "message",
-                      let message = try? message(row) else { continue }
-                publish(.message(message, rev: Revision(event.seq)))
+                      write["table"]?.stringValue == "message" else { return nil }
+                return try? message(row)
             }
+            // Keep the head and changed rows in one Home event: both carry the
+            // same owner revision, so publishing them separately would cause
+            // the mirror to treat the second event as stale.
+            publish(.conversationPage(ConversationPage(conversation: summary, messages: messages)))
         }
     }
 
