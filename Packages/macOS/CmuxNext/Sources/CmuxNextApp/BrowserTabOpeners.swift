@@ -32,6 +32,9 @@ final class BrowserTabOpeners {
     /// A page's new tab exists (child, opener): the browser host reports it
     /// as `tab.created`, so an agent driving the opener sees its popup.
     var onChildPlaced: ((SurfaceID, SurfaceID) -> Void)?
+    /// Runs first for each placed child (child, opener): the App marks the
+    /// child agent-driven when its opener is (`BrowserPageRequests`).
+    var inheritsFromOpener: ((SurfaceID, SurfaceID) -> Void)?
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an
     /// opener; with one, in Chrome's slot, returning once the store shows
@@ -39,11 +42,12 @@ final class BrowserTabOpeners {
     func open(_ opener: SurfaceID?, foreground: Bool, in pane: PaneModel, browserTabs: BrowserTabService,
               create: @escaping @MainActor (_ after: SurfaceID?) async throws -> SurfaceID) async throws -> SurfaceID {
         guard let opener else { return try await create(nil) }
+        let daemon = browserTabs.daemonForPane(pane)
         return try await place(opener: opener, foreground: foreground,
                                order: { [weak pane] in pane?.tabs.map(\.surface) ?? [] },
                                pinned: { [weak pane] in Set(pane?.tabs.filter(\.pinned).map(\.surface) ?? []) }) { after in
             let surface = try await create(after)
-            await browserTabs.settled()
+            await browserTabs.settled(daemon)
             return surface
         }
     }
@@ -64,6 +68,7 @@ final class BrowserTabOpeners {
             if foreground { self.forgetAll() }
             if child != opener {
                 self.openerOf[child] = opener
+                self.inheritsFromOpener?(child, opener)
                 self.onChildPlaced?(child, opener)
             }
             return child

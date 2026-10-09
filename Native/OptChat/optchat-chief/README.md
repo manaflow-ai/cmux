@@ -119,6 +119,17 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
   (daemon `close-workspace` by key, into the closed history) instead of the
   done mark.
+- The opener follows the E17 rule (schemas/chief-cmux-target) at each
+  open: the app while its control socket and daemon exist, else the
+  Chief's own owner daemon (a Chief that `cmux chief` started without the
+  app). The app shows that owner daemon as a machine row named after the
+  Chief, on the paired-server path (`ServerReach.localChief`, route `unix`
+  to the owner's socket), signed in or not, so the workspaces appear when
+  the app opens. Every subagent
+  tab's host is `chief:<home id>`: the app attaches it to the Chief home's
+  acpmux. A Chief turn starts subagents only with `spawn`: Claude Code's
+  Task/Agent tools are not in `TURN_TOOLS`, and codex turns run with
+  `features.multi_agent = false` (harness.rs guard test).
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
@@ -291,8 +302,9 @@ turn when the Chief is idle.
 `import-claude-code` reads Claude Code transcripts (`--projects`, default
 `$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`) and turns each session
 into a `note` (session id and working directory), then per turn the user's
-message (`user`), one `tool` line with the turn's tool names, counts and the
-files they named, and the final reply (`talk`), each with its transcript
+message (`user`), one `ai` line with the turn's tool names, counts and the
+files they named, and the final reply (`ai`: another AI's, not the Chief's
+own, as the reference client logs them), each with its transcript
 date (section 10: "the user's messages and the agent's final replies,
 without repeated pastes and tool noise"). Thinking, intermediate replies,
 tool inputs and outputs (which can hold secrets), meta lines, slash
@@ -306,6 +318,13 @@ Old history must not land after live messages: on a memory that already
 holds messages, `write` refuses and writes nothing unless
 `--append-after-live` accepts that the history appears after the current
 messages, and `dry-run` warns about it.
+
+Known limit: only imports made since the `ai` kind (cbc26745fac5) log
+replies and tool lines as `ai`. Memories imported before keep `talk` and
+`tool`: there is no migration and no read-time mapping, because the summary
+lines built from them already say `talk`, and an imported `talk` line cannot
+be told from the Chief's own (a legacy home's import is the Chief's own
+replies).
 
 ## Environment
 
@@ -1100,7 +1119,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   written for 5 minutes, so later calls on it go at once.
 - **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
-  `compactor-model` pick another). An account without the model builds
+  `compactor-model` pick another), on a Claude route whatever the turns run
+  on: a Claude turn harness's own (claude-sr stays claude-sr), else
+  `claude` (the configured CodeRouter route, else the user's own login).
+  Only `OPTCHAT_COMPACTOR_HARNESS` or engine.json's `compactor-harness`
+  picks another harness; the turns' harness (a codex Chief) never does. An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have
   separate cache entries, so compactions read only each other's.
 - **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay

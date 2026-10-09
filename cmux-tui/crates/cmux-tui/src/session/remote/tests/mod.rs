@@ -1,8 +1,9 @@
 //! Tests for the remote session, split by topic. Shared writers and session
 //! fixtures live here; each child module holds the tests for one topic.
 
+use std::io::Read;
 #[cfg(unix)]
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicU64};

@@ -159,14 +159,14 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
-  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-[14px] text-fg disabled:cursor-default disabled:opacity-50";
+  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-control text-fg disabled:cursor-default disabled:opacity-50";
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
-const emptyNote = "px-2.5 py-2 text-[13px] text-muted";
+const emptyNote = "px-2.5 py-2 text-body text-muted";
 
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
@@ -231,6 +231,13 @@ export function ModelPicker(props: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
   const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  const navigableHarnesses = useMemo(
+    () =>
+      harnesses
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.pickable && !blockedProfile(entry)),
+    [harnesses],
+  );
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   // The rail's first tab lists the starred models of every harness; each row keeps its harness.
   const starredView = selectedHarness === STARRED;
@@ -415,6 +422,39 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
+  // The rail is Starred, then the pickable harnesses. Disabled or blocked profiles stay visible
+  // for context but are never a keyboard stop. Reaching either end returns to Starred.
+  const nextRailIndex = (from: number, step: number) => {
+    if (!navigableHarnesses.length) return -1;
+    if (from < 0) return step > 0 ? navigableHarnesses[0]!.index : navigableHarnesses.at(-1)!.index;
+    const position = navigableHarnesses.findIndex(({ index }) => index === from);
+    if (position < 0) {
+      const nearby =
+        step > 0
+          ? navigableHarnesses.find(({ index }) => index > from)
+          : [...navigableHarnesses].reverse().find(({ index }) => index < from);
+      return nearby?.index ?? -1;
+    }
+    const next = position + step;
+    return next < 0 || next >= navigableHarnesses.length ? -1 : navigableHarnesses[next]!.index;
+  };
+  const focusRail = (index: number) => {
+    if (index < 0) {
+      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail[aria-label]")?.focus();
+      return;
+    }
+    menu.current?.querySelector<HTMLElement>(`[data-harness-index="${index}"]`)?.focus();
+  };
+  const moveRail = (from: number, step: number) => {
+    const next = nextRailIndex(from, step);
+    if (next < 0) {
+      showTab(STARRED, -1);
+      focusRail(-1);
+    } else {
+      showTab(harnesses[next]?.id, next);
+      focusRail(next);
+    }
+  };
   const move = (step: number) => {
     // Moving down past the last row opens the "Older models" fold, so keys reach every model.
     if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
@@ -437,7 +477,8 @@ export function ModelPicker(props: ModelPickerProps) {
       move(-1);
     } else if (event.key === "ArrowLeft" && !query) {
       event.preventDefault();
-      menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
+      if (starredView) focusRail(-1);
+      else focusRail(activeHarness);
     } else if (event.key === "Enter") {
       event.preventDefault();
       const model = visible[active];
@@ -512,14 +553,14 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-xl bg-menu text-[14px] leading-[18px] text-fg shadow-menu"
+          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-xl bg-menu text-control text-fg shadow-menu"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           style={menuStyle}
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
           <PickerOptionList
-            className="flex w-11 flex-none flex-col items-center gap-1 overflow-y-auto border-r-[0.5px] border-edge py-1.5"
+            className="flex w-11 flex-none flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r-[0.5px] border-edge py-1.5"
             aria-label={harnessText}
           >
             <PickerOption
@@ -530,6 +571,19 @@ export function ModelPicker(props: ModelPickerProps) {
               aria-selected={starredView}
               selected={starredView}
               active={starredView}
+              keyboard={(event) => {
+                if (!harnesses.length) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  moveRail(-1, 1);
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveRail(-1, -1);
+                } else if (event.key === "ArrowRight" || event.key === "Enter") {
+                  event.preventDefault();
+                  search.current?.focus();
+                }
+              }}
               onPointerEnter={() => showTab(STARRED, -1)}
               onClick={() => showTab(STARRED, -1, true)}
             >
@@ -549,6 +603,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 aria-selected={entry.ids.includes(selectedHarness ?? "")}
                 aria-disabled={blockedProfile(entry) || undefined}
                 disabled={!entry.pickable}
+                data-harness-index={index}
                 className={`acpmux-mp-harness ${railTab}`}
                 title={[entry.name, folderNote(entry)].filter(Boolean).join(" · ")}
                 selected={entry.ids.includes(selectedHarness ?? "")}
@@ -556,11 +611,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     const step = event.key === "ArrowDown" ? 1 : -1;
-                    const next = (index + step + harnesses.length) % harnesses.length;
-                    showTab(harnesses[next]?.id, next);
-                    event.currentTarget.parentElement
-                      ?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")
-                      [next]?.focus();
+                    moveRail(index, step);
                   } else if (event.key === "Enter" && enableProfile(entry)) {
                     event.preventDefault();
                   } else if (event.key === "ArrowRight" || event.key === "Enter") {
@@ -594,7 +645,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onAddAgent();
                 }}
               >
-                <span aria-hidden="true" className="text-[18px] leading-none">
+                <span aria-hidden="true" className="text-heading leading-none">
                   +
                 </span>
               </button>
@@ -690,13 +741,13 @@ export function ModelPicker(props: ModelPickerProps) {
                       )}
                       <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
                       {searching && (parsed.effort || parsed.fast) && (
-                        <span className="acpmux-mp-combo flex-none text-[12px] text-dim">
+                        <span className="acpmux-mp-combo flex-none text-detail text-dim">
                           {[modelEffort(model, parsed.effort), parsed.fast ? fastText : undefined]
                             .filter(Boolean)
                             .join(" · ")}
                         </span>
                       )}
-                      {model.unavailable && <span className="flex-none text-[12px] text-dim">{unavailableText}</span>}
+                      {model.unavailable && <span className="flex-none text-detail text-dim">{unavailableText}</span>}
                     </PickerOption>
                     <span className="pointer-events-none absolute right-1.5 flex items-center">
                       <button
@@ -726,7 +777,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   onClick={() => setOlderOpen((value) => !value)}
                 >
                   <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.olderModels")}</span>
-                  <span className="flex-none text-[12px] text-dim">{olderCount}</span>
+                  <span className="flex-none text-detail text-dim">{olderCount}</span>
                   <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
                     <ChevronIcon />
                   </span>
@@ -744,7 +795,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   }
                 >
                   <span>{fastMode.name}</span>
-                  <span className="text-[12px] text-dim">
+                  <span className="text-detail text-dim">
                     {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
                   </span>
                 </button>

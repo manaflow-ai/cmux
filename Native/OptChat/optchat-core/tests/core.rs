@@ -794,3 +794,187 @@ fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
         other => panic!("{other:?}"),
     }
 }
+
+/// Soak at fc34083d7bfa: a 2,020-message import is appended before any node
+/// is built, so no merge can happen at append time, and the compaction view
+/// never merged afterwards: node contexts grew to 350 KB (79k tokens read
+/// per prompt, \$117 for the import). The reference client fits its views
+/// after each node it stores. A compaction context stays within half the
+/// view's budget during an import.
+#[test]
+fn an_import_keeps_every_compaction_context_within_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut largest = 0usize;
+    loop {
+        let work = memory.pump(&store);
+        if work.is_empty() {
+            break;
+        }
+        // As the host does: the free nodes are stored before any call starts.
+        for w in &work {
+            if let Work::Free { node, text } = w {
+                store.nodes.borrow_mut().insert(*node, text.clone());
+            }
+        }
+        for w in work {
+            match w {
+                Work::Free { .. } => {}
+                Work::Model { node } => {
+                    let request = compact_request(&memory, &store, node, String::new()).unwrap();
+                    largest = largest.max(request.context.len());
+                    let text = fake_summary(node);
+                    store.nodes.borrow_mut().insert(node, text.clone());
+                    memory.complete(node, &text).unwrap();
+                }
+            }
+        }
+    }
+    assert!(memory.settled());
+    // The compaction view merges only in whole batches (the reference
+    // client's rule, so cached prefixes hold): it may wait past its quarter
+    // of the budget until a batch can take it to its low mark, or down by a
+    // whole quarter. It stays within half the view's budget (52,594 bytes
+    // here; 494,904 before the view merged during an import at all).
+    assert!(
+        largest <= VIEW / 2 + 2 * NODE,
+        "a compaction context of {largest} bytes"
+    );
+}
+
+/// The longest common prefix of `a` and `b`, in bytes.
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    let n = a.len().min(b.len());
+    let (mut lo, mut hi) = (0, n);
+    // Slice equality is a memcmp: a binary search keeps this fast.
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if a[..mid] == b[..mid] {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+/// Soak at 64d57f35a20f: after the compaction view passed 32 KB, each
+/// single-prompt import node wrote about 15.6k tokens to the cache and read
+/// about 8.5k: 10x the reference client's writes. Completing a node merged
+/// the compaction view one pair at a time (its oldest lines) on almost
+/// every completion, so an early block changed and every later prefix
+/// missed. The reference client applies a merge of its compaction view only
+/// as one batch that brings it to half its budget (or by a whole budget),
+/// and else keeps the view as it is. Across an import, each call's context
+/// shares its prefix with an earlier call's: the bytes no earlier context
+/// starts with (what the cache writes) stay a small part of all context
+/// bytes.
+#[test]
+fn an_import_keeps_compaction_prefixes_stable_between_calls() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    // As the host runs them: up to JOBS calls at once, each built when it
+    // starts; the oldest finishes first, and the pump runs after each.
+    let mut running: std::collections::VecDeque<(NodeId, String)> = Default::default();
+    let mut recent: Vec<String> = Vec::new();
+    let (mut total, mut written, mut calls) = (0usize, 0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => {
+                    let request = compact_request(&memory, &store, node, String::new()).unwrap();
+                    let context = request.context;
+                    // The cache holds the recent calls' prefixes (a burst of JOBS).
+                    let shared = recent
+                        .iter()
+                        .map(|c| common_prefix(c.as_bytes(), context.as_bytes()))
+                        .max()
+                        .unwrap_or(0);
+                    total += context.len();
+                    written += context.len() - shared;
+                    calls += 1;
+                    recent.push(context.clone());
+                    if recent.len() > JOBS {
+                        recent.remove(0);
+                    }
+                    running.push_back((node, context));
+                }
+            }
+        }
+        let Some((node, _)) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+    }
+    eprintln!("{written} of {total} context bytes new over {calls} calls");
+    assert!(memory.settled());
+    assert!(calls > 1_000, "{calls} calls");
+    assert!(
+        written * 10 <= total,
+        "{written} of {total} context bytes are new to the cache over {calls} calls"
+    );
+}
+
+/// Soak at d12ad2ce42e8: the first turn after a 2,020-message import saw a
+/// 400 KB view (the budget is 128 KB) and wrote 179k tokens to the cache.
+/// The chat's view merged only when a message came, and an import appends
+/// every message before any node is built. The reference client fits both
+/// views after each node it stores, in whole batches. During an import the
+/// chat's view stays near its budget, and it is within it once the import
+/// is built.
+#[test]
+fn an_import_keeps_the_chats_view_near_its_budget() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for k in 0..2_000u64 {
+        store.push(Kind::Echo, format!("imported {k} {}", "x".repeat(900)));
+        memory.append();
+    }
+    let mut running: std::collections::VecDeque<NodeId> = Default::default();
+    let (mut largest, mut completions) = (0usize, 0usize);
+    loop {
+        for w in memory.pump(&store) {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => running.push_back(node),
+            }
+        }
+        let Some(node) = running.pop_front() else {
+            break;
+        };
+        let text = fake_summary(node);
+        store.nodes.borrow_mut().insert(node, text.clone());
+        memory.complete_in(node, &text, &store).unwrap();
+        completions += 1;
+        // Past the first budget's worth of lines, as a turn would see it.
+        if completions > 600 {
+            largest = largest.max(memory.view_size());
+        }
+    }
+    assert!(memory.settled());
+    eprintln!("largest view {largest}, final {}", memory.view_size());
+    assert!(
+        memory.view_size() <= VIEW,
+        "the built import's view is {} bytes",
+        memory.view_size()
+    );
+    assert!(
+        largest <= 2 * VIEW,
+        "a view of {largest} bytes during the import"
+    );
+}

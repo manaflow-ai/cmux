@@ -95,6 +95,8 @@ export type NewTabHost = {
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
+  /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
+  focusesField?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -152,6 +154,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
+    ...(object.focusesField === false ? { focusesField: false } : {}),
   };
 }
 

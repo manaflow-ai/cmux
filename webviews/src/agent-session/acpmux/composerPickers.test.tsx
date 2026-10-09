@@ -47,7 +47,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { ComposerPickers, Picker, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
 const { webKitPress } = await import("./popoverTriggerTesting");
 
@@ -237,6 +237,203 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent!.match(/Default/g)).toHaveLength(1);
   });
 
+  // Lawrence 2026-10-09 (MonoCode's picker): Claude offers Low..Max, Extra High, Ultracode,
+  // Ultrathink and Fast Mode; Codex offers Low..Ultra and a Service Tier.
+  const claudeEffort = {
+    id: "effort",
+    name: "Reasoning",
+    category: "thought_level",
+    currentValue: "medium",
+    options: [
+      { value: "default", name: "Default" },
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+      { value: "xhigh", name: "Extra High" },
+      { value: "max", name: "Max" },
+      { value: "ultracode", name: "Ultracode", description: "xhigh effort plus multi-agent workflow orchestration" },
+      { value: "ultrathink", name: "Ultrathink" },
+    ],
+  };
+  const claudeFast = {
+    id: "fast-mode",
+    name: "Fast mode",
+    category: "model_config",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  };
+  const claudeSnapshot = (summary: Record<string, unknown> = {}): AcpmuxSnapshot => ({
+    ...snapshot({ configOptions: [claudeEffort, claudeFast], ...summary }),
+    catalog: [{ id: "claude", name: "Claude Code", models: [{ id: "opus", name: "Opus 5.5" }] }],
+    summary: {
+      sessionId: "s",
+      harness: "claude",
+      model: "opus",
+      configOptions: [claudeEffort, claudeFast],
+      ...summary,
+    } as AcpmuxSnapshot["summary"],
+  });
+  const menuGroups = () =>
+    [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=group]")]
+      .filter((group) => group.querySelector(":scope > .ui-menu-group-label"))
+      .map((group) => ({
+        title: group.querySelector(".ui-menu-group-label")?.textContent,
+        rows: [...group.querySelectorAll("[role=menuitemradio]")].map(
+          (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+        ),
+      }));
+
+  test("Claude's reasoning menu has every level and a Fast Mode section", async () => {
+    await render(claudeSnapshot());
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]).toEqual({
+      title: "Reasoning",
+      rows: ["Default", "Low", "Medium", "High", "Extra High", "Max", "Ultracode", "Ultrathink"],
+    });
+    expect(groups[1]).toEqual({ title: "Fast Mode", rows: ["On", "Off"] });
+    expect(doc.querySelector("[role=menu]")!.textContent).toContain("multi-agent workflow orchestration");
+    const on = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "On",
+    )!;
+    await act(async () => on.click());
+    expect(calls).toEqual(["effort fast-mode on"]);
+  });
+
+  test("the chip names the level and Fast when fast mode is on", async () => {
+    await render(claudeSnapshot({ configOptions: [claudeEffort, { ...claudeFast, currentValue: "on" }] }));
+    expect(button("Effort")!.textContent).toContain("Medium Fast");
+  });
+
+  test("Codex's levels read Extra High and Ultra, and fast mode is a Service Tier", async () => {
+    const codexEffort = {
+      id: "reasoning_effort",
+      category: "thought_level",
+      currentValue: "medium",
+      options: [
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+        { value: "xhigh", name: "Xhigh", description: "Extra high reasoning depth for complex problems" },
+        { value: "max", name: "Max" },
+        { value: "ultra", name: "Ultra", description: "Maximum reasoning with automatic task delegation" },
+      ],
+    };
+    const codexFast = {
+      id: "fast-mode",
+      category: "model_config",
+      currentValue: "off",
+      options: [
+        { value: "off", name: "Off", description: "Default speed, normal usage" },
+        { value: "on", name: "On", description: "1.5x speed, increased usage" },
+      ],
+    };
+    await render(snapshot({ configOptions: [codexEffort, codexFast] }));
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]!.rows).toEqual(["Low", "Medium", "High", "Extra High", "Max", "Ultra"]);
+    expect(groups[1]).toEqual({ title: "Service Tier", rows: ["Standard", "Fast"] });
+    const menu = doc.querySelector("[role=menu]")!;
+    expect(menu.textContent).toContain("1.5x speed, increased usage");
+    // Standard is the default tier.
+    const standard = [...menu.querySelectorAll("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Standard",
+    )!;
+    expect(standard.textContent).toContain("Default");
+  });
+
+  test("the model's default level carries the Default badge and the bare default row goes", async () => {
+    const opus = {
+      id: "opus",
+      name: "Opus 5.5",
+      shortName: "Opus 5.5",
+      efforts: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      fast: true,
+      searchText: "opus",
+    };
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: claudeSnapshot({ configOptions: [{ ...claudeEffort, currentValue: "default" }, claudeFast] }),
+          settleTimer,
+          measurePickerRoom: () => 600,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: (config: string, id: string) => {
+            calls.push(`effort ${config} ${id}`);
+          },
+          pickerCatalog: {
+            provisional: false,
+            harnesses: [
+              {
+                id: "claude",
+                name: "Claude Code",
+                brand: "claude",
+                acpmuxHarness: "claude",
+                installed: true,
+                pickable: true,
+                models: [opus],
+              },
+            ],
+          } as never,
+        }),
+      ),
+    );
+    expect(button("Effort")!.textContent).toContain("Medium");
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]!.rows).toEqual(["Low", "Medium", "High", "Extra High", "Max", "Ultracode", "Ultrathink"]);
+    const medium = [...doc.querySelectorAll("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Medium",
+    )!;
+    expect(medium.textContent).toContain("Default");
+    expect(medium.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("a model without Extra High offers no Ultracode", async () => {
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: claudeSnapshot(),
+          settleTimer,
+          measurePickerRoom: () => 600,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          pickerCatalog: {
+            provisional: false,
+            harnesses: [
+              {
+                id: "claude",
+                name: "Claude Code",
+                brand: "claude",
+                acpmuxHarness: "claude",
+                installed: true,
+                pickable: true,
+                models: [
+                  {
+                    id: "opus",
+                    name: "Opus 5.5",
+                    shortName: "Opus",
+                    efforts: ["low", "medium", "high"],
+                    fast: false,
+                    searchText: "",
+                  },
+                ],
+              },
+            ],
+          } as never,
+        }),
+      ),
+    );
+    await act(async () => button("Effort")!.click());
+    expect(menuGroups()[0]!.rows).toEqual(["Default", "Low", "Medium", "High", "Ultrathink"]);
+  });
+
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }), { showPlan: false });
     expect(button("Mode")!.querySelector(".acpmux-icon")).not.toBeNull();
@@ -244,9 +441,7 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-plan")).toBeNull();
   });
 
-  // Quarantined (bead cx-svv2): run alone, the Mode chip (a Base UI menu) reopens on this press.
-  // It passed only on state other files leaked into the shared test process.
-  test.skip("pressing an open chip closes its menu, as WebKit delivers the press; it never reopens", async () => {
+  test("pressing an open chip closes its menu, as WebKit delivers the press; it never reopens", async () => {
     await render(snapshot({ modes }));
     for (const label of ["Model", "Mode"]) {
       const chip = button(label)!;
@@ -275,6 +470,38 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(doc.activeElement).toBe(mode);
     expect(calls).toEqual(["mode bypassPermissions"]);
+  });
+
+  test("the composer action picker jumps to its first and last row with Home and End", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Picker, {
+          label: "Actions",
+          className: "acpmux-composer-plus",
+          button: "Actions",
+          align: "start",
+          sections: [
+            {
+              choices: [
+                { id: "attach", name: "Attach" },
+                { id: "mention", name: "Mention" },
+                { id: "plan", name: "Plan" },
+              ],
+              current: "mention",
+              onPick: () => undefined,
+            },
+          ],
+        }),
+      ),
+    );
+    const trigger = doc.querySelector<HTMLButtonElement>('[aria-label="Actions"]')!;
+    await key(trigger, "ArrowDown");
+    const rows = [...doc.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[1]?.id);
+    await key(trigger, "End");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows.at(-1)!.id);
+    await key(trigger, "Home");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[0]!.id);
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {

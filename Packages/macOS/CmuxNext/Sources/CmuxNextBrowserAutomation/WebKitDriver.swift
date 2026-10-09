@@ -23,10 +23,13 @@ public final class WebKitDriver: DriverCallHandler {
 
     /// The clock of the driver's bounded waits.
     let clock: any Clock<Duration>
+    /// WebKit private calls, on this driver's clock.
+    let privateCalls: WebKitPrivateCalls
 
     public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
         self.clock = clock
+        privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
@@ -48,6 +51,8 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.history": return try await tabHistory(params)
         case "tab.reload": return try await tabReload(params)
         case "frames.list": return try await framesList(params)
+        case "frame.contentFrame": return try await frameContentFrame(params)
+        case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
@@ -71,7 +76,7 @@ public final class WebKitDriver: DriverCallHandler {
               let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
               tab.webView.window == nil else { return }
         guard await provider.keepRendering(tab) else { return }
-        await WebKitPrivateCalls.afterActivityStateUpdate(tab.webView, clock: clock)
+        await privateCalls.afterActivityStateUpdate(tab.webView)
     }
 
     func emit(_ name: String, _ payload: [String: DriverJSON]) {

@@ -15,6 +15,7 @@
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
+    "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater"
   },
@@ -205,6 +206,7 @@
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextControl",
+        "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextFeed",
@@ -271,6 +273,7 @@
         "CmuxNextActions",
         "CmuxNextApp",
         "CmuxNextCopyMode",
+        "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
@@ -505,11 +508,19 @@
       "targets": [],
       "packages": []
     },
-    "CmuxNextCopyModeTests": {
+    "CmuxNextCrashReporting": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting",
+      "targets": [],
+      "packages": [
+        "CmuxSentryTelemetry"
+      ]
+    },
+    "CmuxNextCrashReportingTests": {
       "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCopyModeTests",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCrashReportingTests",
       "targets": [
-        "CmuxNextCopyMode"
+        "CmuxNextCrashReporting"
       ],
       "packages": [],
       "reads": []

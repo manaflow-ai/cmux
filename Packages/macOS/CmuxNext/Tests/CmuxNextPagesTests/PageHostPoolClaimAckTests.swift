@@ -146,15 +146,24 @@ struct PageHostPoolClaimAckTests {
         return pool
     }
 
-    /// The ready spare after its document had time to run (in the app it stays parked for seconds).
+    /// The ready spare once its document runs: its page client installed the
+    /// receiver the claim calls (`__cmuxPageReceive`, pageClient.ts), so a
+    /// test's own receiver is not replaced later. In the app the spare stays
+    /// parked for seconds; a fixed 1 s sleep stood in for that here.
     static func settledSpare(_ pool: PageHostPool) async -> PageWebView? {
         if !pool.isSpareReady {
             _ = await PageTestWait.value("page host spare ready") { (done: @escaping (Bool) -> Void) in
                 pool.onSpareReady = { _ in done(true) }
             }
         }
-        try? await Task.sleep(for: .seconds(1))
-        return pool.spareHost
+        guard let spare = pool.spareHost else { return nil }
+        let running = try? await spare.webKitView.callAsyncJavaScript("""
+            for (let i = 0; i < 2000 && typeof window.__cmuxPageReceive !== 'function'; i++) {
+              await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            return typeof window.__cmuxPageReceive === 'function';
+            """, contentWorld: .page) as? Bool
+        return running == true ? spare : nil
     }
 
     static func show(_ page: PageWebView, in window: NSWindow) {
