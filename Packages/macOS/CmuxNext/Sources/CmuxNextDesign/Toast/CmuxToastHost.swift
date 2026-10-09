@@ -18,9 +18,9 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
 
     public init() {
         avoidanceObserver = NotificationCenter.default.addObserver(forName: .cmuxToastAvoidanceDidChange, object: nil,
-                                                                   queue: .main) { [weak self] note in
-            let window = (note.object as? NSView)?.window
-            MainActor.assumeIsolated { self?.reanchor(in: window) }
+                                                                   queue: .main) { [weak self] _ in
+            // task-owner: one hop to the main actor; moves this host's toasts once
+            Task { @MainActor in self?.reanchor(in: nil) }
         }
     }
 
