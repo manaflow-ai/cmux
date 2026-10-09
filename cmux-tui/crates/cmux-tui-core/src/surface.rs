@@ -2120,6 +2120,7 @@ impl Surface {
         )
     }
 
+    #[allow(dead_code)]
     pub(crate) fn spawn_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,

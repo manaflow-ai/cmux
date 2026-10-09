@@ -1641,7 +1641,9 @@ With `terminal-placement-env-v1`, `new-tab`, `split`, `new-pane`, and
 that becomes the new terminal's host id. A frontend picks it first and puts it
 in `env` (for example `CMUX_SURFACE_ID`), so the child starts with its own id
 and no create-then-move step is needed. A malformed id, or one that already
-names a terminal, is rejected and nothing is created. `new-pane` and
+names a terminal, is rejected and nothing is created; with
+`split-client-keys-v1` the same `split`, `new-pane` or `new-pane-right`
+request again returns its first result instead (see "Client-minted pane ids"). `new-pane` and
 `new-pane-right` also accept `cwd`, `env`, and `keep` with the same meaning as
 on `new-tab`, and all four reply with `surface`, `terminal_id`, and
 `terminal_incarnation`.

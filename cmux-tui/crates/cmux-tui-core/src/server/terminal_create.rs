@@ -254,7 +254,7 @@ impl ConnectionSurfaceScheduler {
                         }
                         Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),
                         Command::NewPaneRight(params) => {
-                            params.set_terminal_id(terminal_hex.clone())
+                            params.set_terminal_id(terminal_hex.clone());
                         }
                         _ => {}
                     }
