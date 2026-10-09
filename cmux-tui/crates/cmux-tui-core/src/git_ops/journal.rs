@@ -113,7 +113,8 @@ impl Journal {
             idempotency_key: self.key.clone(),
             fingerprint: fingerprint.clone(),
             started_at: seconds(SystemTime::now()),
-            body: serde_json::to_value(body).expect("attempts serialize"),
+            body: serde_json::to_value(body)
+                .map_err(|error| failed(self.operation, &std::io::Error::other(error)))?,
         };
         match &self.place {
             Place::Disk(path) => {

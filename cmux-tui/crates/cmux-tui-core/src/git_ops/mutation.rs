@@ -97,7 +97,7 @@ impl Target {
 
 /// The key a catalog-validated mutation carries.
 pub(super) fn key(request: &ParsedResourceRequest) -> String {
-    request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
+    super::checkpoint::mutation_key(request)
 }
 
 /// `operation.failed` with the machine `reason` and the explanation in

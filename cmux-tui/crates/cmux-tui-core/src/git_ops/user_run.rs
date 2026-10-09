@@ -132,10 +132,12 @@ impl UserGit<'_> {
         }
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-        let stdout =
-            Pipe::read(child.stdout.take().expect("git stdout is piped"), MAX_STDOUT_BYTES);
-        let stderr =
-            Pipe::read(child.stderr.take().expect("git stderr is piped"), MAX_STDERR_BYTES);
+        let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+            terminate(&mut child);
+            return Err(GitFailure::Unavailable("git started without its output pipes".into()));
+        };
+        let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
+        let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);
         let status = match child.wait_timeout(remaining) {
             Ok(Some(status)) => status,
             Ok(None) => {
