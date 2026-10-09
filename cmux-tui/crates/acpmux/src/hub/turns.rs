@@ -203,21 +203,22 @@ impl Hub {
             let fallback = (!opts.steer_only).then(|| blocks.clone());
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = match super::steer_end::agent_prompt(session, &child, params, &turn_id, true)
-                .await
-            {
-                Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
-                    let Some(blocks) = fallback else { return Err(e) };
-                    let opts = PromptOptions {
-                        prompt_id: Some(prompt_id),
-                        control,
-                        trust_gate,
-                        ..PromptOptions::default()
-                    };
-                    return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
-                }
-                r => r?,
-            };
+            let mut r =
+                match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
+                {
+                    Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                        let Some(blocks) = fallback else { return Err(e) };
+                        let opts = PromptOptions {
+                            prompt_id: Some(prompt_id),
+                            control,
+                            trust_gate,
+                            ..PromptOptions::default()
+                        };
+                        return Box::pin(self.run_prompt(session, blocks, client, false, opts))
+                            .await;
+                    }
+                    r => r?,
+                };
             merge_mux_meta(
                 &mut r,
                 json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),

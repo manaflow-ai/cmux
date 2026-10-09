@@ -13,10 +13,7 @@ use super::*;
 
 /// Whether an agent's answer to a steer says that the turn ended.
 fn ends_turn(answer: &Value) -> bool {
-    answer
-        .get("stopReason")
-        .and_then(Value::as_str)
-        .is_some_and(|reason| reason != "steered")
+    answer.get("stopReason").and_then(Value::as_str).is_some_and(|reason| reason != "steered")
 }
 
 /// The agent's `session/prompt` for a prompt of turn `turn_id` (its own, or
