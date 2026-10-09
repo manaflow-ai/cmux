@@ -703,7 +703,10 @@ fn the_close_setting_closes_a_finished_subagents_workspace() {
     while s.workspaces.closed.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(s.workspaces.closed.lock().unwrap().clone(), vec!["ws-1".to_owned()]);
+    assert_eq!(
+        s.workspaces.closed.lock().unwrap().clone(),
+        vec!["ws-1".to_owned()]
+    );
     assert!(
         s.workspaces.renamed.lock().unwrap().is_empty(),
         "closed, not renamed"

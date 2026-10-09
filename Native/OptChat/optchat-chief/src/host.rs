@@ -914,7 +914,10 @@ fn start(
             // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
             // says otherwise (read at host start).
             let native_ttl = cache_ttl_env
-                .or(crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).cache_ttl)
+                .or(
+                    crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
+                        .cache_ttl,
+                )
                 .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
             Engine::Native(Arc::new(
                 Native::new(native_config, Arc::new(model), optchat_host::RETRY)
@@ -995,6 +998,8 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
+    // Finished subagents' workspaces stay with a done mark unless this says close.
+    brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
