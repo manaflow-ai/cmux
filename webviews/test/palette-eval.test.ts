@@ -3,7 +3,7 @@ import { formatReport, evaluate } from "../src/palette/eval";
 import { loadEval } from "../scripts/palette-eval";
 
 // The palette ranking eval (plans/cmux-next/palette-ranking.md section 3): real root-palette
-// entries, 110 queries with expected rows. A ranking change must not lower these floors; raise
+// entries, 112 queries with expected rows. A ranking change must not lower these floors; raise
 // them when a change improves the numbers, and paste the report into the landing.
 // Recorded 2026-10-08 with the tiered scorer (palette-ranking.md section 6, step 2).
 const floors = { top1: 0.65, top3: 0.79, mrr: 0.75 };

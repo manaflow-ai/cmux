@@ -880,6 +880,23 @@
     "action:terminal.increaseFontSize"
    ],
    "group": "exact"
+  },
+  {
+   "query": "add agent",
+   "expect": [
+    "action:agent.harness.add",
+    "action:agent.harness.addFromRegistry"
+   ],
+   "group": "exact"
+  },
+  {
+   "query": "harness",
+   "expect": [
+    "action:agent.harness.add",
+    "action:agent.harness.addFromRegistry",
+    "action:palette.addHarness"
+   ],
+   "group": "concept"
   }
  ]
 }

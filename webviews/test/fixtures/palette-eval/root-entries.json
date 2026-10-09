@@ -10193,10 +10193,143 @@
         ],
         "rankBias": 0,
         "sectionIndex": 9,
-        "title": "Add Harness…",
+        "title": "Integrate a Harness with an Agent…",
         "typingSectionIndex": 16
       },
       "id": "action:palette.addHarness"
+    },
+    {
+      "entry": {
+        "actionID": "agent.harness.add",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agent.harness.add",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "harness",
+          "acp",
+          "acpmux",
+          "custom",
+          "bring your own",
+          "add",
+          "install",
+          "profile"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "Add ACP Agent…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agent.harness.add"
+    },
+    {
+      "entry": {
+        "actionID": "agent.harness.addFromRegistry",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agent.harness.addFromRegistry",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "harness",
+          "acp",
+          "registry",
+          "install",
+          "gemini",
+          "cursor",
+          "goose",
+          "add"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "Add Agent from ACP Registry…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agent.harness.addFromRegistry"
+    },
+    {
+      "entry": {
+        "actionID": "agent.harness.remove",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agent.harness.remove",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "harness",
+          "acp",
+          "remove",
+          "delete",
+          "uninstall",
+          "profile"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "Remove Agent…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agent.harness.remove"
+    },
+    {
+      "entry": {
+        "actionID": "agent.harness.restore",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agent.harness.restore",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "harness",
+          "restore",
+          "undo",
+          "removed"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "Restore Removed Agent",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agent.harness.restore"
+    },
+    {
+      "entry": {
+        "actionID": "agent.harness.doctor",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agent.harness.doctor",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": [
+          "agent",
+          "harness",
+          "acp",
+          "doctor",
+          "check",
+          "test",
+          "diagnose",
+          "handshake"
+        ],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "title": "Check Agent…",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agent.harness.doctor"
     },
     {
       "entry": {
