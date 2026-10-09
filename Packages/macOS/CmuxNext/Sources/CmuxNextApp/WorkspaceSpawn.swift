@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
@@ -131,6 +132,9 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        // The Terminal template (`tabs.newTabTemplate`) skips the page here too: a new workspace starts on a terminal.
+        var spawn = spawn
+        if services.settings?.snapshot.newTabTemplate == .terminal { spawn.opensNewTabPage = false }
         if let page = try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(

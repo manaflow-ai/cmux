@@ -26,7 +26,7 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
@@ -2404,7 +2404,11 @@ function AcpmuxPane() {
                 pickNewTabTemplate(template, {
                   callNative,
                   cwd: newTab.cwd,
-                  show: (next) => setNewTab((current) => current && { ...current, template: next }),
+                  show: (next) => {
+                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
+                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                  },
                 })
               }
             />

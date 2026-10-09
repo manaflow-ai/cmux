@@ -83,7 +83,8 @@ final class NewTabSparePool {
 
     /// The new tab page is likely soon: a spare is worth its memory.
     var isLikely: Bool {
-        usedThisSession || (services.settings?.snapshot.newTabKind == .page && services.settings?.snapshot.newTabTemplate != .terminal)
+        guard services.settings?.snapshot.newTabTemplate != .terminal else { return false }
+        return usedThisSession || services.settings?.snapshot.newTabKind == .page
     }
 
     /// At launch: follow the key main window; park in the first visible one.
