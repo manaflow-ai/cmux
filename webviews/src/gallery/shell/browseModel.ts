@@ -26,7 +26,8 @@ export function browseItems(entries: readonly GalleryEntry[]): BrowseItem[] {
 export function browseMatches(item: BrowseItem, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${item.variant}`.toLowerCase().includes(needle);
+  const variants = Object.keys(item.entry.variants).join(" ");
+  return `${item.entry.area} ${item.entry.title} ${item.entry.id} ${variants}`.toLowerCase().includes(needle);
 }
 
 /** Filter contact-sheet cards without changing the stable recommended variant for each entry. */

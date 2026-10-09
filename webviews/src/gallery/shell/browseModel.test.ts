@@ -10,7 +10,7 @@ const entries = [
     area: "Composer",
     covers: [],
     pick: { beadId: "picker", recommendedId: "keyboard" },
-    variants: { pointer: {}, keyboard: {} },
+    variants: { pointer: {}, keyboard: {}, disabled: {} },
   },
   {
     host: "native",
@@ -33,6 +33,9 @@ describe("gallery browse model", () => {
   test("filters by entry title, area, id, or variant without changing card order", () => {
     expect(filterBrowseItems(entries, "composer").map(({ entry }) => entry.id)).toEqual(["composer.picker"]);
     expect(filterBrowseItems(entries, "REDUCED").map(({ entry }) => entry.id)).toEqual(["transcript.motion"]);
+    expect(filterBrowseItems(entries, "DISABLED").map(({ entry, variant }) => [entry.id, variant])).toEqual([
+      ["composer.picker", "keyboard"],
+    ]);
     expect(filterBrowseItems(entries, "").map(({ entry }) => entry.id)).toEqual([
       "composer.picker",
       "transcript.motion",
