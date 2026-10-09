@@ -60,6 +60,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
             )
         }
         item.swatches = row.swatches
+        item.isDemoted = true
         return item
     }
 

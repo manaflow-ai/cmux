@@ -274,7 +274,7 @@ enum Instant {
         guard b.count == 20 || b.count == 25 else { return nil }
         func num(_ i: Int, _ n: Int) -> Int? {
             var v = 0
-            for k in i..<(i + n) { let c = b[k]; guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
+            for c in b.slice(i, i + n) { guard c >= 48, c <= 57 else { return nil }; v = v * 10 + Int(truncatingIfNeeded: c - 48) } // cmux: no index math
             return v
         }
         guard b[4] == 45, b[7] == 45, b[10] == 84, b[13] == 58, b[16] == 58,
