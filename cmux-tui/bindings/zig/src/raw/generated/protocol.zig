@@ -49,7 +49,7 @@ pub const AgentReportSource = enum {
 pub const AgentSessionSource = struct {
     /// The agent kind the chat was started with.
     harness: wire.Field([]const u8) = .absent,
-    /// install: and the stable install id of the machine whose acpmux runs the session.
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     host: []const u8,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     host_name: wire.Field([]const u8) = .absent,

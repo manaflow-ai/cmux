@@ -158,9 +158,16 @@ impl ConversationTabRecord {
                 );
             }
             Self::AgentSession { host, session, harness, host_name } => {
+                // `install:<id>`: the machine whose acpmux runs the session;
+                // `chief:<home id>`: the Chief home on that app's machine whose
+                // own acpmux runs it (a Chief subagent).
+                let chief = host.strip_prefix("chief:").is_some_and(|id| {
+                    id.len() == 8
+                        && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                });
                 anyhow::ensure!(
-                    host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
-                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-'"
+                    chief || host.strip_prefix("install:").is_some_and(|id| token(id, 120, b"_.-")),
+                    "bad request: host must be install: and 1 to 120 letters, digits or '_', '.', '-', or chief: and 8 lowercase hex digits"
                 );
                 if let Some(session) = session {
                     validate_session(session)?;
@@ -686,7 +693,9 @@ mod tests {
             host_name: None,
         };
         assert!(record("chief:0a1b2c3d").validate().is_ok());
-        for host in ["chief:", "chief:0A1B2C3D", "chief:0a1b2c3", "chief:0a1b2c3d4", "chief:zzzzzzzz"] {
+        for host in
+            ["chief:", "chief:0A1B2C3D", "chief:0a1b2c3", "chief:0a1b2c3d4", "chief:zzzzzzzz"]
+        {
             assert!(record(host).validate().is_err(), "{host}");
         }
     }

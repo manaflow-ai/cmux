@@ -353,7 +353,7 @@ func (value *AgentReportSource) UnmarshalJSON(data []byte) error {
 type AgentSessionSource struct {
 	// The agent kind the chat was started with.
 	Harness Presence[string] `json:"-"`
-	// install: and the stable install id of the machine whose acpmux runs the session.
+	// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
 	Host string `json:"host"`
 	// Display name of the host machine: 1 to 255 bytes, no control characters.
 	HostName Presence[string] `json:"-"`

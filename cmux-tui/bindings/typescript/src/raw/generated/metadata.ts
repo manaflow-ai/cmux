@@ -3641,7 +3641,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "host": {
-        "description": "install: and the stable install id of the machine whose acpmux runs the session.",
+        "description": "install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.",
         "nullable": false,
         "presence": "required",
         "type": {
