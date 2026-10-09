@@ -195,19 +195,30 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        // An OSC 7501 done for a terminal the user can see is read at once.
+        let program = programStatus(of: notification, source: source, located: located)
+        if let program, !program.notifies(visibility: visibility(of: located)) {
+            note("program status \(program.reason.rawValue) visible: read at once")
+            acknowledge(located.tab)
+            return
+        }
         // The feed (and the iPhone push) gets only what would alert on this Mac: muted
         // workspaces, quiet hours and banners turned off are not mirrored.
         if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
-        if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
+        if decision.desktop {
+            post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound, program: program)
+        }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 
-    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?) {
+    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
+                      program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
-        desktop.post(id: id, title: title, body: notification.body, surface: notification.surface?.rawValue,
-                     workspace: workspace, defaultSound: sound == "default")
+        desktop.post(id: id, title: title, subtitle: program.map { Self.reasonLine($0.reason) }, body: notification.body,
+                     surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
     }

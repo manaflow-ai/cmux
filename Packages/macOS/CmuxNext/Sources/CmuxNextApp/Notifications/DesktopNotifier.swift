@@ -13,6 +13,7 @@ final class DesktopNotifier: NSObject {
     struct Posted: Hashable {
         var id: String
         var title: String
+        var subtitle: String?
         var body: String
         var surface: UInt64?
         var sound: String?
@@ -32,13 +33,27 @@ final class DesktopNotifier: NSObject {
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
     /// played by `NotificationSounds`.
-    func post(id: String, title: String, body: String, surface: UInt64?, workspace: String?, defaultSound: Bool) {
-        posted.append(Posted(id: id, title: title, body: body, surface: surface, sound: defaultSound ? "default" : nil))
+    /// `subtitle` is a status reason line and `attachment` a badge PNG
+    /// (OSC 7501 notifications), written to a file only for a banner the
+    /// center will take (it moves the file); a failed one is deleted.
+    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
+              defaultSound: Bool, attachment: Data? = nil) {
+        posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
+                             sound: defaultSound ? "default" : nil))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
+        if let subtitle { content.subtitle = subtitle }
         content.body = body
+        let attachmentFile: URL? = attachment.flatMap { Self.writeAttachment($0, id: id) }.flatMap { file in
+            guard let item = try? UNNotificationAttachment(identifier: "status", url: file) else {
+                try? FileManager.default.removeItem(at: file)
+                return nil
+            }
+            content.attachments = [item]
+            return file
+        }
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
@@ -48,7 +63,22 @@ final class DesktopNotifier: NSObject {
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         let logger = logger
         center.add(request) { error in
-            if let error { logger.error("banner failed: \(String(describing: error), privacy: .public)") }
+            guard let error else { return }
+            logger.error("banner failed: \(String(describing: error), privacy: .public)")
+            if let attachmentFile { try? FileManager.default.removeItem(at: attachmentFile) }
+        }
+    }
+
+    /// A file for one banner's attachment in the temporary directory.
+    private static func writeAttachment(_ data: Data, id: String) -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-status-notifications", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "\(id)-\(UUID().uuidString).png")
+        do {
+            try data.write(to: file)
+            return file
+        } catch {
+            return nil
         }
     }
 
