@@ -25,6 +25,12 @@ public actor SignalingClient {
     public typealias URLProvider = @Sendable () async throws -> URL
     /// Returns the full upgrade request, including `Authorization`.
     public typealias RequestProvider = @Sendable () async throws -> URLRequest
+    /// Forces a fresh access token; called when the server closes the socket
+    /// with `tokenExpiredCloseCode`.
+    public typealias TokenRefresher = @Sendable () async throws -> Void
+
+    /// Close code the signaling room uses when the access token expired.
+    public static let tokenExpiredCloseCode = 4002
 
     public private(set) var peerId: String?
     public private(set) var isConnected = false
@@ -32,6 +38,7 @@ public actor SignalingClient {
     public private(set) var presenceByHost: [String: Bool] = [:]
 
     private let requestProvider: RequestProvider
+    private let tokenRefresher: TokenRefresher?
     private let urlSession: URLSession
     private let clock: any Clock<Duration>
     private let backoff: ReconnectBackoff
@@ -45,12 +52,14 @@ public actor SignalingClient {
 
     public init(
         requestProvider: @escaping RequestProvider,
+        tokenRefresher: TokenRefresher? = nil,
         urlSession: URLSession = .shared,
         backoff: ReconnectBackoff = ReconnectBackoff(initial: .seconds(1), maximum: .seconds(30), maxAttempts: nil),
         keepAliveInterval: Duration = .seconds(20),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.requestProvider = requestProvider
+        self.tokenRefresher = tokenRefresher
         self.urlSession = urlSession
         self.backoff = backoff
         self.keepAliveInterval = keepAliveInterval
@@ -60,12 +69,13 @@ public actor SignalingClient {
     /// Convenience for a provider that returns a URL carrying `?token=`.
     public init(
         urlProvider: @escaping URLProvider,
+        tokenRefresher: TokenRefresher? = nil,
         urlSession: URLSession = .shared,
         backoff: ReconnectBackoff = ReconnectBackoff(initial: .seconds(1), maximum: .seconds(30), maxAttempts: nil),
         keepAliveInterval: Duration = .seconds(20),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
-        self.init(requestProvider: { Self.request(for: try await urlProvider()) }, urlSession: urlSession,
+        self.init(requestProvider: { Self.request(for: try await urlProvider()) }, tokenRefresher: tokenRefresher, urlSession: urlSession,
                   backoff: backoff, keepAliveInterval: keepAliveInterval, clock: clock)
     }
 
@@ -137,10 +147,13 @@ public actor SignalingClient {
 
     private func run() async {
         var attempt = 0
+        var refreshedForExpiry = false
         while !Task.isCancelled {
+            var tokenExpired = false
             do {
                 let request = try await requestProvider()
                 let task = urlSession.webSocketTask(with: request)
+                defer { tokenExpired = task.closeCode.rawValue == Self.tokenExpiredCloseCode }
                 socket = task
                 task.resume()
                 let keepAlive = startKeepAlive(task)
@@ -154,7 +167,7 @@ public actor SignalingClient {
                     @unknown default: continue
                     }
                     guard let message = try? JSONDecoder().decode(SignalMessage.self, from: data) else { continue }
-                    if case .welcome = message { attempt = 0 }
+                    if case .welcome = message { attempt = 0; refreshedForExpiry = false }
                     handle(message)
                 }
             } catch {
@@ -164,6 +177,15 @@ public actor SignalingClient {
             socket = nil
             setConnected(false)
             if Task.isCancelled { return }
+            // Only the signaling socket reconnects here; established WebRTC
+            // links keep running and pick up the new socket for later frames.
+            if tokenExpired, !refreshedForExpiry, let tokenRefresher {
+                // Expired access token: refresh and reconnect immediately
+                // (once in a row; a repeat falls back to the backoff).
+                refreshedForExpiry = true
+                if (try? await tokenRefresher()) != nil { attempt = 0; continue }
+            }
+            refreshedForExpiry = false
             attempt += 1
             do { try await clock.sleep(for: backoff.delay(forAttempt: attempt)) } catch { return }
         }

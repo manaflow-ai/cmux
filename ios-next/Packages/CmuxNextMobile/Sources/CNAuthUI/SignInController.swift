@@ -35,8 +35,7 @@ public enum SignInFlowError: Error, LocalizedError, Sendable, Equatable {
 }
 
 /// Drives the cmux iOS sign-in mechanism: Stack Auth (magic-link email code,
-/// Sign in with Apple, Google and GitHub OAuth, and the DEBUG `42` dogfood
-/// password shortcut), then exchanges the Stack access token for the cmux-next
+/// Sign in with Apple, Google and GitHub OAuth), then exchanges the Stack access token for the cmux-next
 /// backend session (`POST /v1/auth/stack`) that the rest of the app uses.
 /// Stack tokens live in memory only and are dropped after the exchange.
 @MainActor
@@ -67,16 +66,13 @@ public final class SignInController {
     var isRestoringSession: Bool { auth.state == .restoring }
     var isAuthenticated: Bool { auth.state.user != nil }
 
-    /// Sends a sign-in code to `email`, or runs the DEBUG `42` shortcut.
+    /// Sends a sign-in code to `email`. (The cmux iOS DEBUG `42` password
+    /// shortcut only exists in the development Stack project, which this app
+    /// does not use.)
     func sendCode(to email: String) async throws {
         isLoading = true
         defer { isLoading = false }
         let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        if environment.allowsDevShortcut, trimmed == "42" {
-            try await stack.signInWithCredential(email: "l@l.com", password: "abc123")
-            try await exchangeStackSession()
-            return
-        }
         pendingNonce = try await stack.sendMagicLinkEmail(email: trimmed, callbackUrl: environment.magicLinkCallbackURL)
     }
 

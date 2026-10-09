@@ -22,7 +22,6 @@ rate; repeated frames are recorder drops, not app hitches. Contact sheets are in
 | `CMUX_NEXT_FORCE_RELAY=1\|0` | Settings > Force relay (TURN) |
 | `CMUX_NEXT_START_DESTINATION=home\|agents\|terminals\|browser\|settings` | Initial shell destination |
 | `CMUX_NEXT_TEST_LOGIN_EMAIL` + `CMUX_NEXT_TEST_LOGIN_SECRET` | `/v1/auth/test` login (live backend) |
-| `CMUX_NEXT_STACK_ENV=prod` | Debug build against the production Stack project |
 
 ## Drawer (push-aside) motion
 
@@ -65,8 +64,8 @@ because cmux iOS's `AccentColor` is the unset system default.
 | Mode switch animation | `withAnimation(.snappy(duration: 0.18))`, crossfade between cards | same code path; code -> methods: new header opacity 2.6 -> 21.5 (darkness units) over frames 119-126 (~0.13 s visible ramp, settle by 0.18 s), positions jump without slide | pass (cmux iOS itself not recorded side by side) |
 | Three modes | methods / emailVerification / code | all three captured light and dark (`shell/signin.png`) | pass |
 | Restore status | "Restoring session" with 10 s timeout and Retry | ported, shown while `AuthSession.state == .restoring` | not captured (restore is near-instant) |
-| Mechanism | Stack Auth magic link (nonce + code), OAuth apple/google/github, DEBUG `42` dogfood password | `SignInController` over `StackClientApp` (memory token store), then `POST /v1/auth/stack {accessToken, projectId}` | built; not exercised end to end (would send real email / OAuth) |
-| Projects | prod `9790718f...` (Release), dev `454ecd03...` + publishable key (Debug) | `StackAuthEnvironment.production` / `.development` | pass |
+| Mechanism | Stack Auth magic link (nonce + code), OAuth apple/google/github | `SignInController` over `StackClientApp` (memory token store), then `POST /v1/auth/stack {accessToken, projectId}` | built; not exercised end to end (would send real email / OAuth) |
+| Projects | production `9790718f...` in every configuration (the backend disables the dev project) | `StackAuthEnvironment.current()` is `.production` | pass. The cmux iOS DEBUG `42` shortcut was removed: `l@l.com` returns `EMAIL_PASSWORD_MISMATCH` on the production project |
 
 Sheet: `shell/signin-mode-switch.png` (frames 117-129).
 

@@ -79,10 +79,25 @@ public actor BackendClient {
     /// Refresh this long before the access token expires.
     public nonisolated let refreshLeeway: TimeInterval = 60
 
-    public init(configuration: BackendConfiguration, tokenStore: any TokenStore, urlSession: URLSession = .shared) {
+    /// `GET /ice` cache shared by every connect (see `iceConfiguration()`).
+    private var iceCache: (config: ICEConfiguration, fetchedAt: Date)?
+    private var iceTask: Task<ICEConfiguration, any Error>?
+    /// Set by a 429 from `/ice` (its `Retry-After`).
+    private var iceRetryAfter: Date?
+    private let now: @Sendable () -> Date
+    private let clock: any Clock<Duration>
+    /// Reuse ICE credentials until this fraction of their `ttl` has passed.
+    public nonisolated let iceRefreshFraction = 0.8
+    /// Longest a connect waits out an `/ice` Retry-After before fetching.
+    public nonisolated let iceMaxBackoffWait: TimeInterval = 30
+
+    public init(configuration: BackendConfiguration, tokenStore: any TokenStore, urlSession: URLSession = .shared,
+                now: @escaping @Sendable () -> Date = { Date() }, clock: any Clock<Duration> = ContinuousClock()) {
         self.configuration = configuration
         self.tokenStore = tokenStore
         self.urlSession = urlSession
+        self.now = now
+        self.clock = clock
         self.session = tokenStore.load()
     }
 
@@ -113,10 +128,13 @@ public actor BackendClient {
         try await adopt(send("POST", "/auth/email/verify", body: ["email": email, "code": code, "nonce": nonce], auth: false, as: Tokens.self))
     }
 
+    /// - Parameter nonce: the raw nonce whose SHA-256 was set on the Apple
+    ///   request (`AppleSignInNonce`); the backend checks the token's claim.
     @discardableResult
-    public func signInWithApple(identityToken: String, fullName: String? = nil) async throws -> User {
+    public func signInWithApple(identityToken: String, fullName: String? = nil, nonce: String? = nil) async throws -> User {
         var body = ["identityToken": identityToken]
         if let fullName, !fullName.isEmpty { body["fullName"] = fullName }
+        if let nonce { body["nonce"] = nonce }
         return try await adopt(send("POST", "/auth/apple", body: body, auth: false, as: Tokens.self))
     }
 
@@ -201,8 +219,74 @@ public actor BackendClient {
         _ = try await send("DELETE", "/hosts/\(escaped)", auth: true, as: EmptyPayload.self)
     }
 
+    /// `GET /ice`, cached until `iceRefreshFraction` of its `ttl` and shared
+    /// across reconnects (single flight). At most one request per call. After
+    /// a 429 the next call waits out `Retry-After` (capped) before fetching;
+    /// unexpired cached credentials are used instead whenever available.
     public func iceConfiguration() async throws -> ICEConfiguration {
-        try await send("GET", "/ice", auth: true, as: ICEConfiguration.self)
+        if let fresh = cachedICE(fraction: iceRefreshFraction) { return fresh }
+        if let until = iceRetryAfter, until > now() {
+            if let usable = cachedICE(fraction: 1) { return usable }
+            let wait = min(until.timeIntervalSince(now()), iceMaxBackoffWait)
+            try await clock.sleep(for: .milliseconds(Int(wait * 1000)))
+            if let fresh = cachedICE(fraction: iceRefreshFraction) { return fresh }
+        }
+        if let iceTask { return try await iceTask.value }
+        let task = Task { try await self.fetchICE() }
+        iceTask = task
+        defer { iceTask = nil }
+        return try await task.value
+    }
+
+    private func cachedICE(fraction: Double) -> ICEConfiguration? {
+        guard let cache = iceCache else { return nil }
+        let age = now().timeIntervalSince(cache.fetchedAt)
+        return age < Double(cache.config.ttl) * fraction ? cache.config : nil
+    }
+
+    private func fetchICE() async throws -> ICEConfiguration {
+        let token = try await validAccessToken()
+        var request = URLRequest(url: configuration.url("/ice"))
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw BackendError.invalidResponse("not HTTP") }
+        switch http.statusCode {
+        case 200..<300:
+            let config: ICEConfiguration
+            do { config = try JSONDecoder().decode(ICEConfiguration.self, from: data) } catch {
+                throw BackendError.invalidResponse("/ice: \(error)")
+            }
+            iceCache = (config, now())
+            iceRetryAfter = nil
+            return config
+        case 429:
+            let delay = Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now()) ?? 5
+            iceRetryAfter = now().addingTimeInterval(delay)
+            if let usable = cachedICE(fraction: 1) { return usable }
+            throw BackendError.server(status: 429, code: "rate_limited", message: "Too many connection attempts. Retrying in \(Int(delay.rounded(.up))) s.")
+        default:
+            if http.statusCode == 401 {
+                // Next attempt uses a refreshed token; no second /ice here.
+                _ = try? await refresh(rejecting: token)
+            }
+            if let err = try? JSONDecoder().decode(BackendErrorBody.self, from: data) {
+                throw BackendError.server(status: http.statusCode, code: err.error.code, message: err.error.message)
+            }
+            throw BackendError.server(status: http.statusCode, code: "http_\(http.statusCode)",
+                                      message: HTTPURLResponse.localizedString(forStatusCode: http.statusCode))
+        }
+    }
+
+    /// Seconds from a `Retry-After` value (delta seconds or an HTTP date).
+    static func retryAfter(_ value: String?, now: Date) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        if let seconds = TimeInterval(value) { return max(0, seconds) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: value).map { max(0, $0.timeIntervalSince(now)) }
     }
 
     /// The signaling WebSocket URL with a fresh access token as `?token=`.
@@ -265,6 +349,8 @@ public actor BackendClient {
     private func clearSession() {
         let had = session != nil
         session = nil
+        iceCache = nil
+        iceRetryAfter = nil
         tokenStore.clear()
         if had { emit(.signedOut) }
     }

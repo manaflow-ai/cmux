@@ -114,19 +114,21 @@ public final class AuthSession {
     }
 
     /// Completes Sign in with Apple with the credential's identity token.
-    public func signInWithApple(identityToken: String, fullName: String? = nil) async throws {
+    /// `nonce` is the raw value whose SHA-256 was set on the request.
+    public func signInWithApple(identityToken: String, fullName: String? = nil, nonce: String? = nil) async throws {
         try await run {
-            self.state = .signedIn(try await self.backend.signInWithApple(identityToken: identityToken, fullName: fullName))
+            self.state = .signedIn(try await self.backend.signInWithApple(identityToken: identityToken, fullName: fullName, nonce: nonce))
         }
     }
 
-    /// Convenience for `SignInWithAppleButton`'s completion.
-    public func signInWithApple(credential: ASAuthorizationAppleIDCredential) async throws {
+    /// Convenience for `SignInWithAppleButton`: set `nonce.hashed` as the
+    /// request's `nonce`, then pass the same `nonce` here.
+    public func signInWithApple(credential: ASAuthorizationAppleIDCredential, nonce: AppleSignInNonce) async throws {
         guard let tokenData = credential.identityToken, let token = String(data: tokenData, encoding: .utf8) else {
             throw BackendError.invalidResponse("Apple did not return an identity token")
         }
         let name = credential.fullName.map { PersonNameComponentsFormatter().string(from: $0) }
-        try await signInWithApple(identityToken: token, fullName: name)
+        try await signInWithApple(identityToken: token, fullName: name, nonce: nonce.raw)
     }
 
     /// OAuth (`github`, `google`) through ASWebAuthenticationSession. The

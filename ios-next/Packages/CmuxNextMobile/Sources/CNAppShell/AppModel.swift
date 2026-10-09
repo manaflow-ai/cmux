@@ -121,7 +121,10 @@ public final class AppModel {
             ?? BackendConfiguration(baseURL: URL(string: "https://cmux-next-mobile.debussy.workers.dev")!)
         let backend = BackendClient(configuration: configuration, tokenStore: SessionTokenStore())
         let preferences = AppPreferences()
-        let signaling = SignalingClient(urlProvider: { try await backend.signalingURL() })
+        let signaling = SignalingClient(
+            requestProvider: { try await backend.signalingRequest() },
+            tokenRefresher: { _ = try await backend.refresh() }
+        )
         let relaySwitch = RelaySwitch(preferences.forceRelay)
         let connector = SwitchingWebRTCConnector(signaling: signaling, relay: relaySwitch) {
             try await backend.iceConfiguration()
