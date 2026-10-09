@@ -990,6 +990,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1184,9 +1185,20 @@ function AcpmuxPane() {
       ...(connected && {
         retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
       }),
+      ...(connected &&
+        loginCommand &&
+        snapshot.summary?.hostKind !== "cloud" && {
+          reauthenticate: () =>
+            void callNative("tab.open", {
+              kind: "terminal",
+              text: loginCommand,
+              ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+              run: true,
+            }).catch(() => undefined),
+        }),
       review: hunkReview,
     }),
-    [forkable, forkSeq, connected, hunkReview],
+    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
