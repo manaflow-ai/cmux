@@ -37,24 +37,98 @@ if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^
 fi
 
 # Only normalize when the pbxproj is part of this commit.
-if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
-    exit 0
+if git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+    # Refuse to normalize when the working-tree pbxproj has unstaged changes.
+    # Otherwise the `git add` at the end would silently stage hunks the
+    # user deliberately left out of this commit.
+    if ! git diff --quiet -- "$PBXPROJ"; then
+        echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
+        echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
+        exit 1
+    fi
+
+    "$PYTHON3_BIN" -I "$PBX_NORMALIZER" "$PBXPROJ"
+
+    # If the normalizer rewrote the file, restage so the commit captures
+    # the normalized form. (Working tree had no unstaged changes per the
+    # guard above, so anything that changed is purely from normalization.)
+    if ! git diff --quiet -- "$PBXPROJ"; then
+        git add "$PBXPROJ"
+    fi
 fi
 
-# Refuse to normalize when the working-tree pbxproj has unstaged changes.
-# Otherwise the `git add` at the end would silently stage hunks the
-# user deliberately left out of this commit.
-if ! git diff --quiet -- "$PBXPROJ"; then
-    echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
-    echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
-    exit 1
+# Keep the formatters on the fast path: only invoke them for files that are in
+# this commit, and never build or inspect the rest of the checkout. A formatter
+# rewrites its input in place, so refuse a file with unstaged edits rather than
+# accidentally adding those edits to this commit.
+STAGED_WEB_PATHS=()
+STAGED_RUST_PATHS=()
+STAGED_SWIFT_PATHS=()
+while IFS= read -r -d '' path; do
+    if ! git diff --quiet -- "$path"; then
+        case "$path" in
+            webviews/*|cmux-tui/*|*.swift)
+                echo "pre-commit: $path has unstaged changes; stage or stash them before formatting." >&2
+                exit 1
+                ;;
+        esac
+    fi
+
+    case "$path" in
+        webviews/*)
+            case "$path" in
+                *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs|*.mts|*.cts|*.css|*.scss|*.html|*.json)
+                    STAGED_WEB_PATHS+=("${path#webviews/}")
+                    ;;
+            esac
+            ;;
+        cmux-tui/*)
+            if [[ "$path" == *.rs ]]; then
+                STAGED_RUST_PATHS+=("$path")
+            fi
+            ;;
+        *.swift)
+            STAGED_SWIFT_PATHS+=("$path")
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+
+if (( ${#STAGED_WEB_PATHS[@]} > 0 )); then
+    VP_BIN="$(command -v vp || true)"
+    if [[ -z "$VP_BIN" && -x "$REPO_ROOT/webviews/node_modules/.bin/vp" ]]; then
+        VP_BIN="$REPO_ROOT/webviews/node_modules/.bin/vp"
+    fi
+    if [[ -z "$VP_BIN" ]]; then
+        echo "pre-commit: vp is unavailable; skipping webviews formatting (CI will run vp check)." >&2
+    else
+        (
+            cd "$REPO_ROOT/webviews"
+            "$VP_BIN" fmt "${STAGED_WEB_PATHS[@]}"
+        )
+        git add -- "${STAGED_WEB_PATHS[@]/#/webviews/}"
+    fi
 fi
 
-"$PYTHON3_BIN" -I "$PBX_NORMALIZER" "$PBXPROJ"
+if (( ${#STAGED_RUST_PATHS[@]} > 0 )); then
+    CARGO_BIN="$(command -v cargo || true)"
+    if [[ -z "$CARGO_BIN" ]]; then
+        echo "pre-commit: cargo is unavailable; skipping cmux-tui formatting (CI will run cargo fmt --check)." >&2
+    else
+        "$CARGO_BIN" fmt --manifest-path "$REPO_ROOT/cmux-tui/Cargo.toml" -- "${STAGED_RUST_PATHS[@]}"
+        git add -- "${STAGED_RUST_PATHS[@]}"
+    fi
+fi
 
-# If the normalizer rewrote the file, restage so the commit captures
-# the normalized form. (Working tree had no unstaged changes per the
-# guard above, so anything that changed is purely from normalization.)
-if ! git diff --quiet -- "$PBXPROJ"; then
-    git add "$PBXPROJ"
+# cmux currently has no Swift-format configuration. Keep this branch ready for
+# the day one is added without making a formatter a setup prerequisite today.
+if (( ${#STAGED_SWIFT_PATHS[@]} > 0 )) && [[ -f "$REPO_ROOT/.swift-format" ]]; then
+    SWIFT_FORMAT_BIN="$(command -v swift-format || true)"
+    if [[ -z "$SWIFT_FORMAT_BIN" ]]; then
+        echo "pre-commit: swift-format is unavailable; skipping Swift formatting (CI will report it)." >&2
+    else
+        for path in "${STAGED_SWIFT_PATHS[@]}"; do
+            "$SWIFT_FORMAT_BIN" format --in-place --configuration "$REPO_ROOT/.swift-format" "$path"
+            git add -- "$path"
+        done
+    fi
 fi
