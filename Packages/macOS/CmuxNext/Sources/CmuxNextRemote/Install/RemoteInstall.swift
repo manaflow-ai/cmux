@@ -68,7 +68,7 @@ public enum RemoteInstallError: Error, Hashable, Sendable {
 /// Either way the machine checks the digest again and runs the staged
 /// binary's `remote-probe` before renaming it over the old one.
 public struct RemoteInstallPlan: Hashable, Sendable {
-    public static let base = URL(string: "https://files.cmux.com/cmux-tui")!
+    public static let base = URL(string: "https://files.cmux.com/cmux-tui") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
     public let commit: String
     public let artifact: String
     public let sha256: String
