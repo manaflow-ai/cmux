@@ -69,6 +69,10 @@ extension DebugHome {
                     "window": page.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }
                         .map { .string($0) } ?? .null,
                     "divider": page.split.dividerFrameInWindow.map(Self.frame) ?? .null,
+                    // Tiles then rows as drawn (window points from the top-left), for debug.mouse drags.
+                    "items": .array(page.list.itemFramesInWindow.map { item in
+                        .object(["id": .string(item.id.rawValue), "pinned": .bool(item.pinned), "frame": Self.frame(item.frame)])
+                    }),
                 ])
             } ?? .null,
             // Every window's Home sidebar: its width and divider (window points from the top-left).

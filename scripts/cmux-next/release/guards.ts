@@ -102,10 +102,12 @@ export const productionCheckout = (root: string, tree: Tree, remote: RegExp = LA
   return { remote: remoteSha, head }
 }
 
-/** Refuses when the checkout's HEAD moved after productionCheckout verified `head` (checked right before writing). */
-export const stillAt = (root: string, head: string) => {
+/** Refuses when the checkout's HEAD moved, or its migrations/rails/requirements changed, after productionCheckout (checked right before writing). */
+export const stillAt = (root: string, tree: Tree, head: string) => {
   const now = git(root, ["rev-parse", "HEAD"]).stdout.trim()
   if (now !== head) throw new Refused(`HEAD moved from ${head.slice(0, 12)} to ${now.slice(0, 12)} during the run; refusing`)
+  const dirty = git(root, ["status", "--porcelain", "--", tree.dir, "scripts/cmux-next/release", LOCK_PATH, "workers/cmux-vm/src/db/schema-requirements.ts"]).stdout.trim()
+  if (dirty) throw new Refused(`uncommitted migration changes appeared during the run:\n${dirty}`)
 }
 
 /** Whether the connected role may create schemas in the database (needed only to bootstrap the tree's schema). */
@@ -115,15 +117,17 @@ export const hasDatabaseCreate = async (sql: Sql): Promise<boolean> => (await sq
  * Code a production step must not let the runtime load besides this checkout (P3-2): preload or
  * option variables, and a bunfig.toml with a preload next to the rails or in the working directory.
  */
-export const runtimeInjection = (env: Record<string, string | undefined>, dirs: ReadonlyArray<string>): Array<string> => {
+export const runtimeInjection = (
+  env: Record<string, string | undefined>,
+  dirs: ReadonlyArray<string>,
+  execArgv: ReadonlyArray<string> = process.execArgv,
+  paths: { readonly home?: string } = { home: env.HOME },
+): Array<string> => {
   const problems: Array<string> = []
-  for (const [k, v] of Object.entries(env)) {
-    if (!v) continue
-    if (k === "NODE_OPTIONS" || k === "BUN_OPTIONS" || k.startsWith("BUN_CONFIG_") || k === "NODE_PATH" || k === "LD_PRELOAD" || k === "DYLD_INSERT_LIBRARIES") problems.push(`${k} is set`)
-  }
-  for (const dir of dirs) {
-    const file = `${dir}/bunfig.toml`
-    if (existsSync(file) && /\bpreload\b/.test(readFileSync(file, "utf8"))) problems.push(`${file} has a preload`)
-  }
+  const variables = ["NODE_OPTIONS", "BUN_OPTIONS", "NODE_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"]
+  for (const [k, v] of Object.entries(env)) if (v && (variables.includes(k) || k.startsWith("BUN_CONFIG_"))) problems.push(`${k} is set`)
+  for (const a of execArgv) if (/^(--preload|-r|--require|--import|--loader)(=|$)/.test(a)) problems.push(`the runtime was started with ${a}`)
+  const files = [...dirs.map((d) => `${d}/bunfig.toml`), ...(paths.home ? [`${paths.home}/.bunfig.toml`] : []), ...(env.XDG_CONFIG_HOME ? [`${env.XDG_CONFIG_HOME}/.bunfig.toml`] : [])]
+  for (const file of files) if (existsSync(file) && /\bpreload\b/.test(readFileSync(file, "utf8"))) problems.push(`${file} has a preload`)
   return problems
 }

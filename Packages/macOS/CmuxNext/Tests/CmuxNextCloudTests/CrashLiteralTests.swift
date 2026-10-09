@@ -9,5 +9,7 @@ import Testing
         #expect(CloudConfiguration.productionOrigin.absoluteString == "https://cmux.com")
         #expect(CloudConfiguration.stackOrigin.absoluteString == "https://api.stack-auth.com")
         #expect(CloudConfiguration.localDevelopmentOrigin.absoluteString == "http://localhost:3777")
+        let production = CloudConfiguration.resolve(bundleID: "b", bundled: [:], process: [:], isDebugBuild: false)
+        #expect(production.ownerAPIBaseURL(environment: [:]).absoluteString == "https://cloud-api.cmux.dev")
     }
 }
