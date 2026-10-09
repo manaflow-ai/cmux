@@ -297,6 +297,8 @@ impl ProviderEngine {
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
             self.created_tabs().remove(target_id);
+            // Still the session's own tab to list and drive.
+            self.driven.lock().unwrap_or_else(PoisonError::into_inner).insert(target_id.to_owned());
             self.provider.kept(self.subscription, target_id);
             return Ok(Reply::Value(Value::Null));
         }
