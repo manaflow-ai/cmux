@@ -327,7 +327,10 @@ public final class ConversationViewController: UIViewController {
     /// the visible content moves with it, unless the finger is driving.
     func updateInsets() {
         let top = header.frame.maxY + 4
-        let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 10 + translationIndicatorReserve
+        // The last body rests 16.71 pt above the field (ChatKit's send
+        // lands it there on iOS 26 and 27): the field sits 4 pt into the
+        // container and the content ends 6 pt below the last row.
+        let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 16.71 - 4 - 6 + translationIndicatorReserve
         let old = collectionView.contentInset
         guard old.top != top || old.bottom != bottom else { return }
         // Resting on the newest message counts as following it, whatever the
@@ -647,12 +650,17 @@ public final class ConversationViewController: UIViewController {
             }
         }
         if animateLive, wasAtBottom || sentByMe {
-            // Pinned: insertions and the scroll to the new bottom share one spring.
-            UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            // A flight still in the air rides with its row (a rapid second send).
+            let flightTops = flightScreenTops()
+            // Pinned: insertions and the scroll to the new bottom share one
+            // spring, ChatKit's transcript update spring on iOS 26 and 27
+            // (stiffness 438.649, damping 41.888: 0.3 s, critically damped).
+            UIView.animate(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.collectionView.contentOffset = self.bottomOffset
+                self.moveFlights(from: flightTops)
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
@@ -1057,6 +1065,11 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let height = measuredHeight(at: index, width: width)
         if index < rowMetrics.count { rowMetrics[index].height = height }
         return height
+    }
+
+    func transcriptBottomOverhang() -> CGFloat {
+        guard case let .message(model) = rows.last else { return 0 }
+        return layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
     }
 
     private func measuredHeight(at index: Int, width: CGFloat) -> CGFloat {

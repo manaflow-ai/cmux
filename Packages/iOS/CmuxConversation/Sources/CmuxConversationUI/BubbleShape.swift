@@ -112,13 +112,30 @@ final class BubbleBackgroundView: UIView {
         }
         shapeLayer.path = path
         if let gradientLayer, let mask = gradientLayer.mask as? CAShapeLayer {
+            // The tail drops below the bounds; the gradient covers it too.
+            // Pinned at its top-left corner, the gradient's size follows the
+            // outline's animation (a send flight's collapse) instead of
+            // jumping to the final size and cutting the bubble off.
+            let oldSize = gradientLayer.bounds.size
+            let size = gradientBounds.size
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            gradientLayer.frame = bounds
-            mask.frame = bounds
+            gradientLayer.anchorPoint = .zero
+            gradientLayer.position = gradientBounds.origin
+            gradientLayer.bounds = CGRect(origin: .zero, size: size)
+            mask.frame = CGRect(origin: .zero, size: size)
             CATransaction.commit()
-            if let animation = shapeLayer.animation(forKey: "path")?.copy() as? CABasicAnimation {
-                mask.add(animation, forKey: "path")
+            if let animation = shapeLayer.animation(forKey: "path") as? CABasicAnimation {
+                mask.add(animation.copy() as! CABasicAnimation, forKey: "path")
+                if oldSize != size {
+                    let resize = CABasicAnimation(keyPath: "bounds.size")
+                    resize.duration = animation.duration
+                    resize.timingFunction = animation.timingFunction
+                    resize.isAdditive = true
+                    resize.fromValue = NSValue(cgSize: CGSize(width: oldSize.width - size.width, height: oldSize.height - size.height))
+                    resize.toValue = NSValue(cgSize: .zero)
+                    gradientLayer.add(resize, forKey: "bounds.size")
+                }
             }
             mask.path = path
         }
@@ -136,6 +153,13 @@ final class BubbleBackgroundView: UIView {
         updateScreenGradient()
     }
 
+    /// The bounds plus the tail's drop below them.
+    private var gradientBounds: CGRect {
+        var rect = bounds
+        rect.size.height += ConversationTheme.tailDrop
+        return rect
+    }
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         updateScreenGradient()
@@ -144,7 +168,7 @@ final class BubbleBackgroundView: UIView {
     /// Re-samples the gradient for the bubble's current place in the window.
     func updateScreenGradient() {
         guard let gradientLayer, let screenGradient, let window, window.bounds.height > 0 else { return }
-        let frame = convert(bounds, to: window)
+        let frame = convert(gradientBounds, to: window)
         let top = frame.minY / window.bounds.height
         let bottom = frame.maxY / window.bounds.height
         let sample = screenGradient.samples(from: top, to: bottom, traits: traitCollection)
@@ -182,8 +206,9 @@ final class BubbleBackgroundView: UIView {
             let gradient = CAGradientLayer()
             let mask = CAShapeLayer()
             gradient.mask = mask
-            gradient.frame = bounds
-            mask.frame = bounds
+            gradient.anchorPoint = .zero
+            gradient.frame = gradientBounds
+            mask.frame = CGRect(origin: .zero, size: gradientBounds.size)
             mask.path = shapeLayer.path
             layer.insertSublayer(gradient, at: 0)
             gradientLayer = gradient

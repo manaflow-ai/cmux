@@ -546,10 +546,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             delegate?.composerDidChangeText(self)
             return
         }
-        // Collapse on Messages' spring: fitted to iOS 26 Messages' field top
-        // after an 8-line and a capped 40-line send (duration 0.40-0.41,
-        // bounce 0.15-0.18; ~1.2% overshoot, settled by ~0.35 s).
-        UIView.animate(springDuration: 0.4, bounce: 0.17, options: [.beginFromCurrentState]) {
+        // Collapse on ChatKit's entry-view spring, logged on iOS 26.5 and
+        // 27.0 (mass 2, stiffness 447, damping 49: response 0.4203 s,
+        // bounce 0.1806).
+        UIView.animate(springDuration: 0.4203, bounce: 0.1806, options: [.beginFromCurrentState]) {
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }

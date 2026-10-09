@@ -73,6 +73,9 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let cellOrigin = CGPoint(x: cellFrame.minX, y: cellFrame.minY - collectionView.bounds.minY + collectionView.frame.minY)
         let container = UIView(frame: view.bounds)
         container.isUserInteractionEnabled = false
+        // Over the composer: Messages' bubble leaves from behind a clear
+        // send-animation glass (private) that only lenses its rim; under our
+        // public glass it would turn frosted, so it flies on top.
         view.insertSubview(container, belowSubview: header)
 
         // Measured on iOS 26 Messages: photos never shrink to the card's
@@ -98,11 +101,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             imageFlights.append(imageView)
         }
 
-        // Text and emoji fly in a mover parked at the final frame. Measured
-        // against Messages (iOS 26): the trailing edge stays pinned while the
-        // field's width collapses to the bubble's in ~0.15 s, the whole body
-        // dips to ~0.77 scale and back over ~0.4 s, and the rise is a 0.5 s
-        // response spring (damping 0.82) that settles in ~0.39 s.
+        // Text and emoji fly in a mover parked at the final frame, on
+        // ChatKit's throw (identical on iOS 26 and 27; see SendFlightMotion):
+        // the trailing edge stays pinned while the field's width collapses
+        // to the bubble's, the body dips and recovers, and the center rises.
         var textFlight: SendFlightMotion?
         if let bubbleFrame = cellLayout.bubbleFrame, let textFrame = cellLayout.textFrame {
             let to = bubbleFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
@@ -128,9 +130,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             mover.addSubview(bubble)
             mover.addSubview(clip)
             container.addSubview(mover)
-            // Start as the composer field (tail included), trailing edge at
-            // the bubble's, bottom-aligned with the field.
-            let height = max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height))
+            // Start at the field's width, trailing edge at the bubble's and
+            // bottom-aligned with the field, but already the bubble's full
+            // height: ChatKit's throw balloon never changes height, so a
+            // long draft shows every line at once, rising over the transcript.
+            let height = to.height
             let from = CGRect(x: flight.fieldFrame.minX, y: flight.fieldFrame.maxY - height, width: max(to.width, to.maxX - flight.fieldFrame.minX), height: height)
             // Text starts where it was typed: leading edge at the typed
             // glyphs, bottom-aligned (a scrolled draft showed its end).
@@ -141,7 +145,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
                 height: textTo.height
             )
             textFlight = SendFlightMotion(
-                mover: mover, body: [bubble, clip], label: label,
+                mover: mover, body: [bubble, clip], fill: bubble, label: label,
                 startCenterY: from.midY, endCenterY: to.midY,
                 bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
                 bodyTo: CGRect(origin: .zero, size: to.size),
@@ -152,10 +156,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         } else if let emojiFrame = cellLayout.emojiFrame {
             // Emoji-only sends fly bare, growing from the composer's text
             // size to the large emoji.
-            let to = emojiFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
+            let to = MessageCellLayout.emojiGlyphFrame(in: emojiFrame).offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             let label = UILabel()
             let landedSize = ConversationTheme.emojiOnlyFontSize(count: MessageCellLayout.emojiCount(model.message.text))
             label.font = .systemFont(ofSize: landedSize)
+            label.textAlignment = .right
             label.numberOfLines = 0
             label.text = model.message.text
             let mover = UIView(frame: to)
@@ -169,7 +174,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let lineMidY = flight.textFrame.minY + ConversationTheme.bubbleVerticalPadding + ConversationTheme.bodyFont.lineHeight / 2
             let from = CGRect(x: flight.textFrame.minX, y: lineMidY - start.height / 2, width: start.width, height: start.height)
             textFlight = SendFlightMotion(
-                mover: mover, body: [label], label: nil,
+                mover: mover, body: [label], fill: nil, label: nil,
                 startCenterY: from.midY, endCenterY: to.midY,
                 bodyFrom: CGRect(x: from.minX - to.minX, y: (to.height - from.height) / 2, width: from.width, height: from.height),
                 bodyTo: CGRect(origin: .zero, size: to.size),
@@ -208,6 +213,25 @@ extension ConversationViewController {
         flyingRowIDs.remove(rowID)
         if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) as? MessageCell {
             cell.setFlightHidden(false)
+        }
+    }
+
+    /// Each flying row's top on screen, before a transcript update.
+    func flightScreenTops() -> [String: CGFloat] {
+        var tops: [String: CGFloat] = [:]
+        for id in activeFlights.keys {
+            guard let index = rowIndex[id], let frame = layout.frame(at: index) else { continue }
+            tops[id] = frame.minY - collectionView.contentOffset.y
+        }
+        return tops
+    }
+
+    /// Moves each flight by its row's move on screen (call inside the
+    /// update's animation, so the flight rides the same spring).
+    func moveFlights(from tops: [String: CGFloat]) {
+        for (id, top) in tops {
+            guard let container = activeFlights[id], let index = rowIndex[id], let frame = layout.frame(at: index) else { continue }
+            container.center.y += frame.minY - collectionView.contentOffset.y - top
         }
     }
 
@@ -250,9 +274,18 @@ extension ConversationViewController {
 /// One text or emoji send flight: a mover parked at the final frame whose
 /// center rises on a spring while its body (bubble and text clip) collapses
 /// from the composer field into the mover's bounds.
+///
+/// Timing is ChatKit's throw, logged from Messages on iOS 26.5 and 27.0
+/// (the same on both): the throw view's position springs (mass 1,
+/// stiffness 141.759, damping 17.35), y starting 0.055 s after x; the
+/// balloon's bounds take 0.2 s on (0.542, 0, 0.58, 1); its fill fades from
+/// 0.6 opacity over 0.2 s on (0.42, 0, 1, 1) while the text stays opaque;
+/// and two additive scale springs dip and recover it.
 struct SendFlightMotion {
     let mover: UIView
     let body: [UIView]
+    /// The bubble whose fill fades in (nil for a bare emoji).
+    let fill: UIView?
     let label: UILabel?
     let startCenterY: CGFloat
     let endCenterY: CGFloat
@@ -265,7 +298,11 @@ struct SendFlightMotion {
 
     func applyStart() {
         mover.center.y = startCenterY
-        mover.alpha = 0.7
+        if let fill {
+            fill.alpha = 0.6
+        } else {
+            mover.alpha = 0.7
+        }
         for view in body {
             view.frame = bodyFrom
             view.layoutIfNeeded()
@@ -279,14 +316,13 @@ struct SendFlightMotion {
     }
 
     func animate() {
-        let options: UIView.AnimationOptions = [.allowUserInteraction]
-        UIView.animate(springDuration: 0.5, bounce: 0.18, initialSpringVelocity: 0, delay: 0.015, options: options) {
-            mover.center.y = endCenterY
-        }
-        // Width collapse in ~0.14 s, between linear and ease-out like
-        // Messages; a cubic curve (not a spring) so the bubble's path
-        // animation follows its bounds.
-        let collapse = UIViewPropertyAnimator(duration: 0.14, controlPoint1: CGPoint(x: 0.2, y: 0.3), controlPoint2: CGPoint(x: 0.6, y: 1)) {
+        let rise = UIViewPropertyAnimator(duration: 0, timingParameters: UISpringTimingParameters(mass: 1, stiffness: 141.759, damping: 17.35, initialVelocity: .zero))
+        rise.addAnimations { mover.center.y = endCenterY }
+        rise.isUserInteractionEnabled = true
+        rise.startAnimation(afterDelay: 0.055)
+        // A cubic curve (not a spring) so the bubble's path animation
+        // follows its bounds.
+        let collapse = UIViewPropertyAnimator(duration: 0.2, controlPoint1: CGPoint(x: 0.542, y: 0), controlPoint2: CGPoint(x: 0.58, y: 1)) {
             for view in body {
                 view.frame = bodyTo
                 view.layoutIfNeeded()
@@ -295,13 +331,15 @@ struct SendFlightMotion {
         }
         collapse.isUserInteractionEnabled = true
         collapse.startAnimation()
-        UIView.animate(withDuration: 0.14, delay: 0, options: options.union(.curveEaseOut)) {
+        let fade = UIViewPropertyAnimator(duration: 0.2, controlPoint1: CGPoint(x: 0.42, y: 0), controlPoint2: CGPoint(x: 1, y: 1)) {
+            fill?.alpha = 1
             mover.alpha = 1
         }
-        // Scale dip: ChatKit's glass send (CASpringAnimation(SendAnimation)),
-        // an additive spring down to a factor set by the field's height and
-        // one back up from 0.185 s. Messages runs them ~1.15x faster than
-        // their nominal time (measured), settling the dip by ~0.4 s.
+        fade.isUserInteractionEnabled = true
+        fade.startAnimation()
+        // Scale dip: ChatKit's scaleDown spring to a factor set by the
+        // field's height, and scaleUp back from 0.185 s; additive, so they
+        // compose.
         let factor = Self.scaleDownFactor(fieldHeight: fieldHeight)
         let now = mover.layer.convertTime(CACurrentMediaTime(), from: nil)
         for (target, stiffness, delay, key) in [(factor, 310.0, 0.0, "sendDipDown"), (1 / factor, 320.0, 0.185, "sendDipUp")] {
@@ -313,8 +351,7 @@ struct SendFlightMotion {
             spring.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
             spring.toValue = NSValue(caTransform3D: CATransform3DMakeAffineTransform(trailingScale(target)))
             spring.duration = spring.settlingDuration
-            spring.speed = 1.15
-            spring.beginTime = now + delay / 1.15
+            spring.beginTime = now + delay
             spring.fillMode = .both
             // Both stay until the flight lands; dropping one early would
             // leave the other's scale applied.

@@ -9,6 +9,9 @@ protocol ConversationTranscriptLayoutDataSource: AnyObject {
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat
     /// Vertical gap above item `index`.
     func transcriptSpacing(before index: Int) -> CGFloat
+    /// How far the last row's tail hangs below its body with nothing under
+    /// it; Messages lets it hang into the bottom margin.
+    func transcriptBottomOverhang() -> CGFloat
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance
 }
 
@@ -49,7 +52,7 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
             frames.append(CGRect(x: 0, y: y, width: width, height: height))
             y += height
         }
-        contentHeight = y + 6
+        contentHeight = y + 6 - (count > 0 ? dataSource.transcriptBottomOverhang() : 0)
         // Bottom-anchor short transcripts.
         let visible = collectionView.bounds.height - collectionView.adjustedContentInset.top - collectionView.adjustedContentInset.bottom
         if contentHeight < visible {
