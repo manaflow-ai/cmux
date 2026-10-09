@@ -946,14 +946,31 @@ fn a_tell_to_a_running_subagent_is_steered_into_its_session() {
     assert_eq!(inner.steers[0].1[0]["text"], "also check the tests");
 }
 
-/// A session that cannot steer (not running, or a harness without it)
-/// takes the tell as its next prompt, as before.
+/// A running session that cannot steer (a harness without it) takes the
+/// tell as its next prompt, as before.
 #[test]
 fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
     let mut s = setup();
     spawn(&mut s, &["one"]).unwrap();
-    let answer = call(&mut s, |sp| sp.tell("a1", "more: please")).unwrap();
-    assert!(answer.contains("after its current step"), "{answer}");
-    let inner = s.h.agents.inner.lock().unwrap();
-    assert!(inner.prompt_ids.iter().any(|p| p.starts_with("optchat-tell:a1:")));
+    call(&mut s, |sp| sp.tell("a1", "more: please")).unwrap();
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        let sent =
+            s.h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .prompt_ids
+                .iter()
+                .any(|p| p.starts_with("optchat-tell:a1:"));
+        if sent {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the tell never became a prompt"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(s.h.agents.inner.lock().unwrap().steers.is_empty());
 }
