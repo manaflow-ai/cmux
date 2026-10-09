@@ -18,26 +18,7 @@ public struct SidebarDragHandoff {
     public var image: CGImage?
 }
 
-/// A tab row (Show Tabs Under Workspaces) dragged past the drag distance:
-/// the App's tab drag takes the tab from here, as one torn off its strip.
-public struct SidebarTabRowDragHandoff {
-    public var workspace: WorkspaceID
-    public var tab: TabID
-    /// The row's frame in screen coordinates.
-    public var rowScreenFrame: CGRect
-    /// Pointer offset from the row frame's origin (screen space, y up).
-    public var grabOffset: CGPoint
-    public var screenPoint: CGPoint
-}
-
 extension SidebarView {
-    /// Offered each tab row drag. Return true when the App took the tab;
-    /// false (no drag can start, e.g. its workspace is not shown) leaves it.
-    public var onTabRowDrag: ((SidebarTabRowDragHandoff) -> Bool)? {
-        get { list.onTabRowDrag }
-        set { list.onTabRowDrag = newValue }
-    }
-
     /// Offered each row drag once its pointer leaves the sidebar sideways.
     /// Return true to take it over: the sidebar ends its own drag at once
     /// (rows reappear in place) and sends no intent. Nil keeps every drag in

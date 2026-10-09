@@ -18,22 +18,6 @@ extension TabDragSession {
             guard let self, let controller else { return false }
             return self.beginWorkspaces(handoff, from: controller)
         }
-        controller.sidebar.container.sidebarView.onTabRowDrag = { [weak self] handoff in
-            self?.beginTabRow(handoff) ?? false
-        }
-    }
-
-    /// Takes over a sidebar tab row drag as the tab's own drag from its pane,
-    /// so it lands like a strip tab (another pane, another workspace's row, a
-    /// sidebar gap for a new workspace, outside for a new window). False when
-    /// another drag is running or the tab's workspace is not shown.
-    func beginTabRow(_ handoff: SidebarTabRowDragHandoff) -> Bool {
-        guard drag == nil, let paneModel = services.locateTab(handoff.tab.rawValue)?.1,
-              let pane = services.paneController(for: paneModel) else { return false }
-        let id = handoff.tab.rawValue
-        begin(item: .tab(id), payload: .tab(id: id, sourceStripID: pane.stripModel.stripID), frame: handoff.rowScreenFrame,
-              grabOffset: handoff.grabOffset, point: handoff.screenPoint, image: nil, previewTab: id, draggedCount: 1, pane: pane)
-        return true
     }
 
     /// Takes over a sidebar drag. False when another drag is running.
