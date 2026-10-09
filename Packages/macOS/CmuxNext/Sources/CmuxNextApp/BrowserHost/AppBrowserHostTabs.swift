@@ -225,18 +225,22 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// (`close-tabs`), marked `session_end` so Reopen Closed leaves it out; an older daemon
     /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
     /// tabs a session created and that no person holds (gap: the store does not check it).
-    func endSessionTab(_ id: String) -> Bool {
+    func endSessionTab(_ id: String) async -> Bool {
         guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
         let surface = tab.surface
         let cache: TabContentCache = services.cache
-        // task-owner: one store close; the page goes with it, as after a person's close
-        Task {
-            let closed = await daemon.run(CloseTabsRequest.command) { connection in
-                _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
-            }
-            if closed { cache.release(id) }
+        // One store close; the page goes with it, as after a person's close.
+        let closed = await daemon.run(CloseTabsRequest.command) { connection in
+            _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
+        }
+        guard closed else { return false }
+        cache.release(id)
+        // The store's update can come after the close reply.
+        _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
+            for await gone in Observations({ self?.isDrivable(id) != true }) where gone { return true }
+            return false
         }
         return true
     }

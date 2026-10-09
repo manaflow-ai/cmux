@@ -144,34 +144,6 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
 }
 
 #[test]
-fn the_size_loop_continues_in_the_same_session() {
-    let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|turn, _| {
-        if turn == 0 {
-            answer(&"long".repeat(175))
-        } else {
-            answer("user: short now")
-        }
-    }));
-    let compactor = compactor(&agents, dir.path());
-    assert_eq!(
-        run_node(&compactor, &request(3)).unwrap(),
-        "user: short now"
-    );
-    let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), 1, "one session for the node");
-    assert_eq!(inner.prompts.len(), 2);
-    let retry = texts(&inner.prompts[1]);
-    assert_eq!(retry.len(), 1, "a retry sends only the size message");
-    assert!(
-        retry[0].starts_with("Too long: your line is 700 bytes"),
-        "{retry:?}"
-    );
-    assert_eq!(inner.ended, vec!["s1"]);
-    assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1]);
-}
-
-#[test]
 fn a_failed_node_kills_its_session_and_a_refusal_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("")));
@@ -1791,22 +1763,17 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
     }
 }
 
-/// Dogfood fc34083d7bfa: a node whose first prompt carries our mark runs
-/// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
-/// long" retries in the same session read nothing from the cache (node
-/// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
-/// ends with our own 5-minute mark, so it reads the previous
-/// request from the cache; the session never holds more than the API's 4
-/// marks (the view mark and at most 3 retry marks; a 4th retry reads the
-/// 3rd's entry unmarked).
+/// Dogfood fc34083d7bfa: a marked node's size retries read nothing from
+/// the cache when they continued the session. A retry is now a fresh call
+/// with the node's first prompt (its view mark, read from the cache) and
+/// the note (no mark): every request carries one mark, within the API's 4.
 #[test]
-fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
+fn size_retries_of_a_marked_node_reread_the_view_mark() {
     let dir = tempfile::tempdir().unwrap();
     let long = "x".repeat(700);
     let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
     agents.inner.lock().unwrap().system_prompts = true;
     let compactor = compactor(&agents, dir.path());
-    // A view with whole 4-line blocks, so the first prompt carries our mark.
     let mut context = String::from("<chat>\n");
     for k in 0..12 {
         context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
@@ -1820,34 +1787,24 @@ fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
     run_node(&compactor, &request).unwrap();
     let prompts = agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
-    let marks = |blocks: &[Value]| {
-        blocks
+    for p in &prompts {
+        let marks = p
             .iter()
             .filter(|b| b.get("cache_control").is_some())
-            .count()
-    };
-    assert_eq!(marks(&prompts[0]), 1, "the view mark");
-    let mut total = 1;
-    for (k, p) in prompts.iter().enumerate().skip(1) {
-        let m = marks(p);
-        if k <= 3 {
-            assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
-            assert!(
-                p.last().unwrap().get("cache_control").is_some(),
-                "on its last block"
-            );
-            // 5 minutes whatever the node's TTL: a retry chain lasts seconds,
-            // a 5m write costs 1.25x the input price against 2x for 1h, and
-            // the API takes a 5m mark after a 1h one (not the reverse).
-            assert_eq!(
-                p.last().unwrap()["cache_control"],
-                json!({"type": "ephemeral"}),
-                "a 5m retry mark"
-            );
-        }
-        total += m;
+            .count();
+        assert_eq!(marks, 1, "the view mark only: {p:?}");
     }
-    assert!(total <= 4, "{total} marks in one session");
+    for p in &prompts[1..] {
+        assert!(
+            p.last().unwrap().get("cache_control").is_none(),
+            "the note has no mark"
+        );
+        assert_eq!(
+            &p[..prompts[0].len()],
+            &prompts[0][..],
+            "the first prompt again"
+        );
+    }
 }
 
 /// E2 (hq-6d): an exhausted compactor route (the subrouter's 503 with
@@ -2010,11 +1967,20 @@ fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
 fn a_codex_compactor_slot_sets_its_own_service_tier() {
     use optchat_chief::compactor::codex_compactor_config_at;
     let user = "model = \"gpt-6-astra\"\nservice_tier = \"fast\"\n";
-    let off: toml::Table = codex_compactor_config_at(Some(user), false).unwrap().parse().unwrap();
+    let off: toml::Table = codex_compactor_config_at(Some(user), false)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert!(off.get("service_tier").is_none(), "{off:?}");
-    let on: toml::Table = codex_compactor_config_at(Some(user), true).unwrap().parse().unwrap();
+    let on: toml::Table = codex_compactor_config_at(Some(user), true)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(on["service_tier"].as_str(), Some("fast"));
-    let bare: toml::Table = codex_compactor_config_at(None, true).unwrap().parse().unwrap();
+    let bare: toml::Table = codex_compactor_config_at(None, true)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(bare["service_tier"].as_str(), Some("fast"));
 }
 
@@ -2032,4 +1998,106 @@ fn a_fast_compactor_starts_fast_sessions() {
     let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
     run_node(&compactor, &request(1)).unwrap();
     assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
+}
+
+/// hq-6d: a size retry is a fresh call, as the reference client makes it:
+/// a new session with the node's first prompt and the retry note, so the
+/// model does not see (and anchor on) its long line; the first prompt's
+/// cached prefix is read again.
+#[test]
+fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&"long".repeat(175))
+        } else {
+            answer("user: short now")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path());
+    assert_eq!(
+        run_node(&compactor, &request(3)).unwrap(),
+        "user: short now"
+    );
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.specs.len(), 2, "a new session for the retry");
+    let (first, retry) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(&retry[..first.len()], &first[..], "the first prompt again");
+    assert_eq!(retry.len(), first.len() + 1);
+    assert!(
+        retry[first.len()].starts_with("Too long: your last line"),
+        "{retry:?}"
+    );
+    assert_eq!(inner.ended, vec!["s1", "s2"]);
+}
+
+/// Hard test (build 7bf60bcf938a): the network was cut while the start-up
+/// probe ran, and the probe posted "cannot build summaries" for Claude
+/// Code's "Network error. Please check your internet connection.". A
+/// transient error (the network, a lost connection, a timeout) posts no
+/// notice: the probe tries again after a backoff (1 s doubled, at most
+/// 120 s), as node retries do; a capacity wait waits its retry-after.
+#[test]
+fn a_transient_probe_error_posts_no_notice_and_is_retried() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::{probe_notice, probe_retry_wait};
+    use std::time::Duration;
+    let network = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude: Network error. Please check your internet connection."#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, network), None);
+    assert_eq!(probe_retry_wait(network, 0), Some(Duration::from_secs(1)));
+    assert_eq!(probe_retry_wait(network, 3), Some(Duration::from_secs(8)));
+    assert_eq!(
+        probe_retry_wait(network, 20),
+        Some(Duration::from_secs(120))
+    );
+    let exhausted = "API error: 503 no non-exhausted claude accounts available (retry after 300s)";
+    assert_eq!(
+        probe_retry_wait(exhausted, 0),
+        Some(Duration::from_secs(120))
+    );
+    let lost = "the acpmux connection was lost during a compactor call";
+    assert!(probe_retry_wait(lost, 0).is_some());
+    let login =
+        "the compactor model: Unable to validate model: Could not resolve authentication method";
+    assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
+    assert_eq!(probe_retry_wait(login, 0), None);
+}
+
+/// CLI dogfood at 64d57f35a20f: host.log said "compactor node
+/// 0+9223372036854775808": the start-up probe's id (level 63, a span of
+/// 2^63 messages no chat reaches), never stored, named as a node. The probe
+/// and image descriptions are named for what they are in the log and the
+/// trace, and the probe stores nothing.
+#[test]
+fn the_probe_is_named_probe_not_a_node_span() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap())
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+    let lines = lines.lock().unwrap();
+    assert!(
+        lines.iter().all(|l| !l.contains("9223372036854775808")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("compactor probe (")),
+        "{lines:?}"
+    );
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let node = events.iter().find(|e| e["ev"] == "node").unwrap();
+    assert_eq!(node["node"], "probe");
 }

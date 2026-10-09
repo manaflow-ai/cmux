@@ -115,3 +115,38 @@ local branch refactor-crate-split-step2) fills a gap only.
 
 - 2026-10-09 90f75c91fc9c (code 98fdbdfc9fe7) step 1: cmux-tui-core/src/cloud_conversations/ (8 files) -> crates/cmux-tui-cloud-conversations; cmux-tui-core 295,439 -> 292,376 lines; Testbox gate 8 min; post-land cmux-tui.yml focused run 37892029995 green. Build (32 vCPU, warm, edit in moved code): `cargo test -p <domain> --no-run` 12.2 s -> 0.2 s; `cargo build -p cmux-tui` 14.1 -> 13.6 s (no real change).
 - 2026-10-09 75d9ecbb99bf (code f8e3500ec0df) step 2: cmux-tui-core platform, host_exe, process_identity, process_resources, unix_process_scope, windows_processes -> crates/cmux-tui-platform (5,712 lines); cmux-tui-core 292,376 -> 288,158 lines; godfile rows renamed, crash baseline transferred (core unwrap 1643->1626, expect 287->286; platform 17/1; totals unchanged); unix_process_scope test seams behind feature test-support (core dev-dependency only); Testbox gate 9 min; post-land run 37911896855. Build: `cargo build -p cmux-tui` after a core edit about 14.8 s, unchanged.
+- 2026-10-09 f8940112fe7b (code 58d36e4504c2) cx-ko2e A1: terminal_host_runtime mod unix snapshot/resize/kitty codecs, hex helpers, PayloadDecoder, put_* (521 lines) -> terminal_host_runtime/shared/codec.rs; pty_size, kitty_graphics_limits_within -> shared/host_state.rs; terminal_host_runtime.rs 9976 -> 9436; Testbox gate 8 min.
+- 2026-10-09 41686fae4f6d (code e237adb3a54d) cx-ko2e A2: HostLaunch codec, default-colors codec, clear-history ack, host_launch_failure -> shared/codec.rs; 9436 -> 9155; gate 7.5 min.
+- 2026-10-09 ddc4e576947b (code d7b2b36ea79d) cx-ko2e A3: host consts, input_request_is_supported, persist_and_claim_host_exit_after_drain, ViewerSizes, mutate_viewer_sizes -> shared/host_state.rs; 9155 -> 9059; gate 7.5 min. Rest of table A waits for table B seams (HostStream first).
+
+## Lane 2 claims (crate-split lane 2, hq-11, 2026-10-09)
+
+A second crate-split lane takes the movable leaves that steps 1-4 above do
+not name. It does not reorder or take any open step of lane 1 (platform,
+terminal-host protocol family, terminal_host_runtime, browser, fs_ops stay
+lane 1's). Each step is move-only: a new crate under `cmux-tui/crates/`,
+re-exported by cmux-tui-core at the old path, one LOCK slot per step.
+Lane 2 landing lines carry the prefix "lane 2" in the Landings list.
+
+1. cmux-tui-image-paste: image_paste, image_paste_file, image_paste_ownership,
+   image_paste_recovery, image_paste_storage and their tests (1,368 lines,
+   unix). The image paste spool: storage dir, owned files, crash recovery.
+2. cmux-tui-util: backoff, stream_interrupt, debug_spans, short_id,
+   machine_name, terminal_respawn_text, user_settings (1,027 lines). Small
+   daemon primitives without daemon state. This is the cmux-tui-util of
+   step 5: terminal_host_runtime (lane 1, step 6) uses debug_spans, so a
+   crate below core must own it before that move.
+3. cmux-tui-remote-access: pairing, remote_relay_state (526 lines). Device
+   pairing challenges and the relay peer, pairing record and revocation
+   state. Lands in the same slot as 2 (leaves under 1k never go alone).
+
+Not claimed, and why: sizing_policy is already a 7-line re-export of
+cmux-terminal-sizing. conversation_drafts and conversation_search (258
+lines) belong with conversation_store, which needs
+`workspace_registry::{open_registry_database, unix_epoch_ms, new_uuid_v4}`
+to move down first; they move with conversation_store, not alone.
+
+Expected build effect (by the build-time rule above): about 2.9k lines leave
+core (1%); an edit inside a moved module still rebuilds core and cmux-tui.
+Each landing line records the measured `cargo build -p cmux-tui-core` time
+after an edit in a moved function, before and after the move.

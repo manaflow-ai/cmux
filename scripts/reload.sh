@@ -703,6 +703,33 @@ if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] 
   fi
 fi
 
+# The app the user opened last writes its CLI here at launch (one writer;
+# plans/cmux-next/version-skew.md). It wins over reload.sh's pointer below: a
+# fleet build opened through the Tag Opener never runs reload.sh. A dev build
+# whose socket is gone is skipped; a release bundle has no socket metadata
+# and is taken as it is.
+app_cli_bundle() {
+  local cli_path="\$1"
+  [[ "\$cli_path" == /* && -f "\$cli_path" && -x "\$cli_path" && "\$cli_path" != "\$0" ]] || return 1
+  [[ "\${cli_path##*/}" == "cmux" ]] || return 1
+  local bundle_path=""
+  bundle_path="\$(cli_bundle_for_path "\$cli_path")" || return 1
+  local socket_path=""
+  if socket_path="\$(bundle_socket_path "\$bundle_path")"; then
+    socket_is_live "\$socket_path" || return 1
+  fi
+  printf '%s\\n' "\$bundle_path"
+}
+
+APP_CLI_FILE="\${HOME:-}/Library/Application Support/cmux/last-app-cli"
+APP_CLI_OWNER="\$(stat -f '%u' "\$APP_CLI_FILE" 2>/dev/null || stat -c '%u' "\$APP_CLI_FILE" 2>/dev/null || echo -1)"
+if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -n "\${HOME:-}" && -f "\$APP_CLI_FILE" && -r "\$APP_CLI_FILE" ]] && [[ ! -L "\$APP_CLI_FILE" ]] && [[ "\$APP_CLI_OWNER" == "\$(id -u)" ]]; then
+  APP_CLI_PATH="\$(LC_ALL=C head -c 4097 "\$APP_CLI_FILE" 2>/dev/null | head -n 1 || true)"
+  if app_cli_bundle "\$APP_CLI_PATH" >/dev/null; then
+    exec "\$APP_CLI_PATH" "\$@"
+  fi
+fi
+
 CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
 if [[ "\$HAS_EXPLICIT_SOCKET" == "0" && -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
   CLI_PATH="\$(cat "\$CLI_PATH_FILE" 2>/dev/null || true)"

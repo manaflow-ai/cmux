@@ -29,6 +29,9 @@ final class BrowserTabOpeners {
     private var openerOf: [SurfaceID: SurfaceID] = [:]
     /// The placement each opener's next one waits for.
     private var queue: [SurfaceID: Task<SurfaceID, any Error>] = [:]
+    /// A page's new tab exists (child, opener): the browser host reports it
+    /// as `tab.created`, so an agent driving the opener sees its popup.
+    var onChildPlaced: ((SurfaceID, SurfaceID) -> Void)?
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an
     /// opener; with one, in Chrome's slot, returning once the store shows
@@ -60,7 +63,10 @@ final class BrowserTabOpeners {
             let after = foreground ? opener : self.slot(after: opener, in: order(), pinned: pinned())
             let child = try await create(after)
             if foreground { self.forgetAll() }
-            if child != opener { self.openerOf[child] = opener }
+            if child != opener {
+                self.openerOf[child] = opener
+                self.onChildPlaced?(child, opener)
+            }
             return child
         }
         queue[opener] = placing
