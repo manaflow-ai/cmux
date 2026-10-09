@@ -22,6 +22,8 @@ export const FRAME_META_FLAG = 0x80;
 export const IPHONE_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
 const SCROLL_BINDING = "__cmuxNextScroll";
+/** Input that Chrome has not acknowledged by then is dropped (it blocks the phone's ordered input). */
+const INPUT_TIMEOUT_MS = 3_000;
 const SCROLL_SCRIPT = `(() => {
   if (window.__cmuxNextScrollHooked) return;
   window.__cmuxNextScrollHooked = true;
@@ -679,7 +681,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   async pointer(tabId: string, p: { type: string; x: number; y: number; button?: string; clickCount?: number }): Promise<void> {
-    const { cdp, sid } = await this.session(tabId);
+    const { cdp, t, sid } = await this.session(tabId);
+    if (p.type === "down") await this.ensureVisible(cdp, t, sid);
     const type = p.type === "down" ? "mousePressed" : p.type === "up" ? "mouseReleased" : "mouseMoved";
     await cdp.send(
       "Input.dispatchMouseEvent",
@@ -688,8 +691,28 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     );
   }
 
+  /**
+   * A hidden (background) tab produces no screencast frames and Chrome never
+   * acknowledges input dispatched to it (Input.* times out), for example after
+   * the Mac user or another phone brought a different tab to the front. Bring
+   * a streamed tab back to the front when an interaction starts on it.
+   */
+  private async ensureVisible(cdp: CdpConnection, t: TabState, sid: string): Promise<void> {
+    if (!t.cast) return;
+    const r = await cdp
+      .send<{ result?: { value?: string } }>("Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }, sid, 2_000)
+      .catch(() => null);
+    if (r?.result?.value !== "hidden") return;
+    this.log(`browser: tab ${t.tab.id} was in the background; bringing it to the front for input`);
+    await cdp.send("Target.activateTarget", { targetId: t.tab.id }).catch(() => {});
+    await cdp.send("Page.bringToFront", {}, sid).catch(() => {});
+    this.lastActivated = t.tab.id;
+    this.updateActive();
+  }
+
   async touch(tabId: string, type: string, points: { x: number; y: number; id: number }[]): Promise<void> {
     const { cdp, t, sid } = await this.session(tabId);
+    if (type === "start") await this.ensureVisible(cdp, t, sid);
     this.noteInteraction(t);
     const map: Record<string, string> = { start: "touchStart", move: "touchMove", end: "touchEnd", cancel: "touchCancel" };
     const cdpType = map[type];
@@ -698,6 +721,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       "Input.dispatchTouchEvent",
       { type: cdpType, touchPoints: cdpType === "touchEnd" || cdpType === "touchCancel" ? [] : points.map((pt) => ({ x: pt.x, y: pt.y, id: pt.id })) },
       sid,
+      INPUT_TIMEOUT_MS,
     );
   }
 
@@ -707,7 +731,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   async key(tabId: string, p: { type: string; key: string; code?: string; text?: string; modifiers?: number }): Promise<void> {
-    const { cdp, sid } = await this.session(tabId);
+    const { cdp, t, sid } = await this.session(tabId);
+    if (p.type !== "up") await this.ensureVisible(cdp, t, sid);
     const vk = virtualKeyCode(p.key);
     const params: Record<string, unknown> = {
       type: p.type === "up" ? "keyUp" : p.text ? "keyDown" : "rawKeyDown",

@@ -27,12 +27,15 @@ function fakeJpeg(w: number, h: number): Buffer {
 
 interface FakeCdp {
   base: string;
+  /** document.visibilityState the fake page reports. */
+  state: { hidden: boolean };
   calls: { method: string; params: any; sessionId?: string }[];
   close(): Promise<void>;
 }
 
 async function startFakeCdp(): Promise<FakeCdp> {
   const calls: FakeCdp["calls"] = [];
+  const state = { hidden: false };
   const http: Server = createServer((req, res) => {
     if (req.url === "/json/version") {
       const port = (http.address() as AddressInfo).port;
@@ -68,6 +71,7 @@ async function startFakeCdp(): Promise<FakeCdp> {
         case "Page.getNavigationHistory":
           return reply({ currentIndex: 1, entries: [{ id: 1 }, { id: 2 }] });
         case "Runtime.evaluate":
+          if (msg.params.expression === "document.visibilityState") return reply({ result: { value: state.hidden ? "hidden" : "visible" } });
           return reply({ result: { value: { icon: "https://example.com/favicon.ico", title: "Example Domain" } } });
         case "Page.captureScreenshot":
           return reply({ data: fakeJpeg(10, 10).toString("base64") });
@@ -94,6 +98,7 @@ async function startFakeCdp(): Promise<FakeCdp> {
   const base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
   return {
     base,
+    state,
     calls,
     close: () =>
       new Promise((r) => {
@@ -196,7 +201,13 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     await waitFor(() => payloads.length >= 1);
     expect(decodeBrowserFrameMeta(payloads[0]!)).toEqual({ scrollX: 0, scrollY: 0, pageScale: 1, offsetTop: 0 });
 
+    // A tab that went to the background is brought back before input.
+    cdp.state.hidden = true;
+    const fronts = () => cdp.calls.filter((c) => c.method === "Page.bringToFront").length;
+    const before = fronts();
     await client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] });
+    expect(fronts()).toBe(before + 1);
+    cdp.state.hidden = false;
     await waitFor(() => cdp.calls.some((c) => c.method === "Page.startScreencast" && c.params.quality === QUALITY_INTERACTIVE));
     await waitFor(() => cdp.calls.filter((c) => c.method === "Page.startScreencast").at(-1)!.params.quality === QUALITY_IDLE, 3_000);
 
