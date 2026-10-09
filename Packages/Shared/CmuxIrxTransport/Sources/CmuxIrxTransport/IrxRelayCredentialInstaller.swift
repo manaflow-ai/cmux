@@ -21,13 +21,14 @@ actor IrxRelayCredentialInstaller {
         installed initial: [IrxRelayCredential],
         journal: IrxJournal,
         now: @escaping @Sendable () -> Date = { Date() },
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        sleep: (@Sendable (Duration) async throws -> Void)? = nil,
         install: @escaping Install
     ) {
         self.installed = Self.index(initial)
         self.journal = journal
         self.now = now
-        self.sleep = sleep
+        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
         self.install = install
     }
 
