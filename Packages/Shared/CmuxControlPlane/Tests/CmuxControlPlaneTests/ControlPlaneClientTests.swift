@@ -227,7 +227,11 @@ import Testing
         let raw = try await server.nextRaw()
         let value = try JSONDecoder().decode(JSONValue.self, from: Data(raw.utf8))
         #expect(value["t"]?.stringValue == "typing")
-        #expect(value["on"]?.boolValue == true)
+        guard case .bool(let on) = value["on"] else {
+            Issue.record("typing frame omitted its boolean on value")
+            return
+        }
+        #expect(on)
         await client.stop()
     }
 
