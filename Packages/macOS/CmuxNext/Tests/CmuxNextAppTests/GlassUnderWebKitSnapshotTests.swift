@@ -70,7 +70,8 @@ struct GlassUnderWebKitSnapshotTests {
         let scale = CGFloat(rep.pixelsWide) / fixture.window.frame.width
         // The green row's center: 100, 70 from the window's top left.
         let pixel = try #require(rep.colorAt(x: Int(100 * scale), y: Int(70 * scale))?.usingColorSpace(.sRGB))
-        #expect(pixel.alphaComponent > 0.9 && pixel.greenComponent > 0.8 && pixel.redComponent < 0.3,
+        // Green in the display's color space (the window server image is not sRGB-exact).
+        #expect(pixel.alphaComponent > 0.9 && pixel.greenComponent > 0.8 && pixel.greenComponent > pixel.redComponent + 0.3,
                 "the row beside the glass card is missing from the snapshot: \(pixel)")
     }
 }
