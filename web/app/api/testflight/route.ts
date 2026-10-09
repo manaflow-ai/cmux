@@ -16,7 +16,10 @@ import {
   type ProMetadataJson,
 } from "../../../services/billing/pro";
 import { captureAscError } from "../../../services/errors";
-import { withAccountDeletionUserMutation } from "../../../services/account/deletionLock";
+import {
+  AccountDeletionUserMutationInProgressError,
+  withAccountDeletionUserMutation,
+} from "../../../services/account/deletionLock";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
 
 
@@ -126,6 +129,12 @@ export async function POST(request: NextRequest) {
     );
     return testflightRedirect(request, result);
   } catch (error) {
+    // Another account mutation (a double submit or a billing webhook) holds
+    // this user's lease. That is a transient, retryable condition, not an App
+    // Store Connect failure, so it is not reported.
+    if (error instanceof AccountDeletionUserMutationInProgressError) {
+      return testflightRedirect(request, "busy");
+    }
     captureAscError(error, {
       route: "/api/testflight",
       stackUserId,
@@ -166,7 +175,8 @@ function testflightRedirect(
     | "error"
     | "ineligible"
     | "needs_email"
-    | "unavailable",
+    | "unavailable"
+    | "busy",
 ) {
   const url = new URL(localizedTestflightPath(request), request.url);
   url.searchParams.set("testflight", testflight);
