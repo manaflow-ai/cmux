@@ -129,6 +129,11 @@ describe("promote and roll back", () => {
     expect(await t.run("--channel", "staging", "--snapshot", stg.snapshot_id)).toBe(0)
     expect(readVar(t.wrangler(), "staging", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-stg-vmimg-hostrun8")
     expect(t.channel("staging").previous).toBeNull()
+    expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(1) // no cmux-old compat receipts yet
+    expect(t.errors.join("\n")).toContain("no passing cmux-old client smoke")
+    const { writeReceipt } = await import("../receipts.ts")
+    for (const action of ["compat-static", "compat-smoke"] as const)
+      writeReceipt(t.receipts, { action, tree: "images", target: "production", result: "pass", at: "2026-10-08T11:00:00.000Z", setHash: `image:CLOUD_FREESTYLE_SNAPSHOT:${stg.snapshot_id}`, by: "test" })
     expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(0)
     expect(readVar(t.wrangler(), "production", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-prod-vmimg-hostrun8")
     expect(readVar(t.wrangler(), "development", "CLOUD_FREESTYLE_SNAPSHOT")).toBe("cmuxnp-dev-vmimg-hostrun5") // other envs untouched
