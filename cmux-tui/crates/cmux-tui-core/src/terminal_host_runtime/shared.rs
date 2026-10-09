@@ -16,3 +16,4 @@ pub(crate) mod host_state;
 pub(crate) mod metric_commits;
 pub(crate) mod records;
 pub(crate) mod renderer_grant;
+pub(crate) mod unadoptable;
