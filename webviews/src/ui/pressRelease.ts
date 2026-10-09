@@ -37,7 +37,8 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
   let moved = false;
   const rowAt = (event: PointerEvent) => {
     const target = doc.elementFromPoint?.(event.clientX, event.clientY);
-    if (!(target instanceof HTMLElement) || trigger.contains(target)) return null;
+    // Any element: a row's icon (an SVG) picks its row too.
+    if (!target || trigger.contains(target)) return null;
     const row = target.closest<HTMLElement>(PRESS_ROW);
     if (!row || row.matches('[aria-disabled="true"], :disabled')) return null;
     return row;
