@@ -165,8 +165,9 @@ import UniformTypeIdentifiers
         // A scale transform renders the tree at 2x into the texture.
         let host = CALayer()
         host.frame = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        host.isGeometryFlipped = true
         let holder = CALayer()
+        // Scale about the bottom-left corner, not the center.
+        holder.anchorPoint = .zero
         holder.frame = host.bounds
         holder.sublayerTransform = CATransform3DMakeScale(scale, scale, 1)
         host.addSublayer(holder)
@@ -196,7 +197,16 @@ import UniformTypeIdentifiers
                   let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info, provider: provider,
                                       decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { throw SheetError.noImage }
-            images.append(image)
+            // The texture's first row is the bottom of the layer tree.
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let flip = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { throw SheetError.noImage }
+            flip.translateBy(x: 0, y: CGFloat(height))
+            flip.scaleBy(x: 1, y: -1)
+            flip.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            guard let upright = flip.makeImage() else { throw SheetError.noImage }
+            images.append(upright)
         }
         layer.removeFromSuperlayer()
         return images
