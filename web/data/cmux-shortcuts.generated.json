@@ -7018,6 +7018,41 @@
           "aliases": []
         },
         {
+          "id": "agentPane.switchModel",
+          "title": {
+            "en": "Switch Model…",
+            "ar": "تبديل النموذج…",
+            "bs": "Promijeni model…",
+            "da": "Skift model…",
+            "de": "Modell wechseln…",
+            "es": "Cambiar modelo…",
+            "fr": "Changer de modèle…",
+            "it": "Cambia modello…",
+            "ja": "モデルを切り替え…",
+            "km": "ប្តូរម៉ូដែល…",
+            "ko": "모델 전환…",
+            "no": "Bytt modell…",
+            "pl": "Zmień model…",
+            "pt-BR": "Trocar modelo…",
+            "ru": "Сменить модель…",
+            "th": "สลับโมเดล…",
+            "tr": "Modeli Değiştir…",
+            "uk": "Змінити модель…",
+            "vi": "Chuyển mô hình…",
+            "zh-CN": "切换模型…",
+            "zh-TW": "切換模型…"
+          },
+          "shortcut": {
+            "key": "m",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "agentPane.permission.allowOnce",
           "title": {
             "en": "Allow once",

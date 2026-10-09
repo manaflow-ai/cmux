@@ -20,7 +20,7 @@ nonisolated extension AppManifestValidator {
         "mcpServers": Kind(maxItems: 4, required: ["id"]),
         "automations": Kind(maxItems: 16, required: ["id", "title", "template"]),
         "automationTriggers": Kind(maxItems: 32, required: ["id", "title", "event"]),
-        "paletteScopes": Kind(maxItems: 16, required: ["id", "title"]),
+        "paletteScopes": Kind(maxItems: 8, required: ["id", "title", "source"]),
     ]
 
     mutating func contributes(_ value: AppJSON) {
@@ -98,7 +98,7 @@ nonisolated extension AppManifestValidator {
             relativePath(object["template"], "\(path)/template")
         case "paletteScopes":
             localizedText(object["placeholder"], "\(path)/placeholder")
-            pattern(object["prefix"], "\(path)/prefix", P.palettePrefix, "a short lowercase prefix")
+            pattern(object["prefix"], "\(path)/prefix", P.palettePrefix, "one punctuation or symbol character")
         case "automationTriggers":
             pattern(object["event"], "\(path)/event", P.eventName, "a catalog event name")
             if let schema = object["payloadSchema"] { _ = self.object(schema, at: "\(path)/payloadSchema") }
