@@ -14,7 +14,6 @@ import {
   applyLoadedViewed,
   beginViewedLoad,
   recordViewedChange,
-  viewedScopeKey,
   viewedScopeKeyRepoRoot,
   viewedStateOfItem,
 } from "../viewed-files";
