@@ -133,16 +133,11 @@ final class TabContentCache {
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let provisional = ProvisionalTab.isProvisional(surface: tab.surface)
-        let validity = provisional ? "\(daemon.machineID)#\(tab.id)#provisional"
-            : "\(daemon.machineID)#\(tab.id)#\(daemon.store.generation?.rawValue ?? "")#\(tab.surface.rawValue)"
+        let validity = Self.terminalValidity(tab, daemon: daemon)
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        // The daemon's tab under the provisional one's id (S3): the same view attaches to it.
-        if let entry = terminals[tab.id], entry.gate != nil, !provisional {
-            entry.confirm(validity: validity, target: attachTarget, store: daemon.store)
-            return entry
-        }
+        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) { return entry }
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.

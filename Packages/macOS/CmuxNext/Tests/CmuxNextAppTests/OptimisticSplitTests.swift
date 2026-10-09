@@ -8,6 +8,11 @@ import Testing
 /// new pane before the daemon replies. T1 (app): the provisional pane is in the store while the
 /// split is still in flight, and the request carries its client-minted ids. T2 (store frame
 /// budget): it shows within one frame of the gesture, with a daemon that answers after 300 ms.
+/// The split request the scripted daemon received.
+final class SplitRecord: Sendable {
+    let value = Mutex<[String: CmuxNextDaemon.JSONValue]?>(nil)
+}
+
 @MainActor @Suite(.timeLimit(.minutes(1))) struct OptimisticSplitTests {
     nonisolated static let replyDelay: TimeInterval = 0.3
 
@@ -19,7 +24,7 @@ import Testing
         return String(decoding: data, as: UTF8.self)
     }
 
-    nonisolated static func daemon(tree: String, split: Mutex<[String: CmuxNextDaemon.JSONValue]?>)
+    nonisolated static func daemon(tree: String, split: SplitRecord)
         -> @Sendable ([String: CmuxNextDaemon.JSONValue]) -> [String] {
         { request in
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
@@ -31,7 +36,7 @@ import Testing
             case "list-workspaces":
                 return [#"{"id":\#(id),"ok":true,"data":\#(tree)}"#]
             case "split":
-                split.withLock { $0 = request }
+                split.value.withLock { $0 = request }
                 Thread.sleep(forTimeInterval: replyDelay)
                 return [#"{"id":\#(id),"ok":true,"data":{"surface":92}}"#]
             default:
@@ -41,7 +46,7 @@ import Testing
     }
 
     @Test func aSplitShowsItsPaneWithinAFrameAndSendsTheClientIDs() async throws {
-        let split = Mutex<[String: CmuxNextDaemon.JSONValue]?>(nil)
+        let split = SplitRecord()
         let server = try ScriptedDaemonSocket(handler: Self.daemon(tree: try Self.tree(), split: split))
         let service = DaemonService()
         defer { server.stop(); service.shutdownConnection() }
@@ -60,7 +65,7 @@ import Testing
         #expect(service.store.pane(provisional.handle) != nil, "the provisional pane shows before the reply")
         #expect(shown < .milliseconds(17), "B1: the new pane shows within one 60 Hz frame (took \(shown))")
         _ = try await sent.value
-        let request = try #require(split.withLock { $0 })
+        let request = try #require(split.value.withLock { $0 })
         #expect(request["pane_id"]?.stringValue == provisional.paneID)
         #expect(request["tab_id"]?.stringValue == provisional.tabID)
         #expect(request["terminal_id"]?.stringValue == provisional.terminalID)
