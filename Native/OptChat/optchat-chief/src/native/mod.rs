@@ -296,6 +296,7 @@ impl Native {
                         .to_owned(),
                     model: Some(self.config.model.clone()),
                     usage,
+                    ..crate::fold::Request::default()
                 });
                 crate::trace::requests(&self.trace, &scope, &requests[requests.len() - 1..]);
                 first_usage.get_or_insert(usage);
@@ -407,6 +408,7 @@ impl Native {
                 requests: requests.len(),
                 tools,
                 tool_errors,
+                ..crate::turn::TurnStats::default()
             },
             // The Messages API, no acpmux harness.
             harness: None,

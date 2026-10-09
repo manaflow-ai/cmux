@@ -297,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// tabs; links in this build's scheme (`cmux://tab/…`) run `link.open`;
     /// `<scheme>://auth-callback` from the browser fallback of sign-in goes
     /// to Cloud auth.
-    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+    @objc(handleURLEvent:reply:) private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
         routeOpenedURL(url)
     }
