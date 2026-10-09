@@ -7,7 +7,7 @@
 //! live resource indexes, building the patch, and the registry commit
 //! (unchanged-row pruning, row writes, journal append).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -17,6 +17,9 @@ use super::{HistogramSnapshot, LogLinearHistogram};
 /// Counters for one daemon's resource projections and their commits.
 #[derive(Default)]
 pub struct ResourceProjectionStats {
+    /// Set by a projection, taken by the next commit: only the commit of a
+    /// projected patch counts, not cwd reports or other direct patches.
+    projected_pending: AtomicBool,
     projections: AtomicU64,
     read_us: LogLinearHistogram,
     index_us: LogLinearHistogram,
@@ -63,6 +66,7 @@ pub struct CommitSpans {
 
 impl ResourceProjectionStats {
     pub fn projected(&self, spans: ProjectionSpans) {
+        self.projected_pending.store(true, Ordering::Relaxed);
         self.projections.fetch_add(1, Ordering::Relaxed);
         self.read_us.record_duration(spans.read);
         self.index_us.record_duration(spans.index);
@@ -70,7 +74,12 @@ impl ResourceProjectionStats {
         self.projected_changes.record(spans.changes as u64);
     }
 
+    /// Record a resource patch commit; it counts only when a projection
+    /// produced its patch (callers hold the registry lock across both).
     pub fn committed(&self, spans: CommitSpans) {
+        if !self.projected_pending.swap(false, Ordering::Relaxed) {
+            return;
+        }
         self.commits.fetch_add(1, Ordering::Relaxed);
         self.commit_us.record_duration(spans.total);
         self.commit_prune_us.record_duration(spans.prune);
@@ -118,6 +127,17 @@ pub struct ResourceProjectionSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_commit_after_a_projection_counts() {
+        let stats = ResourceProjectionStats::default();
+        stats.committed(CommitSpans { written: 1, ..CommitSpans::default() });
+        assert_eq!(stats.snapshot().commits, 0, "a direct patch is not a projected commit");
+        stats.projected(ProjectionSpans::default());
+        stats.committed(CommitSpans::default());
+        stats.committed(CommitSpans::default());
+        assert_eq!((stats.snapshot().projections, stats.snapshot().commits), (1, 1));
+    }
 
     #[test]
     fn projection_and_commit_spans_accumulate() {

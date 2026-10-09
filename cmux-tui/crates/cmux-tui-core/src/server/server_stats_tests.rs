@@ -30,6 +30,10 @@ fn server_stats_include_reports_resource_projection_spans() {
     let section = &full["resource_projection"];
     assert!(section["projections"].as_u64().unwrap_or(0) >= 2, "{full}");
     assert!(section["commits"].as_u64().unwrap_or(0) >= 2, "{full}");
+    assert!(
+        section["commits"].as_u64() <= section["projections"].as_u64(),
+        "only commits of projected patches count: {section}"
+    );
     for span in [
         "read_us",
         "index_us",

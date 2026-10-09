@@ -1198,7 +1198,7 @@ fn commit_resource_effect_patch_in_transaction(
     let applying = std::time::Instant::now();
     let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
     (spans.prune, spans.apply, spans.written) =
-        (prune, applying.elapsed() - prune, patch.changes.len());
+        (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
