@@ -151,6 +151,11 @@ struct RemotePaneBrowserTabTests {
         #expect(menu.items.map(\.title) == [MachineBrowserStrings.openOn(f.machine.host.label)])
         #expect(f.services.machineBadgeMenu(key: try #require(f.localPane.tabs.first).id) == nil)
         #expect(f.services.cache.browserTabs.browserHostAvailable(f.machine.machineID) == false, "no machine has a browser host yet")
+        // Live check (ffcob-v4): after Open on <machine> the machine page
+        // still showed This Mac (its address is the waiting web page).
+        #expect(f.services.openTabOnMachine(key: remoteTab.id))
+        #expect(f.services.cache.existingBrowser(remoteTab.id)?.tab is MachineBrowserPageTab)
+        #expect(f.services.browserMachineBadge(key: remoteTab.id, url: URL(string: "https://www.google.com/")) == nil)
         withExtendedLifetime(f.services) {}
     }
 
