@@ -49,15 +49,36 @@ pub struct SessionSetup {
 
 /// Whether this host copies the user's Claude Code settings env into its
 /// sessions' settings (`OPTCHAT_COPY_USER_ENV`, `0` turns it off).
-pub fn copy_user_env_allowed(_setting: Option<&str>) -> bool {
-    true
+/// Only on a macOS host, the user's own Mac: a Chief in a Linux VM or a
+/// dev backend image never copies a settings env into its files.
+pub fn copy_user_env_allowed(setting: Option<&str>) -> bool {
+    cfg!(target_os = "macos") && setting.map(str::trim) != Some("0")
+}
+
+/// The user's settings env for this host's sessions (`user_settings_env`
+/// of the user's Claude home) when `copy_user_env_allowed`, else empty.
+/// Its values are never logged.
+pub fn host_user_env() -> BTreeMap<String, String> {
+    if copy_user_env_allowed(crate::cli::env("OPTCHAT_COPY_USER_ENV").as_deref()) {
+        user_settings_env(&crate::compactor::user_claude_home())
+    } else {
+        BTreeMap::new()
+    }
 }
 
 /// The `env` block of the user's Claude Code settings file
 /// (`<Claude home>/settings.json`), string values only; empty when the
 /// file is missing or unreadable.
 pub fn user_settings_env(claude_home: &Path) -> BTreeMap<String, String> {
-    std::fs::read(claude_home.join("settings.json"))
+    use std::os::unix::fs::MetadataExt;
+    let file = claude_home.join("settings.json");
+    // Only a file this user owns: another user's settings are not ours to copy.
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    if std::fs::metadata(&file).map_or(true, |m| m.uid() != uid) {
+        return BTreeMap::new();
+    }
+    std::fs::read(&file)
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .and_then(|v| v.get("env").and_then(Value::as_object).cloned())
@@ -269,14 +290,15 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         &paths.session.join(".mcp.json"),
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
+    // Private: they may hold the user's settings env (an API token).
     let settings = pretty(&settings_json(setup, paths, &TURN_DENIED_TOOLS))?;
-    write_if_changed(
+    write_private(
         &paths.session.join(".claude").join("settings.json"),
         settings.as_bytes(),
     )?;
     // The same switches in the local project settings, which some harness
     // versions read for MCP approval instead of the shared file.
-    write_if_changed(
+    write_private(
         &paths.session.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
     )?;
@@ -312,6 +334,8 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
     )?;
     let mut sub = setup.clone();
     sub.env.insert(SUBAGENT_ENV.to_owned(), "1".to_owned());
+    // Subagents load the user's own settings; no copy of its env here.
+    sub.user_env.clear();
     let settings = pretty(&settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS))?;
     write_if_changed(
         &dir.join(".claude").join("settings.json"),
@@ -397,6 +421,32 @@ fn remove_if_present(path: &Path) -> io::Result<()> {
 }
 
 /// Replaces `path` through a temporary file, so a reader never sees half a file.
+/// `write_if_changed` for a file that may hold a secret: written 0600 from
+/// its first byte, and kept 0600.
+pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    if std::fs::read(path).is_ok_and(|old| old == bytes) {
+        return std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{n}", std::process::id()));
+    let written = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        file.write_all(bytes)?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
 pub fn write_if_changed(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if std::fs::read(path).is_ok_and(|old| old == bytes) {
         return Ok(());

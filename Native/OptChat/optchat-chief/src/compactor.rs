@@ -1335,7 +1335,8 @@ fn write_settings_for(
         }
         settings["env"] = Value::Object(env);
     }
-    crate::session_dir::write_if_changed(
+    // It may hold the user's settings env (an API token): the user's alone.
+    crate::session_dir::write_private(
         path,
         format!(
             "{}\n",
@@ -1466,10 +1467,17 @@ pub fn compactor_effort(family: Family) -> Option<String> {
     }
 }
 
+/// The compactor model a Claude Code harness is asked for: the `haiku`
+/// alias, which Claude Code maps to its current Haiku. Claude Code 2.1.287
+/// does not know the full id `claude-haiku-5-5` ("[claude-code:
+/// unrecognized_model]"); the Messages API route keeps it
+/// (`optchat_host::DEFAULT_MODEL`).
+pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = "haiku";
+
 /// The default compactor model of `family`'s harness (None: the harness's
 /// own default model).
 pub fn compactor_model_for(family: Family) -> Option<String> {
-    (family == Family::Claude).then(|| optchat_host::DEFAULT_MODEL.to_owned())
+    (family == Family::Claude).then(|| CLAUDE_CODE_COMPACTOR_MODEL.to_owned())
 }
 
 /// Whether a failed compactor turn says the account cannot use the model:
@@ -1505,7 +1513,7 @@ pub fn compactor_spec(
         effort: compactor_effort(family),
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
-        user_env: crate::session_dir::user_settings_env(&user_claude_home()),
+        user_env: crate::session_dir::host_user_env(),
     }
 }
 

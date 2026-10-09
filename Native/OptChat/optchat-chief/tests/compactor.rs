@@ -1698,7 +1698,10 @@ fn a_compactor_slot_carries_the_users_settings_env() {
 #[test]
 fn the_compactor_model_resolves_per_harness() {
     use optchat_chief::compactor::compactor_model_for;
-    assert_eq!(compactor_model_for(Family::Claude).as_deref(), Some("haiku"));
+    assert_eq!(
+        compactor_model_for(Family::Claude).as_deref(),
+        Some("haiku")
+    );
     assert_eq!(compactor_model_for(Family::Codex), None);
     assert_eq!(compactor_model_for(Family::Other), None);
     assert_eq!(Config::default().model, "claude-haiku-5-5");
