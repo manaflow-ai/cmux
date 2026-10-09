@@ -2789,6 +2789,38 @@ describe("acpmux turn counts", () => {
     }
   });
 
+  test("the Worked-for disclosure controls folded assistant commentary as well as tools", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "investigate" },
+      { id: "tool", version: 1, at: 2, kind: "activity", items: [{ kind: "tool", text: "Read" }] },
+      { id: "commentary", version: 1, at: 3, kind: "assistant", text: "I found the relevant file." },
+      { id: "answer", version: 1, at: 4, kind: "assistant", text: "The fix is small." },
+      { id: "summary", version: 1, at: 5, kind: "turnSummary", durationMs: 4_000, toolCount: 1 },
+    ];
+    try {
+      const open = new Set(["worked-u"]);
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, open),
+            onToggleActivity: () => {},
+            expanded: open,
+          }),
+        ),
+      );
+      const controls = dom.window.document
+        .querySelector<HTMLButtonElement>(".cv-worked")
+        ?.getAttribute("aria-controls");
+      expect(controls?.split(" ")).toEqual(["acpmux-row-tool", "acpmux-row-commentary"]);
+      expect(dom.window.document.getElementById("acpmux-row-commentary")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// History loaded from mid-turn has no user message to time the turn from.
   test("a summary without a start time shows only the count", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });

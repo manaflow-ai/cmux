@@ -560,7 +560,10 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
   const ids: string[] = [];
   for (let index = after; index < rows.length; index += 1) {
     const row = rows[index]!;
-    if (row.kind !== "activity") break;
+    // turnView marks every row copied under an open Worked-for disclosure as settled. This
+    // includes assistant commentary before the tool calls; stopping on kind alone left that
+    // first commentary row outside aria-controls and made the disclosure target incomplete.
+    if (!row.settled) break;
     ids.push(rowDomId(row.id));
   }
   return ids.length > 0 ? ids.join(" ") : undefined;
