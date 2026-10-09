@@ -42,6 +42,7 @@ impl Mux {
             index,
             diff: started.elapsed().saturating_sub(read + index),
             changes: projection.patch.changes.len(),
+            scoped: false,
         });
         Ok(projection)
     }

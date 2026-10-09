@@ -541,6 +541,8 @@ class Bench:
         for key, value in rp1.items():
             if isinstance(value, dict):
                 out[key] = delta(rp0.get(key), value)
+            elif isinstance(value, int):
+                out[key] = value - (rp0.get(key) or 0)
         sites0 = {s["site"]: s for s in (pre.get("registry_lock") or {}).get("top_sites") or []}
         holds = []
         for site in (post.get("registry_lock") or {}).get("top_sites") or []:

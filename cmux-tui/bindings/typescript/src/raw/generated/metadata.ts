@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee. */
+/* cmux-tui mux protocol 12, IR 18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee" as const;
+export const SDK_IR_SHA256 = "18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8678,7 +8678,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
       "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
-      "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
+      "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes.",
+      "full_projections plus scoped_projections is projections; a scoped projection restates only the workspaces it changed, and scope_fallbacks counts scoped projections that found a change outside their scope and ran full. crosschecks counts scoped projections compared with the full projection (debug builds, or CMUX_TUI_PROJECTION_CROSSCHECK=1); crosscheck_mismatches counts comparisons that differed."
     ],
     "fields": {
       "commit_apply_us": {
@@ -8721,12 +8722,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "crosscheck_mismatches": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "crosschecks": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "diff_us": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "full_projections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "index_us": {
@@ -8767,6 +8792,22 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "scope_fallbacks": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "scoped_projections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "written_changes": {

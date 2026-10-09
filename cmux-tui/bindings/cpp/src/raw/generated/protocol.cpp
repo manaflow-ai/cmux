@@ -7554,9 +7554,18 @@ Result<Json> Codec<ServerStatsResourceProjection>::encode(const ServerStatsResou
     auto encoded_commits = encode_value(value.commits);
     if (!encoded_commits) return std::move(encoded_commits).error();
     object.emplace("commits", std::move(encoded_commits).value());
+    auto encoded_crosscheck_mismatches = encode_value(value.crosscheck_mismatches);
+    if (!encoded_crosscheck_mismatches) return std::move(encoded_crosscheck_mismatches).error();
+    object.emplace("crosscheck_mismatches", std::move(encoded_crosscheck_mismatches).value());
+    auto encoded_crosschecks = encode_value(value.crosschecks);
+    if (!encoded_crosschecks) return std::move(encoded_crosschecks).error();
+    object.emplace("crosschecks", std::move(encoded_crosschecks).value());
     auto encoded_diff_us = encode_value(value.diff_us);
     if (!encoded_diff_us) return std::move(encoded_diff_us).error();
     object.emplace("diff_us", std::move(encoded_diff_us).value());
+    auto encoded_full_projections = encode_value(value.full_projections);
+    if (!encoded_full_projections) return std::move(encoded_full_projections).error();
+    object.emplace("full_projections", std::move(encoded_full_projections).value());
     auto encoded_index_us = encode_value(value.index_us);
     if (!encoded_index_us) return std::move(encoded_index_us).error();
     object.emplace("index_us", std::move(encoded_index_us).value());
@@ -7572,6 +7581,12 @@ Result<Json> Codec<ServerStatsResourceProjection>::encode(const ServerStatsResou
     auto encoded_read_us = encode_value(value.read_us);
     if (!encoded_read_us) return std::move(encoded_read_us).error();
     object.emplace("read_us", std::move(encoded_read_us).value());
+    auto encoded_scope_fallbacks = encode_value(value.scope_fallbacks);
+    if (!encoded_scope_fallbacks) return std::move(encoded_scope_fallbacks).error();
+    object.emplace("scope_fallbacks", std::move(encoded_scope_fallbacks).value());
+    auto encoded_scoped_projections = encode_value(value.scoped_projections);
+    if (!encoded_scoped_projections) return std::move(encoded_scoped_projections).error();
+    object.emplace("scoped_projections", std::move(encoded_scoped_projections).value());
     auto encoded_written_changes = encode_value(value.written_changes);
     if (!encoded_written_changes) return std::move(encoded_written_changes).error();
     object.emplace("written_changes", std::move(encoded_written_changes).value());
@@ -7627,6 +7642,24 @@ Result<ServerStatsResourceProjection> Codec<ServerStatsResourceProjection>::deco
         if (!decoded) return std::move(decoded).error();
         result.commits = std::move(decoded).value();
     }
+    const Json* field_crosscheck_mismatches = value.find("crosscheck_mismatches");
+    if (!field_crosscheck_mismatches) {
+        return make_error(ErrorCode::decode, "missing required field 'crosscheck_mismatches'");
+    }
+    if (field_crosscheck_mismatches) {
+        auto decoded = decode_value<std::uint64_t>(*field_crosscheck_mismatches);
+        if (!decoded) return std::move(decoded).error();
+        result.crosscheck_mismatches = std::move(decoded).value();
+    }
+    const Json* field_crosschecks = value.find("crosschecks");
+    if (!field_crosschecks) {
+        return make_error(ErrorCode::decode, "missing required field 'crosschecks'");
+    }
+    if (field_crosschecks) {
+        auto decoded = decode_value<std::uint64_t>(*field_crosschecks);
+        if (!decoded) return std::move(decoded).error();
+        result.crosschecks = std::move(decoded).value();
+    }
     const Json* field_diff_us = value.find("diff_us");
     if (!field_diff_us) {
         return make_error(ErrorCode::decode, "missing required field 'diff_us'");
@@ -7635,6 +7668,15 @@ Result<ServerStatsResourceProjection> Codec<ServerStatsResourceProjection>::deco
         auto decoded = decode_value<ServerStatsHistogram>(*field_diff_us);
         if (!decoded) return std::move(decoded).error();
         result.diff_us = std::move(decoded).value();
+    }
+    const Json* field_full_projections = value.find("full_projections");
+    if (!field_full_projections) {
+        return make_error(ErrorCode::decode, "missing required field 'full_projections'");
+    }
+    if (field_full_projections) {
+        auto decoded = decode_value<std::uint64_t>(*field_full_projections);
+        if (!decoded) return std::move(decoded).error();
+        result.full_projections = std::move(decoded).value();
     }
     const Json* field_index_us = value.find("index_us");
     if (!field_index_us) {
@@ -7680,6 +7722,24 @@ Result<ServerStatsResourceProjection> Codec<ServerStatsResourceProjection>::deco
         auto decoded = decode_value<ServerStatsHistogram>(*field_read_us);
         if (!decoded) return std::move(decoded).error();
         result.read_us = std::move(decoded).value();
+    }
+    const Json* field_scope_fallbacks = value.find("scope_fallbacks");
+    if (!field_scope_fallbacks) {
+        return make_error(ErrorCode::decode, "missing required field 'scope_fallbacks'");
+    }
+    if (field_scope_fallbacks) {
+        auto decoded = decode_value<std::uint64_t>(*field_scope_fallbacks);
+        if (!decoded) return std::move(decoded).error();
+        result.scope_fallbacks = std::move(decoded).value();
+    }
+    const Json* field_scoped_projections = value.find("scoped_projections");
+    if (!field_scoped_projections) {
+        return make_error(ErrorCode::decode, "missing required field 'scoped_projections'");
+    }
+    if (field_scoped_projections) {
+        auto decoded = decode_value<std::uint64_t>(*field_scoped_projections);
+        if (!decoded) return std::move(decoded).error();
+        result.scoped_projections = std::move(decoded).value();
     }
     const Json* field_written_changes = value.find("written_changes");
     if (!field_written_changes) {

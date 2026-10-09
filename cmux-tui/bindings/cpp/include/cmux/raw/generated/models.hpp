@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee";
+inline constexpr std::string_view kProtocolIrSha256 = "18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3975,12 +3975,17 @@ struct ServerStatsResourceProjection {
     ServerStatsHistogram commit_prune_us{};
     ServerStatsHistogram commit_us{};
     std::uint64_t commits{};
+    std::uint64_t crosscheck_mismatches{};
+    std::uint64_t crosschecks{};
     ServerStatsHistogram diff_us{};
+    std::uint64_t full_projections{};
     ServerStatsHistogram index_us{};
     ServerStatsHistogram journaled_changes{};
     ServerStatsHistogram projected_changes{};
     std::uint64_t projections{};
     ServerStatsHistogram read_us{};
+    std::uint64_t scope_fallbacks{};
+    std::uint64_t scoped_projections{};
     ServerStatsHistogram written_changes{};
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };

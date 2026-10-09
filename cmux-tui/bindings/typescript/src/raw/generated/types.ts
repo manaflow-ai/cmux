@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee. */
+/* cmux-tui mux protocol 12, IR 18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -918,12 +918,17 @@ export type ServerStatsResourceProjection = {
   "commit_prune_us": ServerStatsHistogram;
   "commit_us": ServerStatsHistogram;
   "commits": bigint;
+  "crosscheck_mismatches": bigint;
+  "crosschecks": bigint;
   "diff_us": ServerStatsHistogram;
+  "full_projections": bigint;
   "index_us": ServerStatsHistogram;
   "journaled_changes": ServerStatsHistogram;
   "projected_changes": ServerStatsHistogram;
   "projections": bigint;
   "read_us": ServerStatsHistogram;
+  "scope_fallbacks": bigint;
+  "scoped_projections": bigint;
   "written_changes": ServerStatsHistogram;
 };
 
