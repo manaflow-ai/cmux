@@ -59,7 +59,8 @@ fn orphaned_wal_is_moved_aside_instead_of_opening_an_empty_registry() {
 fn corrupt_registry_moves_database_and_sidecars_aside_together() {
     let root = temp_root("corrupt");
     let database = session_dir(&root).join(WORKSPACE_REGISTRY_FILE);
-    fs::create_dir_all(session_dir(&root)).unwrap();
+    // A real install first, so the state root has its machine id and pepper.
+    drop(WorkspaceRegistry::open(&root, "session").unwrap());
     let garbage = vec![0x5a_u8; 8192];
     fs::write(&database, &garbage).unwrap();
     fs::write(sidecar(&database, "-shm"), b"shared memory index").unwrap();
