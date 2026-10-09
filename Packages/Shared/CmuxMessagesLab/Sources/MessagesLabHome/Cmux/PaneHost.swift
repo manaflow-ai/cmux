@@ -255,14 +255,11 @@ extension TranscriptDocumentView {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
-    /// The projection `install` sets. Read before `install` (nothing does today), an
-    /// empty conversation stands in instead of a trap; once `install` assigned it, the
-    /// lazy initializer never runs.
-    private(set) lazy var store = Store(
-        conversation: Conversation(id: "", title: "", participants: [], messages: []), baseDate: Date()
-    )
-    /// The window view over `store`; `install` sets it (the same stand-in rule as `store`).
-    private(set) lazy var demo = MessagesWindowView(store: store)
+    /// The projection, nil until `install` (crash program: no longer an IUO that trapped
+    /// when read early).
+    private(set) var store: Store?
+    /// The window view over `store`, nil until `install`.
+    private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
@@ -321,10 +318,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: install the window view over the adapter's projection (the
     /// loaded HomeStore window), in place of `load()` over a source.
     func install(_ conv: Conversation, windowStart lo: Int, total: Int) {
-        store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+        let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+        self.store = store
         store.responder = nil
         start = CACurrentMediaTime()
-        demo = MessagesWindowView(store: store)
+        let demo = MessagesWindowView(store: store)
+        self.demo = demo
         demo.clock = { [unowned self] in self.clock }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
