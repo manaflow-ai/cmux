@@ -84,9 +84,33 @@ extension CMUXCLI {
             printRemotesTable(remotes)
 
         case "add":
-            let (routeValues, rem0) = parseRepeatedOption(rest, name: "--route")
-            let (tagOpt, rem1) = parseOption(rem0, name: "--tag")
-            let positionals = rem1.filter { !$0.hasPrefix("-") }
+            let (routeValues, rem0) = parseRepeatedOption(
+                rest, name: "--route", allowOptionLikeValue: false)
+            let (tagOpt, rem1) = parseOption(
+                rem0, name: "--tag", allowOptionLikeValue: false)
+            // Unknown flags (typos such as `--rouet=...`) used to disappear in
+            // the positional filter below; refuse them so nothing is silently
+            // dropped. A bare `--route`/`--tag` left here means its value is
+            // missing. The first `--` ends option parsing: tokens after it are
+            // positionals (e.g. a dash-prefixed name like `-staging`).
+            let optionTokens: [String]
+            let postTerminatorPositionals: [String]
+            if let terminatorIndex = rem1.firstIndex(of: "--") {
+                optionTokens = Array(rem1.prefix(upTo: terminatorIndex))
+                postTerminatorPositionals = Array(rem1.suffix(from: rem1.index(after: terminatorIndex)))
+            } else {
+                optionTokens = rem1
+                postTerminatorPositionals = []
+            }
+            if let unknown = optionTokens.first(where: { $0.hasPrefix("-") }) {
+                if unknown == "--route" || unknown == "--tag" {
+                    throw remotesArgumentCLIError(
+                        RemotesArgumentError.missingOptionValue(unknown), command: "remotes add")
+                }
+                throw remotesArgumentCLIError(
+                    RemotesArgumentError.unknownFlag(unknown), command: "remotes add")
+            }
+            let positionals = optionTokens.filter { !$0.hasPrefix("-") } + postTerminatorPositionals
             guard let name = positionals.first, !name.isEmpty else {
                 throw CLIError(message: """
                     remotes add requires a name.
@@ -112,6 +136,11 @@ extension CMUXCLI {
                 try validateRemoteRouteToken(route)
             }
             var params: [String: Any] = ["name": name, "routes": routeValues]
+            if let tagOpt, tagOpt.isEmpty {
+                // `--tag=` must not send a request with the tag silently omitted.
+                throw remotesArgumentCLIError(
+                    RemotesArgumentError.missingOptionValue("--tag"), command: "remotes add")
+            }
             if let tagOpt, !tagOpt.isEmpty { params["tag"] = tagOpt }
             let response = try client.sendV2(method: "remotes.add", params: params)
             if jsonOutput {
@@ -266,13 +295,14 @@ extension CMUXCLI {
     private func remotesArgumentCLIError(_ error: Error, command: String) -> CLIError {
         switch error {
         case let RemotesArgumentError.unknownFlag(flag):
+            let displayFlag = flag.split(separator: "=", maxSplits: 1).first.map(String.init) ?? flag
             let message = String(
                 format: String(
                     localized: "cli.remotes.error.unknownFlag",
                     defaultValue: "%1$@: unknown flag '%2$@'."
                 ),
                 command,
-                flag
+                displayFlag
             )
             return CLIError(message: message + "\n\n" + Self.remotesUsage)
         case let RemotesArgumentError.unexpectedArgument(argument):
@@ -284,6 +314,16 @@ extension CMUXCLI {
                 command,
                 argument
             ))
+        case let RemotesArgumentError.missingOptionValue(flag):
+            let message = String(
+                format: String(
+                    localized: "cli.remotes.error.missingOptionValue",
+                    defaultValue: "%1$@: %2$@ requires a value."
+                ),
+                command,
+                flag
+            )
+            return CLIError(message: message + "\n\n" + Self.remotesUsage)
         default:
             let message = String(
                 format: String(

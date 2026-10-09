@@ -21892,7 +21892,16 @@ struct CMUXCLI {
         ))
     }
 
-    func parseOption(_ args: [String], name: String) -> (String?, [String]) {
+    /// Extracts the last occurrence of a value-taking option before `--`.
+    ///
+    /// Options after a standalone `--` remain in the returned arguments. Setting
+    /// `allowOptionLikeValue` to false also leaves an option-like next token for
+    /// the caller to diagnose instead of consuming it as the split value.
+    func parseOption(
+        _ args: [String],
+        name: String,
+        allowOptionLikeValue: Bool = true
+    ) -> (String?, [String]) {
         var remaining: [String] = []
         var value: String?
         var skipNext = false
@@ -21911,7 +21920,8 @@ struct CMUXCLI {
                 value = String(arg.dropFirst(name.count + 1))
                 continue
             }
-            if !pastTerminator, arg == name, idx + 1 < args.count {
+            if !pastTerminator, arg == name, idx + 1 < args.count,
+               allowOptionLikeValue || !args[idx + 1].hasPrefix("-") {
                 value = args[idx + 1]
                 skipNext = true
                 continue
@@ -21964,7 +21974,16 @@ struct CMUXCLI {
         return (normalized, remaining)
     }
 
-    func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
+    /// Extracts every occurrence of a repeatable option before `--`.
+    ///
+    /// Options after a standalone `--` remain in the returned arguments. Setting
+    /// `allowOptionLikeValue` to false also leaves an option-like next token for
+    /// the caller to diagnose instead of consuming it as the split value.
+    func parseRepeatedOption(
+        _ args: [String],
+        name: String,
+        allowOptionLikeValue: Bool = true
+    ) -> ([String], [String]) {
         var remaining: [String] = []
         var values: [String] = []
         var skipNext = false
@@ -21979,7 +21998,14 @@ struct CMUXCLI {
                 remaining.append(arg)
                 continue
             }
-            if !pastTerminator, arg == name, idx + 1 < args.count {
+            if !pastTerminator, arg.hasPrefix("\(name)=") {
+                // Equals form (`--route=host:port`) is the same option as the
+                // split form; dropping it here silently discarded the value.
+                values.append(String(arg.dropFirst(name.count + 1)))
+                continue
+            }
+            if !pastTerminator, arg == name, idx + 1 < args.count,
+               allowOptionLikeValue || !args[idx + 1].hasPrefix("-") {
                 values.append(args[idx + 1])
                 skipNext = true
                 continue
