@@ -253,5 +253,28 @@
   },
   "denies": [],
   "needs": true
+ },
+ {
+  "name": "a question answer with an allow needs a gesture",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "answers": {
+     "Which one?": "B"
+    }
+   }
+  },
+  "denies": [
+   [
+    "p",
+    "reject_once"
+   ]
+  ],
+  "needs": true
  }
 ]

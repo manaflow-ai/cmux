@@ -380,7 +380,7 @@ body {
   inset: 0 0 0 52px;
   border: 0;
   padding: 0;
-  background: rgb(0 0 0 / 18%);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
 }
 .proto-history {
   position: absolute;

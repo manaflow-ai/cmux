@@ -606,6 +606,10 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly orphaned?: {
+    readonly at: number
+    readonly former_owner: UserId
+  }
 }
 
 /** A machine's session host, enrolled by its link. */
@@ -634,7 +638,7 @@ export type Install = {
 /** One app, CLI or daemon install with its own keypair. */
 export type InstallId = string
 
-export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
+export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm" | "team-vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
@@ -991,6 +995,13 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmAccountUser = {
+  readonly user: string
+  readonly uid: number
+  readonly class: SshCertClass
+  readonly principals: ReadonlyArray<string>
+}
+
 export type TeamVmError = {
   readonly code: string
   readonly message: string
@@ -999,8 +1010,25 @@ export type TeamVmError = {
 
 export type TeamVmLeaseId = string
 
+export type TeamVmRetired = {
+  readonly vm: string
+  readonly epoch: number
+  readonly state: "pausing" | "paused"
+  readonly at: number
+  readonly by: string
+  readonly tainted_by: ReadonlyArray<string>
+}
+
 /** Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries. */
 export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+
+export type TeamVmTaint = {
+  readonly epoch: number
+  readonly at: number
+  readonly users: ReadonlyArray<string>
+  readonly accepted_by: string | null
+  readonly accepted_at: number | null
+}
 
 export type TeamVmView = {
   readonly team: TeamId
@@ -1015,6 +1043,8 @@ export type TeamVmView = {
   }>
   readonly last_error: TeamVmError | null
   readonly updated_at: number
+  readonly taint: TeamVmTaint | null
+  readonly retired: ReadonlyArray<TeamVmRetired>
 }
 
 /** RFC 3339 UTC with milliseconds. */
@@ -2163,6 +2193,24 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
+  /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
+  readonly "integration.approval.get": {
+    readonly params: {
+      readonly request: string
+    }
+    readonly result: {
+      readonly request: string
+      readonly op: string
+      readonly connection: string
+      readonly target: string
+      readonly summary: string
+      readonly params: unknown
+      readonly digest: string
+      readonly state: "pending" | "done" | "denied" | "expired"
+      readonly created_at: number | "Infinity" | "-Infinity" | "NaN"
+      readonly expires_at: number | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
   readonly "integration.complete": {
     readonly params: {
@@ -2553,6 +2601,14 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
+  readonly "team_vm.accounts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly users: ReadonlyArray<TeamVmAccountUser>
+    }
+  }
   /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
   readonly "team_vm.ensure_awake": {
     readonly params: {
@@ -2625,6 +2681,27 @@ export interface CloudOps {
       readonly released: boolean
     }
   }
+  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.rebuild": {
+    readonly params: {
+      readonly epoch: number
+    }
+    readonly result: {
+      readonly retired: string
+      readonly epoch: number
+    }
+  }
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.retired.delete": {
+    readonly params: {
+      readonly vm: string
+      readonly files_copied: true
+    }
+    readonly result: {
+      readonly vm: string
+      readonly deleted: boolean
+    }
+  }
   /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
   readonly "team_vm.ssh_ca": {
     readonly params: Readonly<Record<string, never>>
@@ -2647,7 +2724,7 @@ export interface CloudOps {
       readonly previous_trusted_until: number | null
     }
   }
-  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash. */
   readonly "team_vm.ssh_cert": {
     readonly params: {
       readonly public_key: string
@@ -2698,6 +2775,18 @@ export interface CloudOps {
   readonly "team_vm.status": {
     readonly params: Readonly<Record<string, never>>
     readonly result: TeamVmView
+  }
+  /** Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited. */
+  readonly "team_vm.taint.accept": {
+    readonly params: {
+      readonly epoch: number
+      readonly users: ReadonlyArray<string>
+    }
+    readonly result: {
+      readonly epoch: number
+      readonly accepted_by: string
+      readonly accepted_at: number
+    }
   }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
@@ -3068,6 +3157,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
@@ -3108,17 +3198,21 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
   "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.rebuild": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.delete": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
   "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },

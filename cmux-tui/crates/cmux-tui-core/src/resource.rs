@@ -174,6 +174,22 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "conversation.list")]
+    ConversationList,
+    #[serde(rename = "conversation.get")]
+    ConversationGet,
+    #[serde(rename = "conversation.history")]
+    ConversationHistory,
+    #[serde(rename = "conversation.search")]
+    ConversationSearch,
+    #[serde(rename = "conversation.send")]
+    ConversationSend,
+    #[serde(rename = "conversation.typing")]
+    ConversationTyping,
+    #[serde(rename = "conversation.draft")]
+    ConversationDraft,
+    #[serde(rename = "conversation.events")]
+    ConversationEvents,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
@@ -520,6 +536,7 @@ impl ResourceOperation {
             self,
             Self::SessionEvents
                 | Self::SessionJournalSubscribe
+                | Self::ConversationEvents
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -560,6 +577,10 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::ConversationList
+                | Self::ConversationGet
+                | Self::ConversationHistory
+                | Self::ConversationSearch
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList

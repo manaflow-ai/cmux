@@ -20,6 +20,12 @@ mod hosted_callbacks;
 #[cfg(unix)]
 use hosted_callbacks::hosted_terminal_callbacks;
 #[cfg(unix)]
+mod host_kitty_limits;
+#[cfg(all(test, unix))]
+mod journal_failure_tests;
+#[cfg(unix)]
+mod journal_reconnect;
+#[cfg(unix)]
 mod prelaunch;
 #[cfg(unix)]
 mod rehost;
@@ -71,7 +77,6 @@ use crate::terminal_host_protocol::PROTOCOL_VERSION;
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
-use cmux_tui_cdp::BrowserMode;
 
 /// Ghostty's default maximum retained scrollback backing storage.
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
@@ -173,22 +178,8 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
-    /// Optional Chrome/Chromium binary for browser surfaces.
-    pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
-    /// Whether browser panes should probe local debuggable Chrome ports.
-    pub browser_discover: bool,
-    /// Local ports to probe for /json/version when discovery is enabled.
-    pub browser_discover_ports: Vec<u16>,
-    /// Optional Chrome user data directory for launched browser runtime.
-    pub browser_user_data_dir: Option<String>,
-    /// Whether launched Chrome should show a visible window or run headless.
-    pub browser_mode: BrowserMode,
-    /// Session component for the default launched Chrome profile path.
-    pub browser_session_name: String,
-    /// Use a temporary launched Chrome profile and delete it on shutdown.
-    pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
     /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
@@ -254,14 +245,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
-            chrome_binary: None,
             cdp_url: None,
-            browser_discover: false,
-            browser_discover_ports: vec![9222],
-            browser_user_data_dir: None,
-            browser_mode: BrowserMode::Headful,
-            browser_session_name: "default".to_string(),
-            browser_ephemeral: false,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
@@ -456,6 +440,8 @@ enum HostedTransition {
     Metadata(MessageKind),
     Exit(TerminalExit),
     ResyncRequired,
+    /// A smart host's quota change that evicted nothing (host_kitty_limits.rs).
+    KittyGraphicsLimits(KittyGraphicsLimits),
 }
 
 #[cfg(unix)]
@@ -605,9 +591,16 @@ impl HostedFrameStager {
                 };
                 Ok(Some(HostedTransition::Exit(exit)))
             }
-            MessageKind::ResyncRequired if frame.flags == 0 => {
-                Ok(Some(HostedTransition::ResyncRequired))
-            }
+            MessageKind::ResyncRequired if frame.flags == 0 => Ok(Some(
+                match crate::terminal_host_runtime::decode_resync_kitty_graphics_limits(
+                    &frame.payload,
+                ) {
+                    Some(limits) if self.smart_renderer => {
+                        HostedTransition::KittyGraphicsLimits(limits)
+                    }
+                    _ => HostedTransition::ResyncRequired,
+                },
+            )),
             MessageKind::Colors => Err("unpaired Colors frame"),
             _ if frame.flags != 0 => Err("flags are not valid for this message kind"),
             _ => Err("message kind is not valid on the live stream"),
@@ -2065,7 +2058,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             None,
             PtyLifetime::DaemonOwned,
             cell_pixels,
@@ -2082,7 +2075,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             Some(TabResourceIdentity::terminal(None)?),
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2095,13 +2088,14 @@ impl Surface {
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         cell_pixels: (u16, u16),
+        seed: &[u8],
     ) -> anyhow::Result<Arc<Surface>> {
         let identity = Some(TabResourceIdentity::terminal(None)?);
         Self::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
             id,
             opts,
             mux,
-            terminal_id,
+            (terminal_id, seed),
             identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2121,7 +2115,7 @@ impl Surface {
             id,
             opts,
             mux,
-            None,
+            (None, &[]),
             resource_identity,
             PtyLifetime::SessionOwned,
             cell_pixels,
@@ -2197,11 +2191,14 @@ impl Surface {
         )
     }
 
+    /// `launch` is the reserved terminal id, and the VT replay its host
+    /// applies before the child's first byte (a hosted launch with an id
+    /// only; empty: none).
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
-        terminal_id: Option<crate::terminal_host::TerminalId>,
+        (terminal_id, seed): (Option<crate::terminal_host::TerminalId>, &[u8]),
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
@@ -2218,16 +2215,14 @@ impl Surface {
         {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let attachment = match terminal_id {
-                Some(terminal_id) => {
-                    crate::terminal_host_runtime::launch_terminal_host_with_identity(
-                        &opts,
-                        &root,
-                        default_colors,
-                        cell_pixels,
-                        initial_kitty_limits,
-                        terminal_id,
-                    )?
-                }
+                Some(terminal_id) => crate::terminal_host_runtime::launch_terminal_host_seeded(
+                    &opts,
+                    &root,
+                    (default_colors, cell_pixels, initial_kitty_limits),
+                    terminal_id,
+                    None,
+                    seed,
+                )?,
                 None => crate::terminal_host_runtime::launch_terminal_host(
                     &opts,
                     &root,
@@ -2252,7 +2247,7 @@ impl Surface {
                 },
             );
         }
-        let _ = terminal_id;
+        let _ = (terminal_id, seed);
         let initial_geometry = PtyGeometry {
             cols: opts.cols,
             rows: opts.rows,
@@ -3088,6 +3083,12 @@ impl Surface {
                                 resync_requested = true;
                                 break;
                             }
+                            HostedTransition::KittyGraphicsLimits(limits) => {
+                                if !pty.apply_host_kitty_graphics_limits(limits) {
+                                    resync_requested = true;
+                                    break;
+                                }
+                            }
                         }
                         drop(journal_update.take());
                         journal_target = None;
@@ -3200,7 +3201,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3400,47 +3400,10 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                        {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
-                            );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
-                        }
+                        // Bytes the host wrote while no daemon tap existed are
+                        // not in the journal: record that gap before any new
+                        // output (surface/journal_reconnect.rs).
+                        pty.journal_host_reconnect_gap(&reconnect_mux);
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,
@@ -6211,29 +6174,26 @@ impl PtySurface {
                         pending,
                     ) {
                         Ok(retry) => retry,
-                        Err(error) => {
-                            self.journal_capture_open.store(false, Ordering::Release);
-                            mux.request_daemon_shutdown();
-                            eprintln!(
-                                "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                            );
-                            return;
-                        }
+                        Err(error) => return self.stop_journal_capture(&error),
                     };
                     let Some((retry, space_epoch)) = retry else { break };
                     pending = retry;
                     space_epoch
                 };
                 if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    mux.request_daemon_shutdown();
-                    eprintln!(
-                        "cmux-tui: terminal journal capture failed; stopping daemon: {error}"
-                    );
-                    return;
+                    return self.stop_journal_capture(&error);
                 }
             }
         }
+    }
+
+    /// A failed journal writer stops this terminal's capture; the terminal
+    /// and the daemon keep running. The failure is involuntary, so it must
+    /// not take the user shutdown path (`request_daemon_shutdown` marks a
+    /// session shutdown, which records signal deaths as session_shutdown).
+    fn stop_journal_capture(&self, error: &str) {
+        self.journal_capture_open.store(false, Ordering::Release);
+        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
     }
 
     fn journal_geometry(&self, geometry: PtyGeometry) {

@@ -29,11 +29,17 @@ import Testing
         #expect(SidebarIconView.showsIcon(.symbol("hammer")))
     }
 
+    /// The sidebar itself is flat. Only a floating card drawn on
+    /// `OverlaySurfaceView` (the Did you know card, Liquid Glass by Lawrence's
+    /// decision in cx-367y) may hold glass.
     @Test func containerIsAFlatSurfaceWithNoGlassOrVisibleEdge() throws {
         let container = SidebarContainerView(model: SidebarModel(sections: fixture()))
         let all = [container] + container.allSubviews
-        let hasGlass = all.contains { $0 is NSGlassEffectView }
-        #expect(!hasGlass)
+        let onAnOverlayCard = { (view: NSView) in
+            sequence(first: view.superview, next: { $0?.superview }).contains { $0 is OverlaySurfaceView }
+        }
+        let flatGlass = all.filter { $0 is NSGlassEffectView && !onAnOverlayCard($0) }
+        #expect(flatGlass.isEmpty, "glass outside an overlay card: \(flatGlass)")
         let handle = try #require(container.subviews.compactMap { $0 as? SidebarResizeHandle }.first)
         #expect(!handle.isLineVisible)
         handle.setHovered(true)

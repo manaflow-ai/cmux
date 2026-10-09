@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxTheme
+import CmuxNextWakeups
 
 /// How an app overlay that floats over content (palette, hover card, find
 /// and prompt bars, the tab drag's drop target) is drawn. One decision for
@@ -77,8 +78,8 @@ public final class ReduceTransparency {
         observer = changes.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            // Posted on the main thread (NSWorkspace does); delivered inline.
-            MainActor.assumeIsolated { self?.refreshSurfaces() }
+            // NSWorkspace posts on the main thread: delivered inline there, a hop from anywhere else.
+            MainDelivery().run { self?.refreshSurfaces() }
         }
     }
 

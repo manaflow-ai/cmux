@@ -3,6 +3,8 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
+  "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
+  "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
@@ -114,6 +116,45 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
+    # and "xai-plan: P" asks to leave plan mode with plan P
+    # (`_x.ai/exit_plan_mode`); both echo the client's JSON reply.
+    if text.startswith("xai-question:"):
+        res = request("_x.ai/ask_user_question", {
+            "sessionId": sid, "toolCallId": "xq1", "mode": "default",
+            "questions": [{"question": text[13:].strip(), "multiSelect": False,
+                           "options": [{"label": "A", "description": "first"}, {"label": "B"}]}],
+        })
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "xai " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("xai-plan:"):
+        res = request("x.ai/exit_plan_mode", {"sessionId": sid, "toolCallId": "xp1", "planContent": text[9:].strip()})
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "xai " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cursor-question: Q" asks Q the way Cursor does (`cursor/ask_question`,
+    # option ids distinct from labels) and "cursor-plan: P" proposes plan P
+    # (`cursor/create_plan`); both echo the client's JSON reply.
+    if text.startswith("cursor-question:"):
+        res = request("cursor/ask_question", {
+            "toolCallId": "cq1", "title": "Pick one",
+            "questions": [{"id": "which", "prompt": text[16:].strip(), "allowMultiple": True,
+                           "options": [{"id": "opt-a", "label": "A"}, {"id": "opt-b", "label": "B"}]}],
+        })
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("cursor-plan:"):
+        res = request("cursor/create_plan", {"toolCallId": "cp1", "name": "Fix", "plan": text[12:].strip(),
+                                             "todos": [{"id": "t1", "content": "read", "status": "pending"}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks

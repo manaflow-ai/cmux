@@ -37,13 +37,15 @@ public final class OnboardingWindowPresenter {
     }
 
     /// Opens onboarding at `step`, or brings the open window to that step
-    /// when it has it.
-    public func show(step: OnboardingModel.Step? = nil) {
+    /// when it has it. `prepare` sets up the window's model before it shows
+    /// (`reused`: the open window's).
+    public func show(step: OnboardingModel.Step? = nil, prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
         if let controller, Self.reusesWindow(showing: controller.model.steps, for: step) {
             if let step { controller.model.go(to: step) }
+            prepare?(controller.model, true)
             return presentWindow(controller)
         }
-        open(step: step, resume: nil)
+        open(step: step, resume: nil, prepare: prepare)
     }
 
     /// The first run a window replaced; it comes back when the window that
@@ -52,7 +54,8 @@ public final class OnboardingWindowPresenter {
 
     /// Replaces the open window (if any) with a new one. The old window is
     /// let go before it closes, so its close never touches the new one.
-    private func open(step: OnboardingModel.Step?, resume: OnboardingModel.Step?) {
+    private func open(step: OnboardingModel.Step?, resume: OnboardingModel.Step?,
+                      prepare: ((_ model: OnboardingModel, _ reused: Bool) -> Void)? = nil) {
         var interrupted = interruptedFirstRun
         if let old = controller {
             // Closing leaves the first run unfinished (never skipped); it
@@ -62,6 +65,7 @@ public final class OnboardingWindowPresenter {
             old.closeForRebuild()
         }
         guard let model = makeModel?(step, resume) else { return }
+        prepare?(model, false)
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self, weak controller] in self?.windowDidClose(controller) }
         interruptedFirstRun = model.isFirstRun ? nil : interrupted

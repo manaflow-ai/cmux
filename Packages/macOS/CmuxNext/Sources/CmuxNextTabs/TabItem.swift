@@ -24,6 +24,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// `appearance.statusIndicator.style`.
     public var busyStyle: StatusIndicatorStyle?
     public var status: TabStatus
+    /// What a `needsInput` badge waits for (OSC 7501 `kind`), so a status
+    /// icon set can mark it (`StatusIconSet`); nil for other states.
+    public var blockedKind: StatusBlockedKind?
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false

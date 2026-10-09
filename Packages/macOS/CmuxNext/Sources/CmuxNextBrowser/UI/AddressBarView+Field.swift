@@ -5,9 +5,19 @@ public import AppKit
 extension AddressBarView: OmnibarPopupSurface {
     func showRows(_ rows: [BrowserSuggestion], highlighted: Int?) {
         guard let window else { return }
-        // The card is clipped to the browser pane (the chrome view), else to the window.
+        panel.show(rows, highlighted: highlighted, below: self, pane: cardPane(in: window), in: window)
+    }
+
+    /// Keeps an open card flush under the bar after the chrome laid out again.
+    func followLayout() {
+        guard let window else { return }
+        panel.follow(below: self, pane: cardPane(in: window), in: window)
+    }
+
+    /// The card is clipped to the browser pane (the chrome view), else to the window.
+    private func cardPane(in window: NSWindow) -> NSView {
         let pane = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? BrowserChromeView }.first
-        panel.show(rows, highlighted: highlighted, below: self, pane: pane ?? window.contentView ?? self, in: window)
+        return pane ?? window.contentView ?? self
     }
 
     func highlightRow(_ row: Int?) { panel.highlight(row) }

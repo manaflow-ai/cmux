@@ -320,7 +320,8 @@ final class ComposeView: UIView {
             l.actions = none; l.contentsScale = DisplayScale.current
         }
         buttons.isUserInteractionEnabled = false
-        buttons.drawer = { [unowned self] ctx, _ in self.drawButtons(ctx) }
+        // cmux: weak capture, not unowned (crash program: no trap after the view is freed).
+        buttons.drawer = { [weak self] ctx, _ in self?.drawButtons(ctx) }
         addSubview(buttons)
         glass.anchorPoint = CGPoint(x: 0.5, y: 1)
         layer.addSublayer(glass)
