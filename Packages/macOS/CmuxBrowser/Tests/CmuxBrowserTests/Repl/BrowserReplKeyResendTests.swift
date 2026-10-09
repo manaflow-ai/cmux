@@ -163,17 +163,27 @@ struct BrowserReplKeyResendTests {
     /// modifiers held (`Meta+KeyA` is Select All), and an uppercase letter
     /// does not add Shift: `Meta+A` is Select All with `shiftKey` false, as
     /// `Meta+a` is. Only a Shift in the combo makes it `Shift+Meta+A`.
+    ///
+    /// The key keeps its characters `A`, which AppKit's key-equivalent
+    /// matching reads as Command-Shift-A. So the test drops WebKit's resend
+    /// of the unhandled key as the app's `sendEvent` does: passed on to the
+    /// real `-[NSApplication sendEvent:]`, it would be matched against the
+    /// host's Services (Terminal's "Search man Page Index in Terminal" is
+    /// Command-Shift-A), which can take it, so the outcome would depend on
+    /// the machine running the test.
     @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
     func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
         let webView = try await load("""
             <input id=i value=abc><script>\(Self.countKeys)
             window.shifts = []; addEventListener('keydown', e => { if (e.metaKey && e.code === 'KeyA') window.shifts.push(e.shiftKey); });</script>
             """)
-        try await press(["Meta", "A"], in: webView)
-        try await settle(webView, keys: 2)
-        #expect(webView.commands == ["selectAll:"], "cmux browser press Meta+A ran \(webView.commands)")
-        try await press(["Meta", "Shift", "A"], in: webView)
-        try await settle(webView, keys: 5)
+        try await Self.withAppDroppingResends {
+            try await press(["Meta", "A"], in: webView)
+            try await settle(webView, keys: 2)
+            #expect(webView.commands == ["selectAll:"], "cmux browser press Meta+A ran \(webView.commands)")
+            try await press(["Meta", "Shift", "A"], in: webView)
+            try await settle(webView, keys: 5)
+        }
         #expect(webView.commands == ["selectAll:"], "cmux browser press Shift+Meta+A ran \(webView.commands)")
         #expect(try await webView.evaluateJavaScript("window.shifts") as? [Bool] == [false, true])
         // The REPL resolves the same keys the same way.
