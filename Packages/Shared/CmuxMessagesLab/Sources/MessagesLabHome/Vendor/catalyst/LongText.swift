@@ -450,7 +450,7 @@ final class LongTextLayout: @unchecked Sendable {
         measured = ex.filter { $0 }.count
         placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
                                                                    in: CrashGuard.countRange)) // cmux: no trap on a zero column
-        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<min(index.blockCount, keep ?? index.blockCount)) }
+        if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // cmux: a negative keep built an inverted range
     }
 
     var totalLines: Int {
@@ -900,10 +900,10 @@ final class LongTextStore: @unchecked Sendable {
                         let tailOffMain = LongText.offMainTail
                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
                         lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
-                        if tailOffMain { l.measureTail(keep..<i.blockCount); continue }
+                        if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // cmux: never an inverted range
                         // The previous rule: the new tail is measured now (about 4 KB).
                         let reuse = BlockLayoutCache.shared.get(o.key(keep))
-                        let tail = max(0, keep)..<i.blockCount
+                        let tail = max(0, keep)..<max(max(0, keep), i.blockCount) // cmux: never an inverted range
                         if i.count - (i.starts[checked: tail.lowerBound] ?? 0) <= 16 * 1024 /* cmux */ { l.measureNow(tail, reuse: reuse) } else { l.require(blocks: tail) }
                     }
                     return i
