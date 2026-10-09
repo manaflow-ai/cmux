@@ -356,21 +356,24 @@ export function CompareView({
         className={`gallery-compare-grid${compare.grid === "row" ? " gallery-compare-grid--row" : ""}`}
         style={{ gridTemplateColumns: columns }}
       >
-        {shown.map((arm) => (
-          <CompareCell
-            key={`${arm}-${generation}`}
-            run={run}
-            arm={arm}
-            experiment={experiment}
-            src={`frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`}
-            frame={frame}
-            scale={scale}
-            picked={compare.pick === arm}
-            focused={focused === arm}
-            onPick={() => set({ pick: compare.pick === arm ? "" : arm })}
-            onFocus={() => set({ focus: focused === arm ? "" : arm })}
-          />
-        ))}
+        {shown.map((arm) => {
+          const src = `frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`;
+          return (
+            <CompareCell
+              key={`${arm}-${generation}-${src}`}
+              run={run}
+              arm={arm}
+              experiment={experiment}
+              src={src}
+              frame={frame}
+              scale={scale}
+              picked={compare.pick === arm}
+              focused={focused === arm}
+              onPick={() => set({ pick: compare.pick === arm ? "" : arm })}
+              onFocus={() => set({ focus: focused === arm ? "" : arm })}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -404,8 +407,10 @@ function CompareCell({
   const settle = stats ? interactionStats(stats.interactionMs) : undefined;
   const measured = experiment.measurements?.[arm];
   const isDefault = experiment.definition.defaultArm === arm;
-  // The iframe's src is fixed for the cell's life: the cell is keyed by the reload generation.
-  const [fixedSrc] = useState(src);
+  // Keep the current environment in the frame URL. Replay progress only changes `baseStep`,
+  // which stays stable until the cell generation changes, while locale/theme/variant controls
+  // must reload the existing cell immediately instead of leaving a stale preview on screen.
+  const frameSrc = src;
   // Stable, so a re-render never re-registers the frame (and never forgets that it is ready).
   const frameRef = useCallback(
     (iframe: HTMLIFrameElement | null) => (iframe ? run.frame(arm, iframe) : undefined),
@@ -424,7 +429,7 @@ function CompareCell({
           <button type="button" aria-pressed={focused} onClick={onFocus}>
             {focused ? "Back to grid" : "Enlarge"}
           </button>
-          <a href={fixedSrc} target="_blank" rel="noreferrer">
+          <a href={frameSrc} target="_blank" rel="noreferrer">
             open
           </a>
         </div>
@@ -456,7 +461,7 @@ function CompareCell({
         <iframe
           ref={frameRef}
           title={`${experiment.definition.id} arm ${arm}`}
-          src={fixedSrc}
+          src={frameSrc}
           style={{ width: frame.width, height: frame.height, transform: `scale(${scale})`, border: 0 }}
         />
       </div>
