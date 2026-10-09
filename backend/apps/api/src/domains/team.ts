@@ -92,19 +92,21 @@ export const teamDomain: Domain<TeamState> = {
         // Internal (cx-44j.47): the future members op and operator tools remove through here.
         // Only this TeamDO's own submitSystem (identity system:team), never a delivered outbox item.
         if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
-        const user = (params as { user?: unknown } | null)?.user
+        const { user, from_stack: fromStack } = (params ?? {}) as { user?: unknown; from_stack?: unknown }
         if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
         const member = memberOf(state, ctx.rows, user)
         if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
         // An owner is demoted first, so no team is ever left without one (a personal team's owner never
-        // leaves); a team Stack deleted removes everyone.
-        if (member.role === "owner" && !teamDeleted(state)) return reject("auth.forbidden", "an owner cannot be removed; demote them first")
+        // leaves). On a Stack team, Stack's removal demotes and removes in this one commit (cx-3bi.43 P2-1),
+        // and a team Stack deleted removes everyone.
+        const stackOwner = state.team?.kind === "stack" && (fromStack === true || teamDeleted(state))
+        if (member.role === "owner" && !stackOwner) return reject("auth.forbidden", "an owner cannot be removed; demote them first")
         const { [user]: _gone, ...legacyMembers } = state.members ?? {}
         return {
           ok: true,
           state: { ...state, ...(state.members?.[user] ? { members: legacyMembers } : {}), member_count: Math.max(0, (state.member_count ?? 0) - 1), member_cleanup: { ...(state.member_cleanup ?? {}), [user]: ctx.now } },
           writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
-          value: { user, removed: true },
+          value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
           ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
         }
       }

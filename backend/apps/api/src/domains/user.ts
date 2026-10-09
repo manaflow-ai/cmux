@@ -245,7 +245,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           email: p.email ?? null,
           email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
-          personal_team: p.team
+          // Derived from the user, never the request's team (x-cmux-team names a shared team; cx-3bi.43 review P1-1).
+          personal_team: personalTeamIdFor(p.user)
         }
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
