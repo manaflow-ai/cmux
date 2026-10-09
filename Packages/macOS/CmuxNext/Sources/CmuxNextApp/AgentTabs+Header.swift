@@ -28,5 +28,12 @@ extension AgentTabStore {
             menu.removeAllItems()
             return items
         }
+        model.onSearchWeb = { [weak self] text in
+            guard let self else { return }
+            // On the chat's tab: the search opens in a browser tab beside it.
+            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            let invocation = ActionInvocation(target: target, arguments: ["text": .string(text)], origin: .user)
+            _ = actionRegistry?.perform("browser.selection.search", invocation: invocation)
+        }
     }
 }
