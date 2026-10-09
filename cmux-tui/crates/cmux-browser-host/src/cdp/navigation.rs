@@ -26,6 +26,9 @@ impl Inner {
     /// Only for relays: a tab the driver created reports its own events, and
     /// a seeded blank start page would end a pending navigation's wait.
     pub(super) fn seed_load_state(&self, target_id: &str, session_id: &str) {
+        if self.owns_browser {
+            return;
+        }
         let ready = self.conn.call(
             Some(session_id),
             "Runtime.evaluate",
