@@ -460,16 +460,13 @@ pub(super) fn create_journal_extensions_schema(
     ensure_built_in_agent_producer(transaction)?;
     ensure_built_in_shell_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
-    let delivery_columns = {
-        let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<HashSet<_>, _>>()?
-    };
+    let delivery_columns = table_columns(transaction, "journal_hook_deliveries")?;
     if !delivery_columns.contains("started_event_id") {
         transaction
             .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
     }
+    // A seal writes it: the owner adds it, not the later ledger pass (cx-0b8z).
+    mutation_ledger::add_nullable_column(transaction, "journal_segments", "actors_json")?;
     session_journal::ensure_journal_event_index_schema(transaction)?;
     Ok(())
 }
@@ -684,7 +681,10 @@ fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Res
     Ok(())
 }
 
-fn table_columns(transaction: &Transaction<'_>, table: &str) -> anyhow::Result<HashSet<String>> {
+pub(super) fn table_columns(
+    transaction: &Transaction<'_>,
+    table: &str,
+) -> anyhow::Result<HashSet<String>> {
     let mut statement = transaction.prepare(&format!("PRAGMA table_info({table})"))?;
     statement
         .query_map([], |row| row.get::<_, String>(1))?
