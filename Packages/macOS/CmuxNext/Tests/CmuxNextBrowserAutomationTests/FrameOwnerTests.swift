@@ -9,35 +9,35 @@ import WebKit
 /// viewport: what the runtime needs to enter a frame (`frameLocator`,
 /// `contentFrame()`, snapshots and clicks inside frames). Frames created in
 /// another order than the document's still map to their own iframe.
-@MainActor
-@Suite(.serialized) struct FrameOwnerTests {
+/// In DriverCallTests so every WebKit test runs serialized (DialogTests).
+extension DriverCallTests {
     /// A page agent whose handles are element ids.
-    static let agent = """
+    static let frameAgent = """
     globalThis[Symbol.for("cmux.browserRepl.agent")] = {};
     globalThis.__cmuxPageAgent = { resolveHandle: (id) => document.getElementById(id) };
     """
 
     /// `c` is created last but sits first: frame creation order differs
     /// from document order.
-    static let html = """
+    static let framesHTML = """
     <body style="margin:0">\
     <iframe id=a srcdoc="<body>A</body>" style="position:absolute;left:10px;top:20px;width:100px;height:50px;border:0"></iframe>\
     <iframe id=b srcdoc="<body>B</body>" style="position:absolute;left:200px;top:30px;width:120px;height:60px;border:3px solid;padding:2px"></iframe>\
     <p id=text>not a frame</p>\
     <script>const c = document.createElement("iframe"); c.id = "c"; c.srcdoc = "<body>C</body>"; document.body.insertBefore(c, document.getElementById("a"));</script>
     """
-    static var page: String { "data:text/html," + (html.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "") }
+    static var framesPage: String { "data:text/html," + (framesHTML.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "") }
 
     @Test func anIframeHandleMapsToItsFrameAndItsContentBox() async throws {
-        let provider = DriverCallTests.FakeProvider()
-        let driver = WebKitDriver(provider: provider, agentBundle: Self.agent)
+        let provider = FakeProvider()
+        let driver = WebKitDriver(provider: provider, agentBundle: Self.frameAgent)
         let opened = try await driver.call(method: "tabs.open", params: .object([:]))
         guard case .object(let fields) = opened, case .string(let id)? = fields["targetId"] else {
             Issue.record("tabs.open returned \(opened)")
             return
         }
         _ = try await driver.call(method: "tab.navigate", params: .object([
-            "targetId": .string(id), "url": .string(Self.page), "waitUntil": .string("load"), "timeoutMs": .number(15000),
+            "targetId": .string(id), "url": .string(Self.framesPage), "waitUntil": .string("load"), "timeoutMs": .number(15000),
         ]))
         func text(in frameId: String) async throws -> DriverJSON {
             try await driver.call(method: "frame.evaluate", params: .object([

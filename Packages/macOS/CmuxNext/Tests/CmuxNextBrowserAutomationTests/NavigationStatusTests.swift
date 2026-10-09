@@ -10,12 +10,12 @@ import WebKit
 /// HTTP status, as `page.goto()` and `page.reload()` return it (`Response
 /// .status()`, `ok()`); a page without an HTTP response (a data URL) has
 /// none.
-@MainActor
-@Suite(.serialized) struct NavigationStatusTests {
+/// In DriverCallTests so every WebKit test runs serialized (DialogTests).
+extension DriverCallTests {
     @Test func navigationsReportTheMainFrameStatus() async throws {
         let server = try await StatusServer.start()
         defer { server.stop() }
-        let provider = DriverCallTests.FakeProvider()
+        let provider = FakeProvider()
         let driver = WebKitDriver(provider: provider)
         let opened = try await driver.call(method: "tabs.open", params: .object([:]))
         guard case .object(let fields) = opened, case .string(let id)? = fields["targetId"] else {
