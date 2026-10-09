@@ -69,12 +69,12 @@ enum NewTabOmnibar {
                 break
             }
         }
-        view.setTopAccessory(row, height: row.preferredHeight)
+        view.topBar.set(row, height: row.preferredHeight)
     }
 
     /// Cmd-L on a New Tab page: its omnibar takes the keyboard. False when the page shows none.
     @MainActor static func focus(in view: AgentPaneView) -> Bool {
-        guard let row = view.topAccessory as? OmnibarToolbarView, !row.isHidden else { return false }
+        guard let row = view.topBar.view as? OmnibarToolbarView, !row.isHidden else { return false }
         row.addressBar.focus()
         return true
     }

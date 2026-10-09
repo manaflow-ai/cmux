@@ -82,7 +82,7 @@ public final class AgentPaneView: NSView {
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     let loadingView = AgentPaneLoadingView()
-    var topBar = TopAccessorySlot() // the App's bar over a New Tab page (omnibar, cx-e2aa; +TopAccessory.swift)
+    public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -247,8 +247,8 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        if let page { page.frame = contentFrame } else { webView.frame = contentFrame }
-        if loadingView.superview === self { loadingView.frame = contentFrame }
+        if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
+        if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor
