@@ -196,6 +196,13 @@ enum RemoteBrowserPages {
                     "note": session.lastNote.map(JSONValue.string) ?? .null,
                     "cursor": session.nativeUI.cursorKind.map(JSONValue.string) ?? .null,
                     "surfaces": .array(session.surfaces.surfaceIDs.map { .number(Double($0)) }),
+                    "surface_info": .array(session.surfaces.surfaceIDs.map { id in
+                        let frame = session.surfaces.view(of: id)?.frame ?? .zero
+                        return .object([
+                            "id": .number(Double(id)), "kind": session.surfaces.kind(of: id).map(JSONValue.string) ?? .null,
+                            "frame": .string("\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"),
+                        ])
+                    }),
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
@@ -240,6 +247,41 @@ enum RemoteBrowserPages {
                 tab.handlePointer(event)
             }
             return ["clicked": true]
+        case "surface_click":
+            // A left click at `x`,`y` (the surface's CSS pixels from its top
+            // left) on open popup surface `surface`, through the surface
+            // view's own pointer path.
+            guard let target, let id = params["surface"]?.intValue,
+                  let view = target.surfaces.view(of: UInt32(clamping: id)) else { return ["error": "no such surface"] }
+            guard let window = view.window else { return ["error": "the surface is not in a window"] }
+            let point = view.convert(NSPoint(x: params["x"]?.doubleValue ?? 10, y: params["y"]?.doubleValue ?? 10), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                view.eventTarget?.handlePointer(event)
+            }
+            return ["clicked": true]
+        case "type":
+            // Types `text` (lowercase a-z) on the page's key path, a key down
+            // and up per letter, as the keyboard would.
+            guard let tab = target?.tab, let window = tab.pane.view.window else { return ["error": "no session"] }
+            let codes: [Character: UInt16] = [
+                "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
+                "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+            ]
+            let text = params["text"]?.stringValue ?? ""
+            guard text.allSatisfy({ codes[$0] != nil }) else { return ["error": "text is lowercase a-z"] }
+            for character in text {
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    guard let event = NSEvent.keyEvent(
+                        with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil, characters: String(character),
+                        charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: codes[character] ?? 0) else { continue }
+                    tab.handleKey(event)
+                }
+            }
+            return ["typed": .number(Double(text.count))]
         case "history":
             // `op`: `back`, `forward`, `reload` or `stop`, as the toolbar does.
             guard let tab = target?.tab else { return ["error": "no session"] }

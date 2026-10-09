@@ -44,6 +44,10 @@ const CONNECTION_REASON: &str =
 /// scripts (`cmux-tui conversation`) use the operations instead.
 const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP clients act as the local user, so conversations stay with Home, cmux chief and cmux-tui conversation.";
 
+/// The Chief's engine and turn are the owner's (the daemon refuses an
+/// agent-bound connection); an MCP client is an agent acting as the user.
+const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conversation.list", CONVERSATION_REASON),
     ("conversation.get", CONVERSATION_REASON),
@@ -52,6 +56,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("conversation.send", CONVERSATION_REASON),
     ("conversation.typing", CONVERSATION_REASON),
     ("conversation.draft", CONVERSATION_REASON),
+    ("chief.engine.get", CHIEF_REASON),
+    ("chief.engine.set", CHIEF_REASON),
+    ("chief.stop", CHIEF_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),

@@ -89,7 +89,7 @@ ${css}
 
       test("the Model menu is at least 220px wide, wider than its 120px chip", async () => {
         const page = await open(1000);
-        const menu = await box(page, ".acpmux-model .acpmux-menu");
+        const menu = await box(page, ".acpmux-model .acpmux-mp");
         expect(menu.width).toBeGreaterThanOrEqual(220);
         expect(menu.width).toBeLessThanOrEqual(420);
         await page.close();
@@ -103,7 +103,7 @@ ${css}
 
       test("in a 200px pane the Model menu still fits inside the pane's margins", async () => {
         const page = await open(200);
-        expect((await box(page, ".acpmux-model .acpmux-menu")).width).toBeLessThanOrEqual(200 - 16);
+        expect((await box(page, ".acpmux-model .acpmux-mp")).width).toBeLessThanOrEqual(200 - 16);
         await page.close();
       });
 

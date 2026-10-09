@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { processFile } from "@pierre/diffs";
 import { JSDOM } from "jsdom";
-import { presentedItem } from "../src/App";
+import { presentedItem } from "../src/diff-viewer/item-navigation";
 import { LARGE_DIFF_PATCH_BYTES } from "../src/deferred-diffs";
 import {
   countChangedLines,

@@ -43,7 +43,11 @@ pub(super) fn run(mut session: Session) -> i32 {
     while let Ok(input) = session.rx.recv() {
         let mut lines: Vec<Line> = Vec::new();
         match input {
-            Input::Closed(reason) if reason == "gap" && session.reopen(50).is_ok() => {}
+            Input::Closed(reason) if reason == "gap" && session.reopen(50).is_ok() => {
+                // Typing and drafts are live only: forget what the gap hid.
+                chat.busy = false;
+                chat.drafts = super::adapter::Drafts::default();
+            }
             Input::Closed(_) => {
                 lines.extend(chat.note(messages().lost));
                 screen.paint(&lines, &chat, &editor);
@@ -52,6 +56,14 @@ pub(super) fn run(mut session: Session) -> i32 {
             }
             Input::Daemon(line) => {
                 if let Some(event) = adapt(&line, &session.conversation) {
+                    // A snapshot after a gap may start past what was shown.
+                    if let super::adapter::UiEvent::Snapshot { messages, .. } = &event
+                        && let Some(first) = messages.first().and_then(|m| m["seq"].as_u64())
+                        && chat.last_seq != 0
+                        && first > chat.last_seq + 1
+                    {
+                        lines.extend(catch_up(&mut session, &mut chat, first));
+                    }
                     let (done, gap) = chat.apply(&event);
                     lines.extend(done);
                     if let Some(seq) = gap {
@@ -72,13 +84,17 @@ pub(super) fn run(mut session: Session) -> i32 {
                 EditorAction::Quit => break,
                 EditorAction::Interrupt => {
                     let m = messages();
-                    // Stopping a turn needs chief-control (phase 2).
-                    let text = if chat.busy { m.control_unsupported } else { m.stop_idle };
-                    lines.extend(chat.note(text));
+                    let note = match chat.busy.then(|| session.stop()) {
+                        None => m.stop_idle.to_owned(),
+                        Some(Ok(true)) => m.stop_sent.to_owned(),
+                        Some(Ok(false)) => m.stop_idle.to_owned(),
+                        Some(Err(error)) => super::control::refusal(&error),
+                    };
+                    lines.extend(chat.note(&note));
                 }
                 EditorAction::Submit(text) => {
                     if let Some(command) = text.trim().strip_prefix('/') {
-                        match slash(command, &mut chat) {
+                        match slash(command, &mut chat, &mut session) {
                             Slash::Quit => break,
                             Slash::Note(note) => lines.extend(chat.note(&note)),
                         }
@@ -113,7 +129,7 @@ pub(super) enum Slash {
 }
 
 /// A `/command` typed in the chat.
-pub(super) fn slash(command: &str, chat: &mut Chat) -> Slash {
+pub(super) fn slash(command: &str, chat: &mut Chat, session: &mut Session) -> Slash {
     let m = messages();
     let name = command.split_whitespace().next().unwrap_or("");
     match name {
@@ -123,8 +139,17 @@ pub(super) fn slash(command: &str, chat: &mut Chat) -> Slash {
             chat.show_thoughts = !chat.show_thoughts;
             Slash::Note(if chat.show_thoughts { m.thoughts_on } else { m.thoughts_off }.into())
         }
-        // The engine settings need chief-control (phase 2).
-        "model" | "effort" => Slash::Note(m.control_unsupported.into()),
+        "model" | "effort" => {
+            let changes: Vec<(String, String)> = command
+                .split_whitespace()
+                .nth(1)
+                .map(|value| vec![(name.to_owned(), value.to_owned())])
+                .unwrap_or_default();
+            Slash::Note(match session.engine(&changes) {
+                Ok(report) => super::control::engine_line(&report),
+                Err(error) => super::control::refusal(&error),
+            })
+        }
         _ => Slash::Note(m.unknown_command.replace("{command}", &format!("/{name}"))),
     }
 }
@@ -134,16 +159,26 @@ struct Screen {
     width: usize,
     /// The cursor's row inside the drawn footer.
     cursor_row: usize,
+    /// The terminal was given back.
+    closed: bool,
 }
 
 impl Screen {
     fn open() -> io::Result<Self> {
+        // A panic gives the terminal back before its message prints.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = queue!(io::stdout(), DisableBracketedPaste);
+            let _ = io::stdout().flush();
+            let _ = terminal::disable_raw_mode();
+            previous(info);
+        }));
         terminal::enable_raw_mode()?;
         let mut out = io::stdout();
         queue!(out, EnableBracketedPaste)?;
         out.flush()?;
         let width = terminal::size().map(|(w, _)| w as usize).unwrap_or(80);
-        Ok(Self { width, cursor_row: 0 })
+        Ok(Self { width, cursor_row: 0, closed: false })
     }
 
     /// Writes `done` into scrollback above the footer, then the footer.
@@ -197,6 +232,10 @@ impl Screen {
 
     /// Erases the footer and gives the terminal back.
     fn close(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
         let mut out = io::stdout();
         let _ = queue!(out, cursor::MoveToColumn(0));
         if self.cursor_row > 0 {
@@ -210,7 +249,7 @@ impl Screen {
 
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = terminal::disable_raw_mode();
+        self.close();
     }
 }
 

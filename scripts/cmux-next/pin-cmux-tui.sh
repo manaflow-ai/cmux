@@ -79,6 +79,11 @@
 #   beside it as cmux-browser-host (cmux-browser-host.sha256; browser_host_url=
 #   and browser_host_sha256= in the pin), where the daemon looks for it (the
 #   sibling of its own executable); without it the daemon has no browser host.
+#   Tree mode fetches the agent screen-detection plugin the same way:
+#   cmux-tui-agent-screen-detection-<target> goes beside it as
+#   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
+#   daemon runs by default; the pin carries no plugin fields yet (Release
+#   bundles none until its notices are mapped).
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
@@ -606,7 +611,8 @@ local_build_matches() {
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
 # (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
-# cmux-browser-host) that the commit named by
+# cmux-browser-host, agent-screen-detection -> cmux-agent-screen-detection) that
+# the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
 fetch_tree_companion() {
@@ -652,6 +658,7 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
+  fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
 }
 
 fetch_tree() {
