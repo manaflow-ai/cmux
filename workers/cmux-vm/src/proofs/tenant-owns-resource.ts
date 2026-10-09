@@ -11,7 +11,7 @@ import { defineProof, name, type Named, type NameOf, type Proof } from "@gdp-ts/
 import { Effect, Option } from "effect";
 import { OwnershipStore, type OwnedResource, type PagePosition } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
-import type { Principal } from "../domain/principal.ts";
+import { carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import { parseVmId, type DeviceId, type MeshId, type ResourceId, type ResourceKind, type SnapshotId, type TunnelId, type UpstreamId, type VmId } from "../lib/ids.ts";
 
 const TenantOwnsResource = defineProof("TenantOwnsResource");
@@ -43,6 +43,8 @@ const owns = <C, R>(
     const store = yield* OwnershipStore;
     const found = yield* store.find(principal.tenantId, kind, resource.value);
     if (Option.isNone(found) || found.value.tenantId !== principal.tenantId) return null;
+    // A service key (cx-b4h.13) reaches only resources carrying its labels; any other is as absent as another tenant's.
+    if (!carriesRequiredLabels(principal, found.value.labels)) return null;
     return mint(caller, resource, found.value);
   });
 
@@ -98,10 +100,16 @@ export const visitOwnedVms = <C, A, E, R>(
 ): Effect.Effect<OwnedVmPage<A>, E | StoreError, R | OwnershipStore> =>
   Effect.gen(function* () {
     const principal = caller.value;
+    const required = principal.requiredLabels;
+    // A selector that contradicts a service key's labels can match nothing it may see.
+    if (required !== undefined && page.labels !== null && Object.entries(page.labels).some(([key, value]) => key in required && required[key] !== value)) {
+      return { fetched: 0, last: null, results: [] };
+    }
+    const labels = required === undefined ? page.labels : { ...page.labels, ...required };
     const store = yield* OwnershipStore;
-    const rows = yield* store.listPage(principal.tenantId, "vm", { ...page, only: principal.resourceAllowlist });
+    const rows = yield* store.listPage(principal.tenantId, "vm", { ...page, labels, only: principal.resourceAllowlist });
     const results = yield* Effect.forEach(
-      rows.filter((row) => row.tenantId === principal.tenantId && row.kind === "vm"),
+      rows.filter((row) => row.tenantId === principal.tenantId && row.kind === "vm" && carriesRequiredLabels(principal, row.labels)),
       (row) => {
         const parsed = parseVmId(row.cmuxId);
         if (Option.isNone(parsed)) return Effect.succeed(Option.none<A>());

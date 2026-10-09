@@ -121,6 +121,12 @@ fn serve() -> u16 {
                          <input type=password aria-label=\"Closed password\" value=\"hunter2-closed\">\
                          <button onclick=\"document.getElementById(&quot;out&quot;).textContent = &quot;clicked&quot;\">Closed button</button>';</script>"
                     ),
+                    "/closed-kinds" => "<!doctype html><title>Closed kinds</title><p>Open text</p>\
+                         <div><template shadowrootmode=\"closed\"><button>Declarative closed button</button></template></div>\
+                         <div id=t></div><div id=e></div><script>document.getElementById('t').attachShadow({mode: 'closed'})\
+                         .textContent = 'Only closed text'; document.getElementById('e').attachShadow({mode: 'closed'})\
+                         .innerHTML = '<a href=\"#x\">Scripted closed link</a>';</script>"
+                        .to_owned(),
                     "/cross-closed" => "<!doctype html><div id=h></div><script>document.getElementById('h')\
                          .attachShadow({mode: 'closed'}).innerHTML = '<button>Cross closed button</button>';</script>"
                         .to_owned(),
@@ -974,6 +980,71 @@ console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0
     for line in
         ["main:true", "frame:true", "redacted:true", "click:clicked", "masked:true", "stats:true"]
     {
+        assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
+    }
+}
+
+/// The closed-root walk (`DOM.getDocument {pierce}`, about 700 ms on a
+/// 100k-node page) runs only when a closed shadow root holds nodes: a
+/// node count check skips it on a plain page, and closed roots of every
+/// kind (scripted, declarative, text only) are still read.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_closed_root_walk_runs_only_when_a_closed_root_holds_nodes() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-closed-check-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let code = format!(
+        r##"const stats = async () => (await page._session.call("tab.info", {{ targetId: page._targetId }})).closedRoots;
+await page.goto("http://127.0.0.1:{port}/scripted");
+await snapshot();
+let cr = await stats();
+console.log("plain:" + JSON.stringify(cr));
+console.log("skipped:" + (cr.walks === 0 && cr.skips >= 1));
+await page.goto("http://127.0.0.1:{port}/closed-kinds");
+const s = await snapshot();
+cr = await stats();
+console.log("kinds:" + JSON.stringify(cr));
+console.log("open:" + s.tree.includes("Open text"));
+console.log("declarative:" + s.tree.includes('button "Declarative closed button"'));
+console.log("text:" + s.tree.includes("Only closed text"));
+console.log("scripted:" + s.tree.includes('link "Scripted closed link"'));
+console.log("walked:" + (cr.walks >= 1 && cr.roots >= 3));
+"##
+    );
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let out =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    for line in [
+        "skipped:true",
+        "open:true",
+        "declarative:true",
+        "text:true",
+        "scripted:true",
+        "walked:true",
+    ] {
         assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
     }
 }

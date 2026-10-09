@@ -42,12 +42,26 @@ extension AgentPaneView {
     /// The native sheet for `asked`: the option and the value it would take.
     static func confirmationSpec(_ asked: AgentPaneModeConfirmation) -> CmuxDialogSpec {
         let line = switch asked {
-        case .option(let id, let value): String(format: confirmOptionMessage, id, value)
+        case .option(let id, let value): confirmationOptionMessage(id: id, value: value)
         // A mode never reaches the sheet (`needsSheet`); named like an option if it did.
         case .mode(let mode): String(format: confirmOptionMessage, "mode", mode)
         }
         return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
+    }
+
+    /// Formats protocol values for a native confirmation while retaining raw identifiers for logs.
+    private static func confirmationOptionMessage(id: String, value: String) -> String {
+        let name = switch id {
+        case "fast", "fast-mode": confirmFastModeName
+        default: id
+        }
+        let displayValue = switch value.lowercased() {
+        case "true", "on": confirmOptionOn
+        case "false", "off": confirmOptionOff
+        default: value
+        }
+        return String(format: confirmOptionMessage, name, displayValue)
     }
 
     /// The gesture monitor's handler, on the main thread before AppKit dispatches `event`: the

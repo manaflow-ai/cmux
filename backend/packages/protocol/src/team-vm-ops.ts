@@ -287,8 +287,8 @@ export const TeamVmMemberRemovedParams = Schema.Struct({
   user: Schema.String,
   /** The removal time. */
   at: Schema.Int,
-  /** The latest `valid_before` of any team SSH certificate the member got (ms). */
-  cert_valid_before: Schema.Int
+  /** The latest `valid_before` of any team SSH certificate the member got (ms); absent when they never had one (the notice then only ends their wake leases). */
+  cert_valid_before: Schema.optionalKey(Schema.Int)
 })
 export const TeamVmTaintAcceptedParams = Schema.Struct({ epoch: Schema.Int, users: Schema.Array(Schema.String), by: Schema.String })
 export const TeamVmRebuildRequestedParams = Schema.Struct({ epoch: Schema.Int, by: Schema.String })

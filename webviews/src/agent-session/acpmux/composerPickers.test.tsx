@@ -237,6 +237,203 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent!.match(/Default/g)).toHaveLength(1);
   });
 
+  // Lawrence 2026-10-09 (MonoCode's picker): Claude offers Low..Max, Extra High, Ultracode,
+  // Ultrathink and Fast Mode; Codex offers Low..Ultra and a Service Tier.
+  const claudeEffort = {
+    id: "effort",
+    name: "Reasoning",
+    category: "thought_level",
+    currentValue: "medium",
+    options: [
+      { value: "default", name: "Default" },
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+      { value: "xhigh", name: "Extra High" },
+      { value: "max", name: "Max" },
+      { value: "ultracode", name: "Ultracode", description: "xhigh effort plus multi-agent workflow orchestration" },
+      { value: "ultrathink", name: "Ultrathink" },
+    ],
+  };
+  const claudeFast = {
+    id: "fast-mode",
+    name: "Fast mode",
+    category: "model_config",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  };
+  const claudeSnapshot = (summary: Record<string, unknown> = {}): AcpmuxSnapshot => ({
+    ...snapshot({ configOptions: [claudeEffort, claudeFast], ...summary }),
+    catalog: [{ id: "claude", name: "Claude Code", models: [{ id: "opus", name: "Opus 5.5" }] }],
+    summary: {
+      sessionId: "s",
+      harness: "claude",
+      model: "opus",
+      configOptions: [claudeEffort, claudeFast],
+      ...summary,
+    } as AcpmuxSnapshot["summary"],
+  });
+  const menuGroups = () =>
+    [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=group]")]
+      .filter((group) => group.querySelector(":scope > .ui-menu-group-label"))
+      .map((group) => ({
+        title: group.querySelector(".ui-menu-group-label")?.textContent,
+        rows: [...group.querySelectorAll("[role=menuitemradio]")].map(
+          (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+        ),
+      }));
+
+  test("Claude's reasoning menu has every level and a Fast Mode section", async () => {
+    await render(claudeSnapshot());
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]).toEqual({
+      title: "Reasoning",
+      rows: ["Default", "Low", "Medium", "High", "Extra High", "Max", "Ultracode", "Ultrathink"],
+    });
+    expect(groups[1]).toEqual({ title: "Fast Mode", rows: ["On", "Off"] });
+    expect(doc.querySelector("[role=menu]")!.textContent).toContain("multi-agent workflow orchestration");
+    const on = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "On",
+    )!;
+    await act(async () => on.click());
+    expect(calls).toEqual(["effort fast-mode on"]);
+  });
+
+  test("the chip names the level and Fast when fast mode is on", async () => {
+    await render(claudeSnapshot({ configOptions: [claudeEffort, { ...claudeFast, currentValue: "on" }] }));
+    expect(button("Effort")!.textContent).toContain("Medium Fast");
+  });
+
+  test("Codex's levels read Extra High and Ultra, and fast mode is a Service Tier", async () => {
+    const codexEffort = {
+      id: "reasoning_effort",
+      category: "thought_level",
+      currentValue: "medium",
+      options: [
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+        { value: "xhigh", name: "Xhigh", description: "Extra high reasoning depth for complex problems" },
+        { value: "max", name: "Max" },
+        { value: "ultra", name: "Ultra", description: "Maximum reasoning with automatic task delegation" },
+      ],
+    };
+    const codexFast = {
+      id: "fast-mode",
+      category: "model_config",
+      currentValue: "off",
+      options: [
+        { value: "off", name: "Off", description: "Default speed, normal usage" },
+        { value: "on", name: "On", description: "1.5x speed, increased usage" },
+      ],
+    };
+    await render(snapshot({ configOptions: [codexEffort, codexFast] }));
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]!.rows).toEqual(["Low", "Medium", "High", "Extra High", "Max", "Ultra"]);
+    expect(groups[1]).toEqual({ title: "Service Tier", rows: ["Standard", "Fast"] });
+    const menu = doc.querySelector("[role=menu]")!;
+    expect(menu.textContent).toContain("1.5x speed, increased usage");
+    // Standard is the default tier.
+    const standard = [...menu.querySelectorAll("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Standard",
+    )!;
+    expect(standard.textContent).toContain("Default");
+  });
+
+  test("the model's default level carries the Default badge and the bare default row goes", async () => {
+    const opus = {
+      id: "opus",
+      name: "Opus 5.5",
+      shortName: "Opus 5.5",
+      efforts: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
+      fast: true,
+      searchText: "opus",
+    };
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: claudeSnapshot({ configOptions: [{ ...claudeEffort, currentValue: "default" }, claudeFast] }),
+          settleTimer,
+          measurePickerRoom: () => 600,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: (config: string, id: string) => {
+            calls.push(`effort ${config} ${id}`);
+          },
+          pickerCatalog: {
+            provisional: false,
+            harnesses: [
+              {
+                id: "claude",
+                name: "Claude Code",
+                brand: "claude",
+                acpmuxHarness: "claude",
+                installed: true,
+                pickable: true,
+                models: [opus],
+              },
+            ],
+          } as never,
+        }),
+      ),
+    );
+    expect(button("Effort")!.textContent).toContain("Medium");
+    await act(async () => button("Effort")!.click());
+    const groups = menuGroups();
+    expect(groups[0]!.rows).toEqual(["Low", "Medium", "High", "Extra High", "Max", "Ultracode", "Ultrathink"]);
+    const medium = [...doc.querySelectorAll("[role=menuitemradio]")].find(
+      (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Medium",
+    )!;
+    expect(medium.textContent).toContain("Default");
+    expect(medium.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("a model without Extra High offers no Ultracode", async () => {
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: claudeSnapshot(),
+          settleTimer,
+          measurePickerRoom: () => 600,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          pickerCatalog: {
+            provisional: false,
+            harnesses: [
+              {
+                id: "claude",
+                name: "Claude Code",
+                brand: "claude",
+                acpmuxHarness: "claude",
+                installed: true,
+                pickable: true,
+                models: [
+                  {
+                    id: "opus",
+                    name: "Opus 5.5",
+                    shortName: "Opus",
+                    efforts: ["low", "medium", "high"],
+                    fast: false,
+                    searchText: "",
+                  },
+                ],
+              },
+            ],
+          } as never,
+        }),
+      ),
+    );
+    await act(async () => button("Effort")!.click());
+    expect(menuGroups()[0]!.rows).toEqual(["Default", "Low", "Medium", "High", "Ultrathink"]);
+  });
+
   test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }), { showPlan: false });
     expect(button("Mode")!.querySelector(".acpmux-icon")).not.toBeNull();
@@ -626,6 +823,30 @@ describe("acpmux composer pickers", () => {
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
     expect(unrestricted("default")).toBe(false);
+  });
+
+  test("picking a mode updates the lock label at once and keeps the full-access warning in the menu", async () => {
+    const choices = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval", description: "Always ask" },
+        { id: "full-access", name: "Full access" },
+      ],
+    };
+    await render(snapshot({ modes: choices }));
+    const mode = button("Mode")!;
+    await act(async () => mode.click());
+    const full = [...doc.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+      row.textContent?.includes("Full access"),
+    )!;
+    expect(full.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Can edit and run commands without asking",
+    );
+    await act(async () => full.click());
+    expect(calls).toEqual(["mode full-access"]);
+    expect(mode.textContent).toContain("Full access");
+    expect(mode.closest(".acpmux-mode")?.classList.contains("acpmux-unrestricted")).toBe(true);
+    expect(doc.querySelector("[role=menu]")).toBeNull();
   });
 
   test("Plan is a toggle apart from the permission chip, and leaving it restores the permission mode", async () => {

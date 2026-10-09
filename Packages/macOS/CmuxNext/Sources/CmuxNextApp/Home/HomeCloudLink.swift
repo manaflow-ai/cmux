@@ -143,6 +143,7 @@ final class HomeCloudLink {
             return
         }
         leasing += 1
+        probe.setLeasing(leasing)
         let outcome = await lease.sync(endpoint, expectedUserID: link.userID)
         leasing -= 1
         switch outcome {
@@ -155,6 +156,9 @@ final class HomeCloudLink {
             source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
         }
         settled(outcome, reason: "missing")
+        // Published after the follow-up work above, so a test that waits
+        // for idle never sees the gap between two lease steps.
+        probe.setLeasing(leasing)
     }
 
     /// The daemon asked for a lease (`cloud-session-needed`): it is for the
@@ -221,6 +225,7 @@ final class HomeCloudLink {
     private func renew(reason: String, answering expiry: UInt64? = nil) {
         guard let endpoint = last?.endpoint else { return }
         leasing += 1
+        probe.setLeasing(leasing)
         lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
             if case .leased(let subject, let expiresAt) = outcome {
                 if let expiry, expiry != expiresAt { self?.answered(expiry) }
@@ -232,6 +237,7 @@ final class HomeCloudLink {
             if case .leased = outcome, Self.isForced(reason) { startCooldown() }
             settled(outcome, reason: reason)
             sendPendingForced()
+            probe.setLeasing(leasing)
         }
     }
 
@@ -291,18 +297,16 @@ final class HomeCloudLink {
 
     #if DEBUG
     /// Waits until the hops started so far ran and the lease work they and
-    /// earlier calls started ended (tests). A timer deadline that passed is
-    /// not covered: wait for it with `timersFired(atLeast:)`.
+    /// earlier calls started ended, with what that work started in turn
+    /// (tests): one wait on the probe's idle signal. A timer deadline that
+    /// passed is not covered: wait for it with `timersFired(atLeast:)`.
     func settle() async {
-        repeat {  // wakeup-allow: DEBUG test settle; each pass awaits the probe and the lease, and it ends once no hop is pending
-            await probe.wait { hops, _ in hops == 0 }
-            await lease.settle()
-        } while probe.hops > 0
+        await probe.wait { $0.isIdle }
     }
 
     /// Waits until the link handled `count` timer deadlines in all (tests).
     func timersFired(atLeast count: Int) async {
-        await probe.wait { _, fires in fires >= count }
+        await probe.wait { $0.fires >= count }
     }
     #endif
 }

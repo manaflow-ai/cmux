@@ -134,14 +134,14 @@ enum SessionWire {
                 if workspace.ephemeral { mirror.ephemeralWorkspaces.insert(workspace.id) }
                 if let folder = workspace.agentFolder { mirror.agentFolders[workspace.id] = folder }
             }
-            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens[screen.id] = screen.screenState }
-            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs[tab.id] = tab.tabRecord }
+            for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
+            for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
             for terminal in terminals?.compactMap(\.value) ?? [] {
                 mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus))
             }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
-            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus[status.workspaceID] = status }
-            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups[group.id] = group }
+            for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
+            for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups.updateValue(group, forKey: group.id) }
             return mirror
         }
     }

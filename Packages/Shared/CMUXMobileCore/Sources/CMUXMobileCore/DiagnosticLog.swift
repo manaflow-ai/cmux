@@ -197,7 +197,7 @@ public final class DiagnosticLog: Sendable {
         failure: DiagnosticFailureKind? = nil,
         count: Int? = nil
     ) {
-        let boundedCount = count.map { min(max(0, $0), Int(UInt32.max)) }
+        let boundedCount = count.map { min(max(0, $0), Int(clamping: UInt32.max)) }
         record(DiagnosticEvent(
             .appFeatureAction,
             surface: surface,
@@ -247,7 +247,7 @@ public final class DiagnosticLog: Sendable {
             ms: elapsedMilliseconds,
             a: operation.rawValue,
             b: phase.rawValue,
-            c: detail.map { min(max(0, $0), Int(UInt32.max)) },
+            c: detail.map { min(max(0, $0), Int(clamping: UInt32.max)) },
             traceID: traceID.rawValue
         ))
     }
@@ -608,7 +608,7 @@ public final class DiagnosticLog: Sendable {
             if event.code == .selectedPathChanged, let pathKind = event.diagnosticPathKind {
                 selectedPaths[key] = (pathKind, head)
             }
-            slots[head] = event
+            slots.modify(checked: head) { $0 = event }
             head = (head + 1) % capacity
             if filled < capacity {
                 filled += 1

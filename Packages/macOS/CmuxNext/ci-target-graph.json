@@ -285,6 +285,7 @@
       "reads": [
         "Resources/ghostty/themes/",
         "plans/cmux-next/",
+        "schemas/chief-home/vectors.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/test/fixtures/new-tab-intents.json"
       ]
@@ -503,15 +504,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCopyMode",
       "targets": [],
       "packages": []
-    },
-    "CmuxNextCopyModeTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCopyModeTests",
-      "targets": [
-        "CmuxNextCopyMode"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextDaemon": {
       "kind": "regular",
@@ -869,7 +861,6 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/README.md",
         "cmux-tui/crates/cmux-rd-proto/tests/vectors/control.json"
       ]
     },

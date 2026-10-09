@@ -294,7 +294,20 @@ impl Spawner {
                 .iter()
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
                 .collect(),
+            fast: false,
         };
+        // The folder the host made for its subagents is trusted up front, so
+        // the user's first message in a subagent's pane is never held behind
+        // "trust this folder" (Lawrence 2026-10-09). A folder of the user's
+        // (a spawn's cwd) is never trusted here: its pane asks as usual.
+        if s.cwd == self.settings.cwd
+            && let Err(e) = self.agents.trust_folder(&s.cwd)
+        {
+            (self.log)(&format!(
+                "trusting the subagent folder {}: {e}",
+                s.cwd.display()
+            ));
+        }
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
             .map_err(|reason| {
@@ -378,6 +391,13 @@ impl Spawner {
             .map(PathBuf::from)
             .unwrap_or_default();
         match resolve_cwd(asked, &home) {
+            Err(e) if e.contains("give the exact folder") => (
+                default.clone(),
+                Some(format!(
+                    "{e}, so they run in {} instead; next time pass the exact folder (for example ~/fun/repo), never ~ itself",
+                    default.display()
+                )),
+            ),
             Err(e) => (
                 default.clone(),
                 Some(format!("{e}, so they run in {}", default.display())),
@@ -428,7 +448,7 @@ impl Spawner {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed | TurnSignal::Streamed => {}
+                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -501,7 +521,10 @@ impl Spawner {
 }
 
 /// `asked` as a directory on this host: `~` and `~/...` are `home`; it must
-/// be absolute and exist.
+/// be absolute and exist. LAUNCH-NO-TCC-PROMPTS: never the home folder, `/`
+/// or a folder macOS guards (`PRIVATE_FOLDERS`): an agent reads its folder
+/// at once, and a read there makes macOS ask the user for access in the
+/// app's name. A subfolder the Chief names (`~/Downloads/proj`) is kept.
 pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
     let asked = asked.trim();
     let dir = if asked == "~" {
@@ -514,10 +537,61 @@ pub fn resolve_cwd(asked: &str, home: &Path) -> Result<PathBuf, String> {
     if !dir.is_absolute() {
         return Err(format!("{asked} is not an absolute directory"));
     }
+    if let Some(what) = private_folder(&dir, home) {
+        return Err(format!(
+            "{} is {what}, where an agent would read your private folders and macOS would ask you for access; give the exact folder the work is in",
+            dir.display()
+        ));
+    }
     if !dir.is_dir() {
         return Err(format!("{} does not exist on this host", dir.display()));
     }
     Ok(dir)
+}
+
+/// The folders macOS guards, relative to the home folder (as acpmux's
+/// `protected_folders`).
+const PRIVATE_FOLDERS: &[&str] = &[
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Pictures",
+    "Music",
+    "Movies",
+    "Library",
+    "Library/Mobile Documents",
+    "Library/CloudStorage",
+];
+
+/// What `dir` is when no agent may start in it: the home folder, the root
+/// folder or one of `PRIVATE_FOLDERS` itself. Compared as spelled, without
+/// trailing slashes or `.`, and case-insensitively (APFS).
+fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
+    let clean = |p: &Path| -> String {
+        let mut out = PathBuf::new();
+        for part in p.components() {
+            match part {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                other => out.push(other),
+            }
+        }
+        out.to_string_lossy().to_lowercase()
+    };
+    let dir = clean(dir);
+    if dir == "/" {
+        return Some("the root folder");
+    }
+    let home = clean(home);
+    if dir == home {
+        return Some("the home folder");
+    }
+    PRIVATE_FOLDERS
+        .iter()
+        .any(|f| dir == format!("{home}/{}", f.to_lowercase()))
+        .then_some("a private folder")
 }
 
 impl Orchestrator for Spawner {
