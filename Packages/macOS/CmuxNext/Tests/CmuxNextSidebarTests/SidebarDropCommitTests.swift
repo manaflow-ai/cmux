@@ -120,7 +120,16 @@ import Testing
     @Test func anEmptyMachineHeaderShowsAddButNoChevronOnHover() throws {
         var sections = fixture()
         sections[2].nodes = []
-        let sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
+        // One list (the default, cx-plf5): an empty computer shows no header at all.
+        let flat = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))
+        flat.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        flat.layoutSubtreeIfNeeded()
+        flat.list.reload(animated: false)
+        #expect(flat.list.displayed.row(for: .section(cloudSection)) == nil)
+        // A header per computer (`sidebar.groupByComputer`).
+        let model = SidebarModel(sections: sections, activeWorkspaceID: id("a"))
+        model.groupsByComputer = true
+        let sidebar = SidebarView(model: model)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
