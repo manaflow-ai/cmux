@@ -2,7 +2,7 @@
 # kind<TAB>key<TAB>lines<TAB>fns. Regenerate with --update-baseline (lowers only).
 rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/detect.rs	1547	58
 rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/manifest.rs	2290	109
-rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/process.rs	2169	107
+rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/process.rs	2107	105
 rust-file	cmux-tui/bindings/rust/src/client.rs	1101	69
 rust-file	cmux-tui/bindings/rust/src/resource/client.rs	1142	52
 rust-file	cmux-tui/bindings/rust/src/resource/handles.rs	2708	278
