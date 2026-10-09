@@ -68,9 +68,27 @@ struct RemoteTmuxMirrorZoomTests {
         #expect(!harness.workspace.bonsplitController.isSplitZoomed)
     }
 
-    @Test func containerWithoutActivePaneRejectsZoom() throws {
+    @Test func containerWithoutPublishedActivePaneZoomsSeededPane() throws {
         let harness = try Harness(activeTmuxPaneID: nil, connectedTransport: true)
         defer { harness.tearDown() }
+        let seededPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+
+        #expect(seededPaneID == 11)
+        #expect(harness.mirror.activePaneId == seededPaneID)
+        #expect(harness.workspace.toggleSplitZoom(panelId: harness.outerPanelID))
+        #expect(!harness.workspace.bonsplitController.isSplitZoomed)
+        #expect(!harness.mirror.bonsplitController.isSplitZoomed)
+        #expect(try resizeCommands(harness) == ["resize-pane -Z -t @3.%11"])
+    }
+
+    @Test func containerWithoutResolvableActivePaneRejectsZoom() throws {
+        let harness = try Harness(connectedTransport: true)
+        defer { harness.tearDown() }
+        // An active-pane event can precede the topology that owns that pane.
+        harness.mirror.noteRemoteActivePane(999)
+
+        #expect(harness.mirror.activePaneId == 999)
+        #expect(harness.mirror.activeControlPane() == nil)
 
         #expect(!harness.workspace.toggleSplitZoom(panelId: harness.outerPanelID))
         #expect(!harness.workspace.toggleSplitZoom(panelId: UUID()))
