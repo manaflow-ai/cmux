@@ -52,6 +52,12 @@
       "title" : "Files Outside the Project",
       "type" : "string"
     },
+    "agentPane.showContextUsage" : {
+      "default" : true,
+      "description" : "The ring beside the model that fills as the chat uses its context window.",
+      "title" : "Show Context Usage",
+      "type" : "boolean"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
