@@ -227,6 +227,9 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    let configFile: String? = nil
+    let jumpHost: String? = nil
+    let controlPath: String? = nil
     let sshOptions: [String]
 }
 
@@ -643,6 +646,15 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
         if let identityFile = connection.identityFile {
             args += ["-i", identityFile]
+        }
+        if let configFile = connection.configFile, !configFile.isEmpty {
+            args += ["-F", configFile]
+        }
+        if let jumpHost = connection.jumpHost, !jumpHost.isEmpty {
+            args += ["-J", jumpHost]
+        }
+        if let controlPath = connection.controlPath, !controlPath.isEmpty {
+            args += ["-o", "ControlPath=\(controlPath)"]
         }
         for option in connection.sshOptions {
             args += ["-o", option]
@@ -1206,6 +1218,189 @@ final class FileExplorerStore: ObservableObject {
         }
         prefetchSchedulers.removeAll()
         isRootLoading = false
+    }
+
+    private func applyRemoteSSHWorkspaceRoot(
+        workspaceId: UUID,
+        connection: SSHFileExplorerConnection,
+        displayTarget: String,
+        rootPath requestedRootPath: String?,
+        isAvailable: Bool,
+        unavailableDetail: String?,
+        sshTransport: SSHFileExplorerTransport
+    ) {
+        cancelRemoteHomeResolution()
+        setRootStatusMessage(nil)
+        setWorkspaceRootIdentity(workspaceId)
+
+        let existingProvider = provider as? SSHFileExplorerProvider
+        let sshProvider: SSHFileExplorerProvider
+        if let existingProvider,
+           existingProvider.connection == connection,
+           existingProvider.displayTarget == displayTarget {
+            sshProvider = existingProvider
+            sshProvider.updateAvailability(isAvailable, homePath: nil)
+        } else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            sshProvider = SSHFileExplorerProvider(
+                connection: connection,
+                displayTarget: displayTarget,
+                homePath: "",
+                isAvailable: isAvailable,
+                transport: sshTransport
+            )
+            setProvider(sshProvider, reloadIfAvailable: false)
+        }
+
+        guard isAvailable else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            let detail = unavailableDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let detail, !detail.isEmpty {
+                setRootStatusMessage(
+                    String(
+                        localized: "fileExplorer.status.sshUnavailableWithDetail",
+                        defaultValue: "SSH files unavailable: \(detail)"
+                    )
+                )
+            } else {
+                setRootStatusMessage(
+                    String(localized: "fileExplorer.status.sshUnavailable", defaultValue: "SSH files unavailable")
+                )
+            }
+            return
+        }
+
+        let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
+        let currentHomePath = sshProvider.homePath.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let requestedRootPath {
+            // Tilde-prefixed paths come from the remote shell title and must be
+            // expanded against the resolved remote home before listing (the SSH
+            // `ls` path is single-quoted, so `~` would not expand remotely).
+            if requestedRootPath == "~" || requestedRootPath.hasPrefix("~/") {
+                if !currentHomePath.isEmpty {
+                    cancelRemoteHomeResolution()
+                    setRootStatusMessage(nil)
+                    setRootPath(Self.expandTilde(requestedRootPath, home: currentHomePath))
+                    return
+                }
+                // Home not resolved yet: fall through to resolve it (rooting at
+                // home). A subsequent title-change sync re-applies the cwd once
+                // the home path is cached.
+            } else {
+                cancelRemoteHomeResolution()
+                setRootStatusMessage(nil)
+                setRootPath(requestedRootPath)
+                return
+            }
+        }
+
+        if !currentHomePath.isEmpty {
+            setRootStatusMessage(nil)
+            setRootPath(currentHomePath)
+            return
+        }
+
+        resolveRemoteHome(
+            workspaceId: workspaceId,
+            provider: sshProvider,
+            connection: connection,
+            requestedRootPath: requestedRootPath
+        )
+    }
+
+    private func resolveRemoteHome(
+        workspaceId: UUID,
+        provider sshProvider: SSHFileExplorerProvider,
+        connection: SSHFileExplorerConnection,
+        requestedRootPath: String?
+    ) {
+        let resolutionKey = [
+            workspaceId.uuidString,
+            connection.destination,
+            connection.port.map(String.init) ?? "",
+            connection.identityFile ?? "",
+            connection.sshOptions.joined(separator: "\u{1f}"),
+        ].joined(separator: "\u{1e}")
+
+        guard remoteHomeResolutionKey != resolutionKey else { return }
+        remoteHomeResolutionTask?.cancel()
+        remoteHomeResolutionKey = resolutionKey
+        setRootPath("")
+        setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+
+        remoteHomeResolutionTask = Task { [weak self, weak sshProvider, requestedRootPath] in
+            guard let sshProvider else { return }
+            do {
+                let homePath = try await sshProvider.resolveHomePath()
+                await MainActor.run { [weak self, weak sshProvider] in
+                    guard let self,
+                          let sshProvider,
+                          self.remoteHomeResolutionKey == resolutionKey,
+                          self.provider === sshProvider else { return }
+                    self.remoteHomeResolutionKey = nil
+                    self.remoteHomeResolutionTask = nil
+                    sshProvider.updateAvailability(true, homePath: homePath)
+                    self.setRootStatusMessage(nil)
+                    if let requestedRootPath,
+                       requestedRootPath == "~" || requestedRootPath.hasPrefix("~/") {
+                        self.setRootPath(Self.expandTilde(requestedRootPath, home: homePath))
+                    } else {
+                        self.setRootPath(homePath)
+                    }
+                }
+            } catch {
+                await MainActor.run { [weak self, weak sshProvider] in
+                    guard let self,
+                          let sshProvider,
+                          self.remoteHomeResolutionKey == resolutionKey,
+                          self.provider === sshProvider else { return }
+                    self.remoteHomeResolutionKey = nil
+                    self.remoteHomeResolutionTask = nil
+                    self.setRootPath("")
+                    self.setRootStatusMessage(
+                        String(
+                            localized: "fileExplorer.status.sshHomeFailed",
+                            defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private func cancelRemoteHomeResolution() {
+        remoteHomeResolutionTask?.cancel()
+        remoteHomeResolutionTask = nil
+        remoteHomeResolutionKey = nil
+    }
+
+    private static func path(_ candidate: String, isContainedIn root: String) -> Bool {
+        guard !root.isEmpty else { return false }
+        if root == "/" {
+            return candidate.hasPrefix("/")
+        }
+        return candidate == root || candidate.hasPrefix(root + "/")
+    }
+
+    private static func normalizedRootPath(_ path: String?) -> String? {
+        guard let path else { return nil }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    /// Expands a leading `~` (home) in a remote path against the resolved remote
+    /// home directory. Non-tilde paths are returned unchanged.
+    private static func expandTilde(_ path: String, home: String) -> String {
+        let base = home.hasSuffix("/") && home != "/" ? String(home.dropLast()) : home
+        if path == "~" { return base }
+        if path.hasPrefix("~/") {
+            return base + "/" + path.dropFirst(2)
+        }
+        return path
     }
 
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {

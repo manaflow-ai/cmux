@@ -114,6 +114,34 @@ struct FileExplorerWorkspaceRootResolver {
                 unavailableDetail: workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
             )
         }
+        // A plain `ssh user@host` typed into a local terminal (not a `cmux ssh`
+        // workspace): root the explorer at the remote host's filesystem while the
+        // session is active. The workspace title (`user@host:cwd`) is the only
+        // remote-cwd signal (Ghostty rejects remote OSC 7 pwd reports); when the
+        // session exits the local shell resets the title, which re-triggers
+        // resolution and reverts the explorer to the local root.
+        if let sshSession = workspace.focusedPanelId.flatMap({ panelId in
+            workspace.candidateTTYNames(forPanel: panelId).lazy
+                .compactMap { TerminalSSHSessionDetector.detect(forTTY: $0) }
+                .first
+        }) {
+            return .remoteSSH(
+                workspaceId: workspace.id,
+                connection: SSHFileExplorerConnection(
+                    destination: sshSession.destination,
+                    port: sshSession.port,
+                    identityFile: sshSession.identityFile,
+                    configFile: sshSession.configFile,
+                    jumpHost: sshSession.jumpHost,
+                    controlPath: sshSession.controlPath,
+                    sshOptions: sshSession.sshOptions
+                ),
+                displayTarget: sshSession.destination,
+                rootPath: TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: workspace.title),
+                isAvailable: true,
+                unavailableDetail: nil
+            )
+        }
         let path = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         // A local workspace may not have reported a cwd yet (fresh and
         // restored workspaces do this briefly).  Files still belongs to this
