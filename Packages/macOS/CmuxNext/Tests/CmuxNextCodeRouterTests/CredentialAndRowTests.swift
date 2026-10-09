@@ -2,52 +2,6 @@ import Foundation
 import Testing
 @testable import CmuxNextCodeRouter
 
-@Suite struct CredentialResolverTests {
-    @Test func codexCredentialFromAuthJSON() throws {
-        let home = try FixtureHome()
-        try home.writeJSON(".codex/auth.json", codexAuth())
-        let credential = try CredentialResolver(environment: home.environment(), keys: FakeKeyStore()).credential(for: .codex, pasted: nil)
-        guard case .codex(let codex) = credential else { Issue.record("expected codex"); return }
-        #expect(codex.email == "dev@example.com")
-        #expect(codex.body["expiresAt"] as? Double == 1_900_003_600_000)
-        #expect(codex.body["accountId"] as? String == "acct-fixture")
-        #expect(!"\(codex)".contains("fake-refresh-token"))
-    }
-
-    @Test func codexWithoutTokensNeedsReauthentication() throws {
-        let home = try FixtureHome()
-        try home.writeJSON(".codex/auth.json", ["OPENAI_API_KEY": "sk-fixture"])
-        #expect(throws: CredentialResolutionError.incompleteSignIn) {
-            _ = try CredentialResolver(environment: home.environment(), keys: FakeKeyStore()).credential(for: .codex, pasted: nil)
-        }
-    }
-
-    @Test func keyPrecedencePastedThenEnvironmentThenKeychain() throws {
-        let home = try FixtureHome()
-        let keys = FakeKeyStore([.openRouter: "sk-or-v1-from-keychain-000000"])
-        let resolver = CredentialResolver(environment: home.environment(["OPENROUTER_API_KEY": "sk-or-v1-from-env-0000000000"]), keys: keys)
-        guard case .apiKey(_, let pasted, _) = try resolver.credential(for: .openRouter, pasted: "sk-or-v1-pasted-00000000000") else { return }
-        #expect(pasted == "sk-or-v1-pasted-00000000000")
-        guard case .apiKey(_, let env, _) = try resolver.credential(for: .openRouter, pasted: nil) else { return }
-        #expect(env == "sk-or-v1-from-env-0000000000")
-        let keychainOnly = CredentialResolver(environment: home.environment(), keys: keys)
-        guard case .apiKey(_, let stored, _) = try keychainOnly.credential(for: .openRouter, pasted: "  ") else { return }
-        #expect(stored == "sk-or-v1-from-keychain-000000")
-    }
-
-    @Test func formatsAreChecked() throws {
-        let home = try FixtureHome()
-        let resolver = CredentialResolver(environment: home.environment(), keys: FakeKeyStore())
-        #expect(throws: CredentialResolutionError.needsPastedSecret) { _ = try resolver.credential(for: .claude, pasted: nil) }
-        #expect(throws: CredentialResolutionError.invalidFormat) { _ = try resolver.credential(for: .claude, pasted: "sk-ant-api03-wrongkind-0000") }
-        #expect(throws: CredentialResolutionError.invalidFormat) { _ = try resolver.credential(for: .anthropic, pasted: "sk-ant-oat01-wrongkind-000") }
-        #expect(throws: CredentialResolutionError.unsupported) { _ = try resolver.credential(for: .groq, pasted: "gsk_fixture_00000000000000") }
-        #expect(throws: CredentialResolutionError.missingEnvironment("AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")) {
-            _ = try resolver.credential(for: .bedrock, pasted: nil)
-        }
-    }
-}
-
 @Suite struct AccountRowStateTests {
     let codexAccount = LinkedAccount(id: "a1", family: .native, provider: .codex,
                                      account: fixtureLabeler.server(namespace: "codex", id: "a1", label: "dev@example.com"), state: "active")

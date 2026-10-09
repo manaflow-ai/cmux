@@ -410,7 +410,8 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         request.step,
         format!(
             "Compaction: compress message 2 into one line of at most 512 bytes\n\
-             (about 70 words), the length of this ruler:\n{RULER}\n<input>\n\
+             (about 70 words; aim for about 400 bytes, well inside the limit), the\n\
+             limit is the length of this ruler:\n{RULER}\n<input>\n\
              echo: message 2 {}\n</input>",
             "x".repeat(700)
         )
@@ -441,7 +442,8 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         request.step,
         format!(
             "Compaction: merge lines {} and {}, adjacent, into one line of at most\n\
-             512 bytes (about 70 words), the length of this ruler:\n{RULER}\n\
+             512 bytes (about 70 words; aim for about 400 bytes, well inside the limit),\n\
+             the limit is the length of this ruler:\n{RULER}\n\
              <chat> may hold their messages, {} to {}, in more detail: take details\n\
              of them from there too.\n<input>\n{}\n{}\n</input>",
             a.name(),
@@ -459,9 +461,9 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
     assert_eq!(
         retry,
         format!(
-            "Too long: your line is 600 bytes, over the 512-byte limit. Write\n\
-             the whole line again for the same <input>, cutting just enough of the\n\
-             least valuable items to fit before this cut:\n{}| ← LIMIT",
+            "Too long: your last line for this <input> was 600 bytes,\n\
+             over the 512-byte limit. Write the whole line again, cutting just\n\
+             enough of the least valuable items to fit before this cut:\n{}| ← LIMIT",
             "y".repeat(512)
         )
     );

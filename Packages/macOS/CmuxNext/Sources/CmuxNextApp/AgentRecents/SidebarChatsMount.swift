@@ -5,7 +5,7 @@ import CmuxNextSidebar
 
 /// One window's All chats section (`sidebar.showChats`, on by default since
 /// cx-xub5). While it is off no section exists, so the sidebar never connects
-/// to the chat feed for it. A click opens the chat in a new pane to the right.
+/// to the chat feed for it. It starts minimized; one click on a chat opens it in a new workspace.
 @MainActor
 final class SidebarChatsMount {
     private weak var sections: SidebarAppSections?
@@ -29,7 +29,7 @@ final class SidebarChatsMount {
 
     private func section(_ services: AppServices) -> AgentRecentsSection? {
         services.chatsFeed.map { feed in
-            let section = AgentRecentsSection(feed: feed) { [weak services] id in services?.chatsOpener.open(id, placement: .splitRight) }
+            let section = AgentRecentsSection(feed: feed) { [weak services] id in services?.chatsOpener.open(id) }
             section.headerMenu = { [weak services] in services.flatMap(Self.headerMenu) }
             return section
         }

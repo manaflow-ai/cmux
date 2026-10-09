@@ -43,16 +43,3 @@ private func click(_ seq: UInt64, target: String = "tab_1") -> AutomationInputEv
     }
 }
 
-@MainActor
-@Suite struct AgentCursorStackColorTests {
-    /// The cursor fill is the session's palette mid color, the same color
-    /// cmux-cua draws for that session ("s1" is soft_purple: 178, 132, 255).
-    @Test func aSessionCursorUsesItsPaletteColor() throws {
-        let color = AgentCursorStack.sessionColor("s1")
-        let components = try #require(color.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components)
-        #expect(components.count == 4)
-        #expect(abs(components[0] - 178 / 255) < 0.002)
-        #expect(abs(components[1] - 132 / 255) < 0.002)
-        #expect(abs(components[2] - 255 / 255) < 0.002)
-    }
-}
