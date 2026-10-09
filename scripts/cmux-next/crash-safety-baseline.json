@@ -50,7 +50,6 @@
   },
   "index_subscript": {
    "CMUXMobileCore": 15,
-   "CmuxHomeRender": 61,
    "CmuxIrohTransport": 59,
    "CmuxIrxTransport": 30,
    "CmuxNextControl": 22,
@@ -62,7 +61,6 @@
   },
   "int_conversion": {
    "CMUXMobileCore": 18,
-   "CmuxHomeRender": 9,
    "CmuxIrohTransport": 72,
    "CmuxIrxTransport": 43,
    "CmuxNextControl": 45,
