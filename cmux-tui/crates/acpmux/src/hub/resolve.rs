@@ -186,6 +186,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         tags: Default::default(),
         unread: false,
         claude_unstored: false,
+        claude_profile: None,
         last_turn: None,
         remote_origin: d.remote,
         session_env: Default::default(),

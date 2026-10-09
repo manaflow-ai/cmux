@@ -91,9 +91,8 @@ public final class HomeStore {
     /// of the conversation hears. A send keeps its "Not Delivered" row and
     /// does not come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onUnanswered: ((HomeIntent) -> Void)?
-    /// The hooks of the views showing each conversation, held weakly (a
-    /// view freed without `unregister` hears nothing and is pruned).
-    @ObservationIgnored var hooks: [ConversationID: [WeakConversationHooks]] = [:]
+    /// The hooks of the views showing each conversation (weakly held).
+    @ObservationIgnored var hookRegistry = HomeConversationHookRegistry()
     /// Test seam: awaited before the prune deletes each blob directory.
     @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
 
