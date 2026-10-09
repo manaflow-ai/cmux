@@ -14,8 +14,10 @@ import MessagesLabSidebar
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
-    /// Mark as Read (the menu offers it only while the conversation has unread messages).
+    /// Mark as Read (the menu offers it while the conversation is unread or marked unread).
     public var onMarkRead: (ConversationID) -> Void = { _ in }
+    /// Mark as Unread (the menu offers it while the conversation is read).
+    public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
     /// Teammates matching a query that have no DM yet (the list's extra search section).
@@ -53,7 +55,9 @@ public final class HomeSidebarView: NSView {
         addSubview(compose)
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
-        list.onSetRead = { [weak self] read, id in if read { self?.onMarkRead(ConversationID(id)) } }
+        list.onSetRead = { [weak self] read, id in
+            if read { self?.onMarkRead(ConversationID(id)) } else { self?.onMarkUnread(ConversationID(id)) }
+        }
         list.menuItems = { [weak self] id in self?.menuItems(ConversationID(id)) ?? [] }
         list.searchSection = { [weak self] query in
             guard let self else { return nil }

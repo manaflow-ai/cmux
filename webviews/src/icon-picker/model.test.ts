@@ -4,7 +4,7 @@ import raw from "./generated/emoji-data.json";
 import { layoutGrid, moveActive, rowAt, scrollToReveal, visibleRows } from "./gridModel";
 import { dockedTitle } from "./VirtualGrid";
 import { decodeIcon, encodeIcon, isValidIcon, type IconValue } from "./iconValue";
-import { pickerKeyAction } from "./keyboard";
+import { pickerKeyAction, typesText } from "./keyboard";
 import { decodePrefs, EMPTY_PREFS, rankedKeys, recordUse } from "./recents";
 import { search } from "./search";
 
@@ -141,15 +141,25 @@ describe("keys", () => {
     ...mods,
   });
 
-  test("Ctrl-N/J down, Ctrl-P/K up, arrows, Return, Escape, Ctrl-Tab", () => {
+  test("Ctrl-N/J down, Ctrl-P/K up, arrows, Return, Escape, Ctrl-Tab, Cmd-K", () => {
     expect(pickerKeyAction(key("n", { ctrlKey: true }))).toEqual({ kind: "move", move: "down" });
     expect(pickerKeyAction(key("j", { ctrlKey: true }))).toEqual({ kind: "move", move: "down" });
     expect(pickerKeyAction(key("p", { ctrlKey: true }))).toEqual({ kind: "move", move: "up" });
     expect(pickerKeyAction(key("k", { ctrlKey: true }))).toEqual({ kind: "move", move: "up" });
     expect(pickerKeyAction(key("ArrowLeft"))).toEqual({ kind: "move", move: "left" });
     expect(pickerKeyAction(key("Enter"))).toEqual({ kind: "pick" });
-    expect(pickerKeyAction(key("Escape"))).toEqual({ kind: "cancel" });
-    expect(pickerKeyAction(key("Tab", { ctrlKey: true, shiftKey: true }))).toEqual({ kind: "tab", step: -1 });
+    expect(pickerKeyAction(key("Escape"))).toEqual({ kind: "back" });
+    expect(pickerKeyAction(key("Tab", { ctrlKey: true, shiftKey: true }))).toEqual({ kind: "category", step: -1 });
+    expect(pickerKeyAction(key("k", { metaKey: true }))).toEqual({ kind: "actions" });
+    expect(pickerKeyAction(key("k", { metaKey: true, shiftKey: true }))).toBeNull();
+  });
+
+  test("a typed character outside the search field goes to the search", () => {
+    expect(typesText(key("a"))).toBe(true);
+    expect(typesText(key("ね"))).toBe(true);
+    expect(typesText(key("Enter"))).toBe(false);
+    expect(typesText(key("a", { metaKey: true }))).toBe(false);
+    expect(typesText(key("a", { isComposing: true }))).toBe(false);
   });
 
   test("typing, Cmd chords and IME composition stay with the field", () => {

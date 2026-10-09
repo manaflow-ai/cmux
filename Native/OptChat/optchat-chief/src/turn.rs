@@ -125,6 +125,11 @@ pub struct TurnStats {
     pub requests: usize,
     pub tools: usize,
     pub tool_errors: usize,
+    /// From the turn's start (the settled view) to its prompt going out:
+    /// the harness session's start, ms.
+    pub start_ms: Option<u64>,
+    /// The first request's time to first token (`fold::Request::ttft_ms`).
+    pub ttft_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -167,6 +172,7 @@ pub fn run(
     trace: &Trace,
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
+    let began = Instant::now();
     // The limit covers the session's start too: a harness that never
     // initializes must not hold the turn (and every later message) forever.
     let deadline = start.limit.map(|limit| Instant::now() + limit);
@@ -246,6 +252,7 @@ pub fn run(
             ..TurnOutcome::default()
         };
     }
+    let start_ms = Some(began.elapsed().as_millis() as u64);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
@@ -411,6 +418,7 @@ pub fn run(
             id: String::new(),
             model: start.session.model.clone(),
             usage: u,
+            ..crate::fold::Request::default()
         });
     }
     crate::trace::requests(trace, &scope, &requests);
@@ -454,6 +462,8 @@ pub fn run(
             requests: requests.len(),
             tools,
             tool_errors,
+            start_ms,
+            ttft_ms: requests.first().and_then(|r| r.ttft_ms),
         },
     }
 }

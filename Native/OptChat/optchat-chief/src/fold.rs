@@ -98,11 +98,29 @@ pub struct ToolTrace {
 
 /// One model request of the turn (Claude Code's raw assistant lines of one
 /// message id), with the token use it reported.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Request {
     pub id: String,
     pub model: Option<String>,
     pub usage: Usage,
+    /// From what started the request (the prompt, or the tool result Claude
+    /// Code answers) to the model's `message_start`, in ms of acpmux's event
+    /// times. None: the start or the stream was not seen.
+    pub headers_ms: Option<u64>,
+    /// From the same start to the request's first content delta: its time
+    /// to first token.
+    pub ttft_ms: Option<u64>,
+}
+
+/// The model stream of the request in flight (Claude Code's
+/// `stream_event` lines, `--include-partial-messages`).
+#[derive(Debug, Default)]
+struct Stream {
+    id: String,
+    headers_ms: Option<u64>,
+    ttft_ms: Option<u64>,
+    /// When the request started (event time, ms).
+    start: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -128,6 +146,11 @@ pub struct TurnFold {
     /// (Task/Agent): the translated updates that follow it are that
     /// subagent's steps, which stay out of the log (section 9).
     in_subagent: bool,
+    /// The event time of what started the next model request: the last
+    /// line sent to the harness, or the last tool result Claude Code read.
+    request_start: Option<u64>,
+    /// The request streaming now.
+    stream: Option<Stream>,
 }
 
 impl TurnFold {
@@ -200,12 +223,20 @@ impl TurnFold {
             return out;
         }
         let update = event.msg.get("params").and_then(|p| p.get("update"));
+        // Anything sent to the harness (the prompt, a permission answer)
+        // starts its next request.
+        if event.dir == "out" && event.at.is_some() {
+            self.request_start = event.at;
+        }
         if event.kind.starts_with("claude.") {
             // Claude Code's raw stream-json line; acpmux records it just before
             // the updates it translates into, and its translator ignores
             // `parent_tool_use_id`, so this is where a subagent's steps show.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
+            if !self.in_subagent && event.dir != "out" {
+                self.time_request(event);
+            }
             if event.kind == "claude.assistant" && !self.in_subagent {
                 let message = event.msg.get("message");
                 let usage = message.and_then(|m| m.get("usage")).and_then(Usage::parse);
@@ -226,7 +257,16 @@ impl TurnFold {
                     // message, each with the message's usage so far.
                     match self.requests.last_mut() {
                         Some(last) if !id.is_empty() && last.id == id => last.usage = usage,
-                        _ => self.requests.push(Request { id, model, usage }),
+                        _ => {
+                            let stream = self.stream.take_if(|s| s.id == id).unwrap_or_default();
+                            self.requests.push(Request {
+                                id,
+                                model,
+                                usage,
+                                headers_ms: stream.headers_ms,
+                                ttft_ms: stream.ttft_ms,
+                            });
+                        }
                     }
                 }
             }
@@ -278,6 +318,45 @@ impl TurnFold {
             _ => {}
         }
         out
+    }
+
+    /// The time to first token of the turn's main requests, from Claude
+    /// Code's raw lines: a tool result it reads (`user`) starts the next
+    /// request, `message_start` is the answer, the first content delta its
+    /// first token.
+    fn time_request(&mut self, event: &AcpmuxEvent) {
+        let Some(at) = event.at else { return };
+        match event.kind.as_str() {
+            "claude.user" => self.request_start = Some(at),
+            "claude.stream_event" => {
+                let ev = event.msg.get("event");
+                match ev.and_then(|e| e.get("type")).and_then(Value::as_str) {
+                    Some("message_start") => {
+                        let id = ev
+                            .and_then(|e| e.pointer("/message/id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let start = self.request_start;
+                        self.stream = Some(Stream {
+                            id,
+                            headers_ms: start.map(|s| at.saturating_sub(s)),
+                            ttft_ms: None,
+                            start,
+                        });
+                    }
+                    Some("content_block_delta") => {
+                        if let Some(stream) = self.stream.as_mut()
+                            && stream.ttft_ms.is_none()
+                        {
+                            stream.ttft_ms = stream.start.map(|s| at.saturating_sub(s));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The turn is over without a `turn_end` (the prompt failed or the

@@ -63,6 +63,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
@@ -80,8 +81,11 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
-import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { RenderCard, canRender } from "./conversation/RenderCard";
+import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { SHORTCUT_ACTIONS, ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
@@ -104,9 +108,12 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
+import { continueTargets, mergedCommands, resolveHarnessTarget } from "./cmuxCommands";
+import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -132,6 +139,8 @@ declare global {
   interface Window {
     cmuxAcpmuxBridge?: {
       receive(snapshot: AcpmuxSnapshot): void;
+      /** Sets or toggles the inspector and returns its next visibility. */
+      toggleInspector(open?: boolean): boolean;
       applyTheme(theme: Record<string, unknown>): void;
       applyCustomization(customization: {
         themeCSS?: string;
@@ -195,6 +204,15 @@ function cachedSnapshot(): AcpmuxSnapshot {
 }
 
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
+/** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
+export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+  try {
+    return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
+  } catch {
+    return "unavailable";
+  }
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -311,6 +329,15 @@ const PreviewRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
+/// An ended turn's render call, live (conversation/RenderCard.tsx).
+const RenderRow = memo(
+  function RenderRow({ row }: RowProps) {
+    const tool = row.items?.[0]?.tool;
+    const call = tool && canRender() ? renderCall(tool) : undefined;
+    return call ? <RenderCard call={call} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
@@ -372,6 +399,7 @@ const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [PREVIEW]: PreviewRow,
+  [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -878,6 +906,7 @@ function AcpmuxPane() {
   const [chooseFolder, setChooseFolder] = useState(false);
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
+  const [importError, setImportError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -948,15 +977,6 @@ function AcpmuxPane() {
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
-  // The pane keeps what it showed until this document first draws what it is: the frames before
-  // the handshake (no hero yet, "Connecting") stay hidden. The second animation frame after the
-  // handshake's render runs once that frame was drawn. The host shows the page anyway after a limit.
-  const paintReported = useRef(false);
-  useEffect(() => {
-    if (!handshaken || paintReported.current) return;
-    paintReported.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
-  }, [handshaken]);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
   }, [checkpoints.supported, snapshot.sessionId]);
@@ -968,7 +988,7 @@ function AcpmuxPane() {
   // Footer actions show only while acpmux is reachable. The client reports failures in the
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
-  const forkable = Boolean(snapshot.canFork) && connected;
+  const forkable = canFork(snapshot);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1037,6 +1057,19 @@ function AcpmuxPane() {
       sessionMoves,
     );
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
+  const inspectorOpenRef = useRef(false);
+  const inspectorHiddenSurfaceRef = useRef(false);
+  const closeInspector = useCallback(() => {
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, []);
+  useLayoutEffect(() => {
+    if (inspectorOpen || !inspectorOpener.current) return;
+    inspectorOpener.current.focus();
+    inspectorOpener.current = undefined;
+  }, [inspectorOpen]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -1044,19 +1077,34 @@ function AcpmuxPane() {
     path?: string;
     opener?: HTMLElement;
   }>();
+  const toggleInspector = useCallback((open?: boolean) => {
+    if (inspectorHiddenSurfaceRef.current) {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      return false;
+    }
+    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+    inspectorOpenRef.current = next;
+    if (next) {
+      setDiffView(undefined);
+      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    }
+    setInspectorOpen(next);
+    return next;
+  }, []);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
-  const openDiff = useCallback<OpenDiff>(
-    (rowId, path, opener) =>
-      setDiffView({
-        sessionId: sessionIdRef.current,
-        rowId,
-        path,
-        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-      }),
-    [],
-  );
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+    setDiffView({
+      sessionId: sessionIdRef.current,
+      rowId,
+      path,
+      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
+    });
+  }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -1308,11 +1356,23 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  // The host covers the pane with its loading state until this document first draws what it is:
+  // the handshake's answer, or the host error when there is none (a failed start must show, not
+  // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
+  // The second animation frame after that render runs once its frame was drawn.
+  const paintReported = useRef(false);
+  const showsWhatItIs = handshaken || hostError !== undefined;
+  useEffect(() => {
+    if (!showsWhatItIs || paintReported.current) return;
+    paintReported.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+  }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
+    const withCommands = { ...current, commands: mergedCommands(snapshot.commands) };
     return projectDraft && !snapshot.sessionId
-      ? { ...current, summary: { sessionId: "", cwd: projectDraft } }
-      : current;
+      ? { ...withCommands, summary: { sessionId: "", cwd: projectDraft } }
+      : withCommands;
   }, [snapshot, catalog, projectDraft]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
@@ -1363,6 +1423,7 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
@@ -1745,6 +1806,10 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
+          "chat.adoptLive": async ({ choice }) => {
+            await client.adoptLive(choice === "fork" ? "fork" : "open");
+            return persistSession(client.adopted);
+          },
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -1763,6 +1828,10 @@ function AcpmuxPane() {
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
+        // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
+        setMessageMenuSource((rowId) =>
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+        );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
           turnRunning: () => client.turnRunning(),
@@ -1867,19 +1936,15 @@ function AcpmuxPane() {
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
     };
-    // Both are stable for the pane's life (a state initializer and the provider's client).
-  }, [harnessSwitch, queryClient]);
+    // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
+  }, [harnessSwitch, queryClient, toggleInspector]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
       | undefined) ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
-  const handoffTargets = composerSnapshot.catalog.filter((entry) => {
-    const family = entry.id.split(/[-_]/)[0];
-    return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
-  });
+  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue =
     !!snapshot.canHandoff &&
     !!snapshot.handoff?.ready &&
@@ -1912,6 +1977,17 @@ function AcpmuxPane() {
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
+      {
+        key: "inspector",
+        label: t("inspector.title"),
+        icon: "code",
+        onSelect: () => {
+          inspectorOpener.current = Array.from(
+            document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
+          ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
+          toggleInspector(true);
+        },
+      },
       ...(forkable && lastForkSeq !== undefined
         ? [
             {
@@ -1983,6 +2059,13 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.newWorkspace,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
       },
+      {
+        key: "newWindow",
+        label: t("chatMenu.newWindow"),
+        icon: "app.open.external",
+        shortcutAction: HEADER_ACTIONS.newWindow,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
+      },
       "separator",
       {
         key: "close",
@@ -1994,6 +2077,24 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const inspectorHiddenSurface = quick || showNewTab;
+  inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
+  useEffect(() => {
+    if (!inspectorHiddenSurface) return;
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, [inspectorHiddenSurface]);
+  const importFile = useCallback(async (file: File) => {
+    setImportError(undefined);
+    try {
+      const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
+      if (!session.messages.length) return;
+      await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
+      await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : undefined);
+    }
+  }, []);
   const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
@@ -2133,6 +2234,11 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
+      {importError && (
+        <p className="acpmux-composer-remote-note" role="alert">
+          {importError}
+        </p>
+      )}
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
@@ -2153,8 +2259,21 @@ function AcpmuxPane() {
       )}
       <Composer
         snapshot={composerSnapshot}
+        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={ComposerChips}
         draft={draft}
+        onCmuxCommand={(command, args) => {
+          if (command.action !== "continue" || !canContinue) return false;
+          if (!args?.trim()) {
+            setContinuing(true);
+            return true;
+          }
+          const target = resolveHarnessTarget(args, handoffTargets);
+          if (!target) return false;
+          setContinuing(false);
+          ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
+          return true;
+        }}
         onSend={(text, chips) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
@@ -2246,6 +2365,7 @@ function AcpmuxPane() {
         handle={composerRef}
         blocked={trustAsk.blocked}
         accessory={<DictationButton dictation={dictation} />}
+        onImportFile={importFile}
       />
     </>
   );
@@ -2322,7 +2442,9 @@ function AcpmuxPane() {
             />
           ) : (
             <>
-              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <div
+                className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+              >
                 <header className="acpmux-header">
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools">
@@ -2355,6 +2477,12 @@ function AcpmuxPane() {
                     {t("link.sessionMissing")}
                   </p>
                 )}
+                {snapshot.liveChat && (
+                  <LiveChatChoice
+                    {...snapshot.liveChat}
+                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
                 {!reviewing && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert">
                     {snapshot.handoff.error}
@@ -2378,6 +2506,14 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
                   transcript
+                )}
+                {inspectorOpen && (
+                  <Inspector
+                    snapshot={snapshot}
+                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
+                    onClose={closeInspector}
+                    onExport={saveLogNatively}
+                  />
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel

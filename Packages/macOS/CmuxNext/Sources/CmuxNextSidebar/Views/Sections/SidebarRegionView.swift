@@ -95,11 +95,14 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.animate(.move, in: self) {
+        Motion.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
-        }
+        }, completion: { [weak self] in
+            // The rows ended their move under a possibly still pointer (cx-3wu5).
+            PointerHover.refresh(in: self?.window)
+        })
     }
 
     private func displayed(_ content: Content) -> Content {
@@ -196,6 +199,8 @@ final class SidebarRegionView: NSView {
             view.removeFromSuperview()
             headerViews[id] = nil
         }
+        // Rows reflowed under a possibly still pointer (cx-3wu5).
+        PointerHover.refresh(in: window)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         while cardLayers.count > layoutResult.cards.count { cardLayers.removeLast().removeFromSuperlayer() }

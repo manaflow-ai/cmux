@@ -12,6 +12,11 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // A section's collapse is window view state (sidebar snapshot), never a daemon command.
+        if case .toggleCollapse(.section) = intent {
+            model.apply(intent)
+            return recordSnapshot()
+        }
         // The Pinned section is the daemon's pin, in either organization: a
         // drop there pins, a pinned workspace dropped on its own machine
         // unpins. Pinned order follows the sidebar, so a drop of workspaces
@@ -77,9 +82,8 @@ extension SidebarBridge {
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
             // `workspace_group.*`, `handlePersonal`); the shared group
-            // commands are not used, so the daemon can drop them.
-            services.registry.refuse(daemon(ofGroupless: intent))
-            resync()
+            // commands are not used, so the daemon can drop them. Before personal state loads it waits.
+            if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
@@ -145,11 +149,6 @@ extension SidebarBridge {
         return (daemon, pairs.map(\.1))
     }
 
-    /// Why a group intent is refused without personal state.
-    private func daemon(ofGroupless intent: SidebarIntent) -> String {
-        services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles)
-    }
-
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
               let (daemon, _) = sameMachine(ids), daemon === target
@@ -185,6 +184,12 @@ extension SidebarBridge {
                 }
             }
         }
+    }
+
+    /// Refuses an organization intent that personal state cannot take.
+    func refuseOrganization() {
+        services.registry.refuse(services.machines.local.personalStateUnavailableReason)
+        resync()
     }
 
     /// Puts daemon truth back after a refused or rejected intent.

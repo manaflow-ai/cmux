@@ -117,17 +117,15 @@ def note_sessions(work):
 
 
 def cleanup(before, work):
-    # The app and its daemon end through the app's own quit (end everything),
-    # then any process still running from the scratch folder is ended by PID.
+    # The app and its daemon end only through the app's own quit (end
+    # everything). A process still running from the scratch folder is reported,
+    # never signalled: it can be the daemon or a terminal host, and a match by
+    # path is not a PID this script started.
     leftovers = [line.split(None, 1) for line in run("pgrep", "-fl", work).stdout.splitlines()]
     # The nightly's daemon session names (cmux-app-<hash>, terminal-hosts-<hash>).
     hashes = set(re.findall(r"(?:cmux-app|terminal-hosts)-([0-9a-f]{12,})", " ".join(c for _, c in leftovers) + SESSION_HINTS[0]))
     for pid, command in leftovers:
-        print(f"ending leftover pid {pid}: {command[:120]}")
-        try:
-            os.kill(int(pid), 15)
-        except OSError:
-            pass
+        print(f"NOT ended (still running after quit, check by hand): pid {pid}: {command[:120]}")
     run("defaults", "delete", BUNDLE_ID) if f"{HOME}/Library/Preferences/{BUNDLE_ID}.plist" not in before else None
     created = snapshot() - before
     # Only the topmost created path of each tree is removed.
@@ -261,11 +259,9 @@ class App:
     def quit(self):
         pids = self.pids()
         self.rpc("action.run", {"id": "quit"})
+        # Only the app's own quit ends it; a quit that hangs is reported, not signalled.
         if not wait(lambda: not any(run("kill", "-0", str(p)).returncode == 0 for p in pids), 90):
-            print(f"quit did not end {pids}; SIGTERM (a normal quit)")
-            for p in pids:
-                run("kill", "-TERM", str(p))
-            wait(lambda: not any(run("kill", "-0", str(p)).returncode == 0 for p in pids), 30)
+            print(f"quit did not end {pids} within 90 s; not signalling them")
 
 
 def acpmux_socket():

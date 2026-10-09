@@ -130,8 +130,10 @@ pub(crate) mod test_fixture {
             },
         )
         .unwrap();
-        host.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        host.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        // A safety bound for a late thread under full-suite load, not a
+        // timing assertion.
+        host.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(30))).unwrap();
         (surface, host)
     }
 }

@@ -113,7 +113,6 @@
     "agent-session/acpmux/conversation/icons.tsx#Undo",
     "agent-session/acpmux/conversation/icons.tsx#WrapLines",
     "agent-session/acpmux/handoff/ReviewMessage.tsx#HandoffReviewMessage",
-    "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/icons/IconsContext.tsx#IconsProvider",
     "agent-session/acpmux/permissions/Panel.tsx#PermissionPanel",

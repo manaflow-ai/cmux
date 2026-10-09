@@ -10,7 +10,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarModel()
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -18,7 +18,6 @@ final class SidebarBridge {
     private var observation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var widthObservation: Task<Void, Never>?
-    private var profileObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
     /// The optional Chats section (`sidebar.showChats`, SIDEBAR-NO-RECENTS).
@@ -39,6 +38,8 @@ final class SidebarBridge {
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
     private var snapshotRecorder = SidebarSnapshotRecorder()
+    /// Organization intents waiting for the home session's personal state.
+    let organizationQueue = SidebarOrganizationQueue()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
@@ -79,7 +80,6 @@ final class SidebarBridge {
         observation?.cancel()
         selectionObservation?.cancel()
         widthObservation?.cancel()
-        profileObservation?.cancel()
         sectionsObservation?.cancel()
         cardsObservation?.cancel()
     }
@@ -95,23 +95,23 @@ final class SidebarBridge {
             // `state.id` is read inside: the launch window adopts a saved id.
             // The layout too: removing the Home item lists the home workspace.
             // And the New Tab pages (a chat lists as a chat) and the muted set.
-            // The band's layout comes with the rows it projects (a pinned
-            // workspace leaves the list in the same turn it joins the band, cx-odqn).
-            for await ((sections, launching, failed), shown) in Observations({
-                (Self.liveSections(machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
-                                   newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
-                                   top: .make(layout, machines: machines, room: windowState.profileID.rawValue)),
-                 Self.visibleLayout(layout.document))
+            // The spaces and the current space come from the same observation
+            // as the rows (cx-5k3r): a space switch reaches the sidebar as one
+            // change (new space and its rows together), so the sidebar runs
+            // one slide, not a slide of the old rows and then a row reload.
+            // The band's layout comes with the rows it projects too (cx-odqn):
+            // a pinned workspace leaves the list in the turn it joins the band.
+            for await (sections, launching, failed, profiles, active, shown) in Observations({
+                let (sections, launching, failed) = Self.liveSections(
+                    machines, registry: registry, window: windowState, hidesHome: Self.hidesHome(layout.document),
+                    newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                    top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
+                return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
+                        Self.visibleLayout(layout.document))
             }) {
-                self?.show(sections, layout: shown, launching: launching, failed: failed)
-            }
-        }
-        profileObservation = Task { [weak self] in
-            for await (profiles, active, launching) in Observations({
-                (Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
-                 Self.isLaunching(machines.local, registry: registry))
-            }) {
-                self?.showProfiles(profiles, active: active, launching: launching)
+                guard let self else { return }
+                self.showProfiles(profiles, active: active, launching: launching)
+                self.show(sections, layout: shown, launching: launching, failed: failed)
             }
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
@@ -160,6 +160,8 @@ final class SidebarBridge {
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [])
+        // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
+        model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
         if let saved, !saved.profiles.isEmpty {
             seededProfiles = (saved.sidebarProfiles, saved.sidebarActiveProfileID)
             model.profiles = saved.sidebarProfiles
@@ -185,6 +187,7 @@ final class SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         showRows(sections)
+        organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
     }
@@ -198,14 +201,13 @@ final class SidebarBridge {
         seededProfiles = nil
         if model.profiles != profiles { model.profiles = profiles }
         if model.activeProfileID != active { model.activeProfileID = active }
-        recordSnapshot()
+        // `show` records the snapshot right after, with the new space's rows.
     }
 
     /// The one writer of the rows: `live` (when given) with the pending edits applied.
     func showRows(_ live: [SidebarRowSection]? = nil) {
         if let live { self.live = live }
-        let shown = pendingEdits.apply(to: self.live)
-        if model.sections != shown { model.sections = shown }
+        model.setSections(pendingEdits.apply(to: self.live))
     }
 
     /// A pending edit's commands replied and the store holds their result, or they failed.
@@ -214,7 +216,7 @@ final class SidebarBridge {
         showRows()
     }
 
-    private func recordSnapshot() {
+    func recordSnapshot() {
         guard let state else { return }
         snapshotRecorder.record(model, window: state.id, services: services)
     }

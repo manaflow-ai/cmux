@@ -34,12 +34,14 @@ export const apiUrl = createServerOnlyFn(() => {
 
 const stackHeaders = () => {
   const project = process.env.CMUX_STACK_PROJECT_ID
-  const key = process.env.CMUX_STACK_PUBLISHABLE_CLIENT_KEY
-  if (!project || !key) throw new Error("Stack project is not configured")
+  // The publishable key is optional: the production project requires none,
+  // and a revoked key is refused.
+  const key = process.env.CMUX_STACK_PUBLISHABLE_CLIENT_KEY?.trim()
+  if (!project) throw new Error("Stack project is not configured")
   return {
     "content-type": "application/json",
     "x-stack-project-id": project,
-    "x-stack-publishable-client-key": key,
+    ...(key ? { "x-stack-publishable-client-key": key } : {}),
     "x-stack-access-type": "client"
   }
 }

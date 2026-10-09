@@ -1,3 +1,4 @@
+use crate::Actor;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ mod emptied_workspace;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
+mod reservations;
 mod screen_create;
 mod structural_move;
 mod unpublished_creation;
@@ -47,7 +49,7 @@ struct LayoutMutationContext<'a> {
 #[derive(Clone, Copy)]
 struct ResourceEffectIntentContext<'a> {
     expected_revision: Option<u64>,
-    mutation_origin: &'a str,
+    mutation: &'a WorkspaceMutation,
 }
 
 struct PaneAddOptions<'a> {
@@ -330,9 +332,9 @@ impl Mux {
             "workspace_key":Self::new_workspace_key()?,
             "name":reserved_name,
         });
-        let preparation = registry.prepare_resource_creation(
+        let preparation = registry.prepare_resource_creation_for(
             correlation_key,
-            &mutation.id,
+            mutation,
             "workspace.create",
             &fingerprint,
             &proposed_intent,
@@ -1162,6 +1164,7 @@ impl Mux {
 
     pub(super) fn commit_ordinary_tab_selection(
         self: &Arc<Self>,
+        actor: &Actor,
         selectors: ResourceSelectors,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint = json!({
@@ -1174,7 +1177,7 @@ impl Mux {
             selectors,
             false,
             None,
-            &WorkspaceMutation::local("cmux-tui"),
+            &WorkspaceMutation::local("cmux-tui", actor.clone()),
             &fingerprint,
         )
     }
@@ -1464,20 +1467,22 @@ impl Mux {
 
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
-    pub fn move_tab_to_workspace(
+    pub fn move_tab_to_workspace_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
-        self.move_tab_to_workspace_placed(surface, workspace, None, None, None)
+        self.move_tab_to_workspace_placed(actor, surface, workspace, None, None, None)
     }
 
     /// Move a tab into a new workspace created in the same transaction,
     /// optionally in a sidebar group and at a final index among that
     /// section's members (groups partition the workspace order), named `name`
     /// (else the default `workspace-N`). Returns the new workspace.
-    pub fn move_tab_to_new_workspace(
+    pub fn move_tab_to_new_workspace_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         group: Option<String>,
         index: Option<usize>,
@@ -1489,7 +1494,7 @@ impl Mux {
                 "unknown workspace group {group}"
             );
         }
-        self.move_tab_to_workspace_placed(surface, None, group, index, name)?;
+        self.move_tab_to_workspace_placed(actor, surface, None, group, index, name)?;
         self.with_state(|state| {
             state
                 .pane_of(surface)
@@ -1501,6 +1506,7 @@ impl Mux {
 
     fn move_tab_to_workspace_placed(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
         group: Option<String>,
@@ -1527,7 +1533,10 @@ impl Mux {
                     .map(|pane| (pane.id, pane.tabs.len())))
             })?;
             if let Some((pane, index)) = target {
-                anyhow::ensure!(self.move_tab(surface, pane, index), "tab could not be moved");
+                anyhow::ensure!(
+                    self.move_tab_as(actor, surface, pane, index),
+                    "tab could not be moved"
+                );
                 return Ok(());
             }
         }
@@ -1535,7 +1544,7 @@ impl Mux {
             workspace.is_some() || !self.workspaces_are_provider_managed(),
             "managed workspace creation is not supported by tab moves"
         );
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
             "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
@@ -2615,15 +2624,12 @@ impl Mux {
                     operation,
                     &selectors,
                     &fields,
-                    ResourceEffectIntentContext {
-                        expected_revision,
-                        mutation_origin: &mutation.origin,
-                    },
+                    ResourceEffectIntentContext { expected_revision, mutation },
                     &mut state,
                     &registry,
                 )?;
-                registry.prepare_resource_effect(
-                    &mutation.id,
+                registry.prepare_resource_effect_for(
+                    mutation,
                     &operation_name,
                     fingerprint,
                     &intent,
@@ -2691,7 +2697,11 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error)
                         if error
@@ -3648,9 +3658,9 @@ impl Mux {
                 true,
             )? {
                 Some(ResourceCreationPreparation::Execute { intent, .. }) => registry
-                    .prepare_resource_creation(
+                    .prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -3671,16 +3681,13 @@ impl Mux {
                         operation,
                         selectors,
                         &effect_fields,
-                        ResourceEffectIntentContext {
-                            expected_revision,
-                            mutation_origin: &mutation.origin,
-                        },
+                        ResourceEffectIntentContext { expected_revision, mutation },
                         &mut state,
                         &registry,
                     )?;
-                    registry.prepare_resource_creation(
+                    registry.prepare_resource_creation_for(
                         correlation_key,
-                        &mutation.id,
+                        mutation,
                         &operation_name,
                         fingerprint,
                         &intent,
@@ -3712,7 +3719,11 @@ impl Mux {
                     .unwrap()
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error) => {
                         #[cfg(test)]
@@ -3901,7 +3912,8 @@ impl Mux {
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
         if let Some(workspace) = workspace {
             anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(workspace)?.is_some(),
+                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
+                    .is_some(),
                 "interrupted staged workspace {public_id} disappeared during rollback"
             );
         }
@@ -4093,15 +4105,16 @@ impl Mux {
                 }
                 None => TerminalId::random()?.to_hex(),
             };
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             intent["terminal_reservation"] = json!({
                 "terminal_id":terminal_id,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if topology_effect_may_create_workspace(operation) {
-            let mutation = WorkspaceMutation::local(context.mutation_origin);
+            let mutation = context.mutation.reservation();
             let workspace_key = fields
                 .get("workspace_key")
                 .and_then(Value::as_str)
@@ -4113,6 +4126,7 @@ impl Mux {
                 "workspace_public_id":WorkspacePublicId::random()?,
                 "mutation_id":mutation.id,
                 "mutation_origin":mutation.origin,
+                "mutation_actor":mutation.actor.wire(),
             });
         }
         if creates == Some(CreatedIdentityKind::Browser) {
@@ -4200,6 +4214,7 @@ impl Mux {
 
     fn execute_resource_topology_effect(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: ResourceOperation,
         intent: &Value,
     ) -> anyhow::Result<Value> {
@@ -4232,7 +4247,7 @@ impl Mux {
                 let target =
                     self.effect_slots(&path)?.workspace.context("workspace disappeared")?;
                 anyhow::ensure!(
-                    self.close_workspace_at_revision_for_resource_effect(target)?.is_some(),
+                    self.close_workspace_at_revision_for_resource_effect(actor, target)?.is_some(),
                     "workspace disappeared"
                 );
                 Ok(json!({}))
@@ -4599,80 +4614,6 @@ impl Mux {
                 "tab_id":identity.tab_id,
                 "browser_id":id,
             }),
-        })
-    }
-
-    fn effect_workspace_reservation(
-        &self,
-        intent: &Value,
-    ) -> anyhow::Result<(String, WorkspacePublicId, WorkspaceMutation)> {
-        let reservation = intent["workspace_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its workspace reservation")?;
-        let key = reservation["workspace_key"]
-            .as_str()
-            .context("stored workspace reservation omitted its key")?
-            .to_string();
-        let public_id = WorkspacePublicId::parse(
-            reservation["workspace_public_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its public id")?
-                .to_string(),
-        )?;
-        let mutation = WorkspaceMutation::new(
-            reservation["mutation_id"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation id")?,
-            reservation["mutation_origin"]
-                .as_str()
-                .context("stored workspace reservation omitted its mutation origin")?,
-        )?;
-        Ok((key, public_id, mutation))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn effect_terminal_reservation(
-        &self,
-        intent: &Value,
-        workspace_key: &str,
-        argv: Option<&[String]>,
-        cwd: Option<&str>,
-        name: Option<&str>,
-        size: Option<(u16, u16)>,
-        on_exit: Option<TerminalOnExit>,
-    ) -> anyhow::Result<TerminalReservationRequest> {
-        let stored = intent["terminal_reservation"]
-            .as_object()
-            .context("stored topology intent omitted its terminal reservation")?;
-        let terminal_hex = stored["terminal_id"]
-            .as_str()
-            .context("stored terminal reservation omitted its terminal id")?;
-        let terminal_id = TerminalId::from_hex(terminal_hex)
-            .context("stored terminal reservation has an invalid terminal id")?;
-        let mutation = WorkspaceMutation::new(
-            stored["mutation_id"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation id")?,
-            stored["mutation_origin"]
-                .as_str()
-                .context("stored terminal reservation omitted its mutation origin")?,
-        )?;
-        Ok(TerminalReservationRequest {
-            terminal_id,
-            mutation,
-            fingerprint: terminal_create_fingerprint(
-                workspace_key,
-                Some(terminal_hex),
-                argv,
-                cwd,
-                name,
-                size,
-                on_exit,
-            )?,
-            expected_generation: None,
-            expected_revision: None,
-            on_exit: on_exit.unwrap_or_default(),
-            env: terminal_env_field(&intent["fields"]),
         })
     }
 
@@ -6458,7 +6399,7 @@ mod creation_recovery_tests {
         let operation = ResourceOperation::TabCreateBrowser;
         let operation_name = operation_name(operation);
         let correlation_key = "correlation";
-        let mutation = WorkspaceMutation::new("attempt-one", "test").unwrap();
+        let mutation = WorkspaceMutation::daemon("attempt-one", "test").unwrap();
         let fingerprint = json!({"operation":operation_name});
         let intent = json!({
             "browser_reservation":{
@@ -6469,9 +6410,9 @@ mod creation_recovery_tests {
         mux.workspace_registry
             .lock()
             .unwrap()
-            .prepare_resource_creation(
+            .prepare_resource_creation_for(
                 correlation_key,
-                &mutation.id,
+                &mutation,
                 &operation_name,
                 &fingerprint,
                 &intent,
@@ -6484,7 +6425,7 @@ mod creation_recovery_tests {
             None,
             None,
             None,
-            &WorkspaceMutation::local("concurrent-test"),
+            &WorkspaceMutation::daemon_local("concurrent-test"),
         )
         .unwrap();
 

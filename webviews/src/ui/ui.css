@@ -225,7 +225,7 @@
 .ui-backdrop {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, black 14%, transparent);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
 }
 
 .ui-dialog {
