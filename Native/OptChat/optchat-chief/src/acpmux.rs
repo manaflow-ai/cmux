@@ -219,6 +219,11 @@ pub trait AgentPort: Send + Sync {
     fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
         self.start_steer(session, blocks, prompt_id)?()
     }
+    /// Records `cwd` as trusted (`acp.trust.set`, level trusted), so the
+    /// app's pane never asks about a folder the host made itself.
+    fn trust_folder(&self, _cwd: &std::path::Path) -> Result<(), String> {
+        Err("trusting folders is not supported".into())
+    }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
     /// of exactly that shape takes a harness that is already up.
@@ -857,6 +862,16 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.client()?
+            .request(
+                "acp.trust.set",
+                json!({"cwd": cwd.display().to_string(), "level": "trusted"}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("acp.trust.set: {e}"))
     }
 
     fn respond_permission(

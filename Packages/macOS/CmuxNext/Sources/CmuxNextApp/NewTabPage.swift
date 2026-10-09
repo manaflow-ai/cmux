@@ -265,15 +265,16 @@ extension PaneController {
     /// (``NewTabPage/open(in:seed:)``).
     func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
 
-    /// Focus Location Bar: a browser tab's address bar; the field of a new tab
-    /// page already showing; anywhere else a new tab page, whose field takes
-    /// the keyboard. ⌃L stays the terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
+    /// page already showing (cx-e2aa; its field when it shows none); anywhere
+    /// else a new tab page, whose field takes the keyboard. ⌃L stays the
+    /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
         if case .browser = currentContent {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
         } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
+            if let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
         } else {
             newTabPage()
         }
