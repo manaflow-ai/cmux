@@ -37,7 +37,7 @@ public final class WebKitDriver: DriverCallHandler {
         switch method {
         case "tabs.list": return try tabsList(params)
         case "tabs.open": return try await tabsOpen(params)
-        case "tabs.close": return try tabsClose(params)
+        case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)
         case "tab.navigate": return try await tabNavigate(params)
