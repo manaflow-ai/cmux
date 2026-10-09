@@ -51,7 +51,14 @@ impl Brain {
     /// harness gate admits it), preset and directory. A failure only costs
     /// the next turn a cold start, so it is logged and nothing else.
     pub(super) fn prewarm_next_turn(&mut self) {
-        if !matches!(self.settings.engine, Engine::Acpmux) || !self.agents_up {
+        // Only while idle: a pooled harness starting next to a turn's own
+        // session raced it (E18: two codex processes on one CODEX_HOME,
+        // "failed to initialize sqlite state runtime"), and a turn that
+        // starts at once does not take it anyway.
+        if !matches!(self.settings.engine, Engine::Acpmux)
+            || !self.agents_up
+            || self.phase != super::Phase::Idle
+        {
             return;
         }
         let (engine, _) = self.next_engine();
