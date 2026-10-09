@@ -31,7 +31,9 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     /// Driver results (and errors) the runtime has not taken yet.
     case driverResultBytes
     /// The arguments of the synchronous host call running (`fs`, `secrets`,
-    /// `policy`), reserved before they are parsed or decoded.
+    /// `policy`), reserved before they are parsed or decoded, and a browser
+    /// call's parameters or a fetch's request while they are copied out of
+    /// JavaScript, reserved by their length before the copy.
     case hostCallBytes
     /// Fetches waiting for a slot.
     case queuedFetches
@@ -165,7 +167,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .requestBytes: "parameters of the browser calls and fetches waiting or running"
         case .inputEvents: "native input events of the browser calls waiting or running"
         case .driverResultBytes: "browser call results the session's JavaScript has not taken yet"
-        case .hostCallBytes: "arguments of an fs, secrets or policy call"
+        case .hostCallBytes: "arguments of an fs, secrets or policy call (or a browser call or fetch being copied in)"
         case .queuedFetches: "fetches waiting for a slot"
         case .requestPhaseFetches: "fetches waiting for their response headers"
         case .openFetches: "open fetches"

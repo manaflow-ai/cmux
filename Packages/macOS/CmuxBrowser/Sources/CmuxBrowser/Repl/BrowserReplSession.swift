@@ -1928,10 +1928,30 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let driverCall: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] callID, method, params in
             guard let self, let callID = callID?.toInt32() else { return }
+            // Lengths first: a method name or parameters past their limit
+            // by their length are refused before they are copied out of
+            // JavaScript, and the copy is reserved in the session's ledger
+            // before it is made (released once the call holds its own
+            // reservation or is refused).
+            guard Self.stringUnits(method) <= Self.maxDriverMethodUnits else {
+                self.refuseCall(Int(callID), BrowserReplDriverError(code: "invalid", message: "a browser call's method name is at most \(Self.maxDriverMethodUnits) characters"))
+                return
+            }
             let methodName = method?.toString() ?? ""
+            let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : (self.ledger.limits.each(.requestBytes) ?? .max)
+            let units = Self.stringUnits(params)
+            guard units <= limit else {
+                let refusal = BrowserReplResourceLimitError(resource: .requestBytes, limit: limit, isPerItem: true, held: self.ledger.held(.requestBytes), requested: units)
+                self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
+                return
+            }
+            if let refusal = self.ledger.reserve(units, of: .hostCallBytes, each: .max) {
+                self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
+                return
+            }
+            defer { self.ledger.release(units, of: .hostCallBytes) }
             let raw = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
             // An oversized call is refused before it is parsed or waits.
-            let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : (self.ledger.limits.each(.requestBytes) ?? .max)
             guard raw.utf8.count <= limit else {
                 let refusal = BrowserReplResourceLimitError(resource: .requestBytes, limit: limit, isPerItem: true, held: self.ledger.held(.requestBytes), requested: raw.utf8.count)
                 self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
@@ -1970,6 +1990,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
+            // Past the limit by its length, the request is refused before
+            // it is copied out of JavaScript; the copy is reserved first.
+            let units = Self.stringUnits(request)
+            if let refusal = BrowserReplFetcher.oversizedRequest(units: units) {
+                self.refuseCall(Int(callID), refusal, method: "fetch")
+                return
+            }
+            if let refusal = self.ledger.reserve(units, of: .hostCallBytes, each: .max) {
+                self.refuseCall(Int(callID), refusal.driverError("fetch"), method: "fetch")
+                return
+            }
+            defer { self.ledger.release(units, of: .hostCallBytes) }
             let requestJSON = request?.toString() ?? "{}"
             // An oversized body, or JSON past the structure one call may
             // pass, is refused before it waits in the queue or is parsed.
@@ -2206,6 +2238,18 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// ledger's own per-call limit.
     /// The longest path `readResource` looks up, 1,024 bytes (`PATH_MAX`).
     static let maxResourcePathBytes = 1024
+
+    /// The longest method name a browser call passes, in UTF-16 code units.
+    static let maxDriverMethodUnits = 256
+
+    /// A JavaScript string's length in UTF-16 code units, read without
+    /// copying it out of JavaScript (0 for any other value). It is at most
+    /// the string's UTF-8 size, so a string past a byte limit by its length
+    /// is past it.
+    static func stringUnits(_ value: JSValue?) -> Int {
+        guard let value, value.isString, let length = value.forProperty("length")?.toDouble(), length.isFinite, length > 0 else { return 0 }
+        return Int(min(length, Double(Int.max / 4)))
+    }
 
     func hostCallLimit(isFileSystem: Bool) -> Int {
         let each = ledger.limits.each(.hostCallBytes) ?? .max

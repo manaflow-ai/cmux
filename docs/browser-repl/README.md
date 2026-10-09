@@ -707,7 +707,7 @@ checks nothing stays reserved after the session ends.
 | Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |
 | Browser calls running | 256 | later ones wait in order |
 | Browser calls waiting | 10,000 | the call fails at once |
-| One browser call's parameters | 64 MiB (`filechooser.respond`: its 256 MiB of files in Base64, plus 1 MiB) | the call fails before it is parsed |
+| One browser call's parameters | 64 MiB (`filechooser.respond`: its 256 MiB of files in Base64, plus 1 MiB); judged by the JavaScript string's length before it is copied into native memory, and the copy is reserved in the session's memory first (as an `fs` call's arguments) | the call fails before it is copied or parsed |
 | Parameters of calls and fetch requests waiting or running (M) | 512 MiB | the call fails at once |
 | Native input events of one `input.drag` (a move, the press, five steps a path segment, the release) / of the calls waiting or running | 10,000 (a path of 2,000 points) / 100,000; points must be finite | the call fails before the driver sends any event |
 | One browser call's result | 64 MiB, also with secrets masked | the call fails before its result is masked |

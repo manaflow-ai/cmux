@@ -37,11 +37,17 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// (``JSONSerialization/browserReplCallStructureRefusal(_:)``), which
     /// no timeout could interrupt the parse of.
     public static func oversizedRequest(_ requestJSON: String) -> BrowserReplDriverError? {
-        if requestJSON.utf8.count > maxRequestBodyBytes / 3 * 4 + (1 << 20) {
-            return requestBodyTooLarge(atLeast: (requestJSON.utf8.count - (1 << 20)) / 4 * 3)
-        }
+        if let refusal = oversizedRequest(units: requestJSON.utf8.count) { return refusal }
         guard let reason = JSONSerialization.browserReplCallStructureRefusal(requestJSON) else { return nil }
         return BrowserReplDriverError(code: "invalid", message: "fetch: \(reason)")
+    }
+
+    /// The same refusal by a request JSON's size (or its JavaScript length
+    /// in UTF-16 code units, which is at most its UTF-8 size), before it is
+    /// copied out of JavaScript.
+    public static func oversizedRequest(units: Int) -> BrowserReplDriverError? {
+        guard units > maxRequestBodyBytes / 3 * 4 + (1 << 20) else { return nil }
+        return requestBodyTooLarge(atLeast: (units - (1 << 20)) / 4 * 3)
     }
 
     private static func requestBodyTooLarge(atLeast count: Int) -> BrowserReplDriverError {
