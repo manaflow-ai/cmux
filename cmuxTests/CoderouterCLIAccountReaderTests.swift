@@ -15,6 +15,67 @@ struct CoderouterCLIAccountReaderTests {
     private static let austinOrganizationID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
     private static let cmuxOrganizationID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
+    @Test("Account reads pass the selected team directly and verify the response scope")
+    func accountReadUsesSelectedTeam() async {
+        let commands = CommandRecorder()
+        let expected = Self.cmuxTeamID
+
+        await #expect(throws: Never.self) {
+            let accounts = try await CoderouterCLIAccountReader.accounts(
+                for: expected,
+                name: nil,
+                run: { arguments in
+                    await commands.append(arguments)
+                    #expect(arguments == ["accounts", "--json", "--team", expected])
+                    return Data("{\"teamId\":\"\(expected)\",\"accounts\":[]}".utf8)
+                }
+            )
+            #expect(accounts.isEmpty)
+        }
+
+        #expect(await commands.value == [["accounts", "--json", "--team", expected]])
+    }
+
+    @Test("Account reads reject a payload from another organization")
+    func accountReadRejectsWrongOrganization() async {
+        let commands = CommandRecorder()
+        let expected = Self.cmuxTeamID
+
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.accounts(
+                for: expected,
+                name: nil,
+                run: { arguments in
+                    await commands.append(arguments)
+                    return Data("{\"teamId\":\"\(Self.cmuxOrganizationID)\",\"accounts\":[]}".utf8)
+                }
+            )
+        }
+
+        #expect(await commands.value == [["accounts", "--json", "--team", expected]])
+    }
+
+    @Test("Account removal carries the selected team and does not switch the shared organization")
+    func accountRemovalUsesSelectedTeam() async {
+        let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
+        let commands = CommandRecorder()
+
+        await #expect(throws: Never.self) {
+            try await CoderouterCLIAccountReader.remove(
+                accountID: accountID,
+                for: Self.cmuxTeamID,
+                name: nil,
+                run: { arguments in
+                    await commands.append(arguments)
+                    #expect(arguments == ["remove", accountID, "--yes", "--team", Self.cmuxTeamID])
+                    return Data()
+                }
+            )
+        }
+
+        #expect(await commands.value == [["remove", accountID, "--yes", "--team", Self.cmuxTeamID]])
+    }
+
     @Test("Selected team loads the accounts of its active CodeRouter organization")
     func activeOrganizationLoadsAccounts() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
@@ -109,6 +170,14 @@ struct CoderouterCLIAccountReaderTests {
             )
         }
         #expect(await cli.commands.isEmpty)
+    }
+}
+
+private actor CommandRecorder {
+    private(set) var value: [[String]] = []
+
+    func append(_ command: [String]) {
+        value.append(command)
     }
 }
 
