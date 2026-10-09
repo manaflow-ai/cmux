@@ -243,6 +243,11 @@ export type ProPlanStatus = {
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
+  /**
+   * The Stripe subscription that grants the plan is set to end at period
+   * end, so pricing offers Resume instead of a new purchase.
+   */
+  readonly cancelScheduled?: boolean;
 };
 
 /**
@@ -374,6 +379,8 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
+    cancelScheduled: billingSource === "stripe" && hasActiveStripePro &&
+      Boolean(stripeBillingStatus?.cancelAtPeriodEnd),
   };
 }
 

@@ -2037,7 +2037,8 @@
     },
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
-    "manageInAppStore": "Manage in the App Store"
+    "manageInAppStore": "Manage in the App Store",
+    "resumePlan": "Resume {plan}"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
