@@ -28,6 +28,13 @@
       "status": 404,
       "reason": "web/ removed the route in #11566 (2026-09-02), before v0.65.0 shipped; production answers the same 404 (v0.65.0 SSH attach is already broken there)",
       "since": "2026-10-09"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subrouter/accounts",
+      "status": 502,
+      "reason": "signed in, staging answers {\"error\":\"upstream_request_failed\"}: the hosted subrouter (staging.sr.cmux.com; production sr.cmux.com) has had no DNS since 2026-09-30, so production fails the same way (v0.65.0 AI accounts list is broken there too)",
+      "since": "2026-10-09"
     }
   ]
 }
