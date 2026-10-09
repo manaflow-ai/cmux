@@ -131,7 +131,7 @@ DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
 # labels (`reduce(into: [:])`) are not read as declarations.
 # The type is read from the match end, so a later parameter on the same line is found too.
 PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(?=\[|(?:Dictionary|Array)\s*<)")
-FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
+FUNC_OR_INIT = re.compile(r"\bfunc\s+\w+\s*(?:<[^>]*>)?\s*\(|(?<![.\w])init\??\s*(?:<[^>]*>)?\s*\(")
 
 
 BOUND_BEFORE = re.compile(r"(?:\b(?:if|guard|while)\s+|,\s*)(?:let|var)\s+\w+(?:\s*:\s*[^=,]+)?\s*=\s*$")
@@ -147,6 +147,20 @@ def is_bound_value(code, start, end):
 
 
 RADIX_ARGUMENT = re.compile(r",\s*radix\s*:")
+
+
+def top_level(arguments):
+    """ARGUMENTS with every nested (...) or [...] group removed, so a label inside a
+    nested call (`UInt8(String(v, radix: 2).count)`) is not read as the outer one's."""
+    out, depth = [], 0
+    for ch in arguments:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
 
 
 def int_conversion_hits(code):
@@ -167,7 +181,7 @@ def int_conversion_hits(code):
         after = code[end:].lstrip() if end else ""
         if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
-        if end and RADIX_ARGUMENT.search(code[match.end():end - 1]):
+        if end and RADIX_ARGUMENT.search(top_level(code[match.end():end - 1])):
             continue  # `Int(text, radix: 10)`: the failable string parse, never a trap
         hits += 1
     return hits
@@ -208,17 +222,20 @@ def collection_names(lines):
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
         head = FUNC_OR_INIT.search(code)
         if head or signature_depth > 0:
-            params = code[head.end() - 1:] if head else "(" + code
-            found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
-            depth = signature_depth if not head else 0
-            for ch in (code[head.end() - 1:] if head else code):
+            # Only the parameter list: up to the parenthesis that closes it.
+            text = code[head.end() - 1:] if head else code
+            depth, stop = (0 if head else signature_depth), len(text)
+            for pos, ch in enumerate(text):
                 if ch == "(":
                     depth += 1
                 elif ch == ")":
                     depth -= 1
                     if depth <= 0:
+                        stop = pos + 1
                         break
-            signature_depth = max(depth, 0)
+            params = text[:stop] if head else "(" + text[:stop]
+            found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
+            signature_depth = max(depth, 0) if stop == len(text) else 0
         for name, text in found:
             (dicts if bracket_kind(text) == "dict" else others).add(name)
     return dicts, others
@@ -235,8 +252,13 @@ def index_hits(code, dictionaries=frozenset()):
             continue
         if re.match(r"checked\s*:", inner) or re.search(r",\s*default\s*:", inner):
             continue  # a checked accessor, or a dictionary subscript with a default
-        base = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")]).split(".")[-1]
-        if base in dictionaries:
+        chain = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")])
+        base = chain.split(".")[-1]
+        # A file's own declarations decide only for a bare name (or self.name); a
+        # member of another value (`transport.pending[i]`) uses the module rule.
+        local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
+        qualified = "." in chain and not chain.startswith("self.")
+        if base in (module if qualified else local):
             continue
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
             continue  # a type: [String], [Key: Value]
@@ -490,7 +512,8 @@ def file_dictionaries(lines, module_dicts):
     dictionary declared in this one; one declared any other way in this file still counts."""
     dicts, others = collection_names(lines)
     declared = dicts | others
-    return frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
+    return (frozenset((dicts - others) | {name for name in module_dicts if name not in declared}),
+            frozenset(module_dicts))
 
 
 def scan_swift(repo, counts, banned_files=None):
