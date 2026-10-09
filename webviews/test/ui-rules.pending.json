@@ -59,6 +59,7 @@
   "pages/keybindings/KeybindingsPage.tsx": 5,
   "pages/keybindings/mockProvider.ts": 1,
   "pages/settings/components/ActionRow.tsx": 1,
+  "pages/settings/components/AgentHarnesses.tsx": 2,
   "pages/settings/components/HostSections.tsx": 2,
   "pages/settings/components/SearchField.tsx": 1,
   "pages/settings/components/SettingRow.tsx": 1,

@@ -19,6 +19,76 @@ use std::sync::Arc;
 /// Why a loopback address is a cmux service's (`Some`), or `None`.
 pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 
+/// The DevTools probe (crate::egress_devtools), on a connected peer only
+/// (a pre-dial probe would take a one-shot server's single request, an
+/// OAuth callback for one) and only for node, bun and deno holders.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn probe(
+    addr: SocketAddr,
+    connected: bool,
+    holders: &[crate::egress_holders::Holder],
+) -> Option<String> {
+    if !connected || !crate::egress_devtools::wants_probe(holders) {
+        return None;
+    }
+    let pids: Vec<i32> = holders.iter().map(|holder| holder.pid).collect();
+    crate::egress_devtools::refusal(addr, &pids)
+}
+
+/// Whether an address belongs to this machine (one of its interfaces).
+pub type OwnAddresses = Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>;
+
+/// This machine's interface addresses, read per check (`getifaddrs`, no
+/// process spawn) so a new interface counts at once. When the list cannot be
+/// read, every address counts as this machine's: the service check runs,
+/// which refuses what it cannot see (fail closed).
+pub fn system_own_addresses() -> OwnAddresses {
+    Arc::new(|ip| interface_addresses().is_none_or(|ips| ips.contains(&ip)))
+}
+
+/// The addresses of this machine's interfaces (IPv4-mapped IPv6 as IPv4);
+/// `None` when they cannot be read.
+#[cfg(unix)]
+fn interface_addresses() -> Option<Vec<std::net::IpAddr>> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `list` is a valid out pointer; freed below.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: a non-null node of the list getifaddrs returned.
+        let entry = unsafe { &*at };
+        at = entry.ifa_next;
+        if entry.ifa_addr.is_null() {
+            continue;
+        }
+        // SAFETY: ifa_addr is non-null and points to a sockaddr whose family
+        // tells its real type.
+        let family = i32::from(unsafe { (*entry.ifa_addr).sa_family });
+        if family == libc::AF_INET {
+            // SAFETY: an AF_INET address is a sockaddr_in.
+            let sin = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in>() };
+            out.push(IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr))));
+        } else if family == libc::AF_INET6 {
+            // SAFETY: an AF_INET6 address is a sockaddr_in6.
+            let sin6 = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in6>() };
+            let v6 = Ipv6Addr::from(sin6.sin6_addr.s6_addr);
+            out.push(v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4));
+        }
+    }
+    // SAFETY: the list getifaddrs returned, freed once.
+    unsafe { libc::freeifaddrs(list) };
+    Some(out)
+}
+
+#[cfg(not(unix))]
+fn interface_addresses() -> Option<Vec<std::net::IpAddr>> {
+    None
+}
+
 /// Executable names of cmux services. Anything named `cmux-*` counts too.
 /// Chrome counts: cmux launches no Chrome with a DevTools port (cx-2u5k),
 /// but an agent's own automation does (agent-browser, Playwright,
@@ -46,13 +116,23 @@ pub fn is_service_name(name: &str) -> bool {
 
 /// This machine's check before a dial (a listener may not exist yet).
 pub fn system_check() -> ServiceCheck {
-    Arc::new(|addr| service_refusal(addr, false))
+    Arc::new(|addr| twice(|| service_refusal(addr, false)))
+}
+
+/// A refusal is checked once more on a fresh snapshot, and stands only if
+/// that check refuses too: a process that starts, execs or exits while the
+/// check reads it can read as an unidentified or unreadable holder (seen as
+/// rare refusals of live test listeners under a busy test run). A real
+/// refusal (a cmux service, a debugger port) refuses both times; the second
+/// check is a full check, so this is no weaker than one.
+fn twice(check: impl Fn() -> Option<String>) -> Option<String> {
+    check().and_then(|_| check())
 }
 
 /// This machine's check of a connected peer: a listener exists, so one
 /// this host cannot see refuses the port (fail closed).
 pub fn system_connected_check() -> ServiceCheck {
-    Arc::new(|addr| service_refusal(addr, true))
+    Arc::new(|addr| twice(|| service_refusal(addr, true)))
 }
 
 #[cfg(target_os = "linux")]
@@ -68,16 +148,19 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
         return connected
             .then(|| format!("loopback port {port} is held by a socket this host cannot see"));
     }
-    let (held, exes) = holders(&inodes);
-    if let Some(name) = exes.iter().flatten().find(|name| is_service_name(name)) {
-        return Some(format!("loopback port {port} is the cmux service {name}"));
+    let (held, holders) = holders(&inodes);
+    for (holder, family) in holders.iter().flatten() {
+        if let Some(why) = crate::egress_holders::holder_refusal(holder, port, *family) {
+            return Some(why);
+        }
     }
-    if held < inodes.len() || exes.iter().any(Option::is_none) {
+    if held < inodes.len() || holders.iter().any(Option::is_none) {
         return Some(format!(
             "the process that listens on loopback port {port} cannot be identified"
         ));
     }
-    None
+    let holders: Vec<_> = holders.into_iter().flatten().map(|(holder, _)| holder).collect();
+    probe(addr, connected, &holders)
 }
 
 /// App bundle executable names (macOS names them with spaces): cmux
@@ -96,15 +179,26 @@ pub(crate) fn is_app_service_name(name: &str) -> bool {
 /// (crate::egress_listeners).
 #[cfg(target_os = "macos")]
 fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
-    use crate::egress_listeners::{system_listeners, system_own_listeners, verdict};
+    use crate::egress_listeners::{fill_holders, system_listeners, system_own_listeners, verdict};
     // SAFETY: geteuid has no preconditions.
     let own_uid = unsafe { libc::geteuid() };
-    let (Some(table), Some(own)) = (system_listeners(), system_own_listeners(own_uid)) else {
+    let (Some(table), Some(mut own)) = (system_listeners(), system_own_listeners(own_uid)) else {
         return Some(format!(
             "loopback {addr} cannot be checked: the socket tables are unreadable"
         ));
     };
-    verdict(addr, &table, &own, own_uid, connected)
+    fill_holders(&mut own, addr);
+    if let Some(why) = verdict(addr, &table, &own, own_uid, connected) {
+        return Some(why);
+    }
+    let holders: Vec<_> = own
+        .into_iter()
+        .filter(|held| crate::egress_listeners::covers(&held.listener, addr))
+        .filter_map(|held| {
+            held.holder.map(|holder| crate::egress_holders::Holder { pid: held.pid, ..holder })
+        })
+        .collect();
+    probe(addr, connected, &holders)
 }
 
 #[cfg(target_os = "macos")]
@@ -159,9 +253,9 @@ pub fn parse_listening(table: &str, port: u16) -> Vec<u64> {
 }
 
 /// The holders of `inodes`: how many of the inodes some readable process
-/// holds, and each holder's executable name (`None`: unreadable).
+/// holds, and each holder (`None`: unreadable).
 #[cfg(target_os = "linux")]
-fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
+fn holders(inodes: &[u64]) -> (usize, Vec<Option<(crate::egress_holders::Holder, bool)>>) {
     let wanted: Vec<String> = inodes.iter().map(|inode| format!("socket:[{inode}]")).collect();
     let mut held = vec![false; wanted.len()];
     let mut exes = Vec::new();
@@ -181,11 +275,14 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
             }
         }
         if holds {
-            exes.push(
-                std::fs::read_link(format!("/proc/{pid}/exe"))
-                    .ok()
-                    .and_then(|path| Some(path.file_name()?.to_string_lossy().into_owned())),
-            );
+            // The executable path is in the process's mount namespace
+            // (snap, Flatpak): look beside it through its root.
+            exes.push(crate::egress_holders::system_holder(pid).map(|holder| {
+                let seen = format!("/proc/{pid}/root{}", holder.path);
+                let family = crate::egress_holders::dir_is_chromium_family(&seen)
+                    || crate::egress_holders::dir_is_chromium_family(&holder.path);
+                (holder, family)
+            }));
         }
     }
     (held.iter().filter(|h| **h).count(), exes)
