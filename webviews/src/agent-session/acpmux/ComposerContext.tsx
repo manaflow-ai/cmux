@@ -569,6 +569,8 @@ function LocationPicker({
             <button
               type="button"
               className="acpmux-menu-item acpmux-location-choose"
+              // The field keeps the keyboard: its blur closes the picker before the click.
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 setOpen(false);
                 setQuery("");
