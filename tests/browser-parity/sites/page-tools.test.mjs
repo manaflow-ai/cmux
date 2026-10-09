@@ -274,6 +274,49 @@ test("browserAuth.request: after the sheet only the submit element checked befor
   assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
 });
 
+// r44 sites#1: the submit control sends the filled credentials where its
+// form submits them, which the page sets (form action, formaction,
+// target, formtarget, <base target>). The submission must stay on the
+// page's own origin, in the same browsing context: otherwise nothing is
+// filled or pressed (refused before the sheet), and a destination the page
+// changes while the sheet is up gets no press.
+test("browserAuth.request: the submit control must submit to the page's own origin, in the same tab", async () => {
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  const unsafe = [
+    ['() => document.getElementById("f").setAttribute("action", "https://elsewhere.example/collect")', '{ selector: "#f button" }'],
+    ['() => document.querySelector("#f button").setAttribute("formaction", "https://elsewhere.example/collect")', '{ selector: "#f button" }'],
+    ['() => document.getElementById("f").setAttribute("action", "http://login.example/collect")', '{ selector: "#f button" }'],
+    ['() => document.getElementById("f").setAttribute("target", "_blank")', '{ selector: "#f button" }'],
+    ['() => document.querySelector("#f button").setAttribute("formtarget", "other")', '{ selector: "#f button" }'],
+    ['() => { const b = document.createElement("base"); b.target = "_blank"; document.head.appendChild(b); }', '{ selector: "#f button" }'],
+    ['() => document.getElementById("f").setAttribute("action", "https://elsewhere.example/collect")', `{ selector: 'input[name="email"]', action: "press_enter" }`],
+    ['() => { const i = document.createElement("input"); i.name = "action"; i.type = "hidden"; const f = document.getElementById("f"); f.appendChild(i); f.setAttribute("action", "https://elsewhere.example/collect"); }', '{ selector: "#f button" }'],
+  ];
+  for (const [change, submit] of unsafe) {
+    await s.run('await page.goto("https://login.example/")');
+    await s.run(`await page.evaluate(${change})`);
+    globalThis.__authAnswer = fillLike({ email: "ada@example.com" });
+    const count = s.auth.length;
+    assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: ${submit} })`), { status: "locator_invalid", locator_error: { field_id: "submit", reason: "unsafe_destination" } }, change);
+    assert.equal(s.auth.length, count, `the sheet opened for ${change}`);
+    assert.deepEqual(await s.value(`page.evaluate(() => [document.getElementById("out").textContent, document.querySelector('input[name="email"]').value])`), ["", ""], change);
+  }
+  // A destination the page moves elsewhere while the sheet is up (one the
+  // identity check does not see: a new <base target>) gets no press.
+  const pageEval = (call, params, source) => call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [], awaitPromise: true });
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, { meanwhile: ({ params, call }) => pageEval(call, params, `() => { const b = document.createElement("base"); b.target = "_blank"; document.head.appendChild(b); document.querySelector("#f button").addEventListener("click", (e) => { e.preventDefault(); document.getElementById("out").textContent = "retargeted pressed"; }); return true; }`) });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: "#f button" } })`), { status: "submission_failed" });
+  assert.equal(await s.value('page.locator("#out").textContent()'), "");
+  // The page's own origin, same tab, explicit or implied: submitted.
+  for (const change of ['() => document.getElementById("f").setAttribute("action", "/session")', '() => document.getElementById("f").setAttribute("target", "_self")']) {
+    await s.run('await page.goto("https://login.example/")');
+    await s.run(`await page.evaluate(${change})`);
+    globalThis.__authAnswer = fillLike({ email: "ada@example.com" });
+    assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: "#f button" } })`), { status: "submitted" }, change);
+  }
+});
+
 // r15 tabs#2: the sheet shows only what cmux verified. The agent's labels
 // (and the page's title) are not shown; each field is labeled by the
 // credential kind the app's bind found on the bound element itself.
