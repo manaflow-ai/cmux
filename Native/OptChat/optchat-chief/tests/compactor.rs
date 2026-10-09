@@ -2443,3 +2443,47 @@ fn a_size_retry_keeps_its_session_slot() {
         "the retry waited for the slot"
     );
 }
+
+/// Import at 06a7b250b1fc: every compactor prompt started a new Claude
+/// Code process (about 3.7 s, against about 2 s of model time), and the
+/// warm sessions never helped during an import: they were started only
+/// when no node waited for a slot. With spares, a node that frees its slot
+/// starts the next session in the background, and a waiting node takes a
+/// ready one, so its prompt does not wait for a process start.
+#[test]
+fn with_spares_ready_a_waiting_node_does_not_wait_for_a_process_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().slow_session =
+        Some(("optchat-compact-test".into(), Duration::from_millis(400)));
+    let compactor = Arc::new(
+        AcpmuxCompactor::new(agents.clone(), spec(dir.path()), Slots::new(1))
+            .with_warm(1)
+            .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap()),
+    );
+    let workers: Vec<_> = (1..=4u64)
+        .map(|i| {
+            let c = compactor.clone();
+            std::thread::spawn(move || run_node(&*c, &request(i)))
+        })
+        .collect();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+    let mut starts = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        starts.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .filter(|e| e["ev"] == "node")
+                .map(|e| e["timing"]["session_start_ms"].as_u64().unwrap()),
+        );
+    }
+    assert_eq!(starts.len(), 4, "{starts:?}");
+    assert!(
+        starts.iter().any(|ms| *ms < 150),
+        "every node waited for a process start: {starts:?}"
+    );
+}
