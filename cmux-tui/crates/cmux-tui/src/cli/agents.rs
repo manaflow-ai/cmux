@@ -17,7 +17,7 @@ use super::{GlobalArgs, Surface, UsageError, parse_globals, wire};
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|surface|palette|dialog>\n\nAgent-facing JSON surface. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents surface focus <tab-id>\n  cmux agents surface split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value>\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value>\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -71,34 +71,34 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
         ["tab", "select", target] => {
             Ok(resource("tab.select", vec!["tab".into(), target.clone(), "focus".into()]))
         }
-        ["surface", "focus", target] => {
-            Ok(resource("surface.focus", vec!["tab".into(), target.clone(), "focus".into()]))
+        ["terminal", "focus", target] => {
+            Ok(resource("terminal.focus", vec!["tab".into(), target.clone(), "focus".into()]))
         }
-        ["surface", "split", direction, rest @ ..]
+        ["terminal", "split", direction, rest @ ..]
             if matches!(direction.as_str(), "left" | "right" | "up" | "down") =>
         {
             let mut mapped = vec!["pane".into(), "current".into(), "split".into()];
             mapped.push(format!("--{direction}"));
-            let mut surface = None;
+            let mut pane = None;
             let mut index = 0;
             while index < rest.len() {
                 if rest[index] == "--surface" {
                     let value = rest.get(index + 1).ok_or_else(|| {
-                        UsageError::new("agents surface split: --surface needs a value")
+                        UsageError::new("agents terminal split: --surface needs a value")
                     })?;
-                    surface = Some(value.clone());
+                    pane = Some(value.clone());
                     index += 2;
                 } else {
                     return Err(UsageError::new(format!(
-                        "agents surface split: unexpected argument {:?}",
+                        "agents terminal split: unexpected argument {:?}",
                         rest[index]
                     )));
                 }
             }
-            if let Some(surface) = surface {
-                mapped[1] = surface;
+            if let Some(pane) = pane {
+                mapped[1] = pane;
             }
-            Ok(resource("surface.split", mapped))
+            Ok(resource("terminal.split", mapped))
         }
         ["palette", "open"] => {
             Ok(AgentCommand::App { action: "palette.open".into(), args: Vec::new() })
@@ -177,7 +177,7 @@ fn run_resource(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
 fn follow_app_focus(global: &GlobalArgs, action: &str, result: Value) -> Result<Value, i32> {
     let operation = match action {
         "workspace.select" => ResourceOperation::WorkspaceFocus,
-        "tab.select" | "surface.focus" => ResourceOperation::TabFocus,
+        "tab.select" | "terminal.focus" => ResourceOperation::TabFocus,
         _ => return Ok(result),
     };
     app_focus::after_daemon(global, operation, result)
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn aliases_map_to_existing_typed_operations() {
         let AgentCommand::Resource { action, args } = command(&[
-            "surface".into(),
+            "terminal".into(),
             "split".into(),
             "right".into(),
             "--surface".into(),
@@ -367,7 +367,7 @@ mod tests {
         .unwrap() else {
             panic!("expected resource command")
         };
-        assert_eq!(action, "surface.split");
+        assert_eq!(action, "terminal.split");
         assert_eq!(args, vec!["pane", "pane_a", "split", "--right"]);
     }
 }
