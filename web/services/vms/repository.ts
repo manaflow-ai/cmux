@@ -1085,6 +1085,7 @@ function idempotencyScopeWhere(input: {
   );
 }
 
+/** Reject a newly allocated machine shape that exceeds its plan's ceilings. */
 function assertCreateReservationFitsPlan(input: {
   readonly planId: string;
   readonly resourceReservation?: VmResourceReservation;
@@ -2156,15 +2157,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // Existing Base machines are grandfathered. Apply the current
             // per-machine entitlement only when this transaction is about to
             // allocate a new generation.
-            const requestedReservation = input.resourceReservation;
-            if (requestedReservation && input.planMaxMemoryMb !== undefined && input.planMaxVcpus !== undefined &&
-              (requestedReservation.memoryMb > input.planMaxMemoryMb || requestedReservation.vcpus > input.planMaxVcpus)) {
-              throw new VmMemoryPlanError({
-                planId: input.billingPlanId,
-                memoryMb: Math.max(requestedReservation.memoryMb, requestedReservation.vcpus * 2 * 1024),
-                maxMemoryMb: input.planMaxMemoryMb,
-              });
-            }
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
 
             const [active] = await tx
               .select({ total: count() })

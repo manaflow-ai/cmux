@@ -205,6 +205,7 @@ export const VM_PLAN_MEMORY_MB_PER_VCPU = 2048;
 export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
 export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 
+/** Return the first paid plan that can create the requested ladder size. */
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);
   if (current === MAX_PLAN_ID) return null;
