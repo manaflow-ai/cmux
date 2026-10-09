@@ -7,6 +7,27 @@ import UIKit
 /// them off the cell keeps layout, the send animation, and the long-press
 /// overlay in agreement about where the bubble is.
 struct MessageCellLayout {
+    /// Room ChatKit's big-emoji balloon adds around the glyphs (logged from
+    /// Messages; one 72 pt emoji is 105 x 85.9 on iOS 27, 77 x 112.8 on
+    /// iOS 26): iOS 27 pads 14 pt on each side; iOS 26 sits the glyphs
+    /// against the margin, 10 pt below the balloon's top and 16.84 pt above
+    /// its bottom (measured against the timestamp above and the next bubble).
+    static var emojiGlyphInsets: UIEdgeInsets {
+        if #available(iOS 27, *) { return UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14) }
+        return UIEdgeInsets(top: 10, left: 0, bottom: 16.84, right: 0)
+    }
+
+    static var emojiBalloonInsets: CGSize {
+        let insets = emojiGlyphInsets
+        return CGSize(width: insets.left + insets.right, height: insets.top + insets.bottom)
+    }
+
+    /// The glyphs' line inside the balloon, trailing-aligned when sent so
+    /// they meet the margin on iOS 26.
+    static func emojiGlyphFrame(in balloon: CGRect) -> CGRect {
+        balloon.inset(by: emojiGlyphInsets)
+    }
+
     var height: CGFloat
     var senderNameFrame: CGRect?
     var quoteFrame: CGRect?
@@ -248,8 +269,8 @@ extension MessageCellLayout {
             let fontSize = t.emojiOnlyFontSize(count: emojiCount(message.text))
             let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: fontSize)])
             var size = measure(emoji, maxWidth: maxBubbleWidth)
-            size.width += ceil(fontSize * 0.25)
-            size.height += 6
+            size.width += Self.emojiBalloonInsets.width
+            size.height += Self.emojiBalloonInsets.height
             emojiFrame = CGRect(
                 x: model.isOutgoing ? outgoingBodyTrailing - size.width : incomingBodyLeading,
                 y: y, width: size.width, height: size.height

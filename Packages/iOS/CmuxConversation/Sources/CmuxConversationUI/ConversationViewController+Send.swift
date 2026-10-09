@@ -156,10 +156,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         } else if let emojiFrame = cellLayout.emojiFrame {
             // Emoji-only sends fly bare, growing from the composer's text
             // size to the large emoji.
-            let to = emojiFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
+            let to = MessageCellLayout.emojiGlyphFrame(in: emojiFrame).offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             let label = UILabel()
             let landedSize = ConversationTheme.emojiOnlyFontSize(count: MessageCellLayout.emojiCount(model.message.text))
             label.font = .systemFont(ofSize: landedSize)
+            label.textAlignment = .right
             label.numberOfLines = 0
             label.text = model.message.text
             let mover = UIView(frame: to)

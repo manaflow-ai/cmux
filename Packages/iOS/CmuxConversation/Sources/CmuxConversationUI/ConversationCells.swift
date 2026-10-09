@@ -209,7 +209,8 @@ final class MessageCell: UICollectionViewCell {
         if let frame = layout.emojiFrame {
             emojiLabel.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize(count: MessageCellLayout.emojiCount(message.text)))
             emojiLabel.text = message.text
-            emojiLabel.frame = frame
+            emojiLabel.textAlignment = model.isOutgoing ? .right : .left
+            emojiLabel.frame = MessageCellLayout.emojiGlyphFrame(in: frame)
         }
 
         avatar.isHidden = layout.avatarFrame == nil
