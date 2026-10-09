@@ -200,6 +200,12 @@ impl Fixture {
     /// One `remote-link --state-dir` start; waits until its mux owner has a
     /// registry, then stops the link, the sidecar and the mux owner.
     fn link_once(&self) {
+        self.link_once_without_stop();
+        self.stop_daemons();
+    }
+
+    /// One `remote-link --state-dir` start; its daemons keep running.
+    fn link_once_without_stop(&self) {
         let mut link = self
             .command()
             .args(["remote-link", "--stdio", "--session", &self.session, "--state-dir"])
@@ -218,6 +224,10 @@ impl Fixture {
         }
         let _ = link.kill();
         let _ = link.wait();
+    }
+
+    /// Stops the sidecar and the state-dir mux owner of this fixture.
+    fn stop_daemons(&self) {
         let _ = self
             .command()
             .args(["remote", "stop", "--session", &self.session, "--state-dir"])
@@ -324,4 +334,31 @@ fn a_state_dir_with_a_store_is_not_overwritten_by_an_import() {
 
     fixture.link_once();
     assert_eq!(meta(&own[0], "registry_id").as_deref(), Some(own_id.as_str()));
+}
+
+/// Processes whose command line names `dir`.
+fn processes_under(dir: &Path) -> Vec<String> {
+    let output = Command::new("ps").args(["-axo", "pid=,command="]).output().unwrap();
+    let marker = dir.to_string_lossy().into_owned();
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.contains(&marker))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A fixture stops every daemon it started: the state-dir mux owner serves
+/// a socket in the state dir, not the session's default socket.
+#[test]
+fn no_daemon_outlives_a_fixture() {
+    let fixture = Fixture::new();
+    let dir = fixture.dir.clone();
+    fixture.link_once_without_stop();
+    assert!(!processes_under(&dir).is_empty(), "the link started no daemon");
+    drop(fixture);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline && !processes_under(&dir).is_empty() {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(processes_under(&dir), Vec::<String>::new(), "a daemon outlived its fixture");
 }
