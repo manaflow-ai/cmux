@@ -13,19 +13,22 @@ use super::app::{self, ActionName};
 use super::app_focus;
 use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
 use super::mcp;
-use super::{GlobalArgs, Surface, UsageError, parse_globals, wire};
+use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value>\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
+    let (mut global, command_args) = parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
+    }
+    if global.output == OutputMode::Human {
+        global.output = OutputMode::Json;
     }
     Some(run(global, &command_args[1..]))
 }
@@ -224,11 +227,16 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     let request_id =
         args.first().ok_or_else(|| UsageError::new("dialog answer needs a request id"))?;
     let mut mode = None;
-    let mut selection = None;
+    let mut selections = Vec::new();
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
             "--mode" => {
+                if mode.is_some() || !selections.is_empty() {
+                    return Err(UsageError::new(
+                        "dialog answer accepts one --mode or one or more --selection flags",
+                    ));
+                }
                 mode = Some(
                     args.get(index + 1)
                         .ok_or_else(|| UsageError::new("--mode needs a value"))?
@@ -236,7 +244,12 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
                 )
             }
             "--selection" => {
-                selection = Some(
+                if mode.is_some() {
+                    return Err(UsageError::new(
+                        "dialog answer cannot combine --mode with --selection",
+                    ));
+                }
+                selections.push(
                     args.get(index + 1)
                         .ok_or_else(|| UsageError::new("--selection needs a value"))?
                         .clone(),
@@ -253,8 +266,8 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     let method = if let Some(mode) = mode {
         params.insert("mode".into(), json!(mode));
         "feed.permission.reply"
-    } else if let Some(selection) = selection {
-        params.insert("selections".into(), json!([selection]));
+    } else if !selections.is_empty() {
+        params.insert("selections".into(), json!(selections));
         "feed.question.reply"
     } else {
         return Err(UsageError::new("dialog answer needs --mode or --selection"));
@@ -310,6 +323,13 @@ pub(super) fn compose_snapshot_with_limit(
             "app": {"available": app_value.is_some(), "error": app_error.unwrap_or(Value::Null)},
         },
     });
+    if let Some(shown) = topology
+        .and_then(|value| value.get("focus"))
+        .and_then(|value| value.get("workspace"))
+        .and_then(Value::as_str)
+    {
+        app_focus::overlay_focused(&mut snapshot["workspaces"], shown);
+    }
     if let Some(limit) = limit {
         let mut truncated = false;
         for collection in ["windows", "workspaces", "screens", "panes", "tabs", "terminals"] {
@@ -395,6 +415,21 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_uses_app_workspace_focus_when_both_owners_disagree() {
+        let value = compose_snapshot(
+            Ok(json!({
+                "workspaces": [
+                    {"id": "ws_a", "focused": true},
+                    {"id": "ws_b", "focused": false}
+                ]
+            })),
+            Ok(json!({"topology": {"focus": {"workspace": "ws_b"}}})),
+        );
+        assert_eq!(value["workspaces"][0]["focused"], false);
+        assert_eq!(value["workspaces"][1]["focused"], true);
+    }
+
+    #[test]
     fn aliases_map_to_existing_typed_operations() {
         let AgentCommand::Resource { action, args } = command(&[
             "terminal".into(),
@@ -408,5 +443,54 @@ mod tests {
         };
         assert_eq!(action, "terminal.split");
         assert_eq!(args, vec!["pane", "pane_a", "split", "--right"]);
+    }
+
+    #[test]
+    fn dialog_answers_preserve_multiple_selections_and_reject_mixed_modes() {
+        let AgentCommand::App { action, args } = command(&[
+            "dialog".into(),
+            "answer".into(),
+            "request_a".into(),
+            "--selection".into(),
+            "one".into(),
+            "--selection".into(),
+            "two".into(),
+        ])
+        .unwrap() else {
+            panic!("expected app command")
+        };
+        assert_eq!(action, "dialog.answer");
+        assert_eq!(args, vec!["request_a", "--selection", "one", "--selection", "two"]);
+        assert!(
+            command(&[
+                "dialog".into(),
+                "answer".into(),
+                "request_a".into(),
+                "--mode".into(),
+                "permission".into(),
+                "--selection".into(),
+                "one".into(),
+            ])
+            .is_ok()
+        );
+        assert!(
+            dialog_answer(&[
+                "request_a".into(),
+                "--mode".into(),
+                "permission".into(),
+                "--selection".into(),
+                "one".into(),
+            ])
+            .is_err()
+        );
+        let (_, params, _) = dialog_answer(&[
+            "request_a".into(),
+            "--selection".into(),
+            "one".into(),
+            "--selection".into(),
+            "two".into(),
+        ])
+        .unwrap();
+        assert_eq!(params["selections"], json!(["one", "two"]));
     }
 }
