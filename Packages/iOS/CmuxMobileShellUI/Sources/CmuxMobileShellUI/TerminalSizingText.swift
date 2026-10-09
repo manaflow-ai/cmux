@@ -122,6 +122,37 @@ struct TerminalSizingText {
         }
     }
 
+    /// Explains how the selected sizing mode chooses the shared grid.
+    static func modeDescription(_ mode: TerminalSizingMode) -> String {
+        switch mode {
+        case .latest:
+            L10n.string(
+                "mobile.terminal.sizing.mode.latest.help",
+                defaultValue: "Uses the device with the most recent input, unless it is excluded from sizing."
+            )
+        case .smallest:
+            L10n.string(
+                "mobile.terminal.sizing.mode.smallest.help",
+                defaultValue: "Uses the smallest grid that fits every device included in sizing."
+            )
+        case .largest:
+            L10n.string(
+                "mobile.terminal.sizing.mode.largest.help",
+                defaultValue: "Uses the largest grid reported by devices included in sizing."
+            )
+        case .priority:
+            L10n.string(
+                "mobile.terminal.sizing.mode.priority.help",
+                defaultValue: "The first available device included in sizing sets the grid. Drag to reorder."
+            )
+        case .fixed:
+            L10n.string(
+                "mobile.terminal.sizing.mode.fixed.help",
+                defaultValue: "Keeps every device at the fixed grid you enter."
+            )
+        }
+    }
+
     static func reconnecting() -> String {
         L10n.string("mobile.terminal.sizing.reconnecting", defaultValue: "Reconnecting…")
     }
@@ -201,6 +232,10 @@ struct TerminalSizingText {
         L10n.string("mobile.terminal.sizing.sheet.participants", defaultValue: "Connected")
     }
 
+    static func priorityOrder() -> String {
+        L10n.string("mobile.terminal.sizing.sheet.priorityOrder", defaultValue: "Priority order")
+    }
+
     static func setsSize() -> String {
         L10n.string("mobile.terminal.sizing.badge.setsSize", defaultValue: "Sets size")
     }
@@ -233,10 +268,6 @@ struct TerminalSizingText {
         case let (nil, device?): return device
         case (nil, nil): return someone()
         }
-    }
-
-    static func countsToggle() -> String {
-        L10n.string("mobile.terminal.sizing.sheet.counts", defaultValue: "Counts toward size")
     }
 
     static func disconnect() -> String {

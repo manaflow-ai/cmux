@@ -78,10 +78,10 @@ The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 priority list survives reconnects and can rank "Maya's Mac Studio" above
 "Maya's MacBook Pro" above "Maya's iPhone". A policy entry in the older
 two-segment form still matches every device of that kind for that user
-(newest activity among them wins), so stored policies keep working. There is
-no stored-policy rewrite: the next edit in a size panel, which writes the
-keys of the listed participants, replaces legacy entries with per-device
-keys.
+(newest activity among them wins), so stored policies keep working. When a
+Priority policy is written through the shared action path, legacy entries are
+expanded and attached devices missing from the list are appended in host
+order. An untouched persisted policy is left as-is until its next update.
 
 ## Policy
 
@@ -97,6 +97,11 @@ keys.
   (newest activity breaks ties inside one key). No match falls back to `latest`
   with reason `priority-fallback`.
 - `fixed`: `fixed.cols` × `fixed.rows`, whatever is attached.
+
+The size panel explains the selected mode. Follow Latest uses the device with
+the most recent input unless it is excluded from sizing. Priority shows every attached
+device as a numbered, drag-to-reorder list; the first available device included
+in sizing sets the grid.
 
 `owners` lists the participants that set a dimension, in attach order. A
 viewport is clamped to at least 2 × 1.
@@ -263,24 +268,8 @@ shows this view itself. It draws one neutral initials circle per other person
 (grouped by `user_id`) and, for this user's own other devices, one neutral device
 glyph per device kind (iPhone, iPad, laptop, terminal). Up to three items,
 owner first with the neutral ring, then `+N`. Its tooltip is `Size set by Maya's Mac · 118×38`, and clicking it
-toggles the size panel. The panel always hangs from the tab (the accessory, or
-the tab itself when the accessory is hidden), whichever entrypoint opened it:
-tab, pane chip, context menu, command palette or shortcut. It holds the grid
-and owner, a Size mode menu (with a cols × rows field pair in Fixed), one row
-per participant ("sets size" on the owner, "not counted" on a participant the
-grid ignores; a hover menu with Counts toward
-size and Disconnect; drag handles in Priority), and "Disconnect Others" with an
-inline confirmation. "Size to My Window" lives in the tab context menu, the
-palette and the shortcut. The tab context menu adds Size to My Window, a
-Terminal Size submenu with the five modes, and Disconnect Others… while anyone
-else is attached.
-The iPhone size sheet uses the same neutral avatars and marks rows "Sets size"
-or "Not counted" the same way. It opens from the chip and from **Connected
-Devices…** in the terminal title menu (the title button beside the back
-button), whose subtitle counts the other attached devices ("2 others", or
-"Only this device"). The menu item shows whenever the terminal's Mac has
-published a size state, including while this phone's viewport matches the
-grid and the chip is hidden. Both entrypoints call the same action.
+toggles the size panel. The panel always hangs from the tab (the accessory, or the tab itself when the accessory is hidden), whichever entrypoint opened it: tab, pane chip, context menu, command palette or shortcut. It holds the grid and owner, a Size mode menu (with a cols × rows field pair in Fixed), one row per participant ("sets size" on the owner or "not counted" when the sizing rules defer that participant), and "Disconnect Others" with an inline confirmation. In Priority, each row has a visible rank and drag handle so the list order is the sizing order. "Size to My Window" lives in the tab context menu, the palette and the shortcut. The tab context menu adds Size to My Window, a Terminal Size submenu with the five modes, and Disconnect Others… while anyone else is attached.
+The iPhone size sheet uses the same neutral avatars and status labels. Its Priority section is in reorder mode as soon as Priority is selected, with a numbered list and an explanation of which device wins. It opens from the chip and from **Connected Devices…** in the terminal title menu (the title button beside the back button), whose subtitle counts the other attached devices ("2 others", or "Only this device"). The menu item shows whenever the terminal's Mac has published a size state, including while this phone's viewport matches the grid and the chip is hidden. Both entrypoints call the same action.
 
 On the iPhone, when the grid is larger than the phone, the phone renders the
 exact shared grid scaled to its width and pinned to the bottom. Pinch zooms

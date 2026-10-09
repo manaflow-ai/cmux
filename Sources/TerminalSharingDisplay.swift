@@ -75,6 +75,42 @@ struct TerminalSharingDisplay {
         }
     }
 
+    /// Explains how the selected sizing mode chooses the shared grid.
+    static func modeDescription(_ mode: TerminalSizingMode) -> String {
+        switch mode {
+        case .latest:
+            return String(
+                localized: "terminalSharing.sizeMode.latest.help",
+                defaultValue: "Uses the device with the most recent input, unless it is excluded from sizing."
+            )
+        case .smallest:
+            return String(
+                localized: "terminalSharing.sizeMode.smallest.help",
+                defaultValue: "Uses the smallest grid that fits every device included in sizing."
+            )
+        case .largest:
+            return String(
+                localized: "terminalSharing.sizeMode.largest.help",
+                defaultValue: "Uses the largest grid reported by devices included in sizing."
+            )
+        case .priority:
+            return String(
+                localized: "terminalSharing.sizeMode.priority.help",
+                defaultValue: "The first available device included in sizing sets the grid. Drag to reorder."
+            )
+        case .fixed:
+            return String(
+                localized: "terminalSharing.sizeMode.fixed.help",
+                defaultValue: "Keeps every device at the fixed grid you enter."
+            )
+        }
+    }
+
+    /// Title for the ordered participant list shown in Priority mode.
+    static func priorityOrderTitle() -> String {
+        String(localized: "terminalSharing.panel.priorityOrder", defaultValue: "Priority order")
+    }
+
     /// SF Symbol for the viewer's own other device in the tab accessory.
     static func deviceSymbolName(_ kind: TerminalDeviceKind) -> String {
         switch kind {

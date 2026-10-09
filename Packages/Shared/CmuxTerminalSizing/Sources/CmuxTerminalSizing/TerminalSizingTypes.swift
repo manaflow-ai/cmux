@@ -322,4 +322,47 @@ extension TerminalSizingPolicy {
         }
         return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed)
     }
+
+    /// Completes a priority list for the currently attached participants.
+    ///
+    /// Stored keys keep their order, legacy keys are expanded to their
+    /// per-device keys, and attached participants missing from the list are
+    /// appended in host order. Detached keys remain in place so a reconnect
+    /// returns to its saved rank.
+    ///
+    /// - Parameter participants: the attached participants, in host order.
+    /// - Returns: A policy with every attached participant ranked exactly once.
+    public func withCompletePriority(for participants: [TerminalSizingParticipant]) -> TerminalSizingPolicy {
+        var completed = migratingLegacyPriorityKeys(participants)
+        var seen = Set(completed.priority)
+        completed.priority.append(contentsOf: participants.map(\.priorityKey).filter { seen.insert($0).inserted })
+        return completed
+    }
+
+    /// Applies a new order for attached keys while retaining detached keys in
+    /// their existing slots.
+    ///
+    /// - Parameter visibleKeys: The attached keys in their new order.
+    /// - Returns: A policy with the visible keys reordered.
+    public func withReorderedPriority(visibleKeys: [String]) -> TerminalSizingPolicy {
+        var visibleSeen = Set<String>()
+        let visible = visibleKeys.filter { visibleSeen.insert($0).inserted }
+        var nextVisibleIndex = 0
+        var reordered: [String] = []
+        var seen = Set<String>()
+        for key in priority {
+            if visibleSeen.contains(key) {
+                guard nextVisibleIndex < visible.count else { continue }
+                let replacement = visible[nextVisibleIndex]
+                nextVisibleIndex += 1
+                if seen.insert(replacement).inserted { reordered.append(replacement) }
+            } else if seen.insert(key).inserted {
+                reordered.append(key)
+            }
+        }
+        if nextVisibleIndex < visible.count {
+            reordered.append(contentsOf: visible[nextVisibleIndex...])
+        }
+        return TerminalSizingPolicy(mode: mode, priority: reordered, fixed: fixed)
+    }
 }

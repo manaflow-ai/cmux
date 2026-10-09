@@ -18,6 +18,7 @@ struct TerminalSizeSheet: View {
     @State private var actionFailed = false
     @State private var fixedColumns = 80
     @State private var fixedRows = 24
+    @State private var listEditMode: EditMode = .inactive
     @FocusState private var fixedFieldFocused: Bool
 
     private static let columnRange = 20...300
@@ -57,11 +58,6 @@ struct TerminalSizeSheet: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
         }
-        if presentation.policy.mode == .priority {
-            ToolbarItem(placement: .topBarLeading) {
-                EditButton()
-            }
-        }
         ToolbarItemGroup(placement: .keyboard) {
             Spacer()
             Button(TerminalSizingText.done()) { fixedFieldFocused = false }
@@ -77,6 +73,9 @@ struct TerminalSizeSheet: View {
                     }
                 }
                 .pickerStyle(.menu)
+                Text(TerminalSizingText.modeDescription(presentation.policy.mode))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 if presentation.policy.mode == .fixed {
                     fixedSizeRow(presentation)
                 }
@@ -87,14 +86,7 @@ struct TerminalSizeSheet: View {
                 }
             }
 
-            Section(TerminalSizingText.participants()) {
-                ForEach(orderedRows(presentation), id: \.id) { row in
-                    participantRow(row, presentation: presentation)
-                }
-                .onMove(perform: presentation.policy.mode == .priority
-                    ? { source, destination in movePriority(presentation, from: source, to: destination) }
-                    : nil)
-            }
+            participantSection(presentation)
 
             if !presentation.otherParticipants.isEmpty {
                 Section {
@@ -117,6 +109,7 @@ struct TerminalSizeSheet: View {
             }
         }
         .listStyle(.insetGrouped)
+        .environment(\.editMode, $listEditMode)
         .scrollDismissesKeyboard(.interactively)
         .confirmationDialog(
             pendingMacDisconnect.flatMap(presentation.disconnectConfirmation(for:))
@@ -139,9 +132,40 @@ struct TerminalSizeSheet: View {
             let fixed = presentation.policy.fixed ?? presentation.grid
             fixedColumns = fixed.cols
             fixedRows = fixed.rows
+            listEditMode = presentation.policy.mode == .priority ? .active : .inactive
+        }
+        .onChange(of: presentation.policy.mode) { _, mode in
+            listEditMode = mode == .priority ? .active : .inactive
         }
         .onChange(of: fixedFieldFocused) { _, focused in
             if !focused { applyFixed(presentation) }
+        }
+    }
+
+    @ViewBuilder
+    private func participantSection(_ presentation: MobileTerminalSizingPresentation) -> some View {
+        let rows = orderedRows(presentation)
+        if presentation.policy.mode == .priority {
+            Section {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    participantRow(row, priorityRank: index + 1, presentation: presentation)
+                }
+                .onMove { source, destination in
+                    movePriority(presentation, from: source, to: destination)
+                }
+            } header: {
+                Text(TerminalSizingText.priorityOrder())
+            } footer: {
+                Text(TerminalSizingText.modeDescription(.priority))
+            }
+        } else {
+            Section {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { _, row in
+                    participantRow(row, priorityRank: nil, presentation: presentation)
+                }
+            } header: {
+                Text(TerminalSizingText.participants())
+            }
         }
     }
 
@@ -204,13 +228,20 @@ struct TerminalSizeSheet: View {
 
     private func participantRow(
         _ row: TerminalSizingParticipantState,
+        priorityRank: Int?,
         presentation: MobileTerminalSizingPresentation
     ) -> some View {
         let isSelf = row.id == presentation.selfParticipant?.id
         let participant = row.participant
         let title = TerminalSizingText.participantTitle(participant, isSelf: isSelf)
         let status = TerminalSizingText.rowStatus(presentation.rowStatus(for: row))
-        return HStack(spacing: 12) {
+        let rowView = HStack(spacing: 12) {
+            if let priorityRank {
+                Text(verbatim: "\(priorityRank)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, alignment: .trailing)
+            }
             // Full opacity when not counted, so the glyph keeps 4.5:1; the
             // secondary title and status say it.
             TerminalSizingAvatar(participant: participant, isOwner: presentation.ownerIDs == [row.id])
@@ -234,18 +265,16 @@ struct TerminalSizeSheet: View {
                 }
             }
         }
-        .contextMenu {
-            if isSelf {
-                // The Mac RPC sets the counts override for this phone only.
-                Toggle(TerminalSizingText.countsToggle(), isOn: countsBinding(row))
-            } else if presentation.canDisconnect(row) {
+        if presentation.canDisconnect(row) {
+            return AnyView(rowView.contextMenu {
                 Button(role: .destructive) {
                     requestDisconnect(row, presentation: presentation)
                 } label: {
                     Label(TerminalSizingText.disconnect(), systemImage: "xmark.circle")
                 }
-            }
+            })
         }
+        return AnyView(rowView)
     }
 
     /// Disconnects a phone at once; a Mac first confirms, naming that Mac,
@@ -274,19 +303,11 @@ struct TerminalSizeSheet: View {
                     fixedColumns = presentation.grid.cols
                     fixedRows = presentation.grid.rows
                 }
-                if mode == .priority, policy.priority.isEmpty {
-                    policy.priority = allRows(presentation).map(\.priorityKey)
+                if mode == .priority {
+                    let participants = presentation.participants.map(\.participant)
+                    policy = policy.withCompletePriority(for: participants)
                 }
                 run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
-            }
-        )
-    }
-
-    private func countsBinding(_ row: TerminalSizingParticipantState) -> Binding<Bool> {
-        Binding(
-            get: { row.counts },
-            set: { counts in
-                run { await store.setTerminalCountsOverride(counts, surfaceID: surfaceID) }
             }
         )
     }
@@ -298,13 +319,9 @@ struct TerminalSizeSheet: View {
     ) {
         var keys = orderedRows(presentation).map(\.priorityKey)
         keys.move(fromOffsets: source, toOffset: destination)
-        var seen = Set<String>()
-        let ranked = keys.filter { seen.insert($0).inserted }
-        // Keep ranked keys of participants that are not attached right now,
-        // after the attached ones, so a reconnect finds its old slot.
-        var policy = presentation.policy.migratingLegacyPriorityKeys(allRows(presentation).map(\.participant))
-        let detachedKeys = policy.priority.filter { !seen.contains($0) }
-        policy.priority = ranked + detachedKeys
+        let policy = presentation.policy
+            .migratingLegacyPriorityKeys(presentation.participants.map(\.participant))
+            .withReorderedPriority(visibleKeys: keys)
         run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
     }
 

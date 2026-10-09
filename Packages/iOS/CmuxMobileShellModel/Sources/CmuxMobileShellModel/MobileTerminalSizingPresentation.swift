@@ -19,6 +19,8 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
     public let selfParticipant: TerminalSizingParticipantState?
     /// Every other participant, in host order.
     public let otherParticipants: [TerminalSizingParticipantState]
+    /// Every participant in the host's published order.
+    public let participants: [TerminalSizingParticipantState]
     /// This phone's viewport, when known.
     public let viewer: TerminalGridSize?
     /// The viewport the host last acknowledged from this phone, if any.
@@ -38,6 +40,7 @@ public struct MobileTerminalSizingPresentation: Equatable, Sendable {
         grid = state.size
         reason = state.reason
         policy = state.policy
+        participants = state.participants
         let owner = state.soleOwner ?? state.owners.first.flatMap { state.participant($0) }
         self.owner = owner
         ownerIDs = state.owners

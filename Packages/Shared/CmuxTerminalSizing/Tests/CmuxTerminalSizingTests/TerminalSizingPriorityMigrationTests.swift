@@ -22,4 +22,13 @@ struct TerminalSizingPriorityMigrationTests {
         let migrated = policy.migratingLegacyPriorityKeys([studio, laptop, legacyTUI])
         #expect(migrated.priority == ["u1/mac/laptop", "u1/mac/studio", "anon:t/tui"])
     }
+
+    @Test func reorderingAttachedKeysKeepsDetachedKeysInTheirSlots() {
+        let policy = TerminalSizingPolicy(
+            mode: .priority,
+            priority: ["u_old/mac", studio.priorityKey, laptop.priorityKey]
+        )
+        let reordered = policy.withReorderedPriority(visibleKeys: [laptop.priorityKey, studio.priorityKey])
+        #expect(reordered.priority == ["u_old/mac", laptop.priorityKey, studio.priorityKey])
+    }
 }

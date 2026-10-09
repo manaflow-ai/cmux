@@ -62,19 +62,38 @@ public final class TerminalSharingStore {
 
     // MARK: Actions
 
-    /// Replaces the policy.
+    /// Replaces the policy, completing Priority entries for attached
+    /// participants and expanding legacy keys before the controller receives
+    /// it.
     @discardableResult
     public func setPolicy(_ policy: TerminalSizingPolicy, surfaceID: UUID) -> Bool {
-        controller(surfaceID)?.sharingSetPolicy(policy) ?? false
+        guard let snapshot = snapshots[surfaceID] else { return false }
+        let normalized: TerminalSizingPolicy
+        if policy.mode == .priority {
+            normalized = policy.withCompletePriority(
+                for: snapshot.state.participants.map(\.participant)
+            )
+        } else {
+            normalized = policy
+        }
+        return controller(surfaceID)?.sharingSetPolicy(normalized) ?? false
     }
 
-    /// Switches the mode, keeping the priority list and fixed grid.
+    /// Switches the mode, preserving the priority list and fixed grid.
     ///
-    /// `fixed` without a fixed grid fixes the current grid.
+    /// `fixed` without a fixed grid fixes the current grid. Entering `priority`
+    /// ranks every currently attached participant in the list immediately.
     @discardableResult
     public func setMode(_ mode: TerminalSizingMode, surfaceID: UUID) -> Bool {
         guard let snapshot = snapshots[surfaceID] else { return false }
-        let policy = snapshot.state.policy.withMode(mode, fallbackFixed: snapshot.state.size)
+        var policy = snapshot.state.policy.withMode(mode, fallbackFixed: snapshot.state.size)
+        if mode == .priority {
+            // Entering Priority creates a complete, visible list immediately.
+            // Keep stored ranks first, then append currently attached devices
+            // in their existing order so every row has a predictable rank.
+            let participants = snapshot.state.participants.map(\.participant)
+            policy = policy.withCompletePriority(for: participants)
+        }
         guard policy != snapshot.state.policy else { return true }
         return setPolicy(policy, surfaceID: surfaceID)
     }
@@ -87,12 +106,15 @@ public final class TerminalSharingStore {
         return setPolicy(TerminalSizingPolicy(mode: .fixed, priority: current.priority, fixed: size), surfaceID: surfaceID)
     }
 
-    /// Replaces the priority order (priority keys, highest first).
+    /// Reorders attached priority keys while preserving detached keys in their
+    /// saved slots. Keys must be the attached participants' priority keys.
     @discardableResult
     public func setPriority(_ keys: [String], surfaceID: UUID) -> Bool {
         guard let snapshot = snapshots[surfaceID] else { return false }
-        let current = snapshot.state.policy
-        return setPolicy(TerminalSizingPolicy(mode: current.mode, priority: keys, fixed: current.fixed), surfaceID: surfaceID)
+        let policy = snapshot.state.policy
+            .migratingLegacyPriorityKeys(snapshot.state.participants.map(\.participant))
+            .withReorderedPriority(visibleKeys: keys)
+        return setPolicy(policy, surfaceID: surfaceID)
     }
 
     /// Sets or clears one participant's counts override.
