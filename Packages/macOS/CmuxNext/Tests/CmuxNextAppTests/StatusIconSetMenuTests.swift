@@ -17,15 +17,17 @@ import Testing
         let choices = try #require(item.submenu?.items)
         #expect(choices.map { $0.representedObject as? String } == StatusIconSet.allCases.map(\.rawValue))
         #expect(choices.map(\.title) == StatusIconSet.allCases.map(\.tunableTitle))
-        #expect(choices.first { $0.state == .on }?.representedObject as? String == StatusIconSet.current.rawValue)
+        #expect(choices.first { $0.state == .on }?.representedObject as? String == StatusIconSet.symbols.rawValue)
 
         menu.select(.badges)
         #expect(StatusIconSet.tunable.value(in: store) == .badges)
         menu.menuNeedsUpdate(try #require(item.submenu))
         #expect(choices.first { $0.state == .on }?.representedObject as? String == "badges")
 
-        menu.select(.current)
+        menu.select(.symbols)
         #expect(store.override(StatusIconSet.tunable.key) == nil, "choosing the default removes the override")
-        #expect(StatusIconSet.tunable.value(in: store) == .current)
+        #expect(StatusIconSet.tunable.value(in: store) == .symbols)
+        menu.select(.current)
+        #expect(StatusIconSet.tunable.value(in: store) == .current, "the original dots stay one choice away")
     }
 }
