@@ -23,11 +23,14 @@ import Testing
         for _ in 0..<200 where playback.state(key) != .playing { try await Task.sleep(for: .milliseconds(5)) }
         #expect(playback.state(key) == .playing)
         let item = try #require(playback.layer(key)?.player?.currentItem)
-        nonisolated(unsafe) let posted = item
-        await Task.detached {
-            #expect(!Thread.isMainThread)
-            NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: posted)
-        }.value
+        let postedOffMain = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global().async {
+                let offMain = !Thread.isMainThread
+                NotificationCenter.default.post(name: AVPlayerItem.didPlayToEndTimeNotification, object: item)
+                done.resume(returning: offMain)
+            }
+        }
+        #expect(postedOffMain, "the notification was posted off main")
         for _ in 0..<200 where playback.state(key) != .paused { try await Task.sleep(for: .milliseconds(5)) }
         #expect(playback.state(key) == .paused, "the end returned the video to the start, paused")
         #expect(changedOnMain.allSatisfy { $0 }, "every change ran on main")
