@@ -257,7 +257,7 @@ def index_hits(code, dictionaries=frozenset()):
         # A file's own declarations decide only for a bare name (or self.name); a
         # member of another value (`transport.pending[i]`) uses the module rule.
         local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
-        qualified = "." in chain and not chain.startswith("self.")
+        qualified = chain not in (base, "self." + base)
         if base in (module if qualified else local):
             continue
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):

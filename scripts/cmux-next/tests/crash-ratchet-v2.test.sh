@@ -295,6 +295,7 @@ reset
 cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
 var pending: [String: Int] = [:]
 let a = transport.pending[i]
+let e = self.transport.pending[i]
 let b = Box.init(
     rows: [k: v]
 )
@@ -304,7 +305,7 @@ SWIFT
 printf 'struct T { var pending: [Int] = [] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
 g add -A
 if out="$(ratchet)"; then fail "a qualified array member, an init label or a nested radix passed: $out"; fi
-[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 2"* ]] || fail "transport.pending[i] or rows[j] was exempt: $out"
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "transport.pending[i], self.transport.pending[i] or rows[j] was exempt: $out"
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the nested radix exempted UInt8(...): $out"
 g reset -q
 reset
