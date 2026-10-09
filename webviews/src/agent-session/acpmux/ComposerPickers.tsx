@@ -309,13 +309,13 @@ export function ComposerPickers({
           working={snapshot.isWorking}
         />
       )}
-      {/* Reasoning is its own stable control, separate from the model and harness picker. */}
-      {effort && efforts.length > 0 && (
+      {/* Reasoning is its own stable control, separate from the model and harness picker. A model
+          whose only level is the agent's default has nothing to pick, so it shows no control. */}
+      {effort && efforts.length > 1 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
-          model={modelName}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             pending.current = undefined;
