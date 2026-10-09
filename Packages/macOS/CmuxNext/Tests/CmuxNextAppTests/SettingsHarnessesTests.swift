@@ -1,16 +1,19 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextPages
-import CmuxNextSettings
+@testable import CmuxNextSettings
 import Foundation
 import Testing
 
 /// Settings > Agents > Harnesses (cx-mg91): the page's state comes from acpmux's harnesses, and
 /// Sign In, Check and Browse ACP Registry open a terminal tab with this app's acpmux command.
 @MainActor @Suite struct SettingsHarnessesTests {
-    private let environment = AcpmuxEnvironment(
-        executable: URL(fileURLWithPath: "/b/acpmux"), home: URL(fileURLWithPath: "/h", isDirectory: true),
-        socketPath: "/h/acpmux.sock", daemonArguments: [], childEnvironment: ["ACPMUX_HOME": "/h"]
+    private let environment = AcpmuxEnvironment.resolve(
+        tag: nil, bundledBinDirectory: URL(fileURLWithPath: "/b", isDirectory: true),
+        environment: ["ACPMUX_HOME": "/h", "ACPMUX_SOCKET": "/h/acpmux.sock"],
+        isExecutable: { $0 == "/b/acpmux" }
     )
     private let listed = [
         AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path"),
@@ -47,9 +50,9 @@ import Testing
         _ = try await harnesses.run(["action": "check", "id": "codex"])
         _ = try await harnesses.run(["action": "registry"])
         #expect(lines.value == [
-            "ACPMUX_HOME='/h' '/b/acpmux' 'harness' 'login' 'codex'",
-            "ACPMUX_HOME='/h' '/b/acpmux' 'harness' 'login' 'codex' '--status'",
-            "ACPMUX_HOME='/h' '/b/acpmux' 'harness' 'registry'",
+            "ACPMUX_HOME='/h' ACPMUX_SOCKET='/h/acpmux.sock' '/b/acpmux' 'harness' 'login' 'codex'",
+            "ACPMUX_HOME='/h' ACPMUX_SOCKET='/h/acpmux.sock' '/b/acpmux' 'harness' 'login' 'codex' '--status'",
+            "ACPMUX_HOME='/h' ACPMUX_SOCKET='/h/acpmux.sock' '/b/acpmux' 'harness' 'registry'",
         ])
     }
 
