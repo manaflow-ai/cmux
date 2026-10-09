@@ -108,6 +108,53 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   await act(async () => root.unmount());
 });
 
+test("session rows follow the visible list with arrow, Home, and End keys", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const selected: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(SessionSidebar, {
+        sessions,
+        selectedId: "web-1",
+        onSelect: (id: string) => selected.push(id),
+      }),
+    ),
+  );
+
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")];
+  const press = async (row: HTMLButtonElement, key: string, modifiers: KeyboardEventInit = {}) =>
+    act(async () => {
+      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, ...modifiers }));
+    });
+
+  const first = rows()[0]!;
+  first.focus();
+  await press(first, "ArrowDown");
+  expect(selected).toEqual(["app-1"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Port the sidebar");
+
+  const second = rows()[1]!;
+  await press(second, "End");
+  expect(selected).toEqual(["app-1", "app-old-4"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Older 4");
+
+  const last = rows().at(-1)!;
+  await press(last, "ArrowDown");
+  expect(selected).toEqual(["app-1", "app-old-4"]);
+  expect(dom.window.document.activeElement).toBe(last);
+
+  await press(last, "Home");
+  expect(selected).toEqual(["app-1", "app-old-4", "web-1"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Fix the checkout page");
+
+  const home = rows()[0]!;
+  await press(home, "ArrowUp", { shiftKey: true });
+  expect(selected).toEqual(["app-1", "app-old-4", "web-1"]);
+  expect(dom.window.document.activeElement).toBe(home);
+  await act(async () => root.unmount());
+});
+
 test("an empty list says so", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);

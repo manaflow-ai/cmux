@@ -32,6 +32,20 @@ if ! [[ "$stall_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_STALL_SECONDS must be a positive integer" >&2
   exit 2
 fi
+# Suites run in parallel, still one process per suite (process-global state
+# stays inside one suite). 1 restores the serial run. The processes share one
+# .build: SwiftPM's scratch-directory lock would make every `swift test` wait for
+# the one before it (measured 2026-10-08: three 8 s suites took 27 s, 9 s with
+# --ignore-lock), so parallel runs pass --ignore-lock. --skip-build writes no
+# build output; the only shared write is the .build/debug symlink, which a
+# losing process reports as a warning.
+suite_jobs="${CMUX_SWIFT_TEST_SUITE_JOBS:-8}"
+if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
+  echo "CMUX_SWIFT_TEST_SUITE_JOBS must be a positive integer" >&2
+  exit 2
+fi
+lock_args=()
+[ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
@@ -56,34 +70,110 @@ if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/
 fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
-# list each suite's result and exit with the first failure's status.
-first_failure=0
-results=()
+# list each suite's result and exit with the first failure's status (first in
+# suite order, whatever order the suites finish in).
+suites=()
 while IFS= read -r suite; do
   [ -n "$suite" ] || continue
-  echo "swift test $package_path --skip-build --filter $suite"
-  suite_status=0
-  # Keep the child from consuming the suite-list pipe that drives this loop.
-  # On a stall the watchdog names the tests still running, samples them, and
-  # also kills swiftpm-testing-helper, which runs in its own process group.
+  suites+=("$suite")
+done < "$evidence_dir/filters.txt"
+suite_count=${#suites[@]}
+
+# attempt_suite SUITE EXECUTION_LOG SINK...: one watchdog-guarded swift test of
+# SUITE. The output replaces EXECUTION_LOG (the --log check reads the last
+# attempt) and goes through the SINK command (the suite log, and the console
+# when suites run one at a time). Exits with the watchdog's status.
+attempt_suite() {
+  local suite="$1" execution="$2"
+  shift 2
+  # stdin from /dev/null keeps the child off the caller's input; 3>&- keeps the
+  # scheduler's completion pipe out of the test processes. On a stall the
+  # watchdog names the tests still running, samples them, and also kills
+  # swiftpm-testing-helper, which runs in its own process group.
   python3 "$script_dir/hung_test_watchdog.py" \
     --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
     --label "$suite" \
-    -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
-    < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
-  if [ "$suite_status" -eq 124 ]; then
-    echo "Swift test suite timed out; retrying $suite once." >&2
+    -- swift test --package-path "$package_path" --skip-build \
+    ${lock_args[@]+"${lock_args[@]}"} --filter "$suite" \
+    < /dev/null 3>&- 2>&1 | tee "$execution" | "$@"
+}
+
+# run_suite INDEX SINK...: run suite INDEX with one retry on a timeout, then the
+# execution check, and write its status to suite-INDEX.status. Always returns 0.
+run_suite() {
+  local index="$1"
+  shift
+  local suite="${suites[$index]}"
+  local execution="$evidence_dir/suite-$index.execution.log"
+  local suite_status=0 started=$SECONDS
+  attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+  # --ignore-lock skips the scratch lock, but `swift test --skip-build` still
+  # opens .build/build.db (SQLite); when another suite's process holds it,
+  # SwiftPM gives up before any test runs ("database is locked", then "no tests
+  # found"). That is contention, not a result: try again, at most 3 times.
+  local locked_retries=0
+  while [ "$suite_status" -ne 0 ] && [ "$locked_retries" -lt 3 ] \
+    && grep -Fq 'unable to attach DB' "$execution" && grep -Fq 'database is locked' "$execution"; do
+    locked_retries=$((locked_retries + 1))
+    echo "SwiftPM build database was locked by another suite; retrying $suite ($locked_retries/3)." | "$@"
     suite_status=0
-    python3 "$script_dir/hung_test_watchdog.py" \
-      --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
-      --label "$suite" \
-      -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
-      < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
+    attempt_suite "$suite" "$execution" "$@" || suite_status=$?
+  done
+  if [ "$suite_status" -eq 124 ]; then
+    echo "Swift test suite timed out; retrying $suite once." | "$@"
+    suite_status=0
+    attempt_suite "$suite" "$execution" "$@" || suite_status=$?
   fi
   if [ "$suite_status" -eq 0 ]; then
-    python3 "$script_dir/require_swift_test_execution.py" --log "$evidence_dir/execution.log" \
+    python3 "$script_dir/require_swift_test_execution.py" --log "$execution" 2>&1 | "$@" \
       || suite_status=$?
   fi
+  echo "$((SECONDS - started))" > "$evidence_dir/suite-$index.seconds"
+  echo "$suite_status" > "$evidence_dir/suite-$index.status"
+}
+
+if [ "$suite_jobs" -eq 1 ]; then
+  # One at a time: stream each suite's output as it runs.
+  for ((index = 0; index < suite_count; index++)); do
+    echo "swift test $package_path --skip-build --filter ${suites[$index]}"
+    run_suite "$index" cat
+  done
+else
+  echo "Running $suite_count Swift test suites, $suite_jobs at a time; each suite's output prints when it finishes."
+  # Each finished suite writes its index to this pipe; the scheduler reads it,
+  # prints that suite's whole log under its header, and starts the next suite.
+  # Opened read-write so neither side blocks on open (bash 3.2 has no wait -n).
+  mkfifo "$evidence_dir/finished"
+  exec 3<>"$evidence_dir/finished"
+  next=0 running=0 done_count=0
+  while [ "$done_count" -lt "$suite_count" ]; do
+    while [ "$running" -lt "$suite_jobs" ] && [ "$next" -lt "$suite_count" ]; do
+      (
+        run_suite "$next" tee -a "$evidence_dir/suite-$next.log" > /dev/null \
+          || echo 1 > "$evidence_dir/suite-$next.status"
+        echo "$next" >&3
+      ) &
+      next=$((next + 1))
+      running=$((running + 1))
+    done
+    IFS= read -r finished <&3
+    running=$((running - 1))
+    done_count=$((done_count + 1))
+    finished_status="$(cat "$evidence_dir/suite-$finished.status" 2>/dev/null || echo 1)"
+    finished_seconds="$(cat "$evidence_dir/suite-$finished.seconds" 2>/dev/null || echo '?')"
+    echo "swift test $package_path --skip-build --filter ${suites[$finished]}" \
+      "($done_count/$suite_count, exit $finished_status, ${finished_seconds}s)"
+    cat "$evidence_dir/suite-$finished.log" 2>/dev/null || true
+  done
+  wait
+  exec 3>&-
+fi
+
+first_failure=0
+results=()
+for ((index = 0; index < suite_count; index++)); do
+  suite="${suites[$index]}"
+  suite_status="$(cat "$evidence_dir/suite-$index.status" 2>/dev/null || echo 1)"
   if [ "$suite_status" -eq 0 ]; then
     results+=("PASS $suite")
   else
@@ -94,7 +184,7 @@ while IFS= read -r suite; do
       results+=("FAIL (exit $suite_status) $suite")
     fi
   fi
-done < "$evidence_dir/filters.txt"
+done
 
 failed=0
 for result in ${results[@]+"${results[@]}"}; do
