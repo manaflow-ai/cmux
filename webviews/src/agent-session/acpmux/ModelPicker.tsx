@@ -161,9 +161,12 @@ function matches(model: ModelChoice, query: string): boolean {
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
   "grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
-/// A model row: one line, the theme's text, the hover wash while active.
+/// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
+/// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
-  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 text-left font-[inherit] text-[14px] text-fg disabled:cursor-default disabled:opacity-50";
+  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-[14px] text-fg disabled:cursor-default disabled:opacity-50";
+/// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
+const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-[13px] text-muted";
 
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
@@ -588,13 +591,17 @@ export function ModelPicker(props: ModelPickerProps) {
                     : (selected.folder?.diagnostic ?? unavailableText)}
                 </div>
               ) : selectedOther && selected.folder?.state === "needs-enable" ? (
-                <button type="button" className={`acpmux-mp-row ${modelRow}`} onClick={() => enableProfile(selected)}>
+                <button
+                  type="button"
+                  className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
+                  onClick={() => enableProfile(selected)}
+                >
                   <span className="acpmux-menu-label flex-1 truncate">{t("harness.enable")}</span>
                 </button>
               ) : selectedOther && selected.folder && visible.length === 0 && !query ? (
                 <button
                   type="button"
-                  className={`acpmux-mp-row ${modelRow}`}
+                  className={`acpmux-mp-row ${modelRow} ${rowFill(false)}`}
                   onClick={() => {
                     onHarness?.(selected.id);
                     close();
@@ -613,7 +620,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       data-key={`model:${model.id}`}
                       selected={index === active}
                       aria-checked={model.id === props.model && owners.get(model)?.ids.includes(harness ?? "")}
-                      className={`acpmux-mp-row ${modelRow} pr-14${index === active ? " acpmux-mp-active bg-hover" : ""}`}
+                      className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${model.id === props.model ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
                       onPointerEnter={() => setActive(index)}
                       disabled={Boolean(model.unavailable)}
                       onClick={() => selectModel(model)}
@@ -623,7 +630,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
                       {model.unavailable && <span className="flex-none text-[12px] text-dim">{unavailableText}</span>}
                     </PickerOption>
-                    <span className="pointer-events-none absolute right-2 flex items-center gap-1">
+                    <span className="pointer-events-none absolute right-1.5 flex items-center">
                       <button
                         type="button"
                         className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
@@ -634,9 +641,11 @@ export function ModelPicker(props: ModelPickerProps) {
                       >
                         <StarGlyph filled={favorites.has(model.id)} size={13} />
                       </button>
-                      <span className="grid w-4 place-items-center text-muted">
-                        {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && <CheckIcon />}
-                      </span>
+                      {model.id === props.model && owners.get(model)?.ids.includes(harness ?? "") && (
+                        <span className="grid size-6 place-items-center text-muted">
+                          <CheckIcon />
+                        </span>
+                      )}
                     </span>
                   </div>
                 ))
@@ -646,7 +655,7 @@ export function ModelPicker(props: ModelPickerProps) {
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                 <button
                   type="button"
-                  className={`acpmux-mp-fast ${modelRow} justify-between`}
+                  className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
                   aria-pressed={fastMode.currentValue === fastMode.onValue}
                   onClick={() =>
                     fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
