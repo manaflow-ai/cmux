@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -82,5 +83,52 @@ struct SidebarGroupFlow {
         guard editor.explicit.remove(group) != nil else { return }
         let bridge = bridge
         bridge.life.deleteIfEmpty(group, failed: { bridge.resync() })
+    }
+
+    /// Keeps the sidebar's optimistic rows until an organization change's
+    /// commands have all landed, then shows daemon truth once: a new
+    /// group's create, place and delete commits each send a snapshot, and
+    /// showing them one by one made the group jump (it arrived empty, its
+    /// member snapped back, then moved in). Returns the release.
+    func holdRows() -> @MainActor () -> Void {
+        editor.rowHolds += 1
+        return { [weak bridge = self.bridge] in
+            guard let bridge else { return }
+            bridge.groupEditor.rowHolds -= 1
+            if bridge.groupEditor.rowHolds == 0 { bridge.resync() }
+        }
+    }
+
+    // MARK: The group editor's rows
+
+    /// The editor's action rows run through the action registry with the
+    /// group as their target, the same path as the palette, menus and CLI.
+    func wireEditor() {
+        let sidebar = bridge.container.sidebarView
+        sidebar.groupEditorItems = { [weak bridge = self.bridge] _ in bridge.map { SidebarGroupFlow(bridge: $0).editorItems() } ?? SidebarView.standardGroupEditorItems() }
+        sidebar.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
+            guard let bridge else { return }
+            SidebarGroupFlow(bridge: bridge).performEditorItem(group, item)
+        }
+    }
+
+    /// The standard rows with each action's current shortcut.
+    private func editorItems() -> [[SidebarGroupEditorItem]] {
+        let registry = bridge.services.registry
+        return SidebarView.standardGroupEditorItems().map { section in
+            section.map { item in
+                var item = item
+                item.shortcut = registry.shortcutDisplay(for: ActionID(rawValue: item.id))
+                return item
+            }
+        }
+    }
+
+    private func performEditorItem(_ group: CmuxNextSidebar.GroupID, _ item: String) {
+        // A person acted on the group: a group made empty is no longer ended
+        // by closing the editor (New Workspace in Group fills it).
+        editor.explicit.remove(WorkspaceGroupID(rawValue: group.rawValue))
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.rawValue), origin: .user)
+        _ = bridge.services.registry.perform(ActionID(rawValue: item), invocation: invocation)
     }
 }
