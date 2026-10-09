@@ -51,6 +51,8 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.history": return try await tabHistory(params)
         case "tab.reload": return try await tabReload(params)
         case "frames.list": return try await framesList(params)
+        case "frame.contentFrame": return try await frameContentFrame(params)
+        case "frame.ownerBox": return try await frameOwnerBox(params)
         case "frame.evaluate":
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
@@ -178,6 +180,11 @@ final class LoadStateMessages: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == PageConsole.handler {
+            guard let (name, payload) = PageConsole.event(message.body) else { return }
+            driver?.emit(name, payload.merging(["targetId": .string(tabID.rawValue)]) { $1 })
+            return
+        }
         guard let body = message.body as? [String: Any], let name = body["state"] as? String,
               let state = LoadState(name: name), let document = body["doc"] as? String else { return }
         driver?.received(state, document: document, url: body["url"] as? String ?? "", title: body["title"] as? String,

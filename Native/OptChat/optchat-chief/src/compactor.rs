@@ -170,15 +170,20 @@ pub fn compactor_sessions() -> usize {
 }
 
 /// Spare slots for warm sessions started ahead (`Slots::with_spares`):
-/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `WARM_SESSIONS` (4, about
-/// 0.8 GB of Claude Code processes).
+/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `DEFAULT_SPARES`.
 pub fn compactor_spares() -> usize {
     std::env::var("OPTCHAT_COMPACTOR_SPARES")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|n| *n <= 16)
-        .unwrap_or(WARM_SESSIONS)
+        .unwrap_or(DEFAULT_SPARES)
 }
+
+/// No spare slots by default: on a 2,020-message import, 4 spares hid 175
+/// of 1,207 Claude Code starts and the import took 26.0 min against 24.2
+/// min without (noise), for about 1 GB more memory (cmux-lawrence-2,
+/// 2026-10-09). The setting stays for measuring.
+pub const DEFAULT_SPARES: usize = 0;
 
 /// Every compactor slot: the active ones and the spares (one preset and
 /// working directory each).
@@ -419,6 +424,11 @@ impl Slots {
     fn rewarm(&self, max: usize) -> bool {
         let mut st = self.lock();
         if st.warm.len() + st.warming >= max {
+            return false;
+        }
+        // Without spare slots a warm session takes a node's slot: none
+        // starts while a node waits for one.
+        if st.free.len() <= st.max_active && st.waiting > 0 {
             return false;
         }
         st.warming += 1;
