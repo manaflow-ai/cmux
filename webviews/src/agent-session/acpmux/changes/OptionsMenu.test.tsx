@@ -49,7 +49,7 @@ describe("changes options menu keyboard contract", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  test("restores trigger focus after an asynchronous copy action", async () => {
+  test("does not steal focus after an asynchronous copy action settles", async () => {
     let finish!: () => void;
     const root = await render(
       <UiProvider container={document.body}>
@@ -67,6 +67,6 @@ describe("changes options menu keyboard contract", () => {
     await act(async () => field.focus());
     await act(async () => finish());
     await settle();
-    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).toBe(field);
   });
 });

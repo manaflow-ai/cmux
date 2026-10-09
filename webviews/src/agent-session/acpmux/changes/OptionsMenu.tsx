@@ -14,11 +14,12 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
   const t = useT();
   const button = useRef<HTMLButtonElement>(null);
   const run = (row: Exclude<OptionsRow, null>) => {
-    // Keep the trigger as the menu's focus target even when a command completes asynchronously.
-    // Resolve the callback in a microtask so a synchronous throw also goes through `finally`.
+    // Base UI restores focus when the menu closes. Keep the action detached from that focus
+    // lifecycle so a slow clipboard or host operation cannot steal focus back later.
+    // Fire-and-forget rows use the same ignored-rejection contract as other host actions.
     void Promise.resolve()
       .then(() => row.run())
-      .finally(() => button.current?.focus());
+      .catch(() => undefined);
   };
   return (
     <span className="acpmux-file-menu">
