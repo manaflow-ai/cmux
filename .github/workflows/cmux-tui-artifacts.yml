@@ -478,12 +478,12 @@ jobs:
       # same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
       # docs/ci-runners.md.
-      # Attempt 1 runs on the owned AWS minis through CI_AWS_SIDE_RUNNER
-      # (CI_SIDE_LANE_RUNNER when it is empty); Blacksmith macOS queued these
+      # Attempt 1 runs on the owned minis through CI_SIDE_LANE_RUNNER (the
+      # glaeda-aws pools have no runners); Blacksmith macOS queued these
       # legs for up to 128 min (run 37567938722, 2026-10-07). Workflow text
       # never names an owned pool label (tests/test_ci_self_hosted_guard.sh).
       # A rerun goes back to the PR pool through macos_retry_runner.
-      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_AWS_SIDE_RUNNER || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
       # MACOS-CROSS-COMPILE-ON-LINUX switch: the committed file

@@ -533,6 +533,11 @@ run_suite() {
   if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
     configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
   fi
+  # CMUX_SWIFT_SANITIZE (crash program phase 3): the suites build and run under the sanitizer in
+  # its own scratch folder; the group line names it, so a sanitizer step's log shows it ran.
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE")
+  fi
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles
   fi
