@@ -306,6 +306,57 @@ describe("T3 model picker", () => {
     ],
   };
 
+  test("typing the digits in Sonnet 5.5 never selects a numbered row", async () => {
+    await render();
+    await key(modelButton(), "ArrowDown");
+    const input = await typeQuery("Sonnet ");
+    const digit = new dom.window.KeyboardEvent("keydown", { key: "5", bubbles: true, cancelable: true });
+    await act(async () => input.dispatchEvent(digit));
+    expect(digit.defaultPrevented).toBe(false);
+    await typeQuery("Sonnet 5.5");
+    expect(modelRows()).toHaveLength(1);
+    await key(input, "Enter");
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
+    expect(doc.activeElement).toBe(modelButton());
+  });
+
+  test("digits that match an existing result index remain search text", async () => {
+    await render();
+    await key(modelButton(), "ArrowDown");
+    const input = await typeQuery("Opus ");
+    const digit = new dom.window.KeyboardEvent("keydown", { key: "1", bubbles: true, cancelable: true });
+    await act(async () => input.dispatchEvent(digit));
+    expect(digit.defaultPrevented).toBe(false);
+    expect(calls).toEqual([]);
+    expect(menu()).not.toBeNull();
+  });
+
+  test("favorites with the same model id remain independent across providers", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = [{ id: "shared", name: "Shared Claude" }];
+    value.catalog[2]!.models = [{ id: "shared", name: "Shared Codex" }];
+    await render(value);
+    await key(modelButton(), "ArrowDown");
+    await act(async () => menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
+    await act(async () => menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")[1]!.click());
+    expect(menu()!.querySelector(".acpmux-mp-favorite")!.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => menu()!.querySelector<HTMLButtonElement>('[aria-label="Starred"]')!.click());
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Shared Claude"]);
+  });
+
+  test("rail arrow navigation includes Starred and returns to the search field", async () => {
+    await render();
+    await key(modelButton(), "ArrowDown");
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    await key(input, "ArrowLeft");
+    await key(doc.activeElement!, "ArrowUp");
+    expect(doc.activeElement?.getAttribute("aria-label")).toBe("Starred");
+    await key(doc.activeElement!, "ArrowRight");
+    expect(doc.activeElement).toBe(input);
+    await key(input, "Escape");
+    expect(doc.activeElement).toBe(modelButton());
+  });
+
   // Lawrence 2026-10-08: "typing needs to be separate that lets me search through all of them".
   test("typing searches every harness, whatever tab shows", async () => {
     await render();
