@@ -106,6 +106,13 @@ if out="$(ratchet)"; then fail "an unwrap inside an interpolation passed: $out";
 [[ "$out" == *"swift M: force_unwrap 0 -> 1"* ]] || fail "the interpolated unwrap is not reported: $out"
 reset
 
+# 6b. An enum case or member named unowned is not an unowned reference.
+printf 'enum O { case unowned = 0 }\nlet o: O = .unowned\nswitch o { case .unowned: break }\n' > "$app/Sources/M/A.swift"
+out="$(ratchet)" || fail "an enum case named unowned counted: $out"
+printf 'final class C { unowned let p: P }\n' > "$app/Sources/M/A.swift"
+if out="$(ratchet)"; then fail "a real unowned passed: $out"; fi
+reset
+
 # 7. render_font: in a background-render module a font made in place counts; a static let
 #    (made once per process) and the same call in another module do not (cx-qpqs).
 printf 'func f() -> NSFont { NSFont.systemFont(ofSize: 10) }\n' > "$shared/Sources/MessagesLabHome/F.swift"

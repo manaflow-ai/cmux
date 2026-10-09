@@ -70,7 +70,8 @@ SWIFT = {
     "fatal_error": re.compile(r"\bfatalError\("),
     "precondition": re.compile(r"\bprecondition(Failure)?\("),
     "assume_isolated": re.compile(r"\bassumeIsolated\b"),
-    "unowned": re.compile(r"\bunowned\b"),
+    # Not an enum case or member named `unowned` (`case unowned = 0`, `.unowned`).
+    "unowned": re.compile(r"(?<!\.)(?<!case )\bunowned\b"),
     # Declarations, parameters (`navigation: WKNavigation!`) and return types.
     "iuo": re.compile(r"(?:\b(?:var|let)\s+\w+|[(,]\s*(?:\w+\s+)?\w+)\s*:\s*[A-Z][\w\.]*(?:<[^>]*>)?!"
                       r"|->\s*[A-Z][\w\.]*(?:<[^>]*>)?!"),
