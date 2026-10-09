@@ -24,7 +24,10 @@ final class ConversationAvatarView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    private(set) var initials = ""
+
     func configure(initials: String, colorHex: String?) {
+        self.initials = initials
         label.text = initials
         guard let colorHex else {
             gradient.colors = ConversationTheme.monogramGradient.map(\.cgColor)
@@ -257,8 +260,8 @@ final class TypingIndicatorView: UIView {
 
     private static let mediumDelay: CFTimeInterval = 0.065
     private static let bubbleDelay: CFTimeInterval = 0.12
-    /// Grow finishes (and the pulse takes over) at ChatKit's insertion time.
-    static let growDuration: CFTimeInterval = 0.52
+    /// Each part's scale-up; its pulse takes over when it ends.
+    private static let scaleDuration: CFTimeInterval = 0.25
 
     /// Starts the dots and the breathing pulse; idempotent (cells call it on
     /// every configure, and batch updates strip layer animations).
@@ -274,7 +277,12 @@ final class TypingIndicatorView: UIView {
             fade.fillMode = .both
             dot.add(fade, forKey: "dot")
         }
-        guard !isGrowing else { return }
+        addPulses(after: 0)
+    }
+
+    /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
+    /// own start, `delay` after now.
+    private func addPulses(after delay: CFTimeInterval) {
         let now = CACurrentMediaTime()
         for part in parts where part.view.layer.animation(forKey: "pulse") == nil {
             let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
@@ -284,29 +292,38 @@ final class TypingIndicatorView: UIView {
             pulse.autoreverses = true
             pulse.repeatCount = .infinity
             pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            pulse.beginTime = now + part.delay
+            pulse.beginTime = now + delay + (delay > 0 ? part.delay : 0)
             pulse.fillMode = .forwards
+            pulse.isRemovedOnCompletion = false
             part.view.layer.add(pulse, forKey: "pulse")
         }
     }
 
-    private var isGrowing = false
-
-    /// ChatKit's insertion: the small circle, then the medium, then the
-    /// bubble scale up from nothing at their tail-side pivots (0.25 s ease)
-    /// while each swings out along a short arc and back (0.4 s); the pulse
-    /// starts when the grow completes.
+    /// ChatKit's insertion (`CKTypingIndicatorPunchOutLayer` grow, read
+    /// from the iOS 26.5 and 27.0 runtimes, identical on both): the small
+    /// circle, then the medium (+0.065 s), then the bubble (+0.12 s) scale up
+    /// from nothing at their tail-side pivots (0.25 s) while each swings out
+    /// along a short arc and back (0.4 s). Every part also carries ChatKit's
+    /// 0.25 s `hidden` animation from the start, so the first visible frame
+    /// already shows the grow under way. Each part's pulse begins as its
+    /// scale-up ends (0.25 / 0.315 / 0.37 s).
     func grow() {
-        isGrowing = true
         let now = CACurrentMediaTime()
         let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
         for part in parts {
             let layer = part.view.layer
             layer.removeAnimation(forKey: "pulse")
+            let hidden = CABasicAnimation(keyPath: "hidden")
+            hidden.fromValue = true
+            hidden.toValue = false
+            hidden.duration = Self.scaleDuration
+            hidden.beginTime = now
+            hidden.fillMode = .forwards
+            layer.add(hidden, forKey: "growHidden")
             let scale = CABasicAnimation(keyPath: "transform.scale.xy")
             scale.fromValue = 0
             scale.toValue = 1
-            scale.duration = 0.25
+            scale.duration = Self.scaleDuration
             scale.timingFunction = ease
             let x = CAKeyframeAnimation(keyPath: "position.x")
             x.values = [layer.position.x, layer.position.x + part.wobble.x, layer.position.x]
@@ -327,25 +344,12 @@ final class TypingIndicatorView: UIView {
             group.fillMode = .backwards
             layer.add(group, forKey: "grow")
         }
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self else { return }
-            self.isGrowing = false
-            if self.window != nil { self.startAnimating() }
-        }
-        let marker = CABasicAnimation(keyPath: "opacity")
-        marker.fromValue = 1
-        marker.toValue = 1
-        marker.duration = Self.growDuration
-        layer.add(marker, forKey: "growClock")
-        CATransaction.commit()
+        addPulses(after: Self.scaleDuration)
     }
 
     func stopAnimating() {
-        isGrowing = false
         dot.removeAllAnimations()
         for part in parts { part.view.layer.removeAllAnimations() }
-        layer.removeAnimation(forKey: "growClock")
     }
 }
 #endif

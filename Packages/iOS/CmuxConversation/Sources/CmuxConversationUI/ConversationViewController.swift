@@ -79,6 +79,8 @@ public final class ConversationViewController: UIViewController {
     var arrivingRowIDs: [String] = []
     /// The incoming message replacing a typing indicator in the current change.
     var typingHandoffRowID: String?
+    /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
+    var typingAvatarHandoff: (frame: CGRect, initials: String)?
     private(set) var hasPositionedInitially = false
     /// The catch-up arrow (see +CatchUp).
     let catchUpButton = UIButton(type: .custom)
@@ -579,27 +581,25 @@ public final class ConversationViewController: UIViewController {
             }
         }
 
-        // A typing indicator replaced by the message it announced vanishes at
-        // once: the message grows in its place, so a fading indicator (with its
-        // own avatar) would double the sender for a few frames.
-        let replacesTyping = inserted.contains { indexPath in
-            if case .message = newRows[indexPath.item] { return true } else { return false }
-        }
-        var removedTyping = false
-        if animateLive, replacesTyping {
+        // A typing indicator replaced by the message it announced cross-fades
+        // with it in place, as ChatKit's layout does (the indicator's final
+        // attributes and the message's initial ones are alpha 0; only plugin
+        // items skip the fade). In a group the typer's avatar flies from the
+        // indicator to the message instead of fading (see `flyTypingAvatar`).
+        if animateLive, inserted.contains(where: { if case .message = newRows[$0.item] { return true } else { return false } }) {
             for indexPath in deleted where indexPath.item < rows.count {
-                if case .typing = rows[indexPath.item], let cell = collectionView.cellForItem(at: indexPath) {
-                    UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
-                    removedTyping = true
+                guard case .typing = rows[indexPath.item],
+                      let cell = collectionView.cellForItem(at: indexPath) as? TypingCell else { continue }
+                if let handoff = inserted.last(where: { indexPath in
+                    if case let .message(model) = newRows[indexPath.item] { return !model.isOutgoing } else { return false }
+                }) {
+                    typingHandoffRowID = newIDs[handoff.item]
+                    if !cell.avatar.isHidden {
+                        typingAvatarHandoff = (cell.avatar.convert(cell.avatar.bounds, to: collectionView), cell.avatar.initials)
+                        UIView.performWithoutAnimation { cell.avatar.isHidden = true }
+                    }
                 }
             }
-        }
-        // The message that takes the indicator's place shows at full opacity
-        // from the first frame, so the hand-off never passes through an empty frame.
-        if removedTyping, let handoff = inserted.last(where: { indexPath in
-            if case let .message(model) = newRows[indexPath.item] { return !model.isOutgoing } else { return false }
-        }) {
-            typingHandoffRowID = newIDs[handoff.item]
         }
         // Non-animated changes (a page landing) can regroup visible rows
         // (spacing, tail, sender name); rows that move a few points glide.
@@ -735,6 +735,8 @@ public final class ConversationViewController: UIViewController {
         arrivingRowIDs = []
         let handoff = typingHandoffRowID
         typingHandoffRowID = nil
+        let avatarHandoff = typingAvatarHandoff
+        typingAvatarHandoff = nil
         for id in ids {
             guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) else { continue }
             if let cell = cell as? TypingCell {
@@ -742,15 +744,40 @@ public final class ConversationViewController: UIViewController {
                 cell.indicator.grow()
                 continue
             }
-            guard id != handoff else {
-                UIView.performWithoutAnimation { cell.contentView.alpha = 1 }
-                continue
-            }
             UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
             UIView.animate(withDuration: Self.arrivalFadeDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
                 cell.contentView.alpha = 1
             }
+            if id == handoff, let avatarHandoff, let cell = cell as? MessageCell {
+                flyTypingAvatar(from: avatarHandoff.frame, initials: avatarHandoff.initials, to: cell)
+            }
         }
+    }
+
+    /// ChatKit's `CKGroupTypingAvatarAnimationCoordinator` (iOS 26.5 and
+    /// 27.0): a copy of the typer's avatar springs from the indicator's
+    /// avatar to the message's (mass 2, stiffness 370, damping 40) while the
+    /// message's own avatar stays hidden, so the sender never doubles or fades.
+    private func flyTypingAvatar(from start: CGRect, initials: String, to cell: MessageCell) {
+        guard !cell.avatar.isHidden, let indexPath = collectionView.indexPath(for: cell),
+              let rowFrame = layout.frame(at: indexPath.item) else { return }
+        // The cell's final place: it may still be moving with the batch.
+        let end = cell.avatar.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
+        let overlay = ConversationAvatarView(frame: start)
+        overlay.configure(initials: initials, colorHex: nil)
+        overlay.isUserInteractionEnabled = false
+        collectionView.addSubview(overlay)
+        let target = cell.avatar
+        UIView.performWithoutAnimation { target.alpha = 0 }
+        let animator = UIViewPropertyAnimator(duration: 0, timingParameters: UISpringTimingParameters(mass: 2, stiffness: 370, damping: 40, initialVelocity: .zero))
+        animator.addAnimations {
+            overlay.frame = end
+        }
+        animator.addCompletion { _ in
+            target.alpha = 1
+            overlay.removeFromSuperview()
+        }
+        animator.startAnimation()
     }
 
     /// `CKUIBehavior.scrollInNewMessageAnimationDuration`.
