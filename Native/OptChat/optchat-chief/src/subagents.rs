@@ -286,7 +286,16 @@ impl Spawner {
                     .as_deref()
                     .is_some_and(|p| self.agents.system_prompt(p))
             })
+            // Only in our own subagent directory: Claude Code takes the TTL
+            // from its project settings there (acpmux takes no TTL variable
+            // in a session's env), and a user's directory is not ours to write.
+            .filter(|_| s.cwd == self.settings.cwd)
             .and_then(|ttl| crate::prompt::Mark::last_whole(view, ttl));
+        if let Some(m) = mark
+            && let Err(e) = crate::session_dir::set_prompt_cache_ttl(&s.cwd, m.ttl)
+        {
+            (self.log)(&format!("the subagent directory's promptCacheTtl: {e}"));
+        }
         // The workspace key is chosen first, so the session starts knowing
         // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
         let key = self
@@ -315,7 +324,6 @@ impl Spawner {
             env: key
                 .iter()
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
-                .chain(mark.map(|m| ttl_env(m.ttl)))
                 .collect(),
         };
         let session = self.agents.new_session(&spec)?;
@@ -479,6 +487,7 @@ impl Spawner {
                             let _ = started.send(());
                         }
                     }
+                    TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -556,18 +565,6 @@ impl Spawner {
         let events = self.agents.events(&session, 0)?;
         let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
         Ok(crate::agent_chat::page(id, &text, at, page))
-    }
-}
-
-/// The session env that gives Claude Code the TTL of our mark.
-fn ttl_env(ttl: crate::prompt::CacheTtl) -> (String, String) {
-    match ttl {
-        crate::prompt::CacheTtl::OneHour => {
-            ("CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(), "1h".to_owned())
-        }
-        crate::prompt::CacheTtl::FiveMinutes => {
-            ("FORCE_PROMPT_CACHING_5M".to_owned(), "1".to_owned())
-        }
     }
 }
 

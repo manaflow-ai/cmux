@@ -77,10 +77,7 @@ impl Brain {
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
         // The turns' TTL for a Claude subagent's mark; none once a route
         // refused our marks.
-        let ttl = (!self
-            .marker_refused
-            .load(std::sync::atomic::Ordering::SeqCst))
-        .then(|| self.turn_cache_ttl());
+        let ttl = (!self.marker_refused.is_off()).then(|| self.turn_cache_ttl());
         Ok(SpawnPlan {
             spawn,
             ids,
@@ -405,7 +402,7 @@ impl Brain {
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    crate::acpmux::TurnSignal::Changed => {}
+                    crate::acpmux::TurnSignal::Changed | crate::acpmux::TurnSignal::Streamed => {}
                     crate::acpmux::TurnSignal::Done(answer) => {
                         let _ = forward.send(super::Input::SubagentAnswer { id: sub_id, answer });
                         return;

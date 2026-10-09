@@ -5,75 +5,39 @@
    "chatmux-relay": 12,
    "cmux-app-host": 2,
    "cmux-browser-host": 2,
-   "cmux-pane-protocol": 1,
    "cmux-rd-host": 3,
-   "cmux-tasks": 1,
    "cmux-tui": 1
   },
   "expect": {
    "acpmux": 10,
-   "chatmux-relay": 132,
+   "chatmux-relay": 83,
    "cmux-app-host": 2,
-   "cmux-app-manifest": 14,
    "cmux-browser-host": 1,
-   "cmux-layout-reducer": 13,
-   "cmux-pane-protocol": 1,
-   "cmux-pty": 1,
-   "cmux-relay": 4,
-   "cmux-remote": 61,
-   "cmux-remote-protocol": 1,
-   "cmux-server-core": 9,
-   "cmux-tasks": 1,
-   "cmux-tasks-core": 25,
+   "cmux-remote": 60,
    "cmux-terminal-client": 1,
-   "cmux-tui": 195,
+   "cmux-tui": 87,
    "cmux-tui-cdp": 3,
    "cmux-tui-core": 293,
-   "cmux-unix-socket": 1,
-   "cmux-wg": 15,
-   "ghostty-vt": 3
+   "cmux-wg": 15
   },
   "panic_macro": {
    "acpmux": 2,
    "chatmux-relay": 1,
-   "cmux-app-manifest": 1,
-   "cmux-pane-protocol": 1,
-   "cmux-pty": 3,
-   "cmux-relay": 1,
    "cmux-remote": 13,
-   "cmux-tui": 43,
-   "cmux-tui-core": 37,
-   "ghostty-vt": 1
+   "cmux-tui": 33,
+   "cmux-tui-core": 36
   },
   "unwrap": {
    "acpmux": 182,
-   "chatmux-relay": 8,
-   "cmux-link": 6,
-   "cmux-pty": 12,
-   "cmux-relay": 1,
-   "cmux-remote": 74,
-   "cmux-remote-protocol": 2,
+   "chatmux-relay": 7,
+   "cmux-remote": 30,
    "cmux-terminal-client": 30,
-   "cmux-tui": 457,
+   "cmux-tui": 435,
    "cmux-tui-cdp": 29,
-   "cmux-tui-core": 1675,
-   "cmux-wg": 13,
-   "ghostty-vt": 3
+   "cmux-tui-core": 1643
   }
  },
  "swift": {
-  "assume_isolated": {
-   "CmuxHomeRender": 3,
-   "CmuxMobileSupport": 3,
-   "CmuxNextAgentActivity": 1,
-   "CmuxNextAgentPane": 4,
-   "CmuxNextApp": 33,
-   "CmuxNextHome": 1,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextRemoteView": 1,
-   "CmuxNextSidebar": 3,
-   "CmuxNextTasks": 3
-  },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
@@ -87,43 +51,23 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CmuxNextActions": 9,
-   "CmuxNextAgentActivity": 1,
-   "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 95,
-   "CmuxNextApps": 1,
-   "CmuxNextBookmarks": 3,
-   "CmuxNextBrowser": 25,
-   "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 4,
-   "CmuxNextCloud": 10,
-   "CmuxNextCodeRouter": 5,
-   "CmuxNextDesign": 3,
-   "CmuxNextFeed": 1,
-   "CmuxNextHistory": 1,
-   "CmuxNextLayout": 6,
-   "CmuxNextOnboarding": 22,
-   "CmuxNextPages": 2,
-   "CmuxNextRemote": 2,
-   "CmuxNextRemoteView": 1,
-   "CmuxNextResources": 2,
+   "CmuxNextApp": 48,
    "CmuxNextSettings": 6,
-   "CmuxNextSidebar": 8,
-   "CmuxNextTabs": 4,
-   "CmuxNextTerminal": 1,
-   "MessagesLabHome": 58,
-   "MessagesLabSidebar": 18
+   "CmuxNextSidebar": 3,
+   "MessagesLabHome": 4,
+   "MessagesLabSidebar": 2
   },
   "iuo": {
    "CmuxNextApp": 27,
-   "CmuxNextBrowser": 8,
-   "CmuxNextOnboarding": 17,
-   "CmuxNextSidebar": 5,
-   "MessagesLabHome": 3,
-   "MessagesLabSidebar": 1
+   "CmuxNextSidebar": 5
   },
   "precondition": {
    "CmuxNextSidebar": 1
+  },
+  "render_font": {
+   "CmuxHomeRender": 4,
+   "MessagesLabHome": 25,
+   "MessagesLabSidebar": 4
   },
   "unchecked": {
    "CMUXAuthCore": 3,
@@ -160,15 +104,12 @@
    "MessagesLabSidebar": 2
   },
   "unowned": {
-   "CMUXMobileCore": 3,
-   "CmuxNextApp": 70,
-   "CmuxNextBrowser": 16,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextPalette": 4,
+   "CmuxNextApp": 63,
+   "CmuxNextBrowser": 6,
+   "CmuxNextPalette": 1,
    "CmuxNextSidebar": 2,
    "CmuxNextTerminal": 1,
-   "CmuxNextWakeups": 1,
-   "MessagesLabHome": 12
+   "MessagesLabHome": 2
   }
  }
 }

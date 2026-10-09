@@ -4,7 +4,9 @@
 # entries must carry ghostty-next's capabilities (dim in sgr, overline Smol and
 # Rmol, Se resetting to the default cursor) and still keep cmux's patch that
 # sends colors 8-15 as 256-color indexes (38;5;n / 48;5;n), not bright SGR
-# 90-97 / 100-107 (the zsh-autosuggestions fg=8 fix).
+# 90-97 / 100-107 (the zsh-autosuggestions fg=8 fix). The Ghostty entries
+# advertise the program status protocol (OSC 7501) with Pst, as its
+# specification asks of terminals that implement it.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 command -v infocmp >/dev/null || { echo "FAIL: infocmp (ncurses) is required" >&2; exit 1; }
@@ -36,6 +38,7 @@ for name in xterm-ghostty ghostty xterm-256color; do
   check "$name" "Se does not reset to the default cursor" 'Se=\E[0 q,'
   check "$name" "setaf lost the 256-color 8-15 patch" 'setaf=\E[%?%p1%{8}%<%t3%p1%d%e38;5;%p1%d%;m,'
   check "$name" "setab lost the 256-color 8-15 patch" 'setab=\E[%?%p1%{8}%<%t4%p1%d%e48;5;%p1%d%;m,'
+  [[ $name == xterm-256color ]] || check "$name" "no program status (OSC 7501) Pst" 'Pst=\E]7501;%p1%s\E\\,'
 done
 [[ $fail -eq 0 ]] || exit 1
-echo "PASS: bundled terminfo has ghostty-next capabilities and cmux's 256-color 8-15 patch"
+echo "PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch"

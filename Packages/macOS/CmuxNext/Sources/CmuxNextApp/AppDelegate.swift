@@ -123,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
             if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
+                MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") } // main-proof: CATransaction.h: the completion block is called on the main thread
             }
         }
         // Once the first terminal frame is drawn, the palette panel is made

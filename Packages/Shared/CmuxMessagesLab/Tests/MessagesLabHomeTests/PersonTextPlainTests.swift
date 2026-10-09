@@ -13,12 +13,12 @@ import Testing
                      Fixture2.item(2, Fixture2.me, "Thanks, **looks good** and `done`.")]
         p.apply(items: items, summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded()
-        c.demo.layoutIfNeeded()
-        c.demo.collection.layoutIfNeeded()
-        let mine = try #require(c.demo.lastTextRow(mine: true))
+        c.demo!.layoutIfNeeded()
+        c.demo!.collection.layoutIfNeeded()
+        let mine = try #require(c.demo!.lastTextRow(mine: true))
         #expect(mine.row.markdown == nil, "a person's text takes the plain path")
         #expect(mine.row.text?.text == "Thanks, **looks good** and `done`.")
-        let agent = try #require(c.demo.lastTextRow(mine: false))
+        let agent = try #require(c.demo!.lastTextRow(mine: false))
         #expect(agent.row.text?.text == "Plan: ship it after verify-clean.", "an agent's text stays Markdown")
     }
 }

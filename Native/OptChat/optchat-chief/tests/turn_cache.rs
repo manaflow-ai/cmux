@@ -337,12 +337,8 @@ fn turn_requests_never_put_a_one_hour_mark_after_a_five_minute_one_for_either_se
 
 #[test]
 fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
-    use optchat_chief::acpmux::Family;
-    use optchat_chief::compactor::{cached_prompt, compactor_presets, compactor_settings};
-    let dir = tempfile::tempdir().unwrap();
-    let paths = optchat_chief::paths::Paths::new(dir.path());
-    let presets = compactor_presets(&paths, dir.path(), "claude", Family::Claude);
-    assert!(!presets.is_empty());
+    use optchat_chief::compactor::{cached_prompt_with, compactor_settings_for};
+    use optchat_chief::prompt::CacheTtl;
     let mut context = String::from("<chat>\n");
     for i in 0..40 {
         context.push_str(&format!("{i}+1|note: line {i}\n"));
@@ -355,26 +351,17 @@ fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
         step: "step".into(),
         cut: None,
     };
-    let prompt = cached_prompt(&request, true);
-    let ours: Vec<&str> = markers(&prompt.blocks)
-        .iter()
-        .map(|&k| ttl_of(&prompt.blocks[k]["cache_control"]))
-        .collect();
-    assert_eq!(ours.len(), 1);
-    for preset in &presets {
+    for ttl in [CacheTtl::FiveMinutes, CacheTtl::OneHour] {
+        let prompt = cached_prompt_with(&request, true, ttl);
+        let ours: Vec<&str> = markers(&prompt.blocks)
+            .iter()
+            .map(|&k| ttl_of(&prompt.blocks[k]["cache_control"]))
+            .collect();
+        assert_eq!(ours, vec![ttl.as_str()]);
         assert_non_increasing(
-            harness_ttl(&compactor_settings(), Some(&preset.env)),
+            harness_ttl(&compactor_settings_for(ttl), None),
             &ours,
-            &format!("compactor preset {}", preset.name),
-        );
-        assert_eq!(
-            preset
-                .env
-                .get("FORCE_PROMPT_CACHING_5M")
-                .map(String::as_str),
-            Some("1"),
-            "{}: Claude Code's own marks pinned to 5m",
-            preset.name
+            &format!("compactor node at {}", ttl.as_str()),
         );
     }
 }
@@ -431,5 +418,84 @@ fn the_host_env_picks_the_ttl_and_a_forced_five_minute_harness_wins() {
     assert_eq!(
         cache_ttl_from_env(&env(&[("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m")])),
         Some(CacheTtl::FiveMinutes)
+    );
+}
+
+/// A refused mark is not refused for good: after 10 turns without it the
+/// next turn carries it again (a 400 costs one fast rerun; a lost mark costs
+/// the view on every turn).
+#[test]
+fn a_refused_marker_comes_back_after_ten_turns() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": MARKER_LIMIT}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::configured(dir, script, owner(), s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    for i in 0..12 {
+        h.say("user_local", &format!("turn {i}"));
+        h.settle();
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    // Turn 0 twice (refused, then unmarked), then turns 1..=11.
+    assert_eq!(inner.prompts.len(), 13);
+    for k in 1..=11 {
+        assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
+    }
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "turn 11 tries the mark again"
+    );
+}
+
+/// The last turn's mark survives a host restart (it is saved with the
+/// turn's messages): the first turn after the restart still marks within
+/// the API's lookback of it, after a long tool run.
+#[test]
+fn the_last_turns_mark_survives_a_restart() {
+    let mut h = claude_harness(None);
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    let before = h.agents.inner.lock().unwrap().prompts[0].clone();
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 1_200, 160);
+    h.connect();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    let after = inner.prompts.last().unwrap();
+    let (ma, mb) = (markers(&before)[0], markers(after)[0]);
+    assert_eq!(texts(&before)[..=ma], texts(after)[..=ma]);
+    assert!(
+        mb >= ma && mb - ma <= 20,
+        "marks {ma} then {mb} across the restart"
     );
 }

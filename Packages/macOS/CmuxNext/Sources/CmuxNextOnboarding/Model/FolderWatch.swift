@@ -10,7 +10,7 @@ final class FolderWatch {
         let descriptor = open(url.path, O_EVTONLY)
         guard descriptor >= 0 else { return nil }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { MainActor.assumeIsolated { onChange() } }
+        source.setEventHandler { MainActor.assumeIsolated { onChange() } } // main-proof: dispatch source on queue: .main
         source.setCancelHandler { close(descriptor) }
         source.resume()
         self.source = source

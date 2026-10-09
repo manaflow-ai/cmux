@@ -47,7 +47,7 @@ final class AccountsService: AccountsServices {
         labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.appDidBecomeActive() }
+            MainActor.assumeIsolated { self?.model.appDidBecomeActive() } // main-proof: observer on queue: .main
         }
     }
 

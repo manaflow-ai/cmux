@@ -142,12 +142,11 @@ final class ThemeSwatchDot: ThemePressable, ThemeChoiceItem {
 /// A system radio button as a theme choice.
 final class ThemeRadioItem: NSView, ThemeChoiceItem {
     var onPress: (() -> Void)?
-    private var radio: NSButton!
+    private lazy var radio: NSButton = OnboardingControl.radio("", target: self, action: #selector(pressed))  // no IUO (crash program)
 
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        radio = OnboardingControl.radio("", target: self, action: #selector(pressed))
         addSubview(radio)
         NSLayoutConstraint.activate([
             radio.leadingAnchor.constraint(equalTo: leadingAnchor), radio.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),

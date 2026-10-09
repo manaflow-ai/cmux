@@ -83,6 +83,12 @@ pub struct HostState {
     /// next connect reads them from the owner again and describes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undescribed: Vec<crate::brain::images::ImageRef>,
+    /// The view up to and including the last turn's marked block, by size
+    /// and hash (`optchat_core::mark_piece`): saved with that turn's
+    /// messages, so the first turn after a restart still marks within the
+    /// API's lookback of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_mark: Option<MarkRecord>,
     /// G9: the floor of each side conversation (not the main one) the
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -647,5 +653,27 @@ mod tests {
         assert_eq!(file.load(), state);
         std::fs::write(dir.path().join("host.json"), b"{torn").unwrap();
         assert_eq!(file.load(), HostState::default());
+    }
+}
+
+/// A turn's marked view prefix: its byte length and `trace::hash`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkRecord {
+    pub bytes: usize,
+    pub hash: String,
+}
+
+impl MarkRecord {
+    pub fn of(prefix: &str) -> MarkRecord {
+        MarkRecord {
+            bytes: prefix.len(),
+            hash: crate::trace::hash(prefix),
+        }
+    }
+
+    /// The same prefix of `view`, when `view` still starts with it.
+    pub fn prefix_of<'a>(&self, view: &'a str) -> Option<&'a str> {
+        let prefix = view.get(..self.bytes)?;
+        (crate::trace::hash(prefix) == self.hash).then_some(prefix)
     }
 }

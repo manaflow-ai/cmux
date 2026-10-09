@@ -4,6 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
+  "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
@@ -134,6 +135,26 @@ def handle_prompt(rid, params):
         res = request("x.ai/exit_plan_mode", {"sessionId": sid, "toolCallId": "xp1", "planContent": text[9:].strip()})
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": "xai " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cursor-question: Q" asks Q the way Cursor does (`cursor/ask_question`,
+    # option ids distinct from labels) and "cursor-plan: P" proposes plan P
+    # (`cursor/create_plan`); both echo the client's JSON reply.
+    if text.startswith("cursor-question:"):
+        res = request("cursor/ask_question", {
+            "toolCallId": "cq1", "title": "Pick one",
+            "questions": [{"id": "which", "prompt": text[16:].strip(), "allowMultiple": True,
+                           "options": [{"id": "opt-a", "label": "A"}, {"id": "opt-b", "label": "B"}]}],
+        })
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("cursor-plan:"):
+        res = request("cursor/create_plan", {"toolCallId": "cp1", "name": "Fix", "plan": text[12:].strip(),
+                                             "todos": [{"id": "t1", "content": "read", "status": "pending"}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk",
+                     "content": {"type": "text", "text": "cursor " + json.dumps(res, sort_keys=True)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate-ask: PATH" blocks on the FIFO at PATH (as "gate:"), then asks
@@ -305,6 +326,10 @@ def handle_prompt(rid, params):
 
 def main():
     global LAST_MCP_SERVERS
+    # `--fake-login` (the terminal sign-in): sign in and exit.
+    if "--fake-login" in sys.argv[1:]:
+        open(os.environ["FAKE_AUTH_FILE"], "w").close()
+        return
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -332,6 +357,18 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        if m == "authenticate":
+            # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
+            if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):
+                open(os.environ["FAKE_AUTH_FILE"], "w").close()
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "no such auth method"}})
+            continue
+        if (m == "session/new" and os.environ.get("FAKE_AUTH_FILE")
+                and not os.path.exists(os.environ["FAKE_AUTH_FILE"])):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
+            continue
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
@@ -342,7 +379,12 @@ def main():
                 "protocolVersion": 1,
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
-                "authMethods": [],
+                "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
+                    {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
+                    {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
+                    {"id": "fake-key", "name": "API key", "type": "env_var", "varName": "FAKE_API_KEY"},
+                    {"id": "odd", "type": "carrier-pigeon"},
+                ],
             }})
         elif m == "session/new":
             if os.environ.get("FAKE_NEW_DELAY_MS"):
