@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use common::*;
-use optchat_chief::subagents::{Spawner, SubagentSettings, resolve_cwd};
 use optchat_chief::prompt::SPAWN_CWD_DESCRIPTION;
+use optchat_chief::subagents::{Spawner, SubagentSettings, resolve_cwd};
 use optchat_chief::tools::{Call, Command, Orchestrator, command};
 use optchat_chief::workspaces::Workspaces;
 use serde_json::json;
@@ -316,6 +316,9 @@ fn the_spawn_tool_asks_for_the_most_specific_folder() {
 #[test]
 fn the_chief_is_told_not_to_walk_the_home_folder() {
     let text = optchat_chief::prompt::CMUX_INSTRUCTIONS;
-    assert!(text.contains("never list, glob or search the whole home folder"), "{text}");
+    assert!(
+        text.contains("never list, glob or search the whole home folder"),
+        "{text}"
+    );
     assert!(text.contains("Downloads"), "{text}");
 }
