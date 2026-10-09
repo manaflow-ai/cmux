@@ -130,7 +130,7 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::trusted_local_resource_client;
+use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -147,6 +147,7 @@ use remote_relay::handle_connection_message;
 mod responses;
 mod rows;
 mod screen_json;
+mod server_stats;
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -192,6 +193,7 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_control;
 mod chief_inspect;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -1056,8 +1058,11 @@ enum Command {
     },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
-    /// admission. Owner-only diagnostics, never journaled.
-    ServerStats,
+    /// admission. Owner-only diagnostics, never journaled. `include` names
+    /// optional sections (`resource_projection`); unknown names are ignored.
+    ServerStats {
+        include: Option<Vec<String>>,
+    },
     /// Turn terminal command history on or off for this daemon
     /// (`terminal-command-journal-v1`). Off by default and after a restart;
     /// trusted local connections only.
@@ -4270,16 +4275,6 @@ fn claim_connection(
         .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
 }
 
-fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
-    crate::diagnostics::ServerStatsSnapshot {
-        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
-        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
-        registry_lock: mux.registry_lock_stats(),
-        journal_writer: mux.journal_writer_stats(),
-        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
-    }
-}
-
 impl BoundedOutbound {
     fn push_regular(
         &self,
@@ -7288,45 +7283,6 @@ const fn journal_class_index(class: JournalClass) -> usize {
     }
 }
 
-const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
-        ResourceOperation::SessionEvents
-            | ResourceOperation::SessionJournalSubscribe
-            | ResourceOperation::SessionJournalProducerList
-            | ResourceOperation::SessionJournalProducerPut
-            | ResourceOperation::SessionJournalAppend
-            | ResourceOperation::SessionJournalHookList
-            | ResourceOperation::SessionJournalHookPut
-            | ResourceOperation::SessionJournalCheckpointCreate
-            | ResourceOperation::SessionJournalCheckpointList
-            | ResourceOperation::SessionJournalRestorePreview
-            | ResourceOperation::SessionJournalSegmentList
-            | ResourceOperation::SessionJournalSegmentSeal
-            | ResourceOperation::SessionShutdown
-            | ResourceOperation::PairingRequestList
-            | ResourceOperation::PairingRequestResolve
-            | ResourceOperation::RequestCancel
-            | ResourceOperation::ClientList
-            | ResourceOperation::ClientGet
-            | ResourceOperation::ClientMetadataUpdate
-            | ResourceOperation::ClientSizingSet
-            | ResourceOperation::ClientSizingRelease
-            | ResourceOperation::ClientCellPixelsSet
-            | ResourceOperation::ClientDetach
-            | ResourceOperation::TerminalRendererGrantCreate
-            | ResourceOperation::TerminalViewerResize
-            | ResourceOperation::TerminalViewerRelease
-            | ResourceOperation::TerminalAttach
-            | ResourceOperation::BrowserViewerResize
-            | ResourceOperation::BrowserViewerRelease
-            | ResourceOperation::BrowserAttach
-            | ResourceOperation::SidebarViewAttach
-            | ResourceOperation::StreamCancel
-            | ResourceOperation::OriginConfirmationIssue
-    ) || conversation_resource::handles(operation)
-}
-
 fn handle_resource_session_shutdown(
     mux: &Arc<Mux>,
     client: u64,
@@ -7409,6 +7365,9 @@ fn handle_resource_connection_message(
     match operation {
         operation if conversation_resource::handles(operation) => {
             conversation_resource::handle(mux, client, request, writer)
+        }
+        operation if chief_control::handles(operation) => {
+            chief_control::handle(mux, client, request, writer)
         }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
@@ -12676,11 +12635,11 @@ fn handle_command_with_cancellation(
             mux.set_terminal_command_history(enabled);
             Ok(json!({ "enabled": enabled }))
         }
-        Command::ServerStats => {
+        Command::ServerStats { include } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
             }
-            Ok(serde_json::to_value(server_stats(mux))?)
+            Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
         }
         Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
@@ -20073,7 +20032,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 41);
+        assert_eq!(connection_operations, 44);
     }
 
     #[test]
@@ -20878,8 +20837,13 @@ mod tests {
         );
         // Any registry use records a hold at its call site.
         let _ = mux.registry_identity();
-        let stats =
-            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        let stats = handle_command(
+            &mux,
+            unix_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .unwrap();
         assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
         assert!(stats["uptime_ms"].is_u64());
         let lock = &stats["registry_lock"];
@@ -20890,8 +20854,13 @@ mod tests {
         assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
         assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
 
-        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
-            .expect_err("remote clients must not receive internal server stats");
+        let error = handle_command(
+            &mux,
+            websocket_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .expect_err("remote clients must not receive internal server stats");
         assert!(error.to_string().contains("trusted local connection"));
     }
 

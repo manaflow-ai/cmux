@@ -54,7 +54,7 @@ public final class AgentPaneModel {
     /// detached items the App renders from its action placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
-    @ObservationIgnored public var onSearchWeb: ((String) -> Void)?
+    @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).

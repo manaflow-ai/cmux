@@ -198,6 +198,11 @@ else
   echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
 fi
 
+# The agent screen detector is not shipped here until its notices are mapped
+# (bundle-cmux-tui.sh places it in dev builds only); drop a stale copy so a
+# Release daemon never runs one from another build.
+rm -f "$DEST_DIR/cmux-agent-screen-detection"
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
