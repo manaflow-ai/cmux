@@ -17,19 +17,31 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "agent toggle-acp-inspector",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
             ),
+            ActionDescriptor(
+                id: "palette.quickAgentChat",
+                title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
+                keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],
+                // Ctrl-Cmd-Return (cx-hkat): Cmd-Shift-Return is Toggle Pane Zoom.
+                defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.control, .command]),
+                category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
+                surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+            ),
             {
-                var quick = ActionDescriptor(
-                    id: "palette.quickAgentChat",
-                    title: String(localized: "action.palette.quickAgentChat", defaultValue: "Quick Agent Chat…", bundle: .module),
-                    keywords: ["agent", "chat", "ai", "acpmux", "quick", "composer", "global", "hotkey", "summon"],
+                // Start Agent's system-wide key, its own action so it has its own recorder and
+                // stays off until `app.startAgentGlobalHotKey` (GlobalHotKeyService gates it).
+                var anyApp = ActionDescriptor(
+                    id: "palette.startAgentFromAnyApp",
+                    title: String(localized: "action.palette.startAgentFromAnyApp", defaultValue: "Start Agent from Any App", bundle: .module),
+                    keywords: ["agent", "start", "global", "hotkey", "hot key", "summon", "quick", "chat"],
                     // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
                     defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
-                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
-                    surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill", surfaces: [.keyboard],
+                    // Start Agent offers the palette row, the menu item and the CLI verb.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
                 )
-                // A floating composer over any app, so the key works while cmux is in the background.
-                quick.isGlobalHotKey = true
-                return quick
+                anyApp.isGlobalHotKey = true
+                return anyApp
             }(),
             ActionDescriptor(
                 id: "palette.addHarness",

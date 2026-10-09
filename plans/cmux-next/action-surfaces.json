@@ -16236,10 +16236,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : " ",
+        "key" : "\r",
         "modifiers" : [
           "ctrl",
-          "opt",
           "cmd"
         ]
       },
@@ -16253,8 +16252,41 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
-      "title" : "Quick Agent Chat…",
+      "title" : "Start Agent…",
       "title_key" : "action.palette.quickAgentChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action palette-start-agent-from-any-app",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "palette.startAgentFromAnyApp",
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Start Agent from Any App",
+      "title_key" : "action.palette.startAgentFromAnyApp",
       "title_table" : "ActionCatalog"
     },
     {

@@ -36,16 +36,10 @@ public final class HomeStore {
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
     @ObservationIgnored var refetching: Set<HomeStream> = []
-    @ObservationIgnored var olderLoading: Set<ConversationID> = []
-    /// Views showing each conversation's transcript now (`open` minus `close`).
-    @ObservationIgnored var viewers: [ConversationID: Int] = [:]
-    /// Bumps each time a conversation goes from shown nowhere to shown. A
-    /// page read under an older epoch was read before a close: the close
-    /// ended what the source kept for it (a cloud subscription), so the
-    /// page is dropped and, when the conversation is shown again, read again.
-    @ObservationIgnored var openEpochs: [ConversationID: UInt64] = [:]
-    /// The transcript read running per conversation (one at a time).
-    @ObservationIgnored var loads: [ConversationID: Task<Void, Never>] = [:]
+    /// Which transcripts are on screen and the reads that fill them.
+    @ObservationIgnored var pager = HomeTranscriptPager()
+    /// Views showing each conversation's transcript now (tests).
+    var viewers: [ConversationID: Int] { pager.viewers }
     @ObservationIgnored var stopped = false
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
@@ -91,9 +85,8 @@ public final class HomeStore {
     /// of the conversation hears. A send keeps its "Not Delivered" row and
     /// does not come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onUnanswered: ((HomeIntent) -> Void)?
-    /// The hooks of the views showing each conversation, held weakly (a
-    /// view freed without `unregister` hears nothing and is pruned).
-    @ObservationIgnored var hooks: [ConversationID: [WeakConversationHooks]] = [:]
+    /// The hooks of the views showing each conversation (weakly held).
+    @ObservationIgnored var hookRegistry = HomeConversationHookRegistry()
     /// Test seam: awaited before the prune deletes each blob directory.
     @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
 
@@ -129,8 +122,8 @@ public final class HomeStore {
 
     /// The client's durable copy (`HomeCache`), nil for none.
     @ObservationIgnored public let cache: HomeCache?
-    /// How long cache writes are coalesced (zero writes at once: tests).
-    @ObservationIgnored let cacheWriteDelay: Duration
+    /// Drafts, scroll anchors and the coalesced cache writes.
+    @ObservationIgnored let viewCache: HomeClientViewCache
 
     public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
                 clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
@@ -139,14 +132,9 @@ public final class HomeStore {
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
-        self.cacheWriteDelay = cacheWriteDelay
+        self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
+        viewCache.ownerSnapshot = { [weak self] in self?.ownerCacheSnapshot() ?? HomeCacheSnapshot() }
     }
-
-    /// Client view state the cache keeps (never synced, never sent).
-    @ObservationIgnored var drafts: [ConversationID: String] = [:]
-    @ObservationIgnored var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
-    @ObservationIgnored var cacheWrite: Task<Void, Never>?
-    @ObservationIgnored var restoringCache = false
 
     /// Starts consuming owner events. Idempotent.
     public func start() {
@@ -173,9 +161,7 @@ public final class HomeStore {
 
     /// Ends this store (sign-out, account switch). Every later op is refused.
     public func stop() {
-        cacheWrite?.cancel()
-        cacheWrite = nil
-        writeCache()
+        viewCache.flush()
         stopped = true
         eventTask?.cancel()
         eventTask = nil
