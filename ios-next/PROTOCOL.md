@@ -96,7 +96,8 @@ TranscriptItem (upserted by `id`):
 {"id","kind":"thought","text","streaming":bool,"durationMs"?}
 {"id","kind":"tool","toolKind":"read|edit|execute|search|fetch|delete|think|other","title","status":"pending|running|completed|failed","input"?,"output"?,"locations":[{path,line?}],"diff"?:[{path,oldText?,newText}]}
 {"id","kind":"plan","entries":[{content,status:"pending|in_progress|completed",priority}]}
-{"id","kind":"permission","toolCallId","title","options":[{id,name,kind:"allow_once|allow_always|reject_once|reject_always"}],"resolved"?:optionId}
+{"id","kind":"permission","toolCallId","title","options":[{id,name,kind:"allow_once|allow_always|reject_once|reject_always"}],"resolved"?:optionId|"cancelled"}
+// "resolved":"cancelled": the request ended unanswered (agent.cancel, turn end, agent exit, host restart)
 {"id","kind":"notice","level":"info|warning|error","text"}
 {"id","kind":"turnEnd","stopReason","durationMs"}
 ```
@@ -136,7 +137,8 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
 - `browser.key {tabId, type:"down"|"up", key, code, text?, modifiers:int}` -> `{}` (CDP modifier bits)
 - `browser.text {tabId, text}` -> `{}`
 - `browser.screenshot {tabId}` -> `{dataBase64}` (tab overview thumbnail, jpeg)
-- events: `browser.tab {tab}`, `browser.closed {tabId}`
+- events: `browser.tab {tab}`, `browser.closed {tabId}`, `browser.detached {streamId, tabId, reason:"displaced"}`
+  (another client attached the same tab; this client's stream ended)
 
 ## 5. Backend HTTP API (Cloudflare Worker, base `https://<worker>/v1`)
 

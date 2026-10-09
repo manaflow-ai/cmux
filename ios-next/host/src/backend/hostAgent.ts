@@ -4,13 +4,16 @@
 import type { HostCore } from "../host.ts";
 import { WebRtcPeer } from "../transport/webrtc.ts";
 import type { Logger } from "../util.ts";
-import { ApiClient, IceCache } from "./api.ts";
+import { ApiClient, ApiError, IceCache } from "./api.ts";
 import { SignalingClient, type SignalFrame } from "./signaling.ts";
 
 interface PeerEntry {
-  peer: WebRtcPeer;
+  /** Set once ICE servers are known; candidates before that are buffered. */
+  peer?: WebRtcPeer;
+  pendingCandidates: { candidate: string; mid: string }[];
   remotePeerId: string;
   createdAt: number;
+  closed: boolean;
 }
 
 export interface HostAgentOptions {
@@ -20,30 +23,61 @@ export interface HostAgentOptions {
   log: Logger;
   /** Max concurrent phone peers. */
   maxPeers?: number;
+  /** The host credential was revoked (host removed, account deleted, 401). */
+  onRevoked?: (reason: string) => void;
+  /** How often to re-validate the host token over HTTP (ms). */
+  validateEveryMs?: number;
 }
 
 export class HostAgent {
   readonly signaling: SignalingClient;
   private readonly ice: IceCache;
   private readonly peers = new Map<string, PeerEntry>();
+  private validateTimer: NodeJS.Timeout | null = null;
+  private revoked = false;
 
   constructor(private readonly opts: HostAgentOptions) {
     this.ice = new IceCache(opts.api, opts.log);
-    this.signaling = new SignalingClient({ url: () => opts.api.signalUrl(), log: opts.log });
+    this.signaling = new SignalingClient({ url: () => opts.api.signalUrl(), token: () => opts.api.bearer, log: opts.log });
     this.signaling.on("frame", (f) => void this.onFrame(f));
+    this.signaling.on("revoked", (reason) => this.revoke(reason));
   }
 
   start(): void {
     void this.ice.get();
     this.signaling.start();
+    // Re-validate the token even while signaling stays connected.
+    this.validateTimer = setInterval(() => void this.validate(), this.opts.validateEveryMs ?? 10 * 60_000);
+    this.validateTimer.unref();
+  }
+
+  /** Checks the host token over HTTP; revokes on 401/403. */
+  async validate(): Promise<boolean> {
+    try {
+      await this.opts.api.ice();
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        this.revoke(`the backend rejected the host token (HTTP ${err.status})`);
+        return false;
+      }
+      return true; // network trouble is not revocation
+    }
+  }
+
+  private revoke(reason: string): void {
+    if (this.revoked) return;
+    this.revoked = true;
+    this.opts.log(`host credential revoked: ${reason}; closing every phone link`);
+    for (const sessionId of [...this.peers.keys()]) this.dropPeer(sessionId, false);
+    this.signaling.stop();
+    if (this.validateTimer) clearInterval(this.validateTimer);
+    this.opts.onRevoked?.(reason);
   }
 
   stop(): void {
-    for (const [sessionId, e] of this.peers) {
-      this.signaling.send({ type: "bye", to: e.remotePeerId, sessionId });
-      e.peer.close();
-    }
-    this.peers.clear();
+    if (this.validateTimer) clearInterval(this.validateTimer);
+    for (const sessionId of [...this.peers.keys()]) this.dropPeer(sessionId, true);
     this.signaling.stop();
   }
 
@@ -59,14 +93,19 @@ export class HostAgent {
         return;
       case "offer": {
         if (!f.from || !f.sessionId || !f.sdp) return;
-        this.peers.get(f.sessionId)?.peer.close();
+        const sessionId = f.sessionId;
+        const remotePeerId = f.from;
+        if (this.peers.has(sessionId)) this.dropPeer(sessionId, false);
         if (this.peers.size >= (this.opts.maxPeers ?? 16)) {
           const oldest = [...this.peers.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
           if (oldest) this.dropPeer(oldest[0], true);
         }
+        // Register before awaiting ICE servers so trickled candidates that
+        // arrive meanwhile are buffered instead of dropped.
+        const entry: PeerEntry = { pendingCandidates: [], remotePeerId, createdAt: Date.now(), closed: false };
+        this.peers.set(sessionId, entry);
         const iceServers = await this.ice.get();
-        const remotePeerId = f.from;
-        const sessionId = f.sessionId;
+        if (entry.closed || this.peers.get(sessionId) !== entry) return;
         const peer = new WebRtcPeer({
           role: "answerer",
           iceServers,
@@ -82,25 +121,27 @@ export class HostAgent {
             }
           },
         });
-        this.peers.set(sessionId, { peer, remotePeerId, createdAt: Date.now() });
+        entry.peer = peer;
         peer.link.on("state", (state) => {
           if (state === "open") {
             const pair = peer.selectedPair();
             log(`[${sessionId}] link open${peer.relayOnly ? " [relay only]" : ""} ${pair ? `${pair.local}/${pair.transport} -> ${pair.remote} (${pair.remoteAddress})` : ""}`);
             this.opts.core.attach(peer.link);
           } else if (state === "closed") {
-            if (this.peers.get(sessionId)?.peer === peer) this.dropPeer(sessionId, true);
+            if (this.peers.get(sessionId) === entry) this.dropPeer(sessionId, true);
           }
         });
         // Give up on peers that never connect.
         setTimeout(() => {
-          if (peer.link.state === "connecting" && this.peers.get(sessionId)?.peer === peer) {
+          if (peer.link.state === "connecting" && this.peers.get(sessionId) === entry) {
             log(`[${sessionId}] connect timeout`);
             this.dropPeer(sessionId, true);
           }
         }, 45_000).unref();
         try {
           peer.setRemoteDescription(f.sdp, "offer");
+          for (const c of entry.pendingCandidates) peer.addRemoteCandidate(c.candidate, c.mid);
+          entry.pendingCandidates = [];
         } catch (err) {
           log(`[${sessionId}] bad offer: ${(err as Error).message}`);
           this.dropPeer(sessionId, true);
@@ -109,7 +150,9 @@ export class HostAgent {
       }
       case "candidate": {
         const e = this.peers.get(f.sessionId);
-        if (e && f.candidate) e.peer.addRemoteCandidate(f.candidate, f.sdpMid ?? "0");
+        if (!e || !f.candidate) return;
+        if (e.peer) e.peer.addRemoteCandidate(f.candidate, f.sdpMid ?? "0");
+        else e.pendingCandidates.push({ candidate: f.candidate, mid: f.sdpMid ?? "0" });
         return;
       }
       case "bye":
@@ -127,7 +170,8 @@ export class HostAgent {
     const e = this.peers.get(sessionId);
     if (!e) return;
     this.peers.delete(sessionId);
+    e.closed = true;
     if (sendBye) this.signaling.send({ type: "bye", to: e.remotePeerId, sessionId });
-    e.peer.close();
+    e.peer?.close();
   }
 }

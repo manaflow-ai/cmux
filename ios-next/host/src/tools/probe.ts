@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   report.iceUrls = iceUrls;
   log(`ice: ${iceUrls.join(", ") || "(none)"}`);
 
-  const signaling = new SignalingClient({ url: () => api.signalUrl(), log: (m) => log(`signal: ${m}`) });
+  const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer, log: (m) => log(`signal: ${m}`) });
   const welcomeP = signaling.waitWelcome();
   signaling.start();
   const welcome = await welcomeP;

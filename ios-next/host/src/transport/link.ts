@@ -20,6 +20,8 @@ export interface Link {
   /** Human readable transport description, e.g. "webrtc relay/udp". */
   describe(): string;
   send(lane: Lane, data: Uint8Array | string): void;
+  /** Bytes accepted by send() on `lane` but not yet handed to the network. */
+  bufferedAmount(lane: Lane): number;
   close(reason?: string): void;
   on<K extends keyof LinkEvents>(event: K, listener: (...args: LinkEvents[K]) => void): this;
   off<K extends keyof LinkEvents>(event: K, listener: (...args: LinkEvents[K]) => void): this;
@@ -49,6 +51,9 @@ export abstract class ChunkLink extends EventEmitter implements Link {
   }
 
   abstract describe(): string;
+  bufferedAmount(_lane: Lane): number {
+    return 0;
+  }
   protected abstract sendChunk(lane: Lane, chunk: Uint8Array): void;
   protected abstract closeTransport(reason?: string): void;
 

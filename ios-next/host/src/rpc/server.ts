@@ -50,6 +50,11 @@ export class ClientSession {
     this.peer.sendEvent(topic, payload);
   }
 
+  /** Bytes queued on a lane of this client's link (for backpressure). */
+  bufferedAmount(lane: "ctl" | "int" | "blk"): number {
+    return this.peer.isClosed ? 0 : this.peer.link.bufferedAmount(lane);
+  }
+
   addStream(sink: StreamSink): number {
     const id = this.server.allocStreamId();
     this.streams.set(id, sink);
@@ -137,7 +142,7 @@ export class RpcServer extends EventEmitter<RpcServerEvents> {
   }
 
   private hello(p: any, session: ClientSession): unknown {
-    if (p.protocol !== undefined && p.protocol !== PROTOCOL_VERSION) {
+    if (p.protocol !== PROTOCOL_VERSION) {
       throw new RpcError("unsupported", `protocol ${p.protocol} not supported (host speaks ${PROTOCOL_VERSION})`);
     }
     session.helloed = true;

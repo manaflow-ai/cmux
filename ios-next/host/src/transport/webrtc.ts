@@ -79,6 +79,7 @@ const LOW_WATER = 256 * 1024;
 
 class LaneChannel {
   private queue: Uint8Array[] = [];
+  private queuedBytes = 0;
   constructor(
     readonly dc: DataChannel,
     private readonly onError: (err: string) => void,
@@ -90,6 +91,7 @@ class LaneChannel {
   send(chunk: Uint8Array): void {
     if (this.queue.length > 0 || this.dc.bufferedAmount() > HIGH_WATER) {
       this.queue.push(chunk);
+      this.queuedBytes += chunk.byteLength;
       return;
     }
     this.write(chunk);
@@ -105,8 +107,18 @@ class LaneChannel {
 
   private drain(): void {
     while (this.queue.length > 0 && this.dc.bufferedAmount() <= HIGH_WATER && this.dc.isOpen()) {
-      this.write(this.queue.shift()!);
+      const chunk = this.queue.shift()!;
+      this.queuedBytes -= chunk.byteLength;
+      this.write(chunk);
     }
+  }
+
+  bufferedAmount(): number {
+    let dcBuffered = 0;
+    try {
+      dcBuffered = this.dc.bufferedAmount();
+    } catch {}
+    return this.queuedBytes + dcBuffered;
   }
 }
 
@@ -151,6 +163,10 @@ export class WebRtcLink extends ChunkLink {
         this.receiveChunk(lane, bytes);
       });
     }
+  }
+
+  override bufferedAmount(lane: Lane): number {
+    return this.channels.get(lane)?.bufferedAmount() ?? 0;
   }
 
   protected sendChunk(lane: Lane, chunk: Uint8Array): void {

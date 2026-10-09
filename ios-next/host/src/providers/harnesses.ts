@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { childEnv, findExecutable } from "../util.ts";
+import { childEnv, findExecutable, packageBin } from "../util.ts";
 
 export interface HarnessSpec {
   id: string;
@@ -21,18 +21,14 @@ export interface HarnessSpec {
   tint: string;
 }
 
-function npxPath(): string {
-  const local = join(dirname(process.execPath), "npx");
-  return existsSync(local) ? local : (findExecutable("npx") ?? "npx");
-}
-
-function launcher(envVar: string, pkg: string): { command: string; args: string[] } {
+function launcher(envVar: string, pkg: string, bin: string): { command: string; args: string[] } {
   const override = process.env[envVar]?.trim();
   if (override) {
     const parts = override.split(/\s+/);
     return { command: parts[0]!, args: parts.slice(1) };
   }
-  return { command: npxPath(), args: ["-y", pkg] };
+  // Pinned dependency, resolved through package-lock (no npx, no network).
+  return { command: process.execPath, args: [packageBin(pkg, bin)] };
 }
 
 function run(cmd: string, args: string[], timeoutMs = 15_000): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -72,8 +68,8 @@ export async function codexLoggedIn(): Promise<boolean> {
 }
 
 export function defaultHarnesses(): HarnessSpec[] {
-  const claude = launcher("CMUX_NEXT_CLAUDE_ACP", "@agentclientprotocol/claude-agent-acp");
-  const codex = launcher("CMUX_NEXT_CODEX_ACP", "@agentclientprotocol/codex-acp");
+  const claude = launcher("CMUX_NEXT_CLAUDE_ACP", "@agentclientprotocol/claude-agent-acp", "claude-agent-acp");
+  const codex = launcher("CMUX_NEXT_CODEX_ACP", "@agentclientprotocol/codex-acp", "codex-acp");
   return [
     { id: "claude", name: "Claude Code", ...claude, detect: claudeLoggedIn, initials: "CC", tint: "#D97757" },
     { id: "codex", name: "Codex", ...codex, detect: codexLoggedIn, initials: "CX", tint: "#10A37F" },

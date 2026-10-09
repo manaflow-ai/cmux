@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ScrollbackRing, TerminalProvider } from "../src/providers/terminal.ts";
+import { ScrollbackRing, TERM_HIGH_WATER, TERM_LOW_WATER, TerminalProvider } from "../src/providers/terminal.ts";
 import { connectedCore, waitFor } from "./helpers.ts";
 
 const providers: TerminalProvider[] = [];
@@ -31,6 +31,29 @@ describe("TerminalProvider", () => {
     p.attach(t.id, 100, 30, (d) => (replay += Buffer.from(d).toString()));
     expect(replay).toContain("hi-42");
     expect(p.list()[0]).toMatchObject({ cols: 100, rows: 30 });
+  });
+
+  it("pauses the pty above the high-water mark and resumes below low-water", async () => {
+    const p = new TerminalProvider({ shell: "/bin/sh", args: [] });
+    providers.push(p);
+    const t = p.create(80, 24);
+    let backlog = 0;
+    let out = "";
+    p.attach(t.id, 80, 24, (d) => (out += Buffer.from(d).toString()), () => backlog);
+    const inst = p.get(t.id);
+    p.write(t.id, new TextEncoder().encode("echo first-$((1+1))\r"));
+    await waitFor(() => out.includes("first-2"));
+    // The phone stops draining: the next output trips the high-water mark.
+    backlog = TERM_HIGH_WATER + 1;
+    p.write(t.id, new TextEncoder().encode("echo trip\r"));
+    await waitFor(() => inst.paused).catch(() => { throw new Error("never paused"); });
+    // While paused, output stays in the kernel buffer.
+    p.write(t.id, new TextEncoder().encode("echo second-$((2+1))\r"));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(out).not.toContain("second-3");
+    backlog = TERM_LOW_WATER - 1;
+    await waitFor(() => !inst.paused);
+    await waitFor(() => out.includes("second-3")).catch(() => { throw new Error("no second: " + JSON.stringify(out)); });
   });
 
   it("reports exit", async () => {

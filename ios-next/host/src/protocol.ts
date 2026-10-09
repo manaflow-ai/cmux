@@ -95,6 +95,7 @@ export type TranscriptItem =
       toolCallId: string;
       title: string;
       options: { id: string; name: string; kind: "allow_once" | "allow_always" | "reject_once" | "reject_always" }[];
+      /** The chosen option id, or "cancelled" (cancel, turn end, agent exit, host restart). */
       resolved?: string;
     }
   | { id: string; kind: "notice"; level: "info" | "warning" | "error"; text: string }

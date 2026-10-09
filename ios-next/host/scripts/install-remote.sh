@@ -86,7 +86,8 @@ cat > com.cmux.next-host.plist <<PLIST
   </dict>
   <key>WorkingDirectory</key><string>\$HOME</string>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key>
+  <dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>StandardOutPath</key><string>\$HOME/.cmux-next-host/host.log</string>
   <key>StandardErrorPath</key><string>\$HOME/.cmux-next-host/host.log</string>
@@ -101,13 +102,13 @@ cat <<EOF2
 
 Installed on $ALIAS in ~/$REMOTE_DIR. Nothing was started.
 
-1. Pair the host (prints a code to approve in the app):
+1. Pair the host (prints a code to approve in the app, then asks you to confirm the approving account; --yes skips the question):
    ssh -t $ALIAS '~/.local/bin/node ~/$REMOTE_DIR/bin/cmux-next-host.mjs login${API_ARG:- --api https://<backend>}'
 
 2a. Run in the background with nohup:
    ssh $ALIAS 'cd ~ && nohup ~/.local/bin/node ~/$REMOTE_DIR/bin/cmux-next-host.mjs run >> ~/.cmux-next-host/host.log 2>&1 &'
 
-2b. Or as a user LaunchAgent (restarts on crash and at login):
+2b. Or as a user LaunchAgent (restarts on crash and at login; a revoked host exits cleanly and stays stopped):
    ssh $ALIAS 'cp ~/$REMOTE_DIR/com.cmux.next-host.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/\$(id -u) ~/Library/LaunchAgents/com.cmux.next-host.plist'
    Stop: ssh $ALIAS 'launchctl bootout gui/\$(id -u)/com.cmux.next-host'
 

@@ -17,10 +17,24 @@ export interface SignalingEvents {
   frame: [frame: SignalFrame];
   open: [];
   close: [code: number, reason: string];
+  /**
+   * The credential is no longer valid (host removed 4003, account deleted
+   * 4004, or the handshake rejected with 401/403). The client has stopped.
+   */
+  revoked: [reason: string];
 }
 
+/** Close codes the backend uses to evict a peer for good. */
+export const REVOKED_CLOSE_CODES: Record<number, string> = {
+  4003: "this Mac was removed from your account",
+  4004: "the account was deleted",
+};
+
 export interface SignalingOptions {
+  /** wss://.../v1/signal without credentials. */
   url: () => string | Promise<string>;
+  /** Bearer token sent as the Authorization header (query fallback only if the header is rejected). */
+  token?: () => string | undefined;
   log?: (m: string) => void;
   minBackoffMs?: number;
   maxBackoffMs?: number;
@@ -35,6 +49,9 @@ export class SignalingClient extends EventEmitter<SignalingEvents> {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   peerId: string | null = null;
+  /** "header" until the backend rejects it; then one "query" attempt. */
+  private authMode: "header" | "query" = "header";
+  private authConfirmed = false;
   private readonly log: (m: string) => void;
 
   constructor(private readonly opts: SignalingOptions) {
@@ -92,10 +109,20 @@ export class SignalingClient extends EventEmitter<SignalingEvents> {
       this.scheduleReconnect();
       return;
     }
-    const ws = new WebSocket(url, { handshakeTimeout: 15_000 });
+    const token = this.opts.token?.();
+    if (token && this.authMode === "query") {
+      const u = new URL(url);
+      u.searchParams.set("token", token);
+      url = u.toString();
+    }
+    const ws = new WebSocket(url, {
+      handshakeTimeout: 15_000,
+      headers: token && this.authMode === "header" ? { authorization: `Bearer ${token}` } : {},
+    });
     this.ws = ws;
     ws.on("open", () => {
       this.attempt = 0;
+      this.authConfirmed = true;
       this.log("signaling connected");
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => {
@@ -116,20 +143,45 @@ export class SignalingClient extends EventEmitter<SignalingEvents> {
       this.emit("frame", frame);
     });
     ws.on("unexpected-response", (_req, res) => {
-      this.log(`signaling rejected: HTTP ${res.statusCode}${res.statusCode === 401 ? " (host token invalid or revoked; run login again)" : ""}`);
-      // Do not hammer the backend with a bad token.
-      if (res.statusCode === 401 || res.statusCode === 403) this.attempt = Math.max(this.attempt, 10);
+      const status = res.statusCode ?? 0;
+      this.log(`signaling rejected: HTTP ${status}`);
+      res.resume();
+      if (status === 401 || status === 403) {
+        if (this.opts.token && this.authMode === "header" && !this.authConfirmed) {
+          // Older backend without Authorization support on the upgrade.
+          this.authMode = "query";
+          this.attempt = 0;
+        } else if (this.opts.token) {
+          this.revoke(`the backend rejected the credential (HTTP ${status})`);
+          return;
+        }
+      }
+      // With an unexpected-response listener ws does not abort on its own;
+      // terminate so "close" fires and the reconnect loop continues.
+      ws.terminate();
     });
     ws.on("error", (err) => this.log(`signaling error: ${err.message}`));
     ws.on("close", (code, reason) => {
       if (this.ws === ws) this.ws = null;
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.emit("close", code, reason.toString());
+      const revoked = REVOKED_CLOSE_CODES[code];
+      if (revoked && !this.stopped) {
+        this.revoke(revoked);
+        return;
+      }
       if (!this.stopped) {
         this.log(`signaling closed (${code}${reason.length ? ` ${reason}` : ""})`);
         this.scheduleReconnect();
       }
     });
+  }
+
+  private revoke(reason: string): void {
+    if (this.stopped) return;
+    this.log(`signaling: ${reason}`);
+    this.stop();
+    this.emit("revoked", reason);
   }
 
   private scheduleReconnect(): void {

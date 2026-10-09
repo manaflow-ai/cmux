@@ -11,6 +11,10 @@ import { RpcError, type ClientSession, type RpcServer, num, optStr, str } from "
 import { childEnv, newId } from "../util.ts";
 
 export const SCROLLBACK_BYTES = 2 * 1024 * 1024;
+/** Pause the PTY when an attachment has more than this queued on its link. */
+export const TERM_HIGH_WATER = 1024 * 1024;
+/** Resume once every attachment is back under this. */
+export const TERM_LOW_WATER = 256 * 1024;
 
 /** Byte ring buffer that drops the oldest output once full. */
 export class ScrollbackRing {
@@ -52,6 +56,8 @@ export class ScrollbackRing {
 
 interface Attachment {
   sink: (data: Uint8Array) => void;
+  /** Bytes still queued toward this attachment (link bufferedAmount). */
+  backlog?: () => number;
 }
 
 export interface TerminalOptions {
@@ -66,6 +72,9 @@ class TerminalInstance {
   readonly attachments = new Set<Attachment>();
   private proc: pty.IPty | null;
   exitCode: number | null = null;
+  /** True while output is paused because a client cannot keep up. */
+  paused = false;
+  private resumeTimer: NodeJS.Timeout | null = null;
 
   constructor(
     cols: number,
@@ -105,6 +114,7 @@ class TerminalInstance {
       const buf = typeof data === "string" ? Buffer.from(data, "utf8") : data;
       this.scrollback.append(buf);
       for (const a of this.attachments) a.sink(buf);
+      this.checkBackpressure();
     });
     this.proc.onExit(({ exitCode }) => {
       this.info.running = false;
@@ -112,6 +122,35 @@ class TerminalInstance {
       this.proc = null;
       onExit(exitCode);
     });
+  }
+
+  private maxBacklog(): number {
+    let max = 0;
+    for (const a of this.attachments) max = Math.max(max, a.backlog?.() ?? 0);
+    return max;
+  }
+
+  /** Pauses the PTY above the high-water mark; polls to resume below low-water. */
+  checkBackpressure(): void {
+    if (!this.proc) return;
+    if (!this.paused) {
+      if (this.maxBacklog() <= TERM_HIGH_WATER) return;
+      this.paused = true;
+      try {
+        this.proc.pause();
+      } catch {}
+    }
+    if (this.resumeTimer) return;
+    this.resumeTimer = setInterval(() => {
+      if (this.proc && this.maxBacklog() > TERM_LOW_WATER) return;
+      if (this.resumeTimer) clearInterval(this.resumeTimer);
+      this.resumeTimer = null;
+      this.paused = false;
+      try {
+        this.proc?.resume();
+      } catch {}
+    }, 25);
+    this.resumeTimer.unref?.();
   }
 
   write(data: Uint8Array): void {
@@ -129,6 +168,8 @@ class TerminalInstance {
   }
 
   kill(): void {
+    if (this.resumeTimer) clearInterval(this.resumeTimer);
+    this.resumeTimer = null;
     try {
       this.proc?.kill();
     } catch {}
@@ -168,11 +209,11 @@ export class TerminalProvider extends EventEmitter<TerminalProviderEvents> {
   }
 
   /** Replays scrollback then streams live output to sink. Returns detach. */
-  attach(id: string, cols: number, rows: number, sink: (data: Uint8Array) => void): () => void {
+  attach(id: string, cols: number, rows: number, sink: (data: Uint8Array) => void, backlog?: () => number): () => void {
     const t = this.get(id);
     const replay = t.scrollback.snapshot();
     if (replay.byteLength > 0) sink(replay);
-    const a: Attachment = { sink };
+    const a: Attachment = { sink, backlog };
     t.attachments.add(a);
     if (cols > 0 && rows > 0 && (cols !== t.info.cols || rows !== t.info.rows)) {
       t.resize(cols, rows);
@@ -229,8 +270,12 @@ export class TerminalProvider extends EventEmitter<TerminalProviderEvents> {
       // client must also buffer frames for unknown stream ids briefly.
       setImmediate(() => {
         if (!session.streams.has(streamId)) return;
-        detach = this.attach(terminalId, num(p, "cols", 0), num(p, "rows", 0), (data) =>
-          session.sendFrame(FrameKind.termOutput, streamId, data),
+        detach = this.attach(
+          terminalId,
+          num(p, "cols", 0),
+          num(p, "rows", 0),
+          (data) => session.sendFrame(FrameKind.termOutput, streamId, data),
+          () => session.bufferedAmount("int"),
         );
       });
       return { streamId, terminal: { ...t.info } };

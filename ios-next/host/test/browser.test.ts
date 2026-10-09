@@ -4,6 +4,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { decodeBrowserFramePayload } from "../src/rpc/frames.ts";
 import { jpegSize, normalizeUrl } from "../src/providers/browser/index.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { HostClient } from "../src/client.ts";
+import { ownEndpoint } from "../src/providers/browser/chrome.ts";
+import { createOpenLoopbackPair } from "../src/transport/loopback.ts";
 import { connectedCore, waitFor } from "./helpers.ts";
 
 function fakeJpeg(w: number, h: number): Buffer {
@@ -161,6 +167,37 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
 
     const created = await client.request("browser.create", { url: "new.example" });
     expect(created.tab).toMatchObject({ id: "T2", active: true });
+  });
+
+  it("stops the old screencast before a new attachment takes over and tells the displaced client", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    const [phone2, host2] = createOpenLoopbackPair();
+    core.attach(host2);
+    const client2 = new HostClient(phone2);
+    await client2.hello("second");
+    const events: any[] = [];
+    client.peer.on("event", (t, p) => t === "browser.detached" && events.push(p));
+    const first = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true });
+    await client2.request("browser.attach", { tabId: "T1", width: 400, height: 800, scale: 2, mobile: true });
+    await waitFor(() => events.length === 1);
+    expect(events[0]).toEqual({ streamId: first.streamId, tabId: "T1", reason: "displaced" });
+    const order = cdp.calls.map((c) => c.method).filter((m) => m === "Page.startScreencast" || m === "Page.stopScreencast");
+    expect(order).toEqual(["Page.startScreencast", "Page.stopScreencast", "Page.startScreencast"]);
+    await expect(client.request("browser.ack", { streamId: first.streamId, seq: 1 })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("only adopts a CDP endpoint the host launched (DevToolsActivePort in its profile)", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const profile = mkdtempSync(join(tmpdir(), "cnh-profile-"));
+    expect(await ownEndpoint(profile)).toBeNull();
+    writeFileSync(join(profile, "DevToolsActivePort"), `${new URL(cdp.base).port}\n/devtools/browser/x\n`);
+    expect(await ownEndpoint(profile)).toBe(cdp.base);
+    writeFileSync(join(profile, "DevToolsActivePort"), "1\n/devtools/browser/x\n");
+    expect(await ownEndpoint(profile)).toBeNull();
   });
 
   it("reports browser.v1 absent when no browser exists", async () => {

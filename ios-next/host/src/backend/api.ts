@@ -20,7 +20,10 @@ export interface PairStart {
   interval: number;
 }
 
-export type PairPoll = { status: "pending" } | { status: "approved"; hostId: string; hostToken: string; userId: string } | { status: string };
+export type PairPoll =
+  | { status: "pending" }
+  | { status: "approved"; hostId: string; hostToken: string; userId: string; approverEmail?: string; approvedBy?: { email?: string }; email?: string }
+  | { status: string };
 
 export class ApiClient {
   readonly base: string;
@@ -71,11 +74,14 @@ export class ApiClient {
     return this.request("GET", "/ice");
   }
 
-  /** wss://.../v1/signal?token=... */
+  get bearer(): string | undefined {
+    return this.token;
+  }
+
+  /** wss://.../v1/signal (credentials go in the Authorization header). */
   signalUrl(): string {
     const u = new URL(`${this.base}/signal`);
     u.protocol = u.protocol === "http:" ? "ws:" : "wss:";
-    if (this.token) u.searchParams.set("token", this.token);
     return u.toString();
   }
 }
@@ -103,8 +109,11 @@ export class IceCache {
           return this.value;
         })
         .catch((err) => {
-          this.log(`ice fetch failed: ${(err as Error).message}; using public STUN only`);
-          return this.value ?? [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+          this.log(`ice fetch failed: ${(err as Error).message}; using ${this.value ? "the last ICE servers" : "public STUN only"}`);
+          // Cache the fallback briefly so a burst of offers does not hammer the backend.
+          this.value = this.value ?? [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+          this.expires = Date.now() + 30_000;
+          return this.value;
         })
         .finally(() => {
           this.inflight = null;

@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 
 export const VERSION = "0.1.0";
 
@@ -113,4 +114,19 @@ export function findExecutable(name: string, pathValue = augmentedPath()): strin
 
 export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return { ...process.env, PATH: augmentedPath(), ...extra };
+}
+
+const localRequire = createRequire(import.meta.url);
+
+/**
+ * Absolute path of a bin script of an npm dependency installed with the host
+ * (versions pinned in package.json / package-lock.json). Run it with
+ * process.execPath, never through npx.
+ */
+export function packageBin(pkg: string, bin?: string): string {
+  const manifestPath = localRequire.resolve(`${pkg}/package.json`);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { bin?: string | Record<string, string> };
+  const rel = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[bin ?? Object.keys(manifest.bin ?? {})[0] ?? ""];
+  if (!rel) throw new Error(`${pkg} has no bin ${bin ?? ""}`);
+  return join(dirname(manifestPath), rel);
 }

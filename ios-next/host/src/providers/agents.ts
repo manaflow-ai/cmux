@@ -752,7 +752,8 @@ export class AgentsProvider extends EventEmitter<AgentsProviderEvents> {
     target.meta.status = "waiting";
     this.touchMeta(target);
     const optionId = await new Promise<string | null>((resolve) => target.permissions.set(itemId, resolve));
-    item.resolved = optionId ?? undefined;
+    // Cancel, turn end and agent exit resolve pending permissions with null.
+    item.resolved = optionId ?? "cancelled";
     if (optionId === null) {
       this.upsert(target, item, true);
       return { outcome: { outcome: "cancelled" } };
@@ -915,6 +916,8 @@ export class AgentsProvider extends EventEmitter<AgentsProviderEvents> {
       if (!s) continue;
       // Sessions reload without a live process: running turns are over.
       for (const it of s.items) if ((it.kind === "assistant" || it.kind === "thought") && it.streaming) it.streaming = false;
+      // A permission that was pending when the host stopped can no longer be answered.
+      for (const it of s.items) if (it.kind === "permission" && it.resolved === undefined) it.resolved = "cancelled";
       if (s.meta.status !== "closed") s.meta.status = "idle";
       for (const it of s.items) {
         const m = /^i(\d+)$/.exec(it.id.replace(/^perm-/, ""));

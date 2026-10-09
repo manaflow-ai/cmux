@@ -12,21 +12,56 @@ import { connectedCore } from "./helpers.ts";
 
 afterAll(() => shutdownWebRtc());
 
-async function fakeBackend() {
+interface FakeBackendOptions {
+  /** Accept credentials only as ?token= (an older backend). */
+  queryOnly?: boolean;
+  /** Delay /v1/ice responses (ms). */
+  iceDelayMs?: number;
+  /** Tokens the backend rejects with 401. */
+  revokedTokens?: Set<string>;
+}
+
+async function fakeBackend(opts: FakeBackendOptions = {}) {
   const sockets = new Map<string, WebSocket>(); // address -> socket
+  const authModes: string[] = [];
   let n = 0;
+  const tokenOf = (req: { headers: Record<string, string | string[] | undefined>; url?: string }) => {
+    const header = req.headers.authorization;
+    const fromHeader = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : undefined;
+    const fromQuery = new URL(req.url ?? "/", "http://x").searchParams.get("token") ?? undefined;
+    return opts.queryOnly ? { token: fromQuery, mode: "query" } : { token: fromHeader ?? fromQuery, mode: fromHeader ? "header" : "query" };
+  };
   const http = createServer((req, res) => {
+    const { token } = tokenOf(req);
     if (req.url === "/v1/ice") {
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ iceServers: [], ttl: 600 }));
+      if (!token || opts.revokedTokens?.has(token)) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: { code: "unauthorized", message: "bad token" } }));
+        return;
+      }
+      setTimeout(() => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ iceServers: [], ttl: 600 }));
+      }, opts.iceDelayMs ?? 0);
     } else {
       res.statusCode = 404;
       res.end("{}");
     }
   });
-  const wss = new WebSocketServer({ server: http, path: "/v1/signal" });
-  wss.on("connection", (ws, req) => {
-    const token = new URL(req.url!, "http://x").searchParams.get("token")!;
+  const wss = new WebSocketServer({
+    noServer: true,
+  });
+  http.on("upgrade", (req, socket, head) => {
+    const { token, mode } = tokenOf(req);
+    if (!req.url?.startsWith("/v1/signal") || !token || opts.revokedTokens?.has(token)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    authModes.push(mode);
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, token));
+  });
+  wss.on("connection", (ws: WebSocket, token: string) => {
     const isHost = token.startsWith("host");
     const address = isHost ? "h_1" : `p_${++n}`;
     sockets.set(address, ws);
@@ -42,12 +77,23 @@ async function fakeBackend() {
   });
   await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
-  return { base, close: () => { for (const c of wss.clients) c.terminate(); wss.close(); http.close(); } };
+  return {
+    base,
+    authModes,
+    sockets,
+    close: () => {
+      for (const c of wss.clients) c.terminate();
+      wss.close();
+      http.close();
+    },
+  };
 }
 
 describe("HostAgent over signaling", () => {
   it("answers a phone offer and serves RPC over the resulting WebRTC link", async () => {
-    const backend = await fakeBackend();
+    // Slow /v1/ice: the phone's trickled candidates reach the host before its
+    // peer exists and must be buffered, not dropped.
+    const backend = await fakeBackend({ iceDelayMs: 400 });
     const { core } = await connectedCore({ terminal: { shell: "/bin/sh", args: [] } });
     const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: () => {} });
     const hostOpen = new Promise<void>((r) => agent.signaling.once("open", () => r()));
@@ -55,7 +101,7 @@ describe("HostAgent over signaling", () => {
     await hostOpen;
 
     const api = new ApiClient(backend.base, "user-token");
-    const signaling = new SignalingClient({ url: () => api.signalUrl() });
+    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
     const welcome = signaling.waitWelcome();
     signaling.start();
     expect((await welcome).hosts).toEqual([{ hostId: "h_1", online: true }]);
@@ -114,10 +160,74 @@ describe("HostAgent over signaling", () => {
     ];
     expect(advertised.filter((c) => !/typ relay/.test(c))).toEqual([]);
     expect(agent.peerCount).toBe(1);
+    expect(backend.authModes.every((m) => m === "header")).toBe(true);
     relayPeer.close();
     signaling.stop();
     agent.stop();
     core.shutdown();
+    backend.close();
+  });
+});
+
+describe("signaling credentials", () => {
+  it("falls back to ?token= only when the backend rejects the Authorization header", async () => {
+    const backend = await fakeBackend({ queryOnly: true });
+    const api = new ApiClient(backend.base, "user-token");
+    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer, minBackoffMs: 10 });
+    const welcome = signaling.waitWelcome(5000);
+    signaling.start();
+    await welcome;
+    expect(backend.authModes).toEqual(["query"]);
+    signaling.stop();
+    backend.close();
+  });
+
+  it("revokes on close 4003 and 4004 and on 401 after a confirmed connection", async () => {
+    for (const code of [4003, 4004]) {
+      const backend = await fakeBackend();
+      const { core } = await connectedCore();
+      const reasons: string[] = [];
+      const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: () => {}, onRevoked: (r) => reasons.push(r) });
+      const open = new Promise<void>((r) => agent.signaling.once("open", () => r()));
+      agent.start();
+      await open;
+      backend.sockets.get("h_1")!.close(code, "bye");
+      const deadline = Date.now() + 3000;
+      while (reasons.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      expect(reasons[0]).toMatch(code === 4003 ? /removed/ : /deleted/);
+      expect(agent.signaling.isOpen).toBe(false);
+      core.shutdown();
+      backend.close();
+    }
+
+    const revokedTokens = new Set<string>();
+    const backend = await fakeBackend({ revokedTokens });
+    const { core } = await connectedCore();
+    const reasons: string[] = [];
+    const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: () => {}, onRevoked: (r) => reasons.push(r) });
+    const open = new Promise<void>((r) => agent.signaling.once("open", () => r()));
+    agent.start();
+    await open;
+    revokedTokens.add("host-token");
+    // HTTP re-validation notices it even while the socket stays up.
+    expect(await agent.validate()).toBe(false);
+    expect(reasons[0]).toMatch(/401/);
+    core.shutdown();
+    backend.close();
+  });
+
+  it("revokes when a reconnect is rejected with 401", async () => {
+    const revokedTokens = new Set<string>();
+    const backend = await fakeBackend({ revokedTokens });
+    const api = new ApiClient(backend.base, "host-token");
+    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer, minBackoffMs: 10, maxBackoffMs: 20 });
+    const revoked = new Promise<string>((r) => signaling.once("revoked", r));
+    const welcome = signaling.waitWelcome(5000);
+    signaling.start();
+    await welcome;
+    revokedTokens.add("host-token");
+    backend.sockets.get("h_1")!.close(1011, "restart");
+    expect(await revoked).toMatch(/401/);
     backend.close();
   });
 });

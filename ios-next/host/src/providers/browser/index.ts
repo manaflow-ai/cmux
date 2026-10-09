@@ -8,7 +8,7 @@ import { FrameKind, type Tab } from "../../protocol.ts";
 import { RpcError, type ClientSession, type RpcServer, encodeBrowserFramePayload, num, optStr, str } from "../../rpc/index.ts";
 import type { Logger } from "../../util.ts";
 import { CdpConnection } from "./cdp.ts";
-import { DEFAULT_CDP_PORT, fetchVersion, findChromeBinaries, resolveCdpEndpoint } from "./chrome.ts";
+import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint } from "./chrome.ts";
 
 export const MAX_UNACKED = 2;
 
@@ -61,9 +61,9 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   constructor(private readonly opts: BrowserProviderOptions = {}) {
     super();
     this.log = opts.log ?? (() => {});
-    // A browser already listening on the default CDP port counts as capable.
+    // A browser this host launched earlier (still running) counts as capable.
     if (!opts.resolveEndpoint && !opts.cdp) {
-      void fetchVersion(`http://127.0.0.1:${DEFAULT_CDP_PORT}`, 1_000).then((v) => {
+      void ownEndpoint().then((v) => {
         if (v) this.endpointSeen = true;
       });
     }
@@ -343,8 +343,17 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async attach(session: ClientSession, tabId: string, width: number, height: number, scale: number): Promise<{ streamId: number; tab: Tab }> {
     const { cdp, t, sid } = await this.session(tabId);
-    // One screencast per tab: a new attachment takes over.
-    if (t.cast) t.cast.session.removeStream(t.cast.streamId);
+    // One screencast per tab: a new attachment takes over. Tell the displaced
+    // phone, and fully stop the old screencast before starting the new one.
+    const displaced = t.cast;
+    if (displaced) {
+      t.cast = undefined;
+      displaced.session.removeStream(displaced.streamId);
+      if (displaced.session.open) {
+        displaced.session.sendEvent("browser.detached", { streamId: displaced.streamId, tabId, reason: "displaced" });
+      }
+      await this.stopCast(t);
+    }
     const cast: Cast = { session, streamId: 0, width, height, scale, seq: 0, unacked: [], pendingCdpAck: null };
     cast.streamId = session.addStream({
       kind: "browser",

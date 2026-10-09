@@ -3,6 +3,7 @@
 import { hostname, release } from "node:os";
 import { existsSync, unlinkSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { createInterface } from "node:readline/promises";
 import { ApiClient, ApiError } from "./backend/api.ts";
 import { HostAgent } from "./backend/hostAgent.ts";
 import { HostClient } from "./client.ts";
@@ -15,7 +16,7 @@ import { configPath, makeLogger, readConfig, stateDir, VERSION, writeConfig } fr
 const USAGE = `cmux-next-host ${VERSION}
 
 Usage:
-  cmux-next-host login --api https://<backend> [--name <host name>]
+  cmux-next-host login --api https://<backend> [--name <host name>] [--yes]
   cmux-next-host run [--relay-only] [--cdp http://127.0.0.1:9222] [--api URL]
                      [--headless-browser] [--no-browser-launch] [--no-browser-download]
   cmux-next-host status
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
     options: {
       api: { type: "string" },
       name: { type: "string" },
+      yes: { type: "boolean", default: false },
       "relay-only": { type: "boolean", default: false },
       cdp: { type: "string" },
       "headless-browser": { type: "boolean", default: false },
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
   });
   switch (cmd) {
     case "login":
-      return login(values.api, values.name);
+      return login(values.api, values.name, values.yes!);
     case "run":
       return run({
         api: values.api,
@@ -76,7 +78,25 @@ async function main(): Promise<void> {
   }
 }
 
-async function login(apiArg: string | undefined, name: string | undefined): Promise<void> {
+/** Asks a yes/no question on the terminal; `--yes` answers yes. */
+async function confirm(question: string, yes: boolean): Promise<boolean> {
+  if (yes) {
+    console.log(`${question}y (--yes)`);
+    return true;
+  }
+  if (!process.stdin.isTTY) {
+    console.log(`${question}\nNo terminal to answer on; rerun with --yes to accept.`);
+    return false;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return /^y(es)?$/i.test((await rl.question(question)).trim());
+  } finally {
+    rl.close();
+  }
+}
+
+async function login(apiArg: string | undefined, name: string | undefined, yes = false): Promise<void> {
   const cfg = readConfig();
   const apiBase = apiArg ?? cfg.api ?? process.env.CMUX_NEXT_API;
   if (!apiBase) throw new Error("--api https://<backend> is required");
@@ -102,6 +122,12 @@ async function login(apiArg: string | undefined, name: string | undefined): Prom
       continue;
     }
     if (res.status === "approved" && "hostToken" in res) {
+      const approver = res.approverEmail ?? res.approvedBy?.email ?? res.email ?? `user ${res.userId}`;
+      if (!(await confirm(`Approved by ${approver}. Allow this account full access to this Mac? [y/N] `, yes))) {
+        console.log("Not paired: the token was discarded. Remove the pending host from the app if it appears there.");
+        process.exitCode = 1;
+        return;
+      }
       writeConfig({ ...cfg, api: api.base, hostId: res.hostId, hostToken: res.hostToken, userId: res.userId, hostName });
       console.log(`Paired as ${res.hostId}. Token saved to ${configPath()}.`);
       console.log("Start the host with: cmux-next-host run");
@@ -116,7 +142,11 @@ async function run(opts: { api?: string; relayOnly: boolean; cdp?: string; headl
   const log = makeLogger("host");
   const cfg = readConfig();
   const apiBase = opts.api ?? cfg.api;
-  if (!apiBase || !cfg.hostToken || !cfg.hostId) throw new Error("not logged in: run `cmux-next-host login --api https://<backend>` first");
+  if (!apiBase || !cfg.hostToken || !cfg.hostId) {
+    // Exit 0 so a LaunchAgent (KeepAlive SuccessfulExit=false) does not loop.
+    console.error("not logged in: run `cmux-next-host login --api https://<backend>` first");
+    process.exit(0);
+  }
   enableRtcLoggingFromEnv(makeLogger("rtc"));
   const core = new HostCore({
     hostId: cfg.hostId,
@@ -125,7 +155,21 @@ async function run(opts: { api?: string; relayOnly: boolean; cdp?: string; headl
     browser: { cdp: opts.cdp, headless: opts.headless, launch: opts.launch, download: opts.download, log: makeLogger("browser") },
   });
   const api = new ApiClient(apiBase, cfg.hostToken);
-  const agent = new HostAgent({ api, core, relayOnly: opts.relayOnly, log });
+  const agent: HostAgent = new HostAgent({
+    api,
+    core,
+    relayOnly: opts.relayOnly,
+    log,
+    onRevoked: (reason) => {
+      const current = readConfig();
+      if (current.hostToken === cfg.hostToken) writeConfig({ api: current.api, hostName: current.hostName });
+      console.error(`\ncmux-next-host stopped: ${reason}.\nThe host token was removed from ${configPath()}. Pair again with: cmux-next-host login --api ${api.base}`);
+      agent.stop();
+      core.shutdown();
+      shutdownWebRtc();
+      process.exit(0);
+    },
+  });
   agent.start();
   log(`cmux-next-host ${VERSION} running as ${cfg.hostId} (${core.hostName}) against ${api.base}${opts.relayOnly ? " [relay only]" : ""}`);
   if (!opts.cdp && opts.launch && opts.download && findChromeBinaries().length === 0) {

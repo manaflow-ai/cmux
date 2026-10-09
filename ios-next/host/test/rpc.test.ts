@@ -27,6 +27,8 @@ describe("rpc over loopback", () => {
   it("rejects unknown protocol versions and unknown methods", async () => {
     const { client } = setup();
     await expect(client.request("host.hello", { protocol: 99 })).rejects.toMatchObject({ code: "unsupported" });
+    await expect(client.request("host.hello", { client: { name: "x" } })).rejects.toMatchObject({ code: "unsupported" });
+    await expect(client.request("host.ping")).rejects.toMatchObject({ code: "unauthorized" });
     await client.hello();
     await expect(client.request("nope.nope")).rejects.toMatchObject({ code: "unsupported" });
   });

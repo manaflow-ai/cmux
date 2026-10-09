@@ -95,6 +95,20 @@ describe("AgentsProvider with a fake ACP agent", () => {
     expect((await client.request("agent.list")).sessions[0].status).toBe("closed");
   });
 
+  it("resolves a pending permission as cancelled on agent.cancel", async () => {
+    const { core, client } = await connectedCore();
+    cleanups.push(() => core.shutdown());
+    const items = new Map<string, any>();
+    client.peer.on("event", (topic, p) => topic === "agent.item" && items.set(p.item.id, p.item));
+    const { session } = await client.request("agent.create", { harness: "claude", prompt: "needs permission" });
+    const perm = await waitFor(() => [...items.values()].find((i) => i.kind === "permission"));
+    await client.request("agent.cancel", { sessionId: session.id });
+    await waitFor(() => items.get(perm.id).resolved === "cancelled");
+    await waitFor(() => [...items.values()].find((i) => i.kind === "turnEnd"));
+    const { items: history } = await client.request("agent.history", { sessionId: session.id });
+    expect(history.find((i: any) => i.id === perm.id).resolved).toBe("cancelled");
+  });
+
   it("refuses unavailable harnesses", async () => {
     const specs = fakeHarnesses();
     specs[1]!.detect = async () => false;

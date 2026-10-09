@@ -19,7 +19,10 @@
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.88.0",
+    "@agentclientprotocol/codex-acp": "2.1.1",
     "@agentclientprotocol/sdk": "^1.7.0",
+    "@puppeteer/browsers": "3.2.4",
     "node-datachannel": "^0.33.4",
     "node-pty": "^1.1.0",
     "tsx": "^4.23.15",
