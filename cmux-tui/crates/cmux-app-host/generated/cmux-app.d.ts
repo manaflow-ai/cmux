@@ -1277,7 +1277,7 @@ interface CmuxGlobal {
     }
   }
   team_vm: {
-    /** `team_vm.accounts` (read, scope `team_vm:read`): The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). */
+    /** `team_vm.accounts` (read, scope `team_vm:read`): The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
     accounts: CmuxOp<Record<string, never>, { team: Cmux.TeamId; users: Array<Cmux.TeamVmAccountUser> }>
     /** `team_vm.ensure_awake` (mutation, scope `team_vm:write`): Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
     ensure_awake: CmuxOp<{ reason: string; lease_seconds?: number; expected_revision?: string }, Cmux.MutationResult<{ lease: Cmux.TeamVmLeaseId; expires_at: number; status: Cmux.TeamVmStatus; vm: string | null; epoch: number }>>

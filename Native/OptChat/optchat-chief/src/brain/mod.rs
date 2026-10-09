@@ -13,14 +13,17 @@
 //! (`Engine::Native`, the host's own Messages API loop) asks the brain for
 //! queued messages at every tool boundary, so MASTER's "messages the user
 //! sends while you work reach you between tool calls" holds. The acpmux
-//! engine cannot: claude-sr reports no steering. There a human message
-//! stops the running turn (`session/cancel`; its steps are already in the
-//! log) and the next fresh turn takes the message with the view of
+//! engine steers the message into the running session (`steer.rs`; acpmux's
+//! Claude Code adapter writes it to claude's stdin, read at the next tool
+//! boundary). A session that cannot steer (another harness, an older
+//! acpmux) stops the running turn (`session/cancel`; its steps are already
+//! in the log) and the next fresh turn takes the message with the view of
 //! everything the stopped turn did. A turn that hangs is stopped by
 //! `Settings::turn_limit`.
 
 mod approvals;
 mod children;
+mod drafts;
 mod engine_control;
 pub mod images;
 mod inbox;
@@ -30,6 +33,7 @@ mod prewarm;
 mod recover;
 mod side;
 mod spawns;
+mod steer;
 mod turns;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -70,6 +74,13 @@ pub enum Input {
         key: String,
         /// The prompt blocks to deliver: the messages' images, then their text.
         reply: Sender<Vec<serde_json::Value>>,
+    },
+    /// A draft of the running turn's reply (`draft.rs`).
+    Draft(Box<crate::draft::Draft>),
+    /// A steer's outcome (`steer.rs`): Ok once the harness read it.
+    Steered {
+        id: u64,
+        result: Result<(), String>,
     },
     TurnEnded {
         key: String,
@@ -252,6 +263,9 @@ pub struct Settings {
     /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
     /// Claude Code path.
     pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -358,6 +372,12 @@ pub struct Brain {
     owner_stopped: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
+    /// The steer on its way into the running turn (`steer.rs`), and the
+    /// last steer's number.
+    steering: Option<steer::Steering>,
+    steer_seq: u64,
+    /// A draft could not be published (logged once).
+    draft_failed: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -365,7 +385,7 @@ pub struct Brain {
     noticed: HashSet<String>,
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
-    marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    marker_refused: crate::prompt::MarkLatch,
     /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
     /// host restarts or `cache.ttl` is set again.
     ttl_refused: Arc<std::sync::atomic::AtomicBool>,
@@ -466,7 +486,10 @@ impl Brain {
             stop_wanted: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
-            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            steering: None,
+            steer_seq: 0,
+            draft_failed: false,
+            marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -494,6 +517,8 @@ impl Brain {
             mux_pending: HashMap::new(),
         };
         brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
         brain
     }
 
@@ -564,7 +589,9 @@ impl Brain {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.phase == Phase::Idle && !self.queue.iter().any(Queued::wakes)
+        self.phase == Phase::Idle
+            && !self.queue.iter().any(Queued::wakes)
+            && self.steering.is_none()
     }
 
     /// When the outbox timer fires, if armed.
@@ -621,6 +648,8 @@ impl Brain {
                 let blocks = self.boundary(&key);
                 let _ = reply.send(blocks);
             }
+            Input::Draft(draft) => self.turn_draft(&draft),
+            Input::Steered { id, result } => self.steered(id, result),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
@@ -809,6 +838,7 @@ impl Brain {
             self.chief = next;
             self.ttl_refused
                 .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }

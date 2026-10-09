@@ -1523,3 +1523,86 @@ fn codex_compactor_sessions_run_with_a_private_home_without_user_skills() {
         assert!(!p.env.contains_key("HOME"), "{}", p.name);
     }
 }
+
+/// One TTL drives turns and compactions on a route (coordinator decision
+/// 2026-10-08): each node takes the brain's current TTL for its mark, and
+/// its slot's Claude Code settings pin Claude Code's own marks to it
+/// (FORCE_PROMPT_CACHING_5M at 5 minutes, since a subscription login marks
+/// 1 hour otherwise).
+#[test]
+fn each_node_takes_the_shared_cache_ttl_for_its_mark_and_its_slot_settings() {
+    use optchat_chief::prompt::{CacheTtl, SharedTtl};
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let ttl = SharedTtl::new(CacheTtl::FiveMinutes);
+    let compactor = compactor(&agents, dir.path()).with_cache_ttl(ttl.clone());
+    let slot_settings = |agents: &FakeAgents, k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let mark = |agents: &FakeAgents, k: usize| -> Value {
+        let inner = agents.inner.lock().unwrap();
+        let blocks = &inner.prompts[k];
+        blocks[markers(blocks)[0]]["cache_control"].clone()
+    };
+    let r = |i| CompactRequest {
+        context: chat_of(150),
+        ..request(i)
+    };
+    run_node(&compactor, &r(0)).unwrap();
+    assert_eq!(mark(&agents, 0), json!({"type": "ephemeral"}));
+    let s = slot_settings(&agents, 0);
+    assert_eq!(s["promptCacheTtl"], "5m");
+    assert_eq!(s["env"]["FORCE_PROMPT_CACHING_5M"], "1");
+    ttl.set(CacheTtl::OneHour);
+    run_node(&compactor, &r(1)).unwrap();
+    assert_eq!(mark(&agents, 1), json!({"type": "ephemeral", "ttl": "1h"}));
+    let s = slot_settings(&agents, 1);
+    assert_eq!(s["promptCacheTtl"], "1h");
+    assert!(s["env"].get("FORCE_PROMPT_CACHING_5M").is_none(), "{s}");
+}
+
+#[test]
+fn compactor_presets_force_no_ttl_the_slot_settings_pick_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    for preset in compactor_presets(&paths, dir.path(), "claude", Family::Claude) {
+        assert!(
+            !preset.env.contains_key("FORCE_PROMPT_CACHING_5M"),
+            "{}: a preset is installed once; the TTL can change per node",
+            preset.name
+        );
+    }
+}
+
+/// A refused mark (Claude Code already used the API's four) is not refused
+/// for good: after 10 nodes without it the compactor tries it again.
+#[test]
+fn a_refused_marker_comes_back_after_ten_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    {
+        let mut inner = agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    let compactor = compactor(&agents, dir.path());
+    let r = |i| CompactRequest {
+        context: chat_of(150),
+        ..request(i)
+    };
+    // Node 0: refused, then again without the marker.
+    assert_eq!(run_node(&compactor, &r(0)).unwrap(), "user: a line");
+    for i in 1..=10 {
+        assert_eq!(run_node(&compactor, &r(i)).unwrap(), "user: a line");
+    }
+    assert_eq!(run_node(&compactor, &r(11)).unwrap(), "user: a line");
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 13);
+    for k in 1..=11 {
+        assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
+    }
+    assert_eq!(markers(&inner.prompts[12]).len(), 1, "the 12th node tries the mark again");
+}

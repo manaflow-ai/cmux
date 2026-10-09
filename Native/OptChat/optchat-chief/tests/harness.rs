@@ -625,6 +625,35 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
 }
 
+/// A plain `claude` turn signs in with the user's own Claude login. That
+/// login is found through the user's Claude home: with `CLAUDE_CONFIG_DIR`
+/// pointed at an empty directory, Claude Code reports `loggedIn: false`
+/// (checked 2026-10-08 with `claude auth status`), so an isolated turn
+/// preset must not set it. Isolation stays: no auto-memory, no CLAUDE.md
+/// files (the preset's system prompt carries the instructions), and the
+/// session directory's project settings (no hooks, denied tools).
+#[test]
+fn an_isolated_claude_turn_keeps_the_users_login() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    for harness in ["claude", "claude-sr"] {
+        let preset = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        assert!(
+            !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+            "{harness}: {:?}",
+            preset.env
+        );
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+        assert_eq!(preset.system_prompt.as_deref(), Some("SYS"));
+    }
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(!codex.env.contains_key("CLAUDE_CONFIG_DIR"), "{:?}", codex.env);
+}
+
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run
 /// at medium effort on both engines unless `OPTCHAT_CHIEF_EFFORT` names
 /// another; on acpmux a harness of another family keeps its own default

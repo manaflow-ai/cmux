@@ -66,7 +66,9 @@ SWIFT = {
     "precondition": re.compile(r"\bprecondition(Failure)?\("),
     "assume_isolated": re.compile(r"\bassumeIsolated\b"),
     "unowned": re.compile(r"\bunowned\b"),
-    "iuo": re.compile(r"\b(var|let)\s+\w+\s*:\s*[A-Z][\w\.]*(<[^>]*>)?!"),
+    # Declarations, parameters (`navigation: WKNavigation!`) and return types.
+    "iuo": re.compile(r"(?:\b(?:var|let)\s+\w+|[(,]\s*(?:\w+\s+)?\w+)\s*:\s*[A-Z][\w\.]*(?:<[^>]*>)?!"
+                      r"|->\s*[A-Z][\w\.]*(?:<[^>]*>)?!"),
     "unchecked": re.compile(r"nonisolated\(unsafe\)|@unchecked\s+Sendable"),
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
@@ -93,8 +95,48 @@ UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
 def swift_code(line):
-    # Drop a trailing comment when no string literal could contain "//".
-    return line.split("//", 1)[0] if '"' not in line else line
+    """LINE without its comments and with string literal text blanked (quotes and
+    interpolated code kept), so `"Hello! world"` or `// x!` never count and
+    `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
+    literal is read as code."""
+    out, i, n = [], 0, len(line)
+    in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
+    while i < n:
+        ch = line[i]
+        if in_string and depth == 0:
+            if ch == "\\" and i + 1 < n and line[i + 1] == "(":
+                out.append("\\(")
+                depth, i = 1, i + 2
+                continue
+            if ch == "\\":
+                out.append("  ")
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if line.startswith("//", i):
+            break
+        if line.startswith("/*", i):
+            end = line.find("*/", i + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - i))
+            i = end + 2
+            continue
+        if ch == '"':
+            in_string = True
+        elif in_string and ch == "(":
+            depth += 1
+        elif in_string and ch == ")":
+            depth -= 1
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def allowed(lines, index):
@@ -186,9 +228,11 @@ def swift_line_hits(lines, index):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
+    # A force unwrap is not `as!`, `try!` (own classes) or an IUO type (`: T!`).
+    unwrap_code = SWIFT["iuo"].sub(lambda m: " " * len(m.group(0)), re.sub(r"\b(as|try)!", r"\1 ", code))
     hits = {}
     for kind, pattern in SWIFT.items():
-        found = len(pattern.findall(code))
+        found = len(pattern.findall(unwrap_code if kind == "force_unwrap" else code))
         if not found:
             continue
         if kind == "fatal_error" and UNREACHABLE_INIT.search(" ".join(lines[max(0, index - 2):index + 1])):

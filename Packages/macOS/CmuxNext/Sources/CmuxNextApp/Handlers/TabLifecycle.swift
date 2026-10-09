@@ -37,8 +37,17 @@ enum TabLifecycle {
         case .split(let target, let direction):
             return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
         }
-        let controller = ctx.services.paneController(for: pane)
-        if let controller { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
+        if let controller = ctx.services.paneController(for: pane) {
+            // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
+            // cwd is the explicit one or nil, for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
+            var target: PaneController? = controller
+            if invocation.origin == .user {
+                let spawn = SpawnOptions(cwd: cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
+                target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
+            }
+            target?.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller)
+            return
+        }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
@@ -114,11 +123,18 @@ enum TabLifecycle {
             invocation.arguments["cwd"] = nil
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation)
-        case .agent:
-            ctx.services.newTabKinds.record(.agent, folder: folder)
-            controller?.newAgentTab()
-        case .page:
-            controller?.newTabPage()
+        case .agent, .page:
+            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
+            if user, let controller, let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services),
+               strip !== controller {
+                return strip.newTabPage()
+            }
+            if kind == .page {
+                controller?.newTabPage()
+            } else {
+                ctx.services.newTabKinds.record(.agent, folder: folder)
+                controller?.newAgentTab()
+            }
         }
     }
 
@@ -173,12 +189,31 @@ enum TabLifecycle {
         if case .explicit(let id) = profileRequest, !ctx.services.browserProfiles.isKnown(id) {
             return ctx.refuse(MiscHandlerStrings.unknownBrowserProfile(id))
         }
-        guard let pane = ctx.daemonPane(invocation) else { return }
+        guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
+        // that opens what the chat works on, not the strip's selected tab.
+        let pane: PaneModel
+        var context: PaneController?
+        var docked = false
+        if invocation.origin == .user, let chat = ctx.services.paneController(for: invoked) {
+            let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
+            if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
+                pane = target.pane
+                if target !== chat { context = chat }
+            } else {
+                // A lone chat docked and left the browser in its pane.
+                pane = invoked
+                docked = true
+            }
+        } else {
+            pane = invoked
+        }
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
         if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
             noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
+        if docked { return }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
@@ -213,8 +248,8 @@ enum TabLifecycle {
             then = { @MainActor surface in PanePlacementRouting.moveToSplit(ctx, surface, of: target, direction: direction) }
         }
         if let controller = ctx.services.paneController(for: opener) {
-            // No URL given: what the selected tab works on (#16620).
-            if url == nil { controller.newBrowserTabFromSelectedTab(engine: engine, then: then) }
+            // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
+            if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }
             else { controller.newBrowserTab(url: url, engine: engine, then: then) }
             return
         }
@@ -237,6 +272,17 @@ enum TabLifecycle {
                 return "new-frontend-browser-tab: \(error)"
             }
         })
+    }
+
+    /// The browser tab a lone agent chat leaves in its pane when it docks: a
+    /// frontend tab on the resolved engine, else nil (the chat stays).
+    private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
+                                    profile: AgentBrowserProfile.Request) -> SplitRespawn? {
+        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(),
+              case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
+        var profileID: String?
+        if case .explicit(let id) = profile { profileID = id }
+        return .browser(url: url?.absoluteString ?? ctx.services.newTabAddress(for: choice), engine: choice.engine, profileID: profileID)
     }
 
     /// A new browser tab in browser profile `profile` (openBrowser's
