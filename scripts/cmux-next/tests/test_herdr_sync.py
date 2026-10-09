@@ -28,6 +28,9 @@ ENGINE_FILES = {
     "src/detect/manifest_update.rs": "pub(crate) const MANIFEST_ENGINE_VERSION: u32 = 3;\n",
     "src/pane/agent_detection.rs": "// pacing\n",
     "src/pane/osc.rs": "// osc\n",
+    "src/pane/background_agent.rs": "// suspended agents\n",
+    "src/platform/linux.rs": "// linux processes\n",
+    "src/platform/macos.rs": "// macos processes\n",
 }
 
 
@@ -137,6 +140,8 @@ class HerdrSyncTests(unittest.TestCase):
         self.sync(self.first)
         vendored = (self.plugin / "manifests/grok.toml").read_text(encoding="utf-8")
         self.assertIn("priority = 90", vendored)
+        # Apache-2.0 4(b): the changed file itself says it was changed.
+        self.assertTrue(vendored.startswith("# Modified by Manaflow (cmux): cmux keeps the older priority\n"))
         pin = {entry.file: entry for entry in herdr_sync.load_pin(self.plugin).manifests}
         self.assertEqual(pin["grok.toml"].patch_reason, "cmux keeps the older priority")
         self.assertEqual(pin["grok.toml"].upstream_sha256, herdr_sync.sha256(GROK_V1.encode()))
@@ -150,7 +155,7 @@ class HerdrSyncTests(unittest.TestCase):
             "[[patch.edit]]\nfind = '''priority = 100'''\nreplace = '''priority = 90'''\n",
             encoding="utf-8",
         )
-        second = self.herdr.commit({"src/detect/manifests/grok.toml": GROK_V1.replace("priority = 100", "priority = 250")}, "upstream fix")
+        second = self.herdr.commit({"src/detect/manifests/grok.toml": GROK_V1.replace("priority = 100", "priority = 1000")}, "upstream fix")
         with self.assertRaisesRegex(herdr_sync.SyncError, "no longer applies"):
             self.sync(second)
 
@@ -183,6 +188,25 @@ class HerdrSyncTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("letta.toml", out.read_text(encoding="utf-8"))
         self.assertIn("letta.toml", stdout)
+
+    def test_a_tracked_file_removed_upstream_is_drift_not_a_crash(self) -> None:
+        self.sync(self.first)
+        run_git(self.herdr.root, "rm", "-q", "src/pane/background_agent.rs")
+        run_git(self.herdr.root, "commit", "-q", "-m", "move background agents")
+        _, report = herdr_sync.drift(self.plugin, self.herdr.root, "HEAD")
+        self.assertEqual(report.engine_changed, ["src/pane/background_agent.rs (removed upstream)"])
+
+    def test_an_unexpected_failure_exits_2_not_drift(self) -> None:
+        code, _ = self.quiet_main("drift", "--herdr", str(self.plugin / "not-a-repo"))
+        self.assertEqual(code, 2)
+
+    def test_upstream_text_cannot_mention_or_break_the_issue(self) -> None:
+        self.sync(self.first)
+        self.herdr.commit({"src/detect/manifests/codex.toml": CODEX_V1.replace("2026.09.15.1", "@team `x`")}, "odd")
+        pin, report = herdr_sync.drift(self.plugin, self.herdr.root, "HEAD")
+        summary = herdr_sync.drift_markdown(pin, report)
+        self.assertNotIn("@team", summary)
+        self.assertNotIn("`x`", summary)
 
     def test_drift_ignores_unrelated_upstream_commits(self) -> None:
         self.sync(self.first)
