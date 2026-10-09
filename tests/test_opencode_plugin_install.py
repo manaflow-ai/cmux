@@ -392,6 +392,40 @@ await v1Hooks.event({
             print("FAIL: project-local uninstall removed the global OpenCode bridge")
             return 1
 
+        # Removing the legacy session file must not strand an owned TUI package.
+        orphan_root = root / "orphan-config"
+        orphan_root.mkdir(parents=True, exist_ok=True)
+        orphan_env = env.copy()
+        orphan_env["OPENCODE_CONFIG_DIR"] = str(orphan_root)
+        orphan_install = subprocess.run(
+            [cli_path, "hooks", "opencode", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=orphan_env,
+            timeout=20,
+        )
+        if orphan_install.returncode != 0:
+            print("FAIL: orphan-case OpenCode plugin install failed")
+            return 1
+        orphan_session = orphan_root / "plugins" / "cmux-session.js"
+        orphan_tui = orphan_root / "plugins" / "cmux"
+        orphan_session.unlink()
+        orphan_uninstall = subprocess.run(
+            [cli_path, "hooks", "opencode", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=orphan_env,
+            timeout=20,
+        )
+        if orphan_uninstall.returncode != 0 or orphan_tui.exists():
+            print("FAIL: uninstall stranded an owned TUI package after legacy removal")
+            print(f"exit={orphan_uninstall.returncode}")
+            print(f"stdout={orphan_uninstall.stdout.strip()}")
+            print(f"stderr={orphan_uninstall.stderr.strip()}")
+            return 1
+
         # Never follow a user symlink while validating or overwriting the
         # shared TUI package directory.
         symlink_root = root / "symlink-config"

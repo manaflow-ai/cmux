@@ -116,7 +116,7 @@ const makeLive = (name, environment, replies) => {
     permission: { reply: async (value) => { replies.permission?.resolve(value); } },
     session: {
       update: async () => {},
-      prompt: async (value) => { replies.feedback?.resolve(value); },
+      prompt: async (value) => live.promptError ? { error: "prompt unavailable" } : (replies.feedback?.resolve(value), undefined),
       synthetic: async (value) => { replies.feedback?.resolve(value); },
     },
     _client: {
@@ -132,6 +132,7 @@ const makeLive = (name, environment, replies) => {
     target?.resolve({ value, location });
   } };
   live.environment = environment;
+  live.promptError = false;
   return live;
 };
 const liveA = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-a", CMUX_WORKSPACE_ID: "workspace-a", CMUX_OPENCODE_HOOKS_DISABLED: "1" }, repliesA);
@@ -157,6 +158,7 @@ liveA.emit({ details: { type: "question.asked", data: { sessionID: "child-a", id
 const questionA = await Promise.race([repliesA.question.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("legacy question reply timed out")), 2000))]);
 if (questionA.requestID !== "question-a" || JSON.stringify(questionA.answers) !== JSON.stringify([["yes"]])) throw new Error("legacy question reply used the wrong TUI contract");
 
+liveA.promptError = true;
 liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-plan", title: "Build Agent", fields: [{ key: "decision", type: "string", question: "Plan at /tmp/plan.md is complete.", options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] }] } } } });
 const planA = await Promise.race([repliesA.plan.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("plan form reply timed out")), 2000))]);
 if (planA.value.formID !== "form-plan" || planA.value.answer.decision !== "no") throw new Error("plan exit form used the wrong reply path");

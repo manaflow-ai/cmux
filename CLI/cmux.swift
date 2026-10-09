@@ -35039,23 +35039,27 @@ export default {
     private func uninstallOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let pluginURL = openCodeSessionPluginURL(for: def)
-        guard fm.fileExists(atPath: pluginURL.path) else {
-            print("No OpenCode cmux plugin found at \(pluginURL.path)")
-            return
+        var removedLegacyPlugin = false
+        if fm.fileExists(atPath: pluginURL.path) {
+            let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
+            guard existing.contains(Self.openCodeSessionPluginMarker) else {
+                print("Refusing to remove \(pluginURL.path): missing cmux marker")
+                return
+            }
+            try fm.removeItem(at: pluginURL)
+            removedLegacyPlugin = true
         }
-        let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
-        guard existing.contains(Self.openCodeSessionPluginMarker) else {
-            print("Refusing to remove \(pluginURL.path): missing cmux marker")
-            return
-        }
-        try fm.removeItem(at: pluginURL)
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try removeOpenCodeTUIPlugin(in: configDir)
         _ = try updateOpenCodePluginRegistration(
             configDir: configDir,
             shouldInstall: false
         )
-        print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+        if removedLegacyPlugin {
+            print("Removed OpenCode cmux plugin from \(pluginURL.path)")
+        } else {
+            print("Removed OpenCode cmux TUI package from \(configDir.path)")
+        }
     }
 
     func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
