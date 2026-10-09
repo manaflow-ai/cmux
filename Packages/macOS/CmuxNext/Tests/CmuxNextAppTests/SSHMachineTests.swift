@@ -59,6 +59,38 @@ import Testing
         #expect(header.detail?.contains("Permission denied (publickey).") == true)
     }
 
+    /// cx-zdh8 (m1max preflight): SSH works but the machine's cmux-tui
+    /// daemon does not start (an old session db), so every daemon handshake
+    /// ends with "link closed during handshake". The header showed
+    /// Connecting for ever; it now shows the failure and the daemon's own
+    /// error, and Copy SSH Error copies it.
+    @Test func aDaemonThatDoesNotStartIsAFailureNotConnecting() throws {
+        #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: true, daemonConnected: false, compatibility: nil) == .failed)
+        #expect(SidebarBridge.sshStatus(link: .connecting, startupFailed: true, daemonConnected: false, compatibility: nil) == .failed)
+        #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting,
+                "within the first-connect deadline it still connects")
+        #expect(SidebarBridge.sshStatus(link: .connected, startupFailed: false, daemonConnected: true, compatibility: nil) == .connected)
+        #expect(SidebarMachine.Status.failed.needsAttention)
+    }
+
+    @Test func aRemoteFailureOfTheLinkIsAFailure() throws {
+        let machine = try session()
+        machine.linkStatus = .failed("the remote shell gave no probe output")
+        #expect(SidebarBridge.sshStatus(machine, compatibility: nil) == .failed)
+        #expect(RemoteStrings.sshError(machine) == "the remote shell gave no probe output")
+    }
+
+    @Test func theDaemonErrorReachesTheHeaderAndCopySSHError() throws {
+        let machine = try session()
+        machine.linkStatus = .connected
+        machine.daemonFailure = "cmux-tui connection closed: link closed during handshake\nError: table session_journal has no column named actor"
+        let detail = try #require(RemoteStrings.detail(machine))
+        #expect(detail.contains("session_journal has no column named actor"))
+        #expect(RemoteStrings.sshError(machine)?.contains("session_journal has no column named actor") == true)
+        machine.daemonFailure = nil
+        #expect(RemoteStrings.sshError(machine) == nil)
+    }
+
     @Test func machinesResolveByIDNameOrDestination() throws {
         let registry = MachineRegistry(local: DaemonService())
         let box = try session("dev@build-box.local")
