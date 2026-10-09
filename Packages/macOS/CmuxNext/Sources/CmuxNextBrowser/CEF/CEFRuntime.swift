@@ -330,8 +330,9 @@ final class CEFRuntime {
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
-        let ok = switchStorage.withUnsafeBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
+        let ok = switchStorage.withUnsafeBufferPointer { buffer -> Int32 in  // never empty (ends with nil)
+            guard let base = buffer.baseAddress else { return 0 }
+            return base.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,

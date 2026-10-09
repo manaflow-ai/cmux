@@ -37,8 +37,9 @@ public final class AddressBarView: NSView {
     let starButton = BookmarkStarButton()
     /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
     private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
-    private var fieldToEdge: NSLayoutConstraint!
-    private var fieldToBadge: NSLayoutConstraint!
+    // Built on first use in init (no IUO).
+    private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
+    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
@@ -48,7 +49,18 @@ public final class AddressBarView: NSView {
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
     private var security: BrowserSecurityState = .none
-    private(set) var controller: OmnibarController!
+    /// Built in init, where `onEffect` is set (no IUO; lazy because its closures capture self).
+    private(set) lazy var controller = OmnibarController(
+        field: field,
+        popup: self,
+        resolver: { [unowned self] in resolver },
+        suggest: { [weak self] request in
+            guard let self else { return OmniboxDelivery.finished }
+            var request = request
+            request.tabKey = tabKey
+            return suggestionEngine.deliveries(for: request)
+        }
+    )
 
     /// Chromium tabs also load `chrome://` and `chrome-extension://` pages
     /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
@@ -82,17 +94,6 @@ public final class AddressBarView: NSView {
         self.suggestionEngine = suggestionEngine
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        controller = OmnibarController(
-            field: field,
-            popup: self,
-            resolver: { [unowned self] in resolver },
-            suggest: { [weak self] request in
-                guard let self else { return OmniboxDelivery.finished }
-                var request = request
-                request.tabKey = tabKey
-                return suggestionEngine.deliveries(for: request)
-            }
-        )
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
 
@@ -123,8 +124,6 @@ public final class AddressBarView: NSView {
         badges.spacing = 4
         badges.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badges)
-        fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-        fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),

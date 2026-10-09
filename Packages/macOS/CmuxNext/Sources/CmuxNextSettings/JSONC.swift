@@ -194,7 +194,7 @@ public struct JSONC {
     }
 
     private static func setting(_ value: JSONValue, at path: ArraySlice<String>, in object: ObjectNode, bytes: [UInt8], edits: inout [Edit]) {
-        let key = path.first!
+        guard let key = path.first else { return }  // the public entry refuses an empty path
         let rest = path.dropFirst()
         if let member = object.members.first(where: { $0.key == key }) {
             if rest.isEmpty {

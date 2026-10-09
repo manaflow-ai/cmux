@@ -94,10 +94,11 @@ public struct DeterministicJSON {
     /// number, so the type is compared, not cast.
     func scalar(_ value: Any) throws -> String {
         switch ObjectIdentifier(type(of: value)) {
-        case ObjectIdentifier(Bool.self): return (value as! Bool) ? "true" : "false"
-        case ObjectIdentifier(Double.self): return try number(value as! Double)
-        case ObjectIdentifier(Float.self): return try number(Double(value as! Float))
-        case ObjectIdentifier(CGFloat.self): return try number(Double(value as! CGFloat))
+        // The type is already compared, so these casts succeed; a miss falls through (no as!).
+        case ObjectIdentifier(Bool.self): if let flag = value as? Bool { return flag ? "true" : "false" }
+        case ObjectIdentifier(Double.self): if let double = value as? Double { return try number(double) }
+        case ObjectIdentifier(Float.self): if let float = value as? Float { return try number(Double(float)) }
+        case ObjectIdentifier(CGFloat.self): if let cgFloat = value as? CGFloat { return try number(Double(cgFloat)) }
         default: break
         }
         if let integer = value as? any BinaryInteger { return String(describing: integer) }
