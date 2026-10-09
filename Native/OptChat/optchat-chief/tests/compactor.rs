@@ -619,11 +619,16 @@ fn the_compactor_has_its_own_isolated_configuration() {
             .name
             .ends_with(&format!("{}-slot-0", optchat_chief::paths::home_id(&home)))
     );
-    assert_eq!(
-        preset.env["CLAUDE_CONFIG_DIR"],
-        paths.compactor_config.display().to_string()
+    // cx-1hpt: no configuration directory of its own. A plain `claude`
+    // compactor signs in with the user's login, which lives with the user's
+    // Claude home (an empty `CLAUDE_CONFIG_DIR` has none: "Could not resolve
+    // authentication method"). The slot's project settings, the env below
+    // and the preset's flags keep it isolated.
+    assert!(
+        !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+        "{:?}",
+        preset.env
     );
-    assert_ne!(paths.compactor_config, paths.claude_config);
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
     // Every slot on one sticky subrouter account (nodes share cached context).
@@ -1425,4 +1430,55 @@ fn the_next_node_takes_a_warm_session_started_when_the_last_one_ended() {
     // Node 2 prompted the first warm session and ended it; the second waits.
     assert_eq!(inner.prompts.len(), 2);
     assert_eq!(inner.ended, ["s1", "s2"]);
+}
+
+/// cx-1hpt: the compactor's failure notice is posted once, also across host
+/// restarts (each start probes again), and a later good probe retracts it.
+#[test]
+fn the_compactor_notice_is_posted_once_across_restarts_and_retracted_when_it_works() {
+    let text = "The memory compactor cannot build summaries (acpmux route: no login).";
+    let down = || Input::CompactorStatus(Err(text.into()));
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.brain.step(down());
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    h.brain.step(down());
+    let notices: Vec<(String, String)> = h
+        .owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .filter(|(_, t)| t == text)
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    h.brain.step(Input::CompactorStatus(Ok(())));
+    let owner = h.owner.lock().unwrap();
+    let posted = owner
+        .messages
+        .iter()
+        .find(|m| {
+            matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text)
+        })
+        .map(|m| m.id.clone())
+        .unwrap();
+    assert!(
+        owner.ops.iter().any(|(_, op)| matches!(
+            op,
+            cmux_conversation::Op::MessageRetract { message_id } if *message_id == posted
+        )),
+        "{:?}",
+        owner.ops
+    );
 }

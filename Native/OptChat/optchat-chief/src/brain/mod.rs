@@ -82,6 +82,9 @@ pub enum Input {
         key: String,
         text: String,
     },
+    /// The compactor's start-up probe: Err with the text the user must
+    /// hear (the compactor cannot build a node), Ok when it built one.
+    CompactorStatus(Result<(), String>),
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
@@ -549,6 +552,7 @@ impl Brain {
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
+            Input::CompactorStatus(status) => self.compactor_status(status),
             Input::SpawnRegister { tasks, reply } => {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
@@ -615,6 +619,12 @@ impl Brain {
         (self.log)(&text);
         self.notices.push((key, text));
         self.post_notices();
+    }
+
+    fn compactor_status(&mut self, status: Result<(), String>) {
+        if let Err(text) = status {
+            self.notice(format!("notice:optchat:compactor:{}", now_ms()), text);
+        }
     }
 
     /// Moves waiting notices into the outbox once the conversation is known.

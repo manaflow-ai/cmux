@@ -83,6 +83,13 @@ pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// The compactor's harness setting at host start: `env`
+/// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`;
+/// None leaves the host's default.
+pub fn compactor_harness_setting(env: Option<String>, choice: &EngineChoice) -> Option<String> {
+    env.or_else(|| choice.compactor_harness.clone())
+}
+
 /// The turn engine of `choice` over the defaults.
 pub fn resolve(
     choice: &EngineChoice,
