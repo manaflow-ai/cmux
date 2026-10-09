@@ -11,10 +11,15 @@ export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: number };
 
-/// Whether a turn can be forked now: acpmux serves forks and the pane is connected (the turn
-/// footer's Fork shows on the same rule).
+/// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
+/// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
+/// shows on the same rule.
 export const canFork = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+  Boolean(snapshot.canFork) &&
+  !snapshot.isWorking &&
+  !snapshot.summary?.peer &&
+  snapshot.connection !== "disconnected" &&
+  !snapshot.connection.startsWith("connecting");
 
 /// The one turn a fork can go through: the latest completed turn's summary event. acpmux forks a
 /// chat at its end (`acp.session.fork` refuses an earlier turn), so no earlier turn offers it.

@@ -65,6 +65,8 @@ describe("the agent pane's context menu target", () => {
     expect(messageMenuTarget(ended, "p1")?.forkSeq).toBeUndefined();
     expect(messageMenuTarget(ended, "a2")?.forkSeq).toBe(57);
     expect(messageMenuTarget(ended, "p2")?.forkSeq).toBe(57);
+    // acpmux refuses a fork while a turn runs or for a chat on another computer.
+    expect(messageMenuTarget({ ...ended, isWorking: true }, "a2")?.forkSeq).toBeUndefined();
   });
 
   test("a folded copy is its message; other rows are not messages", () => {

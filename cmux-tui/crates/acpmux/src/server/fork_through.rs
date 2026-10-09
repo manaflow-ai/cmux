@@ -60,5 +60,11 @@ pub(super) fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcErr
     if !at_through {
         return Err(RpcError::invalid_params(format!("no completed turn ends at seq {through}")));
     }
-    Ok(json!({"sessionId": key}))
+    // The resolved id, so the fork's own resolution cannot pick another
+    // session; a forward mark (`_meta.acpmux.via`) keeps its guard.
+    let mut out = json!({"sessionId": session.id});
+    if let Some(via) = params.pointer("/_meta/acpmux/via") {
+        out["_meta"] = json!({"acpmux": {"via": via}});
+    }
+    Ok(out)
 }
