@@ -495,6 +495,96 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("");
   });
 
+  // POLISH.md right-click contract (Leo, 2026-10-08): the composer has a real context menu on the
+  // shared menu primitive, and WebKit's default menu never shows.
+  describe("context menu", () => {
+    const menuItems = () =>
+      [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')].map((item) => ({
+        label: item.textContent,
+        disabled: item.disabled,
+      }));
+    const item = (label: string) =>
+      [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]')].find(
+        (row) => row.textContent === label,
+      )!;
+    const rightClick = async () => {
+      const event = new dom.window.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 40,
+      });
+      await act(async () => textarea().element.dispatchEvent(event));
+      return event;
+    };
+    let edits: string[];
+    let attached: number;
+    const renderMenu = async () => {
+      edits = [];
+      attached = 0;
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            onSend: () => {},
+            onStop: () => {},
+            onAttach: () => {
+              attached += 1;
+            },
+            onEdit: (command: string) => {
+              edits.push(command);
+            },
+          }),
+        ),
+      );
+      await ready();
+    };
+
+    test("a right-click in the prompt opens the composer's menu, never WebKit's", async () => {
+      await renderMenu();
+      const event = await rightClick();
+      expect(event.defaultPrevented).toBe(true);
+      expect(menuItems()).toEqual([
+        { label: "Cut", disabled: true },
+        { label: "Copy", disabled: true },
+        { label: "Paste", disabled: false },
+        { label: "Paste as Plain Text", disabled: false },
+        { label: "Attach Files…", disabled: false },
+        { label: "Insert Mention", disabled: false },
+      ]);
+    });
+
+    test("paste items run the host's paste and Insert Mention writes @", async () => {
+      await renderMenu();
+      await rightClick();
+      await act(async () => item("Paste").click());
+      await rightClick();
+      await act(async () => item("Paste as Plain Text").click());
+      expect(edits).toEqual(["paste", "pasteAsPlainText"]);
+      await rightClick();
+      await act(async () => item("Attach Files…").click());
+      expect(attached).toBe(1);
+      await rightClick();
+      await act(async () => item("Insert Mention").click());
+      expect(textarea().value).toBe("@");
+    });
+
+    test("over selected text the menu still opens, with Cut and Copy", async () => {
+      await renderMenu();
+      await type("hello there");
+      dom.window.getSelection()!.selectAllChildren(textarea().element);
+      const event = await rightClick();
+      expect(event.defaultPrevented).toBe(true);
+      expect(menuItems().slice(0, 2)).toEqual([
+        { label: "Cut", disabled: false },
+        { label: "Copy", disabled: false },
+      ]);
+      await act(async () => item("Copy").click());
+      expect(edits).toEqual(["copy"]);
+    });
+  });
+
   describe("attachments", () => {
     const settleFiles = () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
     const png = () =>
