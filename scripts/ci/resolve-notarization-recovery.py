@@ -172,7 +172,10 @@ def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
         if not separator or not key or key in state:
             raise ValueError("invalid or duplicate notarization state line")
         state[key] = value
-    if state.get("submission_id") != manifest["submission_id"] or state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
+    if (
+        state.get("submission_id") != manifest["submission_id"]
+        or state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower()
+    ):
         raise ValueError("notarization state does not match recovery manifest")
     if state.get("submit_exit", "0") != "0":
         raise ValueError("notarization submit exited nonzero")
