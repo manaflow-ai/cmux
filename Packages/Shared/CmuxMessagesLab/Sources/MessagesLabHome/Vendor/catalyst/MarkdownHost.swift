@@ -85,7 +85,7 @@ extension MessagesWindowView {
             markdownOverlay(key)?.scroll(region: region, by: dx)
             return lock
         }
-        guard let (h, md, local) = markdownHit(p), let r = md.region(at: local), md.regions[r].scrollable,
+        guard let (h, md, local) = markdownHit(p), let r = md.region(at: local), md.regions[checked: r]?.scrollable == true, /* cmux: checked */
               let o = markdownOverlay(h.key) else { return nil }
         o.scroll(region: r, by: dx)
         return (h.key, r)
