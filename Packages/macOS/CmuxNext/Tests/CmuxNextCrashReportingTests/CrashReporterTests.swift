@@ -17,23 +17,23 @@ import Testing
         #expect(options.environment == "nightly-next")
         #expect(options.releaseName == "cmux-next@1.0.0-nightly.7+7")
         #expect(options.dist == "7")
-        #expect(options.enableUncaughtNSExceptionReporting, "NIGHTLY crashes at the throw (cx-r3q)")
+        #expect(options.enableUncaughtNSExceptionReporting)
         #expect(!options.sendDefaultPii)
         #expect(options.tracesSampleRate?.doubleValue == 0)
         #expect(!options.enableLogs, "no data category the main app's crash path does not send")
         #expect(options.beforeSend != nil && options.beforeBreadcrumb != nil)
     }
 
-    @Test func onlyDevAndNightlyTurnOnExceptionCrashes() {
+    @Test func everyChannelReportsUncaughtExceptions() {
         func options(_ bundleID: String, debug: Bool = false) -> Options {
             CrashReporter(policy: CrashReportingPolicy(
                 bundleID: bundleID, shortVersion: "1", build: "1", isDebugBuild: debug, telemetryOptIn: true,
                 managedDisablesTelemetry: false, processEnvironment: [:])).options()
         }
-        // The SDK registers NSApplicationCrashOnExceptions with this option.
+        // Matches CrashOnExceptions: every channel crashes at the throw (cx-r3q).
         #expect(options("com.cmuxterm.app.debug.t", debug: true).enableUncaughtNSExceptionReporting)
-        #expect(!options("com.cmuxterm.app.rc").enableUncaughtNSExceptionReporting)
-        #expect(!options("com.cmuxterm.app").enableUncaughtNSExceptionReporting)
+        #expect(options("com.cmuxterm.app.rc").enableUncaughtNSExceptionReporting)
+        #expect(options("com.cmuxterm.app").enableUncaughtNSExceptionReporting)
     }
 
     @Test func everyEventIsScrubbedLabeledAndGroupedApartFromTheMainApp() throws {

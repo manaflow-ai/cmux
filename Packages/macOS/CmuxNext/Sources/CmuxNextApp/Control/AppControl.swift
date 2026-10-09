@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -353,8 +354,14 @@ final class AppControl {
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
-            .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
-            .mainActor("debug.crash.exception") { _ in .value(DebugCrashes.raiseException()) },
+            .mainActor("debug.crash.app") { [weak services] call in
+                services?.crashReporting.reporter.markDeliberateCrash("debug.crash.app")
+                DebugCrashes.crashApp(call.params)
+            },
+            .mainActor("debug.crash.exception") { [weak services] _ in
+                services?.crashReporting.reporter.markDeliberateCrash("debug.crash.exception")
+                return .value(DebugCrashes.raiseException())
+            },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
             .mainActor("debug.low_power_mode") { call in
