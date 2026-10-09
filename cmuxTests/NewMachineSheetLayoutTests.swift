@@ -102,6 +102,7 @@ struct NewMachineSheetLayoutTests {
         NewMachineSheetPresenter.shared.present(model: model, preferredWindow: host, loadPlanFromCache: false)
         defer { model.cancel() }
         let sheet = try #require(host.attachedSheet, "the sheet was not attached to its host window")
+        let initialTopEdge = sheet.frame.maxY
 
         for tick in 0..<12 {
             let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 81920, usedVcpus: 32 + tick % 3, usedMemoryMb: 65536)
@@ -124,6 +125,7 @@ struct NewMachineSheetLayoutTests {
         let content = sheet.contentRect(forFrameRect: sheet.frame).size
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
+        #expect(abs(sheet.frame.maxY - initialTopEdge) <= 1, "sheet top edge moved from \(initialTopEdge) to \(sheet.frame.maxY)")
     }
 
     /// The grid's pop-ups read as one column: each starts at the column's

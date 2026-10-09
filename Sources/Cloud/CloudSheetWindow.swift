@@ -56,20 +56,14 @@ final class CloudSheetWindow {
         // Some AppKit versions reset a newly attached sheet to a 1×0 content
         // rect while the host is inactive. Restore the measured first layout
         // before applying any later geometry report.
-        let current = window.contentRect(forFrameRect: window.frame).size
-        if (current.width <= 1 || current.height <= 1), initialContentSize.width > 0, initialContentSize.height > 0 {
-            window.setContentSize(initialContentSize)
-        }
+        restoreInitialContentSizeIfNeeded()
         applyPendingContentSize()
         // AppKit may perform one more sheet-host layout on the next turn and
         // reset the frame after beginSheet returns. Reapply after that pass so
         // the first geometry report has a usable window to measure against.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let current = self.window.contentRect(forFrameRect: self.window.frame).size
-            if (current.width <= 1 || current.height <= 1), self.initialContentSize.width > 0, self.initialContentSize.height > 0 {
-                self.window.setContentSize(self.initialContentSize)
-            }
+            self.restoreInitialContentSizeIfNeeded()
             self.applyPendingContentSize()
         }
     }
@@ -104,6 +98,22 @@ final class CloudSheetWindow {
         // Keep the top edge, where a sheet hangs from its host, and the center.
         let oldFrame = window.frame
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin.x = oldFrame.midX - frame.width / 2
+        frame.origin.y = oldFrame.maxY - frame.height
+        window.setFrame(frame, display: window.isVisible, animate: false)
+    }
+
+    private func restoreInitialContentSizeIfNeeded() {
+        guard initialContentSize.width > 1, initialContentSize.height > 1 else { return }
+        let current = window.contentRect(forFrameRect: window.frame).size
+        guard current.width <= 1 || current.height <= 1 else { return }
+
+        // An attached sheet hangs from its top edge. setContentSize preserves
+        // the bottom-left origin, which detaches the sheet from its host when
+        // repairing AppKit's temporary 1×0 frame. Restore through a frame so
+        // the top edge remains anchored while the content gets its size back.
+        let oldFrame = window.frame
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: initialContentSize))
         frame.origin.x = oldFrame.midX - frame.width / 2
         frame.origin.y = oldFrame.maxY - frame.height
         window.setFrame(frame, display: window.isVisible, animate: false)
