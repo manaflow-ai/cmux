@@ -9,6 +9,8 @@ extension AgentPaneView {
     public func showContinueIn() {
         deliver([.command("continueIn")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
     }
+    /// Switch Model… (red-test stub; the next commit implements it).
+    public func showModelPicker() {}
     /// Palette and page buttons enter the same inline checkpoint review.
     public func showCreateCheckpoint() {
         guard model.checkpointAvailable else { return }
