@@ -12,6 +12,8 @@ use tokio::sync::mpsc;
 
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
+#[path = "hub_integration/drafts.rs"]
+mod drafts;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
@@ -20,8 +22,6 @@ mod questions;
 mod steer_only;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
-#[path = "hub_integration/drafts.rs"]
-mod drafts;
 
 struct TestClient {
     tx: mpsc::Sender<String>,

@@ -62,10 +62,23 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.title", defaultValue: "Let the agent act without asking?", bundle: .module)
     }
 
-    /// The sheet for a config option that is not a mode. `%1$@` is the option's id, `%2$@` its value.
+    /// The sheet for a config option that is not a mode. `%1$@` is the option's display name and `%2$@` its display value.
     static var confirmOptionMessage: String {
         String(localized: "agentPane.confirmOption.message",
                defaultValue: "Change %1$@ to %2$@? Paired devices could then run actions without asking.", bundle: .module)
+    }
+
+    /// The display name for the non-mode setting that controls paired-device actions.
+    static var confirmFastModeName: String {
+        String(localized: "agentPane.confirmOption.fastMode", defaultValue: "Fast mode", bundle: .module)
+    }
+
+    static var confirmOptionOn: String {
+        String(localized: "agentPane.confirmOption.on", defaultValue: "On", bundle: .module)
+    }
+
+    static var confirmOptionOff: String {
+        String(localized: "agentPane.confirmOption.off", defaultValue: "Off", bundle: .module)
     }
 
     static var confirmModeButton: String {

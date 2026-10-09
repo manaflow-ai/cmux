@@ -33,6 +33,7 @@ enum AgentHandlers {
         AgentSessionWorkspace.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
+        AgentHarnessHandlers.bind(into: registry, context: context)
         registry.bind("home.toggleChiefSettings", run: { _ in
             NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
         })

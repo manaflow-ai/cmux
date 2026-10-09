@@ -32,6 +32,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
+    "crates/cmux-tui-platform",
     "crates/cmux-layout-reducer",
     "crates/cmux-unix-socket",
     "crates/cmux-pty",
@@ -82,6 +83,7 @@ default-members = [
     "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
+    "crates/cmux-tui-platform",
     "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
@@ -149,6 +151,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
+cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
