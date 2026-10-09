@@ -201,7 +201,7 @@ describe("acpmux composer pickers", () => {
     await act(async () => button("Effort")!.click());
     expect(doc.querySelector(".acpmux-effort-range")).toBeNull();
     const items = [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=menuitemradio]")];
-    expect(items.map((item) => item.textContent)).toEqual(["Medium", "High"]);
+    expect(items.map((item) => item.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Medium", "High"]);
     expect(items[1]!.getAttribute("aria-checked")).toBe("true");
     await act(async () => items[0]!.click());
     expect(calls).toEqual(["effort reasoning_effort medium"]);
@@ -229,11 +229,11 @@ describe("acpmux composer pickers", () => {
     expect(button("Effort")!.textContent).toContain("Reasoning");
     await act(async () => button("Effort")!.click());
     const menu = doc.querySelector<HTMLElement>("[role=menu]")!;
-    expect([...menu.querySelectorAll("[role=menuitemradio]")].map((item) => item.textContent)).toEqual([
-      "Default",
-      "Low",
-      "High",
-    ]);
+    expect(
+      [...menu.querySelectorAll("[role=menuitemradio]")].map(
+        (item) => item.querySelector(".acpmux-menu-label")?.textContent,
+      ),
+    ).toEqual(["Default", "Low", "High"]);
     expect(menu.textContent!.match(/Default/g)).toHaveLength(1);
   });
 

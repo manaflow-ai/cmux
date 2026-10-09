@@ -1,6 +1,6 @@
 // The composer's menus keep their own width in real engines (headless Chromium and WebKit from
-// Playwright). The Model and Effort chips are their menus' containing block (`position: relative`,
-// so useUiAnchor places the menu against the chip), and a chip is about 120px wide: the menu's
+// Playwright). The Model chip is its menu's containing block (`position: relative`,
+// so useUiAnchor places the menu against the chip), and the chip is about 120px wide: the menu's
 // width must come from its content and the viewport, never from the chip. The location menu is
 // portaled into a Base UI positioner on the body and must still get the pane's surface color.
 //
@@ -54,12 +54,6 @@ ${css}
       <div class="acpmux-menu-search">Type to search models</div>${row("Codex")}${row("GPT-5.6-Sol")}${row("GPT-6-Astra")}
     </div>
   </span>
-  <span class="acpmux-picker acpmux-effort" style="position:relative">
-    <button class="acpmux-picker-button" style="width:90px">High</button>
-    <div class="acpmux-menu acpmux-menu-end acpmux-effort-pop" style="${ANCHORED}">
-      <div class="acpmux-effort-title">Reasoning</div>
-    </div>
-  </span>
 </div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
@@ -92,12 +86,6 @@ ${css}
         const menu = await box(page, ".acpmux-model .acpmux-menu");
         expect(menu.width).toBeGreaterThanOrEqual(220);
         expect(menu.width).toBeLessThanOrEqual(420);
-        await page.close();
-      });
-
-      test("the Effort popover keeps its 255px width next to its 90px chip", async () => {
-        const page = await open(1000);
-        expect((await box(page, ".acpmux-effort .acpmux-menu")).width).toBe(255);
         await page.close();
       });
 

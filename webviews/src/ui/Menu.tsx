@@ -127,6 +127,8 @@ export interface MenuButtonProps {
   disabled?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
+  /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
+  "data-menu"?: string;
   children: ReactNode;
 }
 
@@ -136,6 +138,7 @@ export function MenuButton({
   disabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
+  "data-menu": dataMenu,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -145,6 +148,7 @@ export function MenuButton({
       aria-label={label}
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
+      data-menu={dataMenu}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;

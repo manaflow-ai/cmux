@@ -1,22 +1,29 @@
-/* Effort popover (reference prototype model-menu.png): title, model, and a stepped slider in a
-   230px track. Theme tokens only; the fill is a quiet mix of the text color, never an accent. */
-.acpmux-effort-pop {
-  width: 255px;
-  box-sizing: border-box;
-  padding: 11px 12px 14px;
-  text-align: center;
-}
-.acpmux-effort-title {
-  font-size: 14px;
-  line-height: 18px;
+/* Reasoning menu: one checked row per level the model offers. The track below is the model
+   menu's inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+.acpmux-effort-menu {
+  width: max-content;
+  min-width: 140px;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--acpmux-menu-bg);
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
   color: var(--agent-text);
 }
-.acpmux-effort-model {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--agent-muted);
+.ui-menu-item.acpmux-effort-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--agent-text);
 }
+.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-effort-item .ui-menu-check { order: 2; color: var(--agent-text); }
 .acpmux-effort-track {
   --acpmux-effort-inset: 13px;
   position: relative;
