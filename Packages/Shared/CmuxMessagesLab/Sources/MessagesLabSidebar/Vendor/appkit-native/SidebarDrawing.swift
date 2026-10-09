@@ -359,9 +359,8 @@ enum SidebarDraw {
         }
     }
 
-    /// cmux: the newest-message bubble of an unread tile (tile coordinates, without the tail)
-    /// and its lines, where `SidebarController.configureTile` puts the bubble layer; nil in the
-    /// compact list. The unread dot is placed against it (`tileUnreadDot`).
+    /// The newest-message bubble of an unread tile (tile coordinates, without the tail) and its
+    /// lines, where `SidebarController.configureTile` puts the bubble layer; nil in the compact list.
     static func tileBubble(_ c: ConversationSummary, metrics m: SidebarMetrics, text: CGColor = CGColor(gray: 0, alpha: 1))
         -> (rect: CGRect, lines: [CTLine])? {
         guard !m.compact else { return nil }
@@ -376,8 +375,8 @@ enum SidebarDraw {
         return (CGRect(x: ((m.tileWidth - w) / 2).rounded(), y: max(1, bottom - bh), width: w, height: bh), lines)
     }
 
-    /// cmux: the 12 pt unread dot on the tile's leading edge, left of the avatar, and below the
-    /// bubble (`bubble`, nil: none) so a wide bubble never covers it.
+    /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
+    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
     static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
         let d: CGFloat = 12
         let ar = tileAvatar(m)
