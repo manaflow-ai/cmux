@@ -68,6 +68,13 @@ fn script() -> Script {
                 json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
             ];
         }
+        if last.contains("done: quiet finish") {
+            // A report turn that says nothing (E22: -p must still end).
+            return vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+            ];
+        }
         if last.contains("keep working") {
             // A turn still at work (its end is pushed by the test).
             return vec![
@@ -1087,4 +1094,28 @@ fn report_turns_answer_the_message_that_started_the_spawn() {
         "{:?}",
         replies[2]
     );
+}
+
+/// E22: the turn that ends the subagents' work may post no text. The brain
+/// still posts a done marker that answers the message, so `cmux chief -p`
+/// ends then and never waits until its --timeout.
+#[test]
+fn a_silent_last_report_turn_still_closes_the_message() {
+    let mut s = setup();
+    let asked = s.h.say("user_local", "hello");
+    s.h.settle_posts();
+    spawn(&mut s, &["list the files in ~/", "quiet finish"]).unwrap();
+    finish(&mut s, "s2", "s1", "a1");
+    s.h.settle_posts();
+    let replies = turn_replies(&s.h.owner);
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    assert_eq!(replies[1]["answers_pending"], json!([asked.id]), "a2 still works");
+    finish(&mut s, "s3", "s1", "a2");
+    s.h.settle_posts();
+    let replies = turn_replies(&s.h.owner);
+    assert_eq!(replies.len(), 3, "the silent turn posts a marker: {replies:?}");
+    assert_eq!(replies[2]["answers"], json!([asked.id]));
+    assert!(replies[2].get("answers_pending").is_none(), "{:?}", replies[2]);
+    assert_eq!(replies[2]["parts"][0]["type"], "work");
+    assert_eq!(replies[2]["parts"][0]["status"], "done");
 }
