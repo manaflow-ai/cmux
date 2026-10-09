@@ -6,6 +6,7 @@ import {
   rectDelta,
   resolveTarget,
   type Play,
+  type PlayAction,
   type PlayChecks,
   type PlayContext,
   type PlayReport,
@@ -23,13 +24,9 @@ type InputDriver = (action: {
   text?: string;
 }) => Promise<void>;
 
-/** What the matrix runner installs to take one still per settled step (a filmstrip). */
-type StepStill = (step: { index: number; step: string }) => Promise<void>;
-
 declare global {
   interface Window {
     cmuxGalleryInput?: InputDriver;
-    cmuxGalleryStep?: StepStill;
     cmuxGalleryPlayReport?: PlayReport;
   }
 }
@@ -54,6 +51,8 @@ function pageCenter(element: Element): { x: number; y: number } {
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
+let actionSequence = 0;
 
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
@@ -80,7 +79,6 @@ function synthetic(element: Element, kind: string): void {
     clientY: y,
     button: 0,
     pointerId: 1,
-    pointerType: "mouse",
     isPrimary: true,
   };
   const fire = (type: string) =>
@@ -105,15 +103,30 @@ function syntheticKey(key: string): void {
   // The focused element, inside open shadow roots too (a web component's focused row).
   let target: Element = document.activeElement ?? document.body;
   while (target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
-  for (const type of ["keydown", "keyup"])
-    target.dispatchEvent(
-      new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
-    );
+  const keydown = new KeyboardEvent("keydown", {
+    key: name,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...modifiers,
+  });
+  target.dispatchEvent(keydown);
+  target.dispatchEvent(
+    new KeyboardEvent("keyup", { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
+  );
+  // KeyboardEvent dispatch does not run the browser's default button activation.
+  // Reproduce it for the shell runner so a native button behaves like the trusted
+  // Playwright path used by the matrix runner.
+  if (!keydown.defaultPrevented && (name === "Enter" || name === " ") && target instanceof HTMLElement) {
+    const role = target.getAttribute("role");
+    if (target instanceof HTMLButtonElement || role === "button") target.click();
+  }
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
 async function measured(
   step: string,
+  action: PlayAction,
   targeted: Element | null,
   anchors: { label: string; target: PlayTarget }[],
   checks: PlayChecks,
@@ -161,8 +174,18 @@ async function measured(
       }
     })();
   }
+  const mark = `cmux-gallery-action-${++actionSequence}`;
+  const startMark = `${mark}-start`;
+  const endMark = `${mark}-settled`;
+  performance.mark(startMark);
   await run();
   await settle();
+  performance.mark(endMark);
+  const timing = performance.measure(mark, startMark, endMark);
+  const settleMs = Math.round(timing.duration * 10) / 10;
+  performance.clearMarks(startMark);
+  performance.clearMarks(endMark);
+  performance.clearMeasures(mark);
   rafRunning = false;
   for (const observer of observers) {
     observer.takeRecords();
@@ -185,6 +208,8 @@ async function measured(
   const layoutShift = shifts.reduce((sum, shift) => sum + shift.value, 0);
   const result = {
     step,
+    action,
+    settleMs,
     anchorMoves,
     layoutShift,
     shifts,
@@ -201,11 +226,6 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
-  // Each step is recorded once it has settled; the matrix runner then takes that step's still.
-  const record = async (step: StepReport) => {
-    steps.push(step);
-    await window.top?.cmuxGalleryStep?.({ index: steps.length - 1, step: step.step });
-  };
   const find = (target: PlayTarget) => {
     const element = resolveTarget(document, target);
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
@@ -213,10 +233,23 @@ export async function runPlay(
   };
   const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    await measured(`${kind} ${describeTarget(target)}`, element, anchors, checks, async () => {
+    const action: PlayAction = kind === "click" ? "click" : kind === "hover" ? "hover" : "press-drag";
+    await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
-    }).then(record);
+    }).then((step) => steps.push(step));
+  };
+  const gesture = async (
+    name: string,
+    action: PlayAction,
+    target: Element | null,
+    run: () => void | Promise<void>,
+  ): Promise<void> => {
+    steps.push(
+      await measured(name, action, target, anchors, checks, async () => {
+        await run();
+      }),
+    );
   };
   const ctx: PlayContext = {
     document,
@@ -225,14 +258,40 @@ export async function runPlay(
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
-      await record(
-        await measured(`focus ${describeTarget(target)}`, element, anchors, checks, async () => element.focus()),
+      steps.push(
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
+          element.focus(),
+        ),
       );
+    },
+    scroll: async (target, position) => {
+      const element = find(target) as HTMLElement;
+      await gesture(`scroll ${describeTarget(target)} to ${String(position)}`, "scroll", element, () => {
+        const top =
+          typeof position === "number"
+            ? position
+            : position === "bottom"
+              ? Math.max(0, element.scrollHeight - element.clientHeight)
+              : 0;
+        element.scrollTop = top;
+        element.dispatchEvent(new Event("scroll", { bubbles: false }));
+      });
+    },
+    selectText: async (target) => {
+      const element = find(target);
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () => {
+        const selection = document.getSelection();
+        if (!selection) return;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
-      await record(
-        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, element, anchors, checks, async () => {
+      steps.push(
+        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, "type", element, anchors, checks, async () => {
           element?.focus();
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "type", text });
           // eslint-disable-next-line @typescript-eslint/no-deprecated -- insertText is the one DOM path that edits inputs, textareas and contenteditable as typing does.
@@ -241,8 +300,8 @@ export async function runPlay(
       );
     },
     press: async (key) => {
-      await record(
-        await measured(`press ${key}`, document.activeElement, anchors, checks, async () => {
+      steps.push(
+        await measured(`press ${key}`, "key", document.activeElement, anchors, checks, async () => {
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "press", text: key });
           else syntheticKey(key);
         }),

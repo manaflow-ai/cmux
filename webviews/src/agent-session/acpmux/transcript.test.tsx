@@ -332,6 +332,81 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
+  test("keyboard range selection keeps focus in the transcript and copies the selected source", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const conversation: AcpmuxRow[] = [
+      { id: "selection-1", version: 1, at: 1, kind: "user", text: "first prompt" },
+      { id: "selection-2", version: 1, at: 2, kind: "assistant", text: "second reply" },
+      {
+        id: "selection-3",
+        version: 1,
+        at: 3,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Run tests",
+            tool: { id: "tool-1", title: "Run tests", status: "completed", output: "ok" },
+          },
+        ],
+      },
+    ];
+    const key = (node: HTMLElement, init: KeyboardEventInit) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+      });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const row = (id: string) => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+      row("selection-1").focus();
+      expect(dom.window.document.activeElement).toBe(row("selection-1"));
+
+      await key(row("selection-1"), { key: "ArrowDown", shiftKey: true });
+      expect(dom.window.document.activeElement).toBe(row("selection-2"));
+      expect(row("selection-1").getAttribute("aria-selected")).toBe("true");
+      expect(row("selection-2").getAttribute("aria-selected")).toBe("true");
+      expect(row("selection-3").hasAttribute("aria-selected")).toBe(false);
+
+      await key(row("selection-2"), { key: "ArrowDown", shiftKey: true });
+      expect(dom.window.document.activeElement).toBe(row("selection-3"));
+      expect([...conversation].map((entry) => row(entry.id).getAttribute("aria-selected"))).toEqual([
+        "true",
+        "true",
+        "true",
+      ]);
+      await key(row("selection-3"), { key: "c", ctrlKey: true });
+      expect(copied).toEqual(["first prompt\n\nsecond reply\n\nRun tests\nok"]);
+
+      await key(row("selection-3"), { key: "Escape" });
+      expect(row("selection-1").hasAttribute("aria-selected")).toBe(false);
+      expect(row("selection-3").getAttribute("data-transcript-active")).toBe("true");
+      const copyButton = row("selection-2").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
+      await act(async () => copyButton.click());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(copied.at(-1)).toBe("second reply");
+    } finally {
+      await act(async () => root.unmount());
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+      restore();
+    }
+  });
+
   /// A prompt draws as typed in one bubble: no Markdown, so a blank line is
   /// one blank line and not an empty paragraph of two newlines.
   test("a prompt draws as typed in one bubble", async () => {

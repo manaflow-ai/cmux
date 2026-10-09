@@ -82,6 +82,7 @@ import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { canFork, latestForkSeq, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
 import { RenderCard, canRender } from "./conversation/RenderCard";
@@ -416,6 +417,21 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+type TranscriptRange = { anchorId: string; focusId: string };
+
+/// The text a transcript row contributes to a keyboard copy. Rendered Markdown is intentionally
+/// not scraped from the DOM: doing that would make copy depend on virtualization and would lose
+/// the source text while a reply is streaming.
+function transcriptCopyText(row: AcpmuxRow): string {
+  const parts: string[] = [];
+  if (row.text?.trim()) parts.push(row.text.trim());
+  for (const item of row.items ?? []) {
+    if (item.text.trim()) parts.push(item.text.trim());
+    if (item.tool?.output?.trim()) parts.push(item.tool.output.trim());
+  }
+  return parts.join("\n").trim();
+}
+
 /// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
 /// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
@@ -459,6 +475,13 @@ function RowFrame({
   report,
   enter,
   onEntered,
+  active,
+  selected,
+  tabStop,
+  onFocus,
+  onKeyDown,
+  onCopy,
+  copyable,
   children,
 }: {
   row: AcpmuxRow;
@@ -473,11 +496,19 @@ function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  active: boolean;
+  selected: boolean;
+  tabStop: boolean;
+  onFocus: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopy?: () => void;
+  copyable: boolean;
   children: React.ReactNode;
 }) {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  const [copied, setCopied] = useState(false);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -498,11 +529,32 @@ function RowFrame({
       ref={ref}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
+      data-transcript-active={active ? "true" : undefined}
+      data-transcript-selected={selected ? "true" : undefined}
+      aria-selected={selected || undefined}
+      tabIndex={tabStop ? 0 : -1}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
     >
+      {copyable && (
+        <button
+          type="button"
+          className="acpmux-row__copy cv-iconbtn"
+          aria-label={copied ? t("turn.copied") : t("turn.copy")}
+          title={copied ? t("turn.copied") : t("turn.copy")}
+          onClick={() => {
+            onCopy?.();
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          }}
+        >
+          <Copy />
+        </button>
+      )}
       {children}
     </article>
   );
@@ -571,6 +623,19 @@ export function VirtualTranscript({
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  // Keyboard focus is a roving tab stop. A range is kept as indexes rather than DOM nodes because
+  // the transcript virtualizes rows and can unmount either end while the reader moves.
+  const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
+  const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
+  const pendingFocus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const ids = new Set(rows.map((row) => row.id));
+    setActiveRowId((current) => (current && ids.has(current) ? current : rows[0]?.id));
+    setTranscriptRange((current) => {
+      if (!current) return current;
+      return ids.has(current.anchorId) && ids.has(current.focusId) ? current : undefined;
+    });
+  }, [rows]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -699,6 +764,104 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
+  const selectedBounds = useMemo(() => {
+    if (!transcriptRange) return undefined;
+    const anchor = rows.findIndex((row) => row.id === transcriptRange.anchorId);
+    const focus = rows.findIndex((row) => row.id === transcriptRange.focusId);
+    if (anchor < 0 || focus < 0) return undefined;
+    return { first: Math.min(anchor, focus), last: Math.max(anchor, focus) };
+  }, [rows, transcriptRange]);
+  const selectedRows = useMemo(() => {
+    if (!selectedBounds) return new Set<number>();
+    const selected = new Set<number>();
+    for (let index = selectedBounds.first; index <= selectedBounds.last; index += 1) selected.add(index);
+    return selected;
+  }, [selectedBounds]);
+  const focusRow = useCallback(
+    (index: number) => {
+      if (rows.length === 0) return;
+      const nextIndex = Math.max(0, Math.min(rows.length - 1, index));
+      const id = rows[nextIndex]!.id;
+      setActiveRowId(id);
+      pendingFocus.current = id;
+      const node = ref.current;
+      if (!node) return;
+      const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
+      if (mounted) {
+        mounted.focus();
+        pendingFocus.current = undefined;
+        return;
+      }
+      const top = layout.tops[nextIndex] ?? 0;
+      const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
+      const nextTop = Math.max(0, Math.min(maximum, top));
+      const delta = nextTop - node.scrollTop;
+      node.scrollTop = nextTop;
+      setScroll((current) => ({ top: nextTop, delta: delta || nextTop - current.top }));
+    },
+    [layout, rows],
+  );
+  useLayoutEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const node = ref.current;
+    const target = [...(node?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
+      (row) => row.dataset.rowId === id,
+    );
+    if (target) {
+      target.focus();
+      pendingFocus.current = undefined;
+    }
+  }, [range, activeRowId]);
+  const copyRows = useCallback(
+    async (indexes: number[]) => {
+      const text = indexes
+        .map((index) => transcriptCopyText(rows[index]!))
+        .filter(Boolean)
+        .join("\n\n");
+      if (text) await copyText(text);
+    },
+    [rows],
+  );
+  const rowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => {
+      // Buttons and links own their keyboard behavior. A focused row itself owns only the
+      // navigation and copy keys below, so selecting prose never toggles a disclosure by accident.
+      if (event.target !== event.currentTarget) return;
+      const move = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+      const jump = event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : undefined;
+      if (move || jump !== undefined) {
+        event.preventDefault();
+        const nextIndex = jump ?? index + move;
+        const clamped = Math.max(0, Math.min(rows.length - 1, nextIndex));
+        const nextId = rows[clamped]?.id;
+        if (!nextId) return;
+        setTranscriptRange((current) =>
+          event.shiftKey ? { anchorId: current?.anchorId ?? rows[index]!.id, focusId: nextId } : undefined,
+        );
+        focusRow(clamped);
+        return;
+      }
+      if (event.key === "Escape") {
+        if (transcriptRange) {
+          event.preventDefault();
+          setTranscriptRange(undefined);
+        }
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "c") {
+        const native = window.getSelection?.();
+        if (native && !native.isCollapsed) return;
+        event.preventDefault();
+        const indexes = selectedRows.size > 0 ? [...selectedRows] : [index];
+        void copyRows(indexes).catch(() => undefined);
+      }
+    },
+    [copyRows, focusRow, rows, selectedRows, transcriptRange],
+  );
+  const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
+  const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === activeRowId);
+  const tabStopId = activeVisible ? activeRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const last = range.last - 1;
     acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
@@ -810,6 +973,17 @@ export function VirtualTranscript({
                 report={reportDrawn}
                 enter={enteringRows.current.has(row.id)}
                 onEntered={onEntered}
+                active={activeRowId === row.id}
+                selected={selectedRows.has(absoluteIndex)}
+                tabStop={tabStopId === row.id}
+                onFocus={() => rowFocus(row.id)}
+                onKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                copyable={transcriptCopyText(row).length > 0}
+                onCopy={() =>
+                  void copyRows(
+                    selectedRows.has(absoluteIndex) && selectedRows.size > 0 ? [...selectedRows] : [absoluteIndex],
+                  ).catch(() => undefined)
+                }
               >
                 <Component
                   row={row}
