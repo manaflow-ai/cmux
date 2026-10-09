@@ -46,6 +46,7 @@ export class HostAgent {
   private validateTimer: NodeJS.Timeout | null = null;
   /** family -> refuse until (ms). */
   private readonly revokedFamilies = new Map<string, number>();
+  private warnedUnstamped = false;
   private revoked = false;
 
   constructor(private readonly opts: HostAgentOptions) {
@@ -212,9 +213,16 @@ export class HostAgent {
   private sessionFor(f: { sessionId: string; from?: string; family?: string | null }): PeerEntry | undefined {
     const e = this.peers.get(f.sessionId);
     if (!e) return undefined;
-    if (e.family !== frameFamily(f)) {
-      this.opts.log(`[${f.sessionId}] ignoring a frame from a different session family`);
+    // A frame without the key comes from a backend that stamps only offers;
+    // the family check needs the stamp, so such frames are accepted as before.
+    const stamped = Object.prototype.hasOwnProperty.call(f, "family");
+    if (stamped && e.family !== frameFamily(f)) {
+      this.opts.log(`[${f.sessionId}] ignoring a frame from a different session family (${frameFamily(f) ?? "none"} != ${e.family ?? "none"})`);
       return undefined;
+    }
+    if (!stamped && !this.warnedUnstamped) {
+      this.warnedUnstamped = true;
+      this.opts.log("signaling frames are not stamped with a session family; family checks apply to offers only");
     }
     if (f.from && e.remotePeerId !== f.from) {
       this.opts.log(`[${f.sessionId}] phone signaling moved ${e.remotePeerId} -> ${f.from}`);

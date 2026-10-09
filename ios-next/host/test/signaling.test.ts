@@ -23,6 +23,8 @@ interface FakeBackendOptions {
   family?: string;
   /** Sent to hosts in welcome.revokedFamilies. */
   revokedFamilies?: string[];
+  /** Older backend: stamp only offers with the family. */
+  stampOffersOnly?: boolean;
 }
 
 async function fakeBackend(opts: FakeBackendOptions = {}) {
@@ -83,7 +85,8 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
       if (f.type === "ping") return ws.send('{"type":"pong"}');
       const target = sockets.get(f.to);
       if (!target) return ws.send(JSON.stringify({ type: "error", code: "host_offline", sessionId: f.sessionId }));
-      target.send(JSON.stringify({ ...f, from: address, ...(isHost ? {} : { family }) }));
+      const stamp = isHost || (opts.stampOffersOnly && f.type !== "offer") ? {} : { family };
+      target.send(JSON.stringify({ ...f, from: address, ...stamp }));
     });
     ws.on("close", () => sockets.delete(address));
   });
@@ -326,6 +329,19 @@ describe("phone session families and peer routing", () => {
 });
 
 describe("revoked families and family-scoped frames", () => {
+  it("still connects through a backend that stamps only offers", async () => {
+    const backend = await fakeBackend({ stampOffersOnly: true });
+    const { core, agent, logs } = await startAgent(backend);
+    const phone = await linkedPhone(backend, "s_old_backend", "user-token:fam_a");
+    expect(agent.sessions()[0]).toMatchObject({ family: "fam_a" });
+    expect(logs.some((l) => /not stamped/.test(l))).toBe(true);
+    phone.peer.close();
+    phone.signaling.stop();
+    agent.stop();
+    core.shutdown();
+    backend.close();
+  });
+
   const until = async (cond: () => boolean) => {
     const deadline = Date.now() + 3000;
     while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
