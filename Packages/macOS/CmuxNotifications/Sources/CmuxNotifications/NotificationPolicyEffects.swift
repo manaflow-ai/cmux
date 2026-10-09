@@ -52,9 +52,9 @@ public struct NotificationPolicyEffects: Codable, Sendable, Equatable {
         self = patch?.merged(into: Self()) ?? Self()
     }
 
-    /// Every delivery effect disabled. Workspace mute is an admission gate;
-    /// keeping this constructor exhaustive prevents a newly added effect from
-    /// accidentally leaking through a muted workspace.
+    /// Every delivery effect disabled. Keeping this constructor exhaustive
+    /// prevents a newly added effect from accidentally leaking through a
+    /// muted workspace.
     public static var allSuppressed: Self {
         Self(
             record: false,
@@ -65,6 +65,14 @@ public struct NotificationPolicyEffects: Codable, Sendable, Equatable {
             command: false,
             paneFlash: false
         )
+    }
+
+    /// What a muted workspace keeps: the history entry, already read. Built
+    /// from `allSuppressed` so a newly added effect stays off when muted.
+    public static var mutedHistoryOnly: Self {
+        var effects = allSuppressed
+        effects.record = true
+        return effects
     }
 
     /// Decodes a hook's `effects` object; an absent key keeps that effect on.
