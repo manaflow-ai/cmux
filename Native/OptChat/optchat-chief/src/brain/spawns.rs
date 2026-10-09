@@ -341,7 +341,7 @@ impl Brain {
             });
             // On its way into the running turn (a steer not read yet): it is
             // logged when the harness reads it, never queued twice.
-            let steering = self.steering.as_ref().is_some_and(|st| {
+            let steering = self.steering.iter().any(|st| {
                 st.items.iter().any(|q| {
                     matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
                 })
@@ -359,6 +359,7 @@ impl Brain {
                         source,
                         images: Vec::new(),
                         conversation: None,
+                        logged: false,
                     }
                 }
                 None => {

@@ -753,7 +753,12 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
-    fn steer(&self, session: &str, blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.steering {
             return Err("steer.unavailable".into());
@@ -768,12 +773,17 @@ impl AgentPort for FakeAgents {
         inner.steers.push((session.to_owned(), blocks));
         let at_end = inner.steer_at_end;
         let turn = inner.answered_turns;
+        drop(inner);
         self.changed.notify_all();
-        // codex-acp answers a steer only when the turn ends.
-        while at_end && inner.answered_turns == turn {
-            inner = self.changed.wait(inner).unwrap();
-        }
-        Ok(())
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
     }
 
     fn prewarm(
