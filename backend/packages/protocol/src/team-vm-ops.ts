@@ -233,7 +233,9 @@ export const TeamVmRetiredExport = def({
   name: "team_vm.retired.export",
   owner: "cloud:TeamDO",
   class: "mutation",
-  risk: "read",
+  // Minting a single-use download ticket and recording the audited export are state changes;
+  // the caller is still limited to its own team's retired VM files.
+  risk: "mutate-own",
   target: "team",
   principals: ["session"],
   params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),
