@@ -8639,6 +8639,67 @@
     },
     {
       "accepts" : [
+        "none",
+        "folder"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupByNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByFolder",
+            "text" : "Folder"
+          },
+          "value" : "folder"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupBy",
+      "keywords" : [
+        "sidebar",
+        "projects",
+        "group",
+        "folder",
+        "directory",
+        "cwd"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupBy"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.groupBy",
+        "text" : "Group Projects By"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -16227,7 +16288,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6b0103f3c76d6fccb6ae08dd6e3683c8724c31a784084ddc3c30d5c88fe3d69d",
+  "schema_hash" : "e2c9c627bfe0a15e0b93742f7bb4021b96696586eddfd1bc63f22ff7758014b1",
   "sections" : [
     {
       "id" : "general",

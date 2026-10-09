@@ -1457,6 +1457,16 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.groupBy" : {
+      "default" : "none",
+      "description" : "sidebar.groupBy",
+      "enum" : [
+        "none",
+        "folder"
+      ],
+      "title" : "Group Projects By",
+      "type" : "string"
+    },
     "sidebar.groupByComputer" : {
       "default" : false,
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
