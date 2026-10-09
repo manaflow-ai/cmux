@@ -20,7 +20,7 @@ import { createHash } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { REPO_ROOT, TREE_NAMES, TREES, treeOf, type Tree, type TreeName } from "./trees.ts"
 import { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
 export { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
@@ -76,10 +76,40 @@ export interface Lock {
   readonly schema: 1
   /** The SQL parser the rules depend on; a different install refuses to lint. */
   readonly parser?: ParserPin & { readonly package: string }
+  /** One digest over every file of the runtime packages (the pg and libpg-query closures). */
+  readonly runtime?: RuntimePin
   readonly trees: Record<TreeName, TreeLock>
 }
 
 const PARSER_DIR = join(import.meta.dirname, "node_modules", "libpg-query")
+
+export interface RuntimePin {
+  readonly packages: ReadonlyArray<string>
+  readonly sha256: string
+}
+
+/** sha256 over the sorted `path:sha256` lines of every regular file of `packages` under node_modules. */
+export const runtimeDigest = (packages: ReadonlyArray<string>): string => {
+  const modules = join(import.meta.dirname, "node_modules")
+  const lines: Array<string> = []
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, e.name)
+      if (e.isDirectory()) walk(path)
+      else if (e.isFile()) lines.push(`${relative(modules, path)}:${sha256(readFileSync(path))}`)
+    }
+  }
+  for (const p of packages) walk(join(modules, p))
+  return sha256(lines.sort().join("\n"))
+}
+
+/** Problems with the installed runtime packages against `pin` (default: this checkout's lock). */
+export const runtimeProblems = (pin: RuntimePin | undefined = readJson<Lock>(join(import.meta.dirname, "migrations.lock.json")).runtime): Array<string> => {
+  if (!pin) return ["migrations.lock.json has no runtime pin"]
+  const got = runtimeDigest(pin.packages)
+  return got === pin.sha256 ? [] : [`the runtime packages (${pin.packages.join(", ")}) digest ${got.slice(0, 12)} is not the pinned ${pin.sha256.slice(0, 12)}`]
+}
 
 /** Problems with the installed libpg-query against `pin` (default: this checkout's lock). */
 export const parserProblems = (pin: ParserPin | undefined = (readJson<Lock>(join(import.meta.dirname, "migrations.lock.json")).parser)): Array<string> => {
@@ -271,7 +301,7 @@ export const lintTree = async (tree: Tree, options: LintOptions): Promise<TreeRe
   }
   for (const f of files) if (!(f.name in lock.files)) errors.push(`${tree.name}: ${f.name} is not in ${LOCK_PATH}; after it passes, run: bun scripts/cmux-next/release/lint.ts --update-lock`)
 
-  for (const p of parserProblems(options.lock.parser)) errors.push(`${tree.name}: ${p}; reinstall with bun install --frozen-lockfile`)
+  for (const p of [...parserProblems(options.lock.parser), ...runtimeProblems(options.lock.runtime)]) errors.push(`${tree.name}: ${p}; reinstall with bun install --frozen-lockfile`)
 
   // Against the base revision: its files and lock entries are unchanged, new files number above it.
   const repo = options.repo ?? options.root
@@ -323,7 +353,7 @@ export const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, "u
 
 /** Adds files that are not in the lock yet, after they pass; never changes an existing entry. */
 export const updateLock = async (trees: ReadonlyArray<Tree>, options: LintOptions): Promise<{ lock: Lock; added: Array<string>; errors: Array<string> }> => {
-  const next: Lock = { schema: 1, ...(options.lock.parser ? { parser: options.lock.parser } : {}), trees: { ...options.lock.trees } }
+  const next: Lock = { schema: 1, ...(options.lock.parser ? { parser: options.lock.parser } : {}), ...(options.lock.runtime ? { runtime: options.lock.runtime } : {}), trees: { ...options.lock.trees } }
   const added: Array<string> = []
   const errors: Array<string> = []
   for (const tree of trees) {
@@ -367,6 +397,10 @@ const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     return 0
   }
   let failed = false
+  {
+    const pins = [...parserProblems(options.lock.parser), ...runtimeProblems(options.lock.runtime)]
+    if (!pins.length) console.log(`pins ok: libpg-query ${options.lock.parser?.version} (${Object.keys(options.lock.parser?.sha256 ?? {}).length} files incl. package.json), runtime ${options.lock.runtime?.sha256.slice(0, 12)} over ${options.lock.runtime?.packages.length} packages`)
+  }
   for (const tree of trees) {
     const report = await lintTree(tree, options)
     for (const n of report.notes) console.log(`note: ${n}`)
