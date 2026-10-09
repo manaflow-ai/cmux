@@ -1124,6 +1124,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
     }
 
+    func testVMResizeFreePlanSuggestsProForTheFirstLockedSizes() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-free-plan-gate",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "8", "--memory", "16G"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "free",
+                    "maxDiskMb": 128 * 1024,
+                    "maxMemoryMb": 8 * 1024,
+                    "maxVcpus": 4,
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("cmux Pro"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("cmux Max"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
+    }
+
     func testVMResizeSendsEveryAllowedDimensionAfterPlanPreflight() throws {
         let (result, log) = try runVMCommandAgainstMock(
             "vm-resize-plan-allowed",
