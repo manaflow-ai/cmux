@@ -4,6 +4,7 @@
 //! the owner of windows, palette state and dialogs. This module only composes
 //! their existing snapshots and actions into one JSON-first surface for agents.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
@@ -75,15 +76,15 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             Ok(resource("workspace.create", mapped))
         }
         ["tab", "select", target] => {
-            Ok(resource("tab.select", vec!["tab".into(), (*target).into(), "focus".into()]))
+            Ok(resource("tab.select", scoped_resource_path("tab", target, "focus")))
         }
         ["terminal", "focus", target] => {
-            Ok(resource("terminal.focus", vec!["tab".into(), (*target).into(), "focus".into()]))
+            Ok(resource("terminal.focus", scoped_resource_path("tab", target, "focus")))
         }
         ["terminal", "split", direction, rest @ ..]
             if matches!(*direction, "left" | "right" | "up" | "down") =>
         {
-            let mut mapped = vec!["pane".into(), "current".into(), "split".into()];
+            let mut mapped = scoped_resource_path("pane", "current", "split");
             mapped.push(format!("--{direction}"));
             let mut pane = None;
             let mut index = 0;
@@ -102,7 +103,8 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 }
             }
             if let Some(pane) = pane {
-                mapped[1] = pane;
+                mapped = scoped_resource_path("pane", &pane, "split");
+                mapped.push(format!("--{direction}"));
             }
             Ok(resource("terminal.split", mapped))
         }
@@ -127,6 +129,22 @@ fn resource(action: &str, args: Vec<String>) -> AgentCommand {
     AgentCommand::Resource { action: action.into(), args }
 }
 
+/// Keep non-id aliases on the same contiguous current route as the normal
+/// CLI parser. Stable ids stay flat so an id from another workspace is not
+/// constrained to the current workspace.
+fn scoped_resource_path(scope: &str, target: &str, verb: &str) -> Vec<String> {
+    let prefix = format!("{scope}_");
+    let mut path = Vec::new();
+    if !target.starts_with(&prefix) {
+        path.extend(["workspace", "current", "screen", "current"].into_iter().map(str::to_owned));
+        if scope == "tab" {
+            path.extend(["pane", "current"].into_iter().map(str::to_owned));
+        }
+    }
+    path.extend([scope, target, verb].into_iter().map(str::to_owned));
+    path
+}
+
 /// The daemon request used by both the CLI and the special MCP snapshot tool.
 pub(super) fn snapshot_plan() -> RequestPlan {
     RequestPlan {
@@ -143,19 +161,8 @@ fn run_snapshot(global: &GlobalArgs) -> i32 {
     let daemon = mcp::agent_resource(global, snapshot_plan());
     let app = mcp::agent_app(global, "snapshot.get", json!({}), app::READ_TIMEOUT, None);
     let value = compose_snapshot(daemon, app);
-    if value["sources"]["daemon"]["available"] == Value::Bool(false)
-        && value["sources"]["app"]["available"] == Value::Bool(false)
-    {
-        return wire::print_local_error(
-            &json!({
-                "code": "agents.unavailable",
-                "message": "neither the cmux app nor its session daemon answered",
-                "details": value["sources"],
-                "retryable": true,
-            }),
-            global.output,
-            3,
-        );
+    if let Some(error) = snapshot_error(&value) {
+        return wire::print_local_error(&error, global.output, 3);
     }
     wire::print_local_success(&value, global.output)
 }
@@ -297,28 +304,37 @@ fn print_usage(global: &GlobalArgs, message: &str) -> i32 {
 /// ownership of either topology. Errors are retained so a partial snapshot is
 /// actionable when one owner is temporarily unavailable.
 pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, Value>) -> Value {
-    compose_snapshot_with_limit(daemon, app, None)
-}
-
-pub(super) fn compose_snapshot_with_limit(
-    daemon: Result<Value, Value>,
-    app: Result<Value, Value>,
-    limit: Option<usize>,
-) -> Value {
-    let daemon_value = daemon.clone().ok();
-    let app_value = app.clone().ok();
-    let daemon_error = daemon.err();
-    let app_error = app.err();
+    let (daemon_value, daemon_error) = match daemon {
+        Ok(value) => (Some(value), None),
+        Err(error) => (None, Some(error)),
+    };
+    let (app_value, app_error) = match app {
+        Ok(value) => (Some(value), None),
+        Err(error) => (None, Some(error)),
+    };
     let topology = app_value.as_ref().and_then(|value| value.get("topology"));
+    let mut tabs = daemon_value
+        .as_ref()
+        .and_then(|value| value.get("tabs"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    merge_app_tabs(&mut tabs, topology);
+    let focus = topology
+        .and_then(|value| value.get("focus"))
+        .filter(|value| has_resource_focus(value))
+        .cloned()
+        .or_else(|| daemon_value.as_ref().and_then(|value| value.get("focus")).cloned())
+        .unwrap_or(Value::Null);
     let mut snapshot = json!({
         "schema_version": 1,
         "windows": topology.and_then(|value| value.get("windows")).cloned().unwrap_or_else(|| json!([])),
         "workspaces": daemon_value.as_ref().and_then(|value| value.get("workspaces")).cloned().or_else(|| topology.and_then(|value| value.get("workspaces")).cloned()).unwrap_or_else(|| json!([])),
         "screens": daemon_value.as_ref().and_then(|value| value.get("screens")).cloned().unwrap_or_else(|| json!([])),
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
-        "tabs": daemon_value.as_ref().and_then(|value| value.get("tabs")).cloned().unwrap_or_else(|| json!([])),
+        "tabs": tabs,
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
-        "focus": topology.and_then(|value| value.get("focus")).cloned().or_else(|| daemon_value.as_ref().and_then(|value| value.get("focus")).cloned()).unwrap_or(Value::Null),
+        "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
+        "focus": focus,
         "selection": selection(topology, daemon_value.as_ref()),
         "sources": {
             "daemon": {"available": daemon_value.is_some(), "error": daemon_error.unwrap_or(Value::Null)},
@@ -326,42 +342,120 @@ pub(super) fn compose_snapshot_with_limit(
         },
     });
     if let Some(shown) = topology
+        .filter(|value| value.get("focus").is_some_and(has_resource_focus))
         .and_then(|value| value.get("focus"))
         .and_then(|value| value.get("workspace"))
         .and_then(Value::as_str)
     {
         app_focus::overlay_focused(&mut snapshot["workspaces"], shown);
     }
-    if let Some(limit) = limit {
-        let truncated = bound_arrays(&mut snapshot, limit);
-        snapshot["limit"] = json!(limit);
-        snapshot["truncated"] = json!(truncated);
-    }
     snapshot
 }
 
-fn bound_arrays(value: &mut Value, limit: usize) -> bool {
-    match value {
-        Value::Array(items) => {
-            let mut truncated = items.len() > limit;
-            if truncated {
-                items.truncate(limit);
-            }
-            for item in items {
-                truncated |= bound_arrays(item, limit);
-            }
-            truncated
+fn has_resource_focus(value: &Value) -> bool {
+    ["workspace", "pane", "tab"].iter().any(|key| value.get(*key).and_then(Value::as_str).is_some())
+}
+
+fn merge_app_tabs(tabs: &mut Value, topology: Option<&Value>) {
+    let Some(Value::Array(app_tabs)) = topology.map(collect_app_tabs) else { return };
+    let Some(daemon_tabs) = tabs.as_array_mut() else {
+        *tabs = Value::Array(app_tabs);
+        return;
+    };
+    let mut ids = daemon_tabs
+        .iter()
+        .filter_map(|tab| tab.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+    for tab in app_tabs {
+        let Some(id) = tab.get("id").and_then(Value::as_str) else { continue };
+        if ids.insert(id.to_owned()) {
+            daemon_tabs.push(tab);
         }
-        Value::Object(map) => {
-            map.values_mut().fold(false, |truncated, value| truncated | bound_arrays(value, limit))
-        }
-        _ => false,
     }
+}
+
+fn collect_app_tabs(topology: &Value) -> Value {
+    fn visit(value: &Value, out: &mut Vec<Value>, ids: &mut HashSet<String>) {
+        match value {
+            Value::Object(object) => {
+                for (key, child) in object {
+                    if key == "tabs" {
+                        if let Value::Array(tabs) = child {
+                            for tab in tabs {
+                                if let Some(id) = tab.get("id").and_then(Value::as_str)
+                                    && ids.insert(id.to_owned())
+                                {
+                                    out.push(tab.clone());
+                                }
+                            }
+                        }
+                    }
+                    visit(child, out, ids);
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, out, ids)),
+            _ => {}
+        }
+    }
+
+    let mut tabs = Vec::new();
+    visit(topology, &mut tabs, &mut HashSet::new());
+    Value::Array(tabs)
+}
+
+/// Page whole objects, never silently truncate relationship arrays inside an
+/// object. MCP's shared size limiter can shrink `items` and advance the cursor.
+pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) -> Value {
+    let mut items = Vec::new();
+    let mut total = 0;
+    for (collection, kind) in [
+        ("windows", "window"),
+        ("workspaces", "workspace"),
+        ("screens", "screen"),
+        ("panes", "pane"),
+        ("tabs", "tab"),
+        ("terminals", "terminal"),
+        ("browsers", "browser"),
+    ] {
+        if let Some(Value::Array(values)) = snapshot.as_object_mut().unwrap().remove(collection) {
+            for value in values {
+                if total >= offset && items.len() < limit {
+                    items.push(json!({"kind": kind, "value": value}));
+                }
+                total += 1;
+            }
+        }
+    }
+    let returned = items.len();
+    let next = offset.saturating_add(returned);
+    snapshot["items"] = Value::Array(items);
+    snapshot["offset"] = json!(offset);
+    snapshot["limit"] = json!(limit);
+    snapshot["total"] = json!(total);
+    snapshot["returned"] = json!(returned);
+    snapshot["next_offset"] = if next < total { json!(next) } else { Value::Null };
+    snapshot["truncated"] = json!(offset > 0 || next < total);
+    snapshot
+}
+
+pub(super) fn snapshot_error(snapshot: &Value) -> Option<Value> {
+    (snapshot["sources"]["daemon"]["available"] == false
+        && snapshot["sources"]["app"]["available"] == false)
+        .then(|| {
+            json!({
+                "code": "agents.unavailable",
+                "message": "neither the cmux app nor its session daemon answered",
+                "details": snapshot["sources"],
+                "retryable": true,
+            })
+        })
 }
 
 fn selection(topology: Option<&Value>, daemon: Option<&Value>) -> Value {
     let focus = topology
         .and_then(|value| value.get("focus"))
+        .filter(|value| has_resource_focus(value))
         .or_else(|| daemon.and_then(|value| value.get("focus")));
     json!({
         "workspace": focus.and_then(|value| value.get("workspace")).cloned().unwrap_or(Value::Null),
@@ -374,12 +468,13 @@ pub(super) fn snapshot_tool() -> Value {
     json!({
         "name": SNAPSHOT_TOOL,
         "title": "Agent topology snapshot",
-        "description": "Read windows, workspaces, panes, tabs, focus and selection with stable public ids. Combines the app and session daemon snapshots.",
+        "description": "Read topology as paged items with kind and value, plus focus, selection and source readiness. Follow next_offset until null to read all windows, workspaces, screens, panes, tabs, terminals and browsers. Pages are live reads; restart from offset 0 if topology changes.",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
+                "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                "offset": {"type": "integer", "minimum": 0, "default": 0}
             }
         },
         "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
@@ -405,6 +500,25 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_merges_nested_app_page_tabs_without_duplicates() {
+        let value = compose_snapshot(
+            Ok(json!({"tabs":[{"id":"tab_a"}]})),
+            Ok(json!({
+                "topology": {
+                    "windows": [{
+                        "workspaces": [{
+                            "tabs": [{"id":"page_settings","kind":"page"},{"id":"tab_a"}]
+                        }]
+                    }]
+                }
+            })),
+        );
+        let tabs = value["tabs"].as_array().unwrap();
+        assert_eq!(tabs.iter().filter(|tab| tab["id"] == "tab_a").count(), 1);
+        assert_eq!(tabs.iter().filter(|tab| tab["id"] == "page_settings").count(), 1);
+    }
+
+    #[test]
     fn snapshot_retains_owner_failures_for_partial_readiness() {
         let value = compose_snapshot(
             Err(json!({"code":"transport.unavailable"})),
@@ -416,16 +530,20 @@ mod tests {
     }
 
     #[test]
-    fn bounded_snapshot_limits_each_topology_collection() {
-        let value = compose_snapshot_with_limit(
+    fn agents_snapshot_page_preserves_complete_objects_and_continues() {
+        let value = compose_snapshot(
             Ok(json!({"workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]})),
             Ok(json!({"topology": {"windows": [{"workspaces": ["ws_a", "ws_b"]}]}})),
-            Some(1),
         );
-        assert_eq!(value["workspaces"].as_array().unwrap().len(), 1);
-        assert_eq!(value["windows"][0]["workspaces"].as_array().unwrap().len(), 1);
-        assert_eq!(value["limit"], 1);
-        assert_eq!(value["truncated"], true);
+        let first = snapshot_page(value.clone(), 0, 1);
+        assert_eq!(first["items"][0]["kind"], "window");
+        assert_eq!(first["items"][0]["value"]["workspaces"], json!(["ws_a", "ws_b"]));
+        assert_eq!(first["next_offset"], 1);
+        let last = snapshot_page(value, 1, 10);
+        assert_eq!(last["items"].as_array().unwrap().len(), 2);
+        assert_eq!(last["items"][0]["value"]["id"], "ws_a");
+        assert_eq!(last["items"][1]["value"]["id"], "ws_b");
+        assert_eq!(last["next_offset"], Value::Null);
     }
 
     #[test]
@@ -441,6 +559,58 @@ mod tests {
         );
         assert_eq!(value["workspaces"][0]["focused"], false);
         assert_eq!(value["workspaces"][1]["focused"], true);
+    }
+
+    #[test]
+    fn snapshot_falls_back_to_daemon_focus_when_app_has_no_active_resource() {
+        let value = compose_snapshot(
+            Ok(json!({"focus":{"workspace":"ws_daemon","tab":"tab_daemon"}})),
+            Ok(json!({"topology":{"focus":{"workspace":null,"pane":null,"tab":null}}})),
+        );
+        assert_eq!(value["focus"]["workspace"], "ws_daemon");
+        assert_eq!(value["selection"]["tab"], "tab_daemon");
+    }
+
+    #[test]
+    fn aliases_scope_current_targets_before_resource_actions() {
+        let AgentCommand::Resource { args, .. } =
+            command(&["terminal".into(), "split".into(), "right".into()]).unwrap()
+        else {
+            panic!("expected resource command")
+        };
+        assert_eq!(
+            args,
+            vec![
+                "workspace",
+                "current",
+                "screen",
+                "current",
+                "pane",
+                "current",
+                "split",
+                "--right"
+            ]
+        );
+
+        let AgentCommand::Resource { args, .. } =
+            command(&["tab".into(), "select".into(), "current".into()]).unwrap()
+        else {
+            panic!("expected resource command")
+        };
+        assert_eq!(
+            args,
+            vec![
+                "workspace",
+                "current",
+                "screen",
+                "current",
+                "pane",
+                "current",
+                "tab",
+                "current",
+                "focus"
+            ]
+        );
     }
 
     #[test]

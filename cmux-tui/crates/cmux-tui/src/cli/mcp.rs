@@ -445,7 +445,24 @@ impl<B: Backend> Server<B> {
                     }
                 },
             };
-            if let Some(name) = arguments.keys().find(|name| name.as_str() != "limit") {
+            let offset = match arguments.get("offset") {
+                None => 0,
+                Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
+                    Some(value) => value,
+                    None => {
+                        return Ok(tool_error(envelope(
+                            v2_tools::invalid(
+                                "agents_snapshot offset must be a nonnegative integer",
+                            ),
+                            "not_run",
+                            None,
+                        )));
+                    }
+                },
+            };
+            if let Some(name) =
+                arguments.keys().find(|name| !matches!(name.as_str(), "limit" | "offset"))
+            {
                 return Ok(tool_error(envelope(
                     v2_tools::invalid(format!("agents_snapshot has no argument {name:?}")),
                     "not_run",
@@ -460,26 +477,11 @@ impl<B: Backend> Server<B> {
                 .backend
                 .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None)
                 .map_err(agent_failure_value);
-            let snapshot = super::agents::compose_snapshot_with_limit(
-                daemon.clone(),
-                app.clone(),
-                Some(limit),
-            );
-            if snapshot["sources"]["daemon"]["available"] == Value::Bool(false)
-                && snapshot["sources"]["app"]["available"] == Value::Bool(false)
-            {
-                return Ok(tool_error(envelope(
-                    json!({
-                        "code": "agents.unavailable",
-                        "message": "neither the cmux app nor its session daemon answered",
-                        "details": snapshot["sources"],
-                        "retryable": true,
-                    }),
-                    "not_run",
-                    None,
-                )));
+            let snapshot = super::agents::compose_snapshot(daemon, app);
+            if let Some(error) = super::agents::snapshot_error(&snapshot) {
+                return Ok(tool_error(envelope(error, "not_run", None)));
             }
-            return Ok(success(snapshot, false));
+            return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
