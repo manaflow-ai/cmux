@@ -318,6 +318,7 @@ extension DockSplitStore {
         let claudeBackgroundAttach = claudeBackgroundRestore?.attach
         let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
         let shouldAutoResumeNormallyEndedClaude =
+            terminalSnapshot.isRemoteTerminal != true &&
             SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
                 restorableAgent: restorableAgent,
                 resumeBinding: resumeBinding
@@ -439,6 +440,8 @@ extension DockSplitStore {
         )
         var resumeLaunchClaim: AgentResumeLaunchGuard.Claim?
         if !agentSessionAlreadyActive,
+           shouldAutoResumeAgent, restorableAgentCanAutoResume,
+           hibernation == nil, bindingLaunch == nil,
            shouldAutoResumeNormallyEndedClaude,
            let restorableAgent {
             resumeLaunchClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
@@ -458,13 +461,14 @@ extension DockSplitStore {
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
         if agentLaunch == nil,
-           let resumeLaunchClaim,
+           let unusedClaim = resumeLaunchClaim,
            let restorableAgent {
             _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: restorableAgent.kind.rawValue,
                 sessionId: restorableAgent.sessionId,
-                claim: resumeLaunchClaim
+                claim: unusedClaim
             )
+            resumeLaunchClaim = nil
         }
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
@@ -612,7 +616,7 @@ extension DockSplitStore {
                 (deferredAgentResumeAdmission
                     ? true
                     : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
-            ownsResumeLaunchClaim: false,
+            ownsResumeLaunchClaim: resumeLaunchClaim != nil,
             defersStartupRestoreAdmission: deferredAgentResumeAdmission
         )
         if let liveSessionOwner {

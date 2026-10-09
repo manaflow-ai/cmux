@@ -94,8 +94,9 @@ extension Workspace {
     /// workspace restore pass.
     ///
     /// - A pane qualifies when it recorded a `claude attach` viewer, or when
-    ///   its hook-reported Claude session was running at quit. A pane that only
-    ///   spawned a background session and went back to shell work is left alone.
+    ///   its hook-reported Claude session was running at quit or qualifies for
+    ///   completed-session resume. A manual binding in an idle spawning pane
+    ///   remains untouched.
     /// - Claude's registry is scanned at most once per config directory.
     /// - One pane attaches per session, preferring the viewer pane. Other panes
     ///   on the same live session keep no startup work; they must not resume it.

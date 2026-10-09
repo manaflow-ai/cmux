@@ -1600,7 +1600,8 @@ extension Workspace {
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // Running agents retain the existing restore path. Confirmed
+            // completed Claude sessions are admitted separately below.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let remoteStartupCommand = remoteTerminalStartupCommand()
@@ -1647,6 +1648,9 @@ extension Workspace {
             let claudeBackgroundAttach = claudeBackgroundRestore?.attach
             let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
             let shouldAutoResumeNormallyEndedClaude =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true &&
                 SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
                     restorableAgent: restorableAgent,
                     resumeBinding: resumeBinding
@@ -2143,8 +2147,7 @@ extension Workspace {
                     (deferredAgentResumeAdmission
                         ? true
                         : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
-                ownsResumeLaunchClaim: restoredAgentResumeLaunch != nil &&
-                    restoresRemoteWorkspaceTerminalSnapshot,
+                ownsResumeLaunchClaim: resumeLaunchClaim != nil,
                 defersStartupRestoreAdmission: deferredAgentResumeAdmission
             )
             if let liveSessionOwner {
@@ -2604,12 +2607,6 @@ extension Workspace {
         if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
-        ) {
-            return true
-        }
-        if SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
-            restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding
         ) {
             return true
         }

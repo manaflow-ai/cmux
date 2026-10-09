@@ -634,12 +634,6 @@ extension DockSplitStore {
         ) {
             return true
         }
-        if SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
-            restorableAgent: restorableAgent,
-            resumeBinding: managedBinding ?? resumeBinding
-        ) {
-            return true
-        }
         let expectedKind = managedBinding != nil
             ? managedBinding?.kind.flatMap {
                 RestorableAgentKind(
