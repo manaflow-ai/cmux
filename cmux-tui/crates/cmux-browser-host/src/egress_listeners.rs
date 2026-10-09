@@ -64,12 +64,15 @@ pub(crate) struct Listener {
     pub(crate) v4_too: bool,
 }
 
-/// A LISTEN socket of this user and the executable of a process that holds
-/// it (`None`: unreadable).
+/// A LISTEN socket of this user and a process that holds it (`None`:
+/// unreadable or not read yet); `family`: that process is Chromium-based.
+/// `fill_holders` reads the holders of the listeners that matter.
 #[derive(Clone, Debug)]
 pub(crate) struct Held {
     pub(crate) listener: Listener,
-    pub(crate) exe: Option<String>,
+    pub(crate) pid: i32,
+    pub(crate) holder: Option<crate::egress_holders::Holder>,
+    pub(crate) family: bool,
 }
 
 fn u32_at(data: &[u8], at: usize) -> Option<u32> {
@@ -124,7 +127,7 @@ pub(crate) fn parse_pcblist64(data: &[u8]) -> Option<Vec<Listener>> {
 }
 
 /// Whether a connection to `target` can reach `listener`.
-fn covers(listener: &Listener, target: SocketAddr) -> bool {
+pub(crate) fn covers(listener: &Listener, target: SocketAddr) -> bool {
     if listener.port != target.port() {
         return false;
     }
@@ -161,14 +164,12 @@ pub(crate) fn verdict(
     }
     let mine: Vec<&Held> = own.iter().filter(|h| covers(&h.listener, target)).collect();
     for held in &mine {
-        let Some(path) = &held.exe else {
+        let Some(holder) = &held.holder else {
             return Some(format!("the holder of loopback {target} cannot be read"));
         };
-        let name = path.rsplit('/').next().unwrap_or(path);
-        if crate::egress_services::is_service_name(name)
-            || crate::egress_services::is_app_service_name(name)
+        if let Some(why) = crate::egress_holders::holder_refusal(holder, target.port(), held.family)
         {
-            return Some(format!("loopback {target} is the cmux service {name}"));
+            return Some(why);
         }
     }
     (mine.is_empty() && connected)
@@ -252,10 +253,28 @@ pub(crate) fn system_own_listeners(uid: u32) -> Option<Vec<Held>> {
         if found.is_empty() {
             continue;
         }
-        let exe = crate::egress_services::executable_path(pid);
-        out.extend(found.into_iter().map(|listener| Held { listener, exe: exe.clone() }));
+        out.extend(found.into_iter().map(|listener| Held {
+            listener,
+            pid,
+            holder: None,
+            family: false,
+        }));
     }
     Some(out)
+}
+
+/// Reads the holders of the listeners that cover `target` (arguments,
+/// environment and bundle cost a sysctl and a few stats each, so only
+/// these).
+#[cfg(target_os = "macos")]
+pub(crate) fn fill_holders(own: &mut [Held], target: SocketAddr) {
+    for held in own.iter_mut().filter(|h| covers(&h.listener, target)) {
+        held.holder = crate::egress_holders::system_holder(held.pid);
+        held.family = held
+            .holder
+            .as_ref()
+            .is_some_and(|h| crate::egress_holders::bundle_is_chromium_family(&h.path));
+    }
 }
 
 /// The pids of `uid`'s processes; grows the buffer until it is not full.

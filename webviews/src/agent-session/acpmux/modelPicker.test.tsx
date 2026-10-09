@@ -156,6 +156,35 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
 
+  test("rail arrows skip disabled folder profiles and keep Starred as an end stop", async () => {
+    const value = snapshot();
+    value.catalog.push({
+      id: "broken",
+      name: "Broken Agent",
+      pickable: false,
+      models: [],
+      folder: { folder: "/repo", state: "error" },
+    });
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    const starred = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-rail")!;
+    const harnessRails = () => [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")];
+    await key(input, "ArrowLeft");
+    // Claude is selected first; Codex follows it, and the disabled profile is never a stop.
+    await key(harnessRails()[0]!, "ArrowDown");
+    expect(doc.activeElement).toBe(harnessRails()[1]);
+    await key(harnessRails()[1]!, "ArrowDown");
+    expect(doc.activeElement).toBe(starred);
+    await key(starred, "ArrowUp");
+    expect(doc.activeElement).toBe(harnessRails()[1]);
+    // With Starred selected, ArrowLeft from search returns to Starred rather than stale harness state.
+    await key(harnessRails()[1]!, "ArrowDown");
+    expect(doc.activeElement).toBe(starred);
+    await key(input, "ArrowLeft");
+    expect(doc.activeElement).toBe(starred);
+  });
+
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
     await render();
     await act(async () => modelButton().click());

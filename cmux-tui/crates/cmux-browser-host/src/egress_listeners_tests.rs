@@ -9,7 +9,9 @@ fn listener(addr: IpAddr, uid: u32) -> Listener {
 
 /// A listener of this user, found by libproc, with its holder.
 fn held(addr: IpAddr, name: &str) -> Held {
-    Held { listener: listener(addr, ME), exe: Some(format!("/usr/local/bin/{name}")) }
+    let path = format!("/usr/local/bin/{name}");
+    let holder = crate::egress_holders::Holder { path, ..Default::default() };
+    Held { listener: listener(addr, ME), pid: 1, holder: Some(holder), family: false }
 }
 
 fn v4() -> SocketAddr {
@@ -77,7 +79,7 @@ fn own_listeners_are_checked_by_executable() {
     for name in ["cmux DEV tag", "Google Chrome", "cmux-tui", "acpmux", "msedge"] {
         assert!(verdict(v4(), &[], &[held(addr, name)], ME, true).is_some(), "{name}");
     }
-    let unreadable = Held { listener: listener(addr, ME), exe: None };
+    let unreadable = Held { listener: listener(addr, ME), pid: 1, holder: None, family: false };
     assert!(verdict(v4(), &[], &[unreadable], ME, true).is_some(), "unreadable");
     let in_table = [listener(addr, ME)];
     assert!(verdict(v4(), &in_table, &[], ME, false).is_some(), "no holder");
@@ -184,14 +186,18 @@ fn the_live_sources_find_a_listener_and_its_holder() {
     let uid = unsafe { libc::geteuid() };
     // Even a filtered table shows the caller's own sockets.
     let table = system_listeners().expect("pcblist64 readable");
-    let listed: Vec<&Listener> = table.iter().filter(|l| l.port == addr.port()).collect();
+    let listed: Vec<&Listener> =
+        table.iter().filter(|l| (l.addr, l.port) == (addr.ip(), addr.port())).collect();
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!((listed[0].addr, listed[0].uid), (addr.ip(), uid));
-    let own = system_own_listeners(uid).expect("libproc readable");
-    let mine: Vec<&Held> = own.iter().filter(|h| h.listener.port == addr.port()).collect();
+    let mut own = system_own_listeners(uid).expect("libproc readable");
+    fill_holders(&mut own, addr);
+    let mine: Vec<&Held> = own
+        .iter()
+        .filter(|h| (h.listener.addr, h.listener.port) == (addr.ip(), addr.port()))
+        .collect();
     assert_eq!(mine.len(), 1, "{mine:?}");
-    assert_eq!(mine[0].listener.addr, addr.ip());
-    let exe = mine[0].exe.as_deref().expect("holder readable");
+    let exe = &mine[0].holder.as_ref().expect("holder readable").path;
     let me = std::env::current_exe().unwrap();
     let name = me.file_name().unwrap().to_str().unwrap();
     assert!(exe.ends_with(&format!("/{name}")), "{exe} is not {name}");
@@ -205,7 +211,10 @@ fn a_live_dual_stack_listener_covers_ipv4() {
     let socket = std::net::TcpListener::bind("[::]:0").unwrap();
     let port = socket.local_addr().unwrap().port();
     // SAFETY: geteuid has no preconditions.
-    let own = system_own_listeners(unsafe { libc::geteuid() }).expect("libproc readable");
+    let uid = unsafe { libc::geteuid() };
+    // A test that spawns a process can catch it between fork and exec.
+    let own = system_own_listeners(uid).or_else(|| system_own_listeners(uid));
+    let own = own.expect("libproc readable");
     let mine: Vec<&Held> = own.iter().filter(|h| h.listener.port == port).collect();
     assert_eq!(mine.len(), 1, "{mine:?}");
     assert!(mine[0].listener.v4_too, "{mine:?}");
