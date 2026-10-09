@@ -63,16 +63,27 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
             ),
             // DEV and NIGHTLY only: a remote browser tab (remote-tab.md r2)
             // from a loopback rb/1 host such as cmux-remote-browser-testhost.
-            // Scripts reach it through `action.run`, the same path.
+            // Scripts reach it through `action.run`, the same path. The host
+            // serves only a viewer with its secret: without `secretFile` the
+            // tab shows the host's refusal (cx-erey).
             ActionDescriptor(
                 id: "remote.openBrowserTab",
                 title: String(localized: "action.remote.openBrowserTab", defaultValue: "Open Remote Browser Tab", table: "RemoteActions", bundle: .module),
                 keywords: ["remote", "browser", "tab", "rb", "stream", "chromium", "host"], category: .remote, symbol: "globe",
                 surfaces: [.palette],
-                arguments: [ActionArgument(
-                    name: "address",
-                    title: String(localized: "argument.remote.hostAddress", defaultValue: "Host Address", table: "RemoteActions", bundle: .module),
-                    kind: .string)],
+                arguments: [
+                    ActionArgument(
+                        name: "address",
+                        title: String(localized: "argument.remote.hostAddress", defaultValue: "Host Address", table: "RemoteActions", bundle: .module),
+                        kind: .string),
+                    // A file that only this user can read, holding the host's
+                    // per-launch secret on its first line. The tab record keeps
+                    // the path, never the secret (RemoteBrowserSecretFile).
+                    ActionArgument(
+                        name: "secretFile",
+                        title: String(localized: "argument.remote.secretFile", defaultValue: "Host Secret File", table: "RemoteActions", bundle: .module),
+                        kind: .string, isRequired: false),
+                ],
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
