@@ -34,21 +34,17 @@ import Foundation
 ///
 /// The name is cmux's v1 method (the CLI's `open` verb sends it); cmux-next
 /// always opens a tab in a pane, never a new split.
-extension ControlRouter {
-    static let browserOpenSplit = "browser.open_split"
-
-    func browserOpenSplitMethod() -> ControlMethod {
-        .async(Self.browserOpenSplit) { [weak self] call in
-            guard let self else { throw Self.stopped }
-            return try await BrowserOpenSplitRun(router: self).run(call)
-        }.claimingProgress().withLimit { _, _ in BrowserOpenSplitRun.limit }
-    }
-}
-
-/// One `browser.open_split`: the `openBrowser` run, then the reveal.
 struct BrowserOpenSplitRun {
     /// The open waits for the tab's echo, then a reveal may wait for its own.
     static let limit: Duration = .seconds(20)
+
+    /// The method `router` serves (a builtin, ControlRouter+Builtins).
+    static func method(router: ControlRouter) -> ControlMethod {
+        .async("browser.open_split") { [weak router] call in
+            guard let router else { throw ControlRouter.stopped }
+            return try await BrowserOpenSplitRun(router: router).run(call)
+        }.claimingProgress().withLimit { _, _ in limit }
+    }
 
     let router: ControlRouter
 
