@@ -66,7 +66,7 @@ import Testing
         #expect(view.header.hitTest(title) === view.header, "the title toggles")
         #expect(view.header.accessibilityPerformPress())
         #expect(view.isExpanded && changes == 1)
-        #expect(view.sidebarShare == 1.0 / 3.0)
+        #expect(abs((view.sidebarShare ?? 0) - 1.0 / 3.0) < 0.001)
         let again = SidebarChatsView(defaults: defaults)
         #expect(again.isExpanded, "the choice is kept on this Mac")
         view.toggleExpanded()

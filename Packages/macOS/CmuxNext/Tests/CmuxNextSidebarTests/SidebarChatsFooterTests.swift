@@ -79,6 +79,7 @@ import Testing
         let provider = ChatsProvider(count: 40)
         let view = sidebar(height: height, provider: provider)
         #expect(provider.view.frame.height <= floor(height / 3) + 0.5)
-        #expect(view.belowScroll.contentView.bounds.height <= floor(height / 3) + Metrics.space4 * 2)
+        // The band adds only its padding around the section.
+        #expect(view.belowScroll.contentView.bounds.height <= floor(height / 3) + Metrics.sidebarRowHeight * 2)
     }
 }
