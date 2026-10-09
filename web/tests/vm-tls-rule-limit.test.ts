@@ -22,15 +22,29 @@ function tlsRuleLimit(): FreestyleApiError {
 
 type TlsRule = { id: string; domain: string; protocol: string; source: Record<string, unknown>; destination: Record<string, unknown> };
 
+type DeleteMode = "ok" | "reject-after-removal" | "reject-before-removal";
+type FakeOptions = {
+  /** Refuse these creates with the cap error regardless of headroom. */
+  readonly refuse?: (domain: string) => boolean;
+  /** Rules on other VMs that a vm-scoped list still returns (e.g. a shared VPC). */
+  readonly foreign?: TlsRule[];
+  readonly deleteMode?: (domain: string) => DeleteMode;
+  /** The nth and later list calls fail. */
+  readonly failListFromCall?: number;
+  /** Another workload takes every slot this VM frees. */
+  readonly slotsTakenOnDelete?: boolean;
+};
+
 /**
  * A Freestyle account whose TLS rule store is shared with `otherRules` rules
- * this VM does not own, and refuses a create once `cap` rules exist.
+ * this VM does not own, and refuses a create once `cap` rules exist. Create is
+ * idempotent per VM and domain: an existing rule answers a non-limit 409.
  */
 function accountAtCap(
   owned: string[],
   otherRules: number,
   cap: number,
-  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[]; readonly failDelete?: (domain: string) => boolean; readonly failListFromCall?: number } = {},
+  options: FakeOptions = {},
 ) {
   const tls: TlsRule[] = [
     ...owned.map((domain, index) => ({
@@ -59,6 +73,9 @@ function accountAtCap(
           return { rules: tls, totalCount: tls.length };
         },
         create: async (rule: { domain: string; source: Record<string, unknown>; destination: Record<string, unknown> }) => {
+          if (tls.some((existing) => existing.source.vmId === rule.source.vmId && existing.domain === rule.domain)) {
+            throw new FreestyleApiError(409, { code: "CONFLICT", message: "conflict: rule already exists" });
+          }
           if (tls.length + otherRules >= cap || options.refuse?.(rule.domain)) {
             log.push(`tls! ${rule.domain}`);
             throw tlsRuleLimit();
@@ -68,12 +85,15 @@ function accountAtCap(
         },
         delete: async (id: string) => {
           const index = tls.findIndex((rule) => rule.id === id);
-          if (options.failDelete?.(tls[index]?.domain ?? "")) {
+          const mode = options.deleteMode?.(tls[index]?.domain ?? "") ?? "ok";
+          if (mode === "reject-before-removal") {
             log.push(`tls-! ${id}`);
             throw new FreestyleApiError(500, { code: "INTERNAL", message: "delete failed" });
           }
           log.push(`tls- ${id}`);
           tls.splice(index, 1);
+          if (options.slotsTakenOnDelete) otherRules += 1;
+          if (mode === "reject-after-removal") throw new FreestyleApiError(504, { code: "TIMEOUT", message: "delete timed out" });
         },
       },
     },
@@ -121,46 +141,43 @@ describe("the account-wide Freestyle TLS rule cap", () => {
     expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable|TLS rule limit reached/i);
   });
 
-  test("a swap refused even after freeing its retired rules recreates them and returns the capacity error", async () => {
+  test("a refused provider call still maps to the capacity error after rollback", async () => {
     const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
     const fake = accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com" });
+    const provider = new FreestyleProvider({ client: () => fake.client });
     const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
-    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
-
-    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
-    expect((err as FreestyleTlsRuleLimitRestoreError).restored).toBe(1);
-    expect((err as FreestyleTlsRuleLimitRestoreError).unrestored).toEqual([]);
-    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
-    expect(fake.log).toContain("tls+ old.example.com");
-
-    const provider = new FreestyleProvider({ client: () => accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com" }).client });
     expect(await failure(() => provider.applyNetworkPolicy(vmId, plan))).toBeInstanceOf(ProviderTlsRuleLimitError);
   });
 
-  test("a partly failed retirement at the cap restores the rules it deleted", async () => {
-    const owned = [...CMUX_REQUIRED_DOMAINS, "old-a.example.com", "old-b.example.com"];
-    const fake = accountAtCap(owned, 2000 - owned.length, 2000, { failDelete: (domain) => domain === "old-b.example.com" });
-    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
-    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
+  // Every failure after the swap starts deleting must reconcile the VM back to
+  // its original steering rules whenever the recreating creates succeed.
+  const owned = [...CMUX_REQUIRED_DOMAINS, "old-a.example.com", "old-b.example.com"];
+  const swapPlan = () => compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+  const refuseNew = (domain: string) => domain === "new.example.com";
+  const cases: Array<{ name: string; options: FakeOptions; restored: number; unrestored: string[] }> = [
+    { name: "deletes fulfilled, retry refused", options: { refuse: refuseNew }, restored: 2, unrestored: [] },
+    { name: "a delete removed the rule but rejected", options: { deleteMode: (d) => (d === "old-b.example.com" ? "reject-after-removal" : "ok") }, restored: 2, unrestored: [] },
+    { name: "a delete rejected before removing", options: { deleteMode: (d) => (d === "old-b.example.com" ? "reject-before-removal" : "ok") }, restored: 1, unrestored: [] },
+    { name: "the rollback list fails", options: { refuse: refuseNew, failListFromCall: 3 }, restored: 2, unrestored: [] },
+    { name: "the rollback creates fail at the cap", options: { refuse: refuseNew, slotsTakenOnDelete: true }, restored: 0, unrestored: ["old-a.example.com", "old-b.example.com"] },
+  ];
+  for (const testCase of cases) {
+    test(`rollback reconciles to the original rules: ${testCase.name}`, async () => {
+      const fake = accountAtCap(owned, 2000 - owned.length, 2000, testCase.options);
+      const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, swapPlan(), ENV));
 
-    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
-    expect((err as FreestyleTlsRuleLimitRestoreError).unrestored).toEqual([]);
-    expect(fake.log).toContain("tls+ old-a.example.com");
-    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
-  });
-
-  test("an unreadable rule list during rollback still recreates the retired rules", async () => {
-    const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
-    // Calls 1 and 2 are the first reconcile and the retry; call 3 is the rollback.
-    const fake = accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com", failListFromCall: 3 });
-    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
-    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
-
-    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
-    expect((err as FreestyleTlsRuleLimitRestoreError).restored).toBe(1);
-    expect(fake.log).toContain("tls+ old.example.com");
-    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
-  });
+      expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
+      const restore = err as FreestyleTlsRuleLimitRestoreError;
+      expect(restore.restored).toBe(testCase.restored);
+      expect([...restore.unrestored].sort()).toEqual(testCase.unrestored);
+      const domains = fake.tls.map((rule) => rule.domain).sort();
+      if (testCase.unrestored.length === 0) {
+        expect(domains).toEqual([...owned].sort());
+      } else {
+        expect(domains).toEqual(owned.filter((domain) => !testCase.unrestored.includes(domain)).sort());
+      }
+    });
+  }
 
   test("a change that grows the rule count at the cap deletes nothing", async () => {
     const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
