@@ -1000,6 +1000,8 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
+    // Finished subagents' workspaces stay with a done mark unless this says close.
+    brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }

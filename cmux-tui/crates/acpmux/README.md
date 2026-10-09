@@ -925,3 +925,12 @@ The level is recorded as a `resumed` event. Credentials never travel in a bundle
 ```sh
 cargo test          # unit tests plus an end-to-end suite against tests/fake_agent.py
 ```
+
+## Credits
+
+acpmux's harness support follows the design of [t3code](https://github.com/pingdotgg/t3code)
+by pingdotgg (MIT License, Copyright (c) 2026 T3 Tools Inc.): the set of coding agents it
+supports, how each one is started, and how sign-in, models, permissions and resume map onto
+one session. Files that adapt t3code code or data keep its copyright line in their header.
+The full license text is in the "t3code (agent harness support)" section of the repository's
+`THIRD_PARTY_LICENSES.md`.

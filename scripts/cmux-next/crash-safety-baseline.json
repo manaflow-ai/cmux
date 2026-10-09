@@ -62,21 +62,12 @@
   }
  },
  "swift": {
-  "as_bang": {
-   "CmuxNextApp": 3,
-   "CmuxNextCloud": 1,
-   "CmuxNextSettings": 4,
-   "MessagesLabHome": 4
-  },
   "assume_isolated": {
    "CmuxHomeRender": 3,
    "CmuxMobileSupport": 3,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
    "CmuxNextApp": 33,
-   "CmuxNextApps": 9,
-   "CmuxNextBrowser": 21,
-   "CmuxNextBrowserAutomation": 2,
    "CmuxNextDesign": 15,
    "CmuxNextHome": 1,
    "CmuxNextOnboarding": 1,
@@ -102,13 +93,13 @@
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 98,
+   "CmuxNextApp": 95,
    "CmuxNextApps": 1,
    "CmuxNextBookmarks": 3,
    "CmuxNextBrowser": 25,
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 4,
-   "CmuxNextCloud": 11,
+   "CmuxNextCloud": 10,
    "CmuxNextCodeRouter": 5,
    "CmuxNextDesign": 3,
    "CmuxNextFeed": 1,
@@ -119,11 +110,11 @@
    "CmuxNextRemote": 2,
    "CmuxNextRemoteView": 1,
    "CmuxNextResources": 2,
-   "CmuxNextSettings": 10,
+   "CmuxNextSettings": 6,
    "CmuxNextSidebar": 8,
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
-   "MessagesLabHome": 62,
+   "MessagesLabHome": 58,
    "MessagesLabSidebar": 18
   },
   "iuo": {
@@ -135,15 +126,7 @@
    "MessagesLabSidebar": 1
   },
   "precondition": {
-   "CMUXMobileCore": 14,
-   "CmuxAuthRuntime": 1,
-   "CmuxIrohTransport": 15,
-   "CmuxMobileSSH": 1,
-   "CmuxMobileShellModel": 3,
-   "CmuxNextBrowserImport": 2,
-   "CmuxNextSettings": 2,
-   "CmuxNextSidebar": 1,
-   "CmuxNextWakeups": 1
+   "CmuxNextSidebar": 1
   },
   "unchecked": {
    "CMUXAuthCore": 3,
