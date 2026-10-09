@@ -263,6 +263,9 @@ pub struct Settings {
     /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
     /// Claude Code path.
     pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -514,6 +517,8 @@ impl Brain {
             mux_pending: HashMap::new(),
         };
         brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
         brain
     }
 
@@ -833,6 +838,7 @@ impl Brain {
             self.chief = next;
             self.ttl_refused
                 .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }

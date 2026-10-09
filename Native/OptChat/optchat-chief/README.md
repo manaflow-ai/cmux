@@ -656,9 +656,12 @@ through it. Two rules keep that true:
   and reads the same two at host start. A route that refuses the 1-hour TTL
   reruns the turn at 5 minutes, and later turns stay at 5 minutes until the
   host restarts or `cache.ttl` is set again (`turn.ttl_refused` trace event).
-  Compactor sessions pin `promptCacheTtl` to 5m, the TTL of their own mark;
-  1h and 5m entries are one cache (measured), so a node still reads what a
-  turn wrote.
+  Compactor nodes on the Claude Code path take the turns' current TTL (one
+  TTL per route, shared with the brain): their mark, their slot's
+  `promptCacheTtl` (plus `FORCE_PROMPT_CACHING_5M` at 5 minutes) and the
+  warm-session key follow it, so a warm session started under the other TTL
+  is not reused. 1h and 5m entries are one cache (measured), so a node reads
+  what a turn wrote either way.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
 `layout.ttl`) and the inspector lays the prompt out from them.

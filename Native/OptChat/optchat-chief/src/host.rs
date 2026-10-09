@@ -645,6 +645,9 @@ fn start(
         String,
         Option<Arc<dyn crate::brain::images::Describe>>,
     );
+    // The turns' cache TTL, which the brain decides per turn; the compactor's
+    // Claude Code nodes take it too (one TTL per route).
+    let shared_ttl = crate::prompt::SharedTtl::default();
     let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
@@ -671,6 +674,7 @@ fn start(
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.
             let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
+            let shared_ttl = shared_ttl.clone();
             let build = |model: Option<&str>| {
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
@@ -680,6 +684,7 @@ fn start(
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                     .with_log(compactor_log.clone())
                     .with_trace(trace.clone())
+                    .with_cache_ttl(shared_ttl.clone())
             };
             let effort = compactor_effort
                 .clone()
@@ -970,6 +975,7 @@ fn start(
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
         cache_ttl: cache_ttl_env,
+        shared_ttl,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
