@@ -109,7 +109,7 @@ extension CMUXCLI {
         case .missingCurrentShape:
             return CLIError(message: String(
                 localized: "cli.vm.resize.preflightIncomplete",
-                defaultValue: "vm resize: the server returned incomplete machine capacity data; retry after refreshing your Cloud machines."
+                defaultValue: "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."
             ))
         case .poolLimit(let requestedVcpus, let requestedMemoryMb, let freeVcpus, let freeMemoryMb):
             return cloudVMResizePoolError(
@@ -298,7 +298,7 @@ extension CMUXCLI {
                   let claimMemoryMb = Self.cloudVMResizePositiveLimit(poolClaim["memoryMb"]) else {
                 throw CLIError(message: String(
                     localized: "cli.vm.resize.preflightIncomplete",
-                    defaultValue: "vm resize: the server returned incomplete machine capacity data; retry after refreshing your Cloud machines."
+                    defaultValue: "vm resize: the server returned incomplete plan capacity data; retry after refreshing your Cloud machines."
                 ))
             }
             poolClaimShape = CloudVMResizeShape(
