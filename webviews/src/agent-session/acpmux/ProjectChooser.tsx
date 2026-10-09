@@ -18,6 +18,7 @@ export function ProjectChooser({
   icon,
   onPick,
   onBrowse,
+  side = "top",
 }: {
   projects: Project[];
   current?: string;
@@ -25,6 +26,8 @@ export function ProjectChooser({
   icon: React.ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  /// Where the menu opens: above the composer's tray, below a picker at the top of a page.
+  side?: "top" | "bottom";
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -118,7 +121,7 @@ export function ProjectChooser({
         anchor={open ? trigger.current : null}
         label={t("project.label")}
         className="acpmux-menu acpmux-project-menu"
-        side="top"
+        side={side}
         initialFocus={search}
         finalFocus={false}
       >

@@ -1,12 +1,19 @@
 //! Process setup that only the terminal owner (the mux server) needs.
 
+mod owner_panic;
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft
 /// limit (256 on macOS) stopped it at about 60 terminals. Terminal hosts and
 /// the programs in terminals get the original limit back at spawn.
-pub(crate) fn prepare(ephemeral: bool, has_state: bool) -> anyhow::Result<()> {
-    if ephemeral && has_state {
+///
+/// The headless owner also records every panic (`owner_panic`, cx-urd.59).
+pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
+    if args.headless {
+        owner_panic::install(&args.session);
+    }
+    if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");
     }
     #[cfg(unix)]

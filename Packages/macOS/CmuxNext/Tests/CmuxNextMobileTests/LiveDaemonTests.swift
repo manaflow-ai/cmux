@@ -11,6 +11,10 @@ enum LiveBinary {
     static let url: URL? = {
         if let override = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_BIN"],
            FileManager.default.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+        // `pin-cmux-tui.sh path`, resolved once by the suite runner.
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty {
+            return FileManager.default.isExecutableFile(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
         let process = Process()

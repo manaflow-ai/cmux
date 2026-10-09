@@ -130,7 +130,7 @@ extension PaneContentView {
     func beginPaintHold(outgoing: NSView, incoming: NSView) {
         paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost) { [weak self] outgoing in
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
-            outgoing.removeFromSuperview()
+            retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }
     }

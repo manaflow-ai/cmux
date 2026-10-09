@@ -21,8 +21,15 @@ public final class WebKitDriver: DriverCallHandler {
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
-    public init(provider: any AutomationTabProvider, agentBundle: String? = nil) {
+    /// The clock of the driver's bounded waits.
+    let clock: any Clock<Duration>
+    /// WebKit private calls, on this driver's clock.
+    let privateCalls: WebKitPrivateCalls
+
+    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
+        self.clock = clock
+        privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
@@ -37,7 +44,7 @@ public final class WebKitDriver: DriverCallHandler {
         switch method {
         case "tabs.list": return try tabsList(params)
         case "tabs.open": return try await tabsOpen(params)
-        case "tabs.close": return try tabsClose(params)
+        case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)
         case "tab.navigate": return try await tabNavigate(params)
@@ -67,23 +74,7 @@ public final class WebKitDriver: DriverCallHandler {
               let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
               tab.webView.window == nil else { return }
         guard await provider.keepRendering(tab) else { return }
-        await Self.afterActivityStateUpdate(tab.webView)
-    }
-
-    /// Resumes once WebKit has sent the view's activity state (visible,
-    /// focused, in a window) to the web process.
-    static func afterActivityStateUpdate(_ webView: WKWebView) async {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
-        guard webView.responds(to: selector) else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            typealias Action = @convention(block) () -> Void
-            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
-            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-            // WebKit keeps the block until the update: it must be an escaping one.
-            let action: Action = { continuation.resume() }
-            function(webView, selector, action)
-        }
+        await privateCalls.afterActivityStateUpdate(tab.webView)
     }
 
     func emit(_ name: String, _ payload: [String: DriverJSON]) {

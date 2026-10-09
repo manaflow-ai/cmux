@@ -63,6 +63,17 @@
   font-size: 15px;
   caret-color: var(--agent-ansi-5, #d670d6);
 }
+/* The pickers on top (cx-e2aa): the project, then the agent's model, effort and speed chip, in one
+   quiet row over the field. The chips keep the composer's own look. */
+.nt-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {
@@ -128,18 +139,17 @@
   font-family: inherit;
   font-weight: 400;
 }
-/* The template dots, centered at the bottom of every template. */
+/* The template dots, centered under every template, in the page's own flow after the scrolling
+   screen (never over it: nxdog82, "Integrate a harness" ran under the dots in a short window). */
 .nt-templates {
-  position: absolute;
-  z-index: 1;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
+  order: 1;
+  flex: none;
+  align-self: center;
   display: flex;
   gap: 4px;
   margin: 0;
   border: 0;
-  padding: 0;
+  padding: 6px 0 12px;
   min-inline-size: 0;
 }
 .nt-template-dot {
@@ -170,7 +180,4 @@
   outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 0;
   border-radius: 50%;
-}
-.nt-screen {
-  padding-bottom: 48px;
 }

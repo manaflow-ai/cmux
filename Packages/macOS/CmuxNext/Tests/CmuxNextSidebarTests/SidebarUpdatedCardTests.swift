@@ -44,14 +44,14 @@ import Testing
 
     @Test func theUpdatedCardWinsTheSlotOverTheTip() async {
         let view = sidebar()
-        view.model.tipCard = SidebarTipCardTests.tip
+        view.model.noticeCard = SidebarNoticeCardTests.tip
         view.model.updatedCard = Self.card
-        await settle(view) { view.updatedCardView.card != nil && view.tipCardView.tip != nil }
+        await settle(view) { view.updatedCardView.card != nil && view.noticeCardView.notice != nil }
         #expect(!view.updatedCardView.isHidden && view.updatedCardView.frame.height > 0)
-        #expect(view.tipCardView.isHidden && view.tipCardView.frame == .zero, "the tip waits")
+        #expect(view.noticeCardView.isHidden && view.noticeCardView.frame == .zero, "the tip waits")
         view.model.updatedCard = nil
         await settle(view) { view.updatedCardView.card == nil }
-        #expect(!view.tipCardView.isHidden, "the tip comes back once the card goes")
+        #expect(!view.noticeCardView.isHidden, "the tip comes back once the card goes")
     }
 
     @Test func aStagedUpdateWinsOverTheUpdatedCard() async {

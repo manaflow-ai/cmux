@@ -459,6 +459,8 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every folder the host trusted (`acp.trust.set`, level trusted).
+    pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
@@ -477,6 +479,11 @@ pub struct Agents {
     pub steer_at_end: bool,
     /// Turns whose prompt was answered.
     pub answered_turns: usize,
+    /// Each prompt's session id, in prompt order.
+    pub prompt_sessions: Vec<String>,
+    /// Each session's `.claude/settings.json` in its cwd when it started
+    /// (None: no file), in `specs` order.
+    pub session_settings: Vec<Option<String>>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -555,10 +562,15 @@ impl FakeAgents {
     /// Adds events to a running turn and tells its runner, as acpmux's
     /// notifications do.
     pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
         self.append_events(session, events);
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
         }
     }
 
@@ -598,6 +610,11 @@ impl FakeAgents {
 }
 
 impl AgentPort for FakeAgents {
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.inner.lock().unwrap().trusted.push(cwd.to_owned());
+        Ok(())
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
@@ -621,6 +638,8 @@ impl AgentPort for FakeAgents {
             .and_then(|p| inner.preset_prompts.get(p))
             .cloned();
         inner.systems.push(system);
+        let settings = std::fs::read_to_string(spec.cwd.join(".claude").join("settings.json")).ok();
+        inner.session_settings.push(settings);
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
     }
@@ -636,6 +655,7 @@ impl AgentPort for FakeAgents {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
+            inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
             inner.prompts.len() - 1
         };
@@ -781,6 +801,13 @@ impl AgentPort for FakeAgents {
         inner.steers.push((session.to_owned(), blocks));
         let at_end = inner.steer_at_end;
         let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
         drop(inner);
         self.changed.notify_all();
         let me = self.me.upgrade().expect("alive");
@@ -923,6 +950,18 @@ impl Harness {
         log: optchat_chief::brain::Log,
     ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
+        Harness::over_chat(dir, script, owner, settings, log, chat)
+    }
+
+    /// `configured` over a chat the test opened (its own compactor model).
+    pub fn over_chat(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+        chat: Arc<OptChat>,
+    ) -> Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(

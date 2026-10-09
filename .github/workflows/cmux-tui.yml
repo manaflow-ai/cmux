@@ -567,9 +567,9 @@ jobs:
             --test-threads=1
 
           startup_tests=(
-            config::tests::load_uses_file_ghostty_defaults_without_invoking_external_resolver
-            config::tests::ghostty_file_reader_enforces_byte_limit_during_read
-            config::tests::ghostty_config_helper_output_reader_enforces_byte_limit
+            config::tests::ghostty_config_files::load_uses_file_ghostty_defaults_without_invoking_external_resolver
+            config::tests::ghostty_config_files::ghostty_file_reader_enforces_byte_limit_during_read
+            config::tests::ghostty_helper::ghostty_config_helper_output_reader_enforces_byte_limit
           )
           for test_name in "${startup_tests[@]}"; do
             require_exact_test "$cmux_tui_bin" "$test_name"
@@ -671,13 +671,13 @@ jobs:
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
         # each selector.
-        run: 'cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2'
+        run: '../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
         working-directory: cmux-tui
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
-        run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
+        run: '../scripts/ci/cargo-test-selected.sh -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
       - name: Mac browser host provider tests
         working-directory: cmux-tui
@@ -685,34 +685,34 @@ jobs:
         # the last process that used the server end), and the inherited
         # listeners must close on exec on macOS too.
         run: |
-          cargo test -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
-          cargo test -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
+          ../scripts/ci/cargo-test-selected.sh -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib \
             unix_process_scope::tests::mac_process_scope_launcher_stops_before_the_requested_program \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib \
             unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
             -- --exact
           # macOS always has /bin/zsh; the Linux runner has none, so this
           # end-to-end title test only skips there.
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib \
             shell_integration::tests::a_daemon_integrated_zsh_titles_a_long_command_with_every_argument \
             -- --exact
-          cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-remote --lib workspace::process::tests::macos_pty_ \
             -- --test-threads=1
 
       - name: Mac theme, layout and launchd tests
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-theme-tokens --test load \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
             macos_app_support_loads_after_xdg -- --exact
-          cargo test -p cmux-server-core --test layout_ports \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test layout_ports \
             macos_headless_and_app_layouts -- --exact
-          cargo test -p cmux-server-core --test units_golden launch_ \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
 
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
@@ -862,20 +862,20 @@ jobs:
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
       - name: focused macOS journal process-fence tests
         if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+        run: ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
           journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
           -- --exact
 
@@ -883,13 +883,13 @@ jobs:
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib \
             journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib \
             journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
             -- --exact
-          cargo test -p cmux-tui-core --test browser_runtime \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --test browser_runtime \
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
@@ -1028,12 +1028,12 @@ jobs:
         shell: bash
         run: |
           unset CMUX_GHOSTTY_SRC
-          cargo test -p cmux-tui-core --lib --locked \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib --locked \
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
           # Windows process data: reads only processes in this daemon's
           # terminal jobs (plans/cmux-next/windows-daemon.md, section 2).
-          cargo test -p cmux-tui-core --lib --locked \
+          ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib --locked \
             --target x86_64-pc-windows-gnu \
             windows_processes:: -- --test-threads=1
           # The SDK's local_socket transport (shared with the daemon) and the

@@ -222,10 +222,23 @@ def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str
     return arms
 
 
+def command_handler_body(module: str, function: str) -> str:
+    """Body of a command handler that a dispatch arm delegates to
+    (`cmd_<family>::<function>(...)` in server/cmd_<family>.rs)."""
+    path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+    if not path.exists():
+        fail(f"dispatch arm calls {module}::{function} but {path.name} is missing")
+    return rust_function_body(strip_rust_comments(path.read_text()), function)
+
+
 def guarded_command_profiles(source: str) -> dict[str, str]:
     arms = rust_match_arms(source, "handle_command_with_cancellation", "Command")
     profiles: dict[str, str] = {}
     for variant, arm in arms.items():
+        # Command families live in server/cmd_*.rs; a guard inside the
+        # handler an arm calls belongs to that arm.
+        for module, function in re.findall(r"\b(cmd_[a-z0-9_]+)::([a-z0-9_]+)\(", arm):
+            arm += command_handler_body(module, function)
         if (
             "authorize_provider_workspace_command" in arm
             or "with_provider_workspace_authority" in arm
@@ -603,7 +616,8 @@ def event_names() -> set[str]:
     for module_source in server_module_sources():
         source = strip_rust_comments(module_source)
         module_tokens = rust_tokens(source)
-        module_constants = rust_string_constants(module_tokens)
+        # A moved module still names server.rs's constants (super::...).
+        module_constants = {**constants, **rust_string_constants(module_tokens)}
         names.update(json_macro_event_names(module_tokens, module_constants))
         names.update(inserted_event_names(module_tokens, module_constants))
         names.update(assigned_event_names(module_tokens, module_constants))
@@ -733,13 +747,22 @@ def event_streams() -> dict[str, set[str]]:
     return streams_by_event
 
 
+def config_source() -> str:
+    """config.rs and its child modules (config/*.rs, not tests): the Action catalog source."""
+    root = TUI / "crates/cmux-tui/src"
+    paths = [root / "config.rs", *sorted((root / "config").glob("*.rs"))]
+    return "\n".join(
+        path.read_text() for path in paths if path.name != "tests.rs" and path.is_file()
+    )
+
+
 def action_variants() -> set[str]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     return rust_enum_variants(source, "Action")
 
 
 def action_metadata() -> dict[str, dict[str, object]]:
-    source = strip_rust_comments((TUI / "crates/cmux-tui/src/config.rs").read_text())
+    source = strip_rust_comments(config_source())
     body = rust_function_body(source, "metadata")
     metadata: dict[str, dict[str, object]] = {}
     for variant, key, classification, route, execution in re.findall(

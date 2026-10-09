@@ -21,16 +21,6 @@ final class HeaderProvider: LayoutPaneContentProvider {
     }
 }
 
-@Suite struct PaneHeaderGeometryTests {
-    @Test func roundedAreaStartsBelowTheHeader() {
-        let padded = CGRect(x: 4, y: 4, width: 200, height: 100)
-        #expect(PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: 28) == CGRect(x: 4, y: 32, width: 200, height: 72))
-        #expect(PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: 0) == padded)
-        // A header taller than the pane leaves an empty rounded area, never a negative one.
-        #expect(PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: 500).height == 0)
-    }
-}
-
 extension LayoutDesignMetricsTests {
     @Test func borderAndCornersTraceOnlyTheContentBelowTheHeader() async throws {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .splits(.leaf("a")))], activeScreenID: "s", focusedPane: nil)

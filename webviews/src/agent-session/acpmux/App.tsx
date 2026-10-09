@@ -30,6 +30,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type Tab
 import { setDeviceChats } from "./newtab/deviceChats";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
+import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -51,7 +52,8 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
-import { ComposerPickers } from "./ComposerPickers";
+import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
+import { openPicker } from "./pickerOpeners";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
@@ -61,7 +63,7 @@ import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
-import { type Translate, useT } from "./i18n";
+import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -117,6 +119,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
+import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -880,7 +883,36 @@ function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
   );
 }
 
-function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
+/// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
+/// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
+/// behind the page, which stays, and the pick lands on it (harnessSwitch keeps picks made while a
+/// switch runs). Enter asks the same agent in the same folder, the same switch, which then shows.
+function NewTabComposerChips({ snapshot, cwd }: { snapshot: AcpmuxSnapshot; cwd?: string }) {
+  return <DefaultComposerChips snapshot={snapshot} cwd={cwd} startsChat />;
+}
+
+/// The host closes a New Tab page (`AgentPaneView.discardUnsentChat`).
+const NEW_TAB_CLOSE_EVENT = "acpmux-newtab-close";
+
+function DefaultComposerChips({
+  snapshot,
+  cwd,
+  startsChat = false,
+}: {
+  snapshot: AcpmuxSnapshot;
+  /// The folder a chat the chips start opens in (the New Tab page's project).
+  cwd?: string;
+  /// The chips belong to a page with no chat yet: a model, mode or effort pick starts one first.
+  startsChat?: boolean;
+}) {
+  const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
+  // `chat.new` for the same agent and folder is the switch already running, so a second pick
+  // never restarts it.
+  const start = () => {
+    const harness = snapshot.summary?.harness;
+    if (!startsChat || !harness || snapshot.summary?.sessionId) return;
+    void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
+  };
   const picker = usePickerCatalog(snapshot.catalog, {
     harness: snapshot.summary?.harness,
     configOptions: snapshot.summary?.configOptions,
@@ -899,11 +931,20 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   }, [picker]);
   return (
     <ComposerPickers
-      snapshot={snapshot}
-      onModel={(modelId) => void callNative("chat.model", { modelId })}
-      onMode={(modeId) => void callNative("chat.mode", { modeId })}
-      onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
-      onHarness={(harness) => void callNative("chat.new", { harness })}
+      snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      onModel={(modelId) => {
+        start();
+        void callNative("chat.model", { modelId });
+      }}
+      onMode={(modeId) => {
+        start();
+        void callNative("chat.mode", { modeId });
+      }}
+      onEffort={(configId, value) => {
+        start();
+        void callNative("chat.effort", { configId, value });
+      }}
+      onHarness={(harness) => void callNative("chat.new", { harness, ...inFolder })}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
@@ -938,6 +979,8 @@ function AcpmuxPane() {
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
   const [chooseFolder, setChooseFolder] = useState(false);
+  /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
+  const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   /// The host's localized refusal of the last Choose Folder… click.
   const [folderError, setFolderError] = useState<string | undefined>();
   const [importError, setImportError] = useState<string | undefined>();
@@ -1504,6 +1547,9 @@ function AcpmuxPane() {
       toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
+        // ends with the keyboard in its search field.
+        if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
         if (
           [
             "permissionAllowOnce",
@@ -1600,6 +1646,10 @@ function AcpmuxPane() {
       },
     });
     let cancelled = false;
+    // The New Tab page closes (AgentPaneView.discardUnsentChat, cx-e2aa): a chat a chip pick started
+    // behind it, never sent, is discarded.
+    const discardUnsent = () => harnessSwitch.cancelDeferred();
+    window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
@@ -1655,6 +1705,7 @@ function AcpmuxPane() {
           sessionMustExist?: boolean;
           revealTurn?: unknown;
           chooseFolder?: boolean;
+          folderNeeded?: { reason?: unknown };
           machineName?: unknown;
           githubRepository?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
@@ -1663,6 +1714,11 @@ function AcpmuxPane() {
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
         setChooseFolder(host.chooseFolder === true);
+        setFolderNeeded(
+          typeof host.folderNeeded?.reason === "string" && host.folderNeeded.reason
+            ? { reason: host.folderNeeded.reason }
+            : undefined,
+        );
         setHandshaken(true);
         if (
           (host.newSession && !host.sessionId) ||
@@ -1854,8 +1910,11 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
-          "chat.new": async ({ harness, cwd, peer }) => {
-            if (harness && !peer) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
+          "chat.new": async ({ harness, cwd, peer, deferred }) => {
+            if (harness && !peer)
+              return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined, {
+                deferred: deferred === true,
+              });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(
@@ -1937,8 +1996,9 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            // After a Trust answer the switch runs again (the trust route, direct.ts).
-            const again = () => void harnessSwitch.switchTo(harness, cwd);
+            // After a Trust answer the switch that waited for it runs again, with its prompts
+            // (the trust route, direct.ts; harnessSwitch.resumeAfterTrust).
+            const again = () => harnessSwitch.resumeAfterTrust();
             const sessionId = await client.startSession(harness, cwd, undefined, again).catch((error: unknown) => {
               setBlockedHarness(harnessBlock(error));
               throw error;
@@ -1949,7 +2009,17 @@ function AcpmuxPane() {
           },
           leave: () => client.leave(),
           open: (sessionId) => client.select(sessionId),
-          send: (text, attachments, promptId) => client.send(text, attachments, promptId),
+          // A prompt held behind the trust question goes with the gesture its send kept.
+          send: (text, attachments, promptId) => {
+            const kept = heldPrompt.take();
+            return client.send(
+              text,
+              attachments,
+              promptId,
+              undefined,
+              kept?.promptId === promptId ? kept.ticket : undefined,
+            );
+          },
           setModel: (modelId) => client.setModel(modelId),
           setMode: (modeId, ticket) => client.setMode(modeId, ticket),
           setConfig: (configId, value, ticket) => client.setConfig(configId, value, ticket),
@@ -1971,6 +2041,7 @@ function AcpmuxPane() {
           // pick's frame when the switch applies it. A host without the op answers with a refusal.
           gesture: (intent) =>
             postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+          holdPrompt: (promptId) => void heldPrompt.hold(promptId),
         });
         harnessSwitch.connect(switchPort);
         acpmuxPerf.markAgent("composerReady");
@@ -2032,6 +2103,7 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
+      window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
@@ -2042,10 +2114,10 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
   }, [harnessSwitch, queryClient, toggleInspector]);
-  const ComposerChips =
-    ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
-      | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
-      | undefined) ?? DefaultComposerChips;
+  const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
+    | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
+    | undefined;
+  const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
@@ -2349,6 +2421,30 @@ function AcpmuxPane() {
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
+      {folderNeeded && !snapshot.sessionId && (
+        <MissingFolder
+          reason={folderNeeded.reason}
+          error={folderNeeded.error}
+          onChoose={() => {
+            void chooseChatFolder(
+              () => callNative("chat.folder.choose"),
+              async (adopt) => {
+                const client = directClient.current;
+                if (!client) throw new Error(t("error.nativeUnavailable"));
+                const sessionId = await client.resume(adopt);
+                if (sessionId) await callNative("chat.persistSession", { sessionId });
+              },
+            ).then(
+              (result) => {
+                if (result.done) setFolderNeeded(undefined);
+                else if (result.reason) setFolderNeeded({ reason: result.reason });
+              },
+              (error: unknown) =>
+                setFolderNeeded((current) => current && { ...current, error: errorMessage(error) || String(error) }),
+            );
+          }}
+        />
+      )}
       {showsFolderChoice({ offered: chooseFolder, freshChat, quick, projectDraft, sessionId: snapshot.sessionId }) && (
         <FolderChoice
           error={folderError}
@@ -2554,6 +2650,16 @@ function AcpmuxPane() {
               home={newTab.home}
               tools={newTab.tools}
               inputToken={newTab.inputToken}
+              {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+              projects={newTabProjects}
+              onBrowseProject={() =>
+                callNative<{ cwd?: string }>("project.browse").then(
+                  (result) => result?.cwd,
+                  () => undefined,
+                )
+              }
+              chips={registryChips ?? NewTabComposerChips}
+              focusField={newTab.focusesField !== false}
               {...newTabScreenActions({
                 callNative,
                 cwd: newTab.cwd,
