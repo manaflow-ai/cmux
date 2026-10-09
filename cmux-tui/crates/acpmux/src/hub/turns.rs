@@ -400,6 +400,17 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // A fallback that could not resume (another store)
+                        // starts fresh: it gets the restored transcript first.
+                        let mut blocks = blocks;
+                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                            && let Some(transcript) = self.transcript(session, 24_000)
+                        {
+                            blocks.insert(
+                                0,
+                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                            );
+                        }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(

@@ -538,6 +538,10 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
+        // Items logged already (a failed steer on a harness that answers at
+        // the turn's end) are not logged again.
+        let fresh: Vec<Queued> = items.iter().filter(|q| !q.logged).cloned().collect();
+        let items = &fresh[..];
         let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
@@ -834,6 +838,7 @@ impl Brain {
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
             model: engine.model.clone(),
+            effort: engine.effort.clone(),
             other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
         })
     }

@@ -36,8 +36,11 @@ stop). On the acpmux engine the brain steers the message into the running
 session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
 claude's stdin, where Claude Code reads it at its next tool boundary
 (`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
-the turn's one reply answers it too, and it is logged as `user` once the
-harness read it. When the turn cannot take it (its session has not started,
+the turn's one reply answers it too. Every message is sent at once, in
+order, and logged as `user` where it arrived: when Claude Code read it, and
+at once on codex-acp (which answers a steer only at the turn's end). A
+message too big to go in whole (over the view's 128,000 bytes or 20 images)
+is not steered. When the turn cannot take it (its session has not started,
 an item of another conversation is ahead, or acpmux refuses the steer), the
 message waits at the head of the queue and the next turn starts the moment
 this one ends. The native engine delivers it after the next tool results,
@@ -83,6 +86,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `optchat-sub-<home id>`. Tags: `mux.parent=optchat-chief:<home id>`,
   `optchat.spawn=s<N>`, `optchat.subagent=a<N>`; never `cmux.chief`. It answers
   the ids at once (ids are unique per home, kept in host.json).
+- `spawn` takes an optional `effort` (low, medium, high, xhigh, max): how
+  hard its subagents think; by default the calling turn's effort.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
   renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
@@ -145,6 +150,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - `chief.stop` stops the running turn and every subagent at work
   (`session/cancel` on each; their reports come quiet) and drops the queued
   ones; it answers `{"stopped": true, "subagents": [...]}`.
+  `chief.stop {name: "a3"}` stops only that subagent and answers the
+  note `Stopped by the user: a3.`; the turn and the other subagents go on.
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 

@@ -22,6 +22,18 @@ struct KeybindingReportTests {
         (value["bindings"]?.arrayValue ?? []).compactMap { if case .object(let entry) = $0 { entry } else { nil } }
     }
 
+    /// The Keyboard Shortcuts page marks a system-wide key that cmux could
+    /// not register (`GlobalHotKeyService.conflicts`: another app holds it),
+    /// so Start Agent from Any App's row says why its key does nothing.
+    @Test func pageListMarksGlobalKeysHeldElsewhere() {
+        let registry = Self.registry()
+        let rows = Self.bindings(KeybindingReports.pageList([:], registry: registry, heldElsewhere: ["palette.startAgentFromAnyApp"]))
+        let anyApp = rows.filter { $0["command"] == "palette.startAgentFromAnyApp" }
+        #expect(!anyApp.isEmpty)
+        #expect(anyApp.allSatisfy { $0["heldElsewhere"] == .bool(true) })
+        #expect(rows.filter { $0["command"] == "palette.quickAgentChat" }.allSatisfy { $0["heldElsewhere"] == nil })
+    }
+
     @Test func listGivesKeysWhenTextAndSourceAndFilters() {
         let registry = Self.registry()
         let all = Self.bindings(KeybindingReports.list([:], registry: registry))

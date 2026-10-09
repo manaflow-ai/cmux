@@ -149,7 +149,7 @@
                  let p = MDInlineParser.parse(text, refs: known)
                  add(.paragraph(p), start)
 -                out[out.count - 1].rich = MDBlock.paragraphIsRich(p, source: text)
-+                if let last = out.indices.last { out[last].rich = MDBlock.paragraphIsRich(p, source: text) } // cmux: no index math
++                if let last = out.indices.last { out.update(at: last) { $0.rich = MDBlock.paragraphIsRich(p, source: text) } } // cmux: no index math
              }
              if let at = tableAt, let tb = table(lines, at: at, known) {
                  let s2 = i
@@ -514,7 +514,7 @@
          for x in s {
              if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
 -                l.length += x.length; out[out.count - 1] = l
-+                l.length += x.length; if let last = out.indices.last { out[last] = l } // cmux: no index math
++                l.length += x.length; if let last = out.indices.last { out.update(at: last) { $0 = l } } // cmux: no index math
              } else { out.append(x) }
          }
          return out

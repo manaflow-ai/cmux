@@ -40,4 +40,13 @@ public protocol AutomationTabProvider: AnyObject {
     func endSessionTab(_ id: String) -> Bool
     /// Selects a tab in its pane; only for calls with origin `user` or `focus`.
     func activateAutomationTab(_ id: BrowserTabID)
+    /// Keeps a tab that no pane shows rendering in a window nobody sees, so
+    /// trusted input, animation frames, focus and snapshots work. Nothing is
+    /// shown and no focus moves. True when the tab moved into a window now.
+    func keepRendering(_ tab: WebKitTab) async -> Bool
+}
+
+public extension AutomationTabProvider {
+    /// An App with no render window: hidden tabs stay as they are.
+    func keepRendering(_ tab: WebKitTab) async -> Bool { false }
 }
