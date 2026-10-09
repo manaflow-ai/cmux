@@ -8596,6 +8596,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.activityView.help",
+        "text" : "Shows chats that need you at the top, then every chat by day, in place of the sidebar sections."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.activityView",
+      "keywords" : [
+        "sidebar",
+        "activity",
+        "chats",
+        "priority",
+        "unread",
+        "attention"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "activityView"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.activityView",
+        "text" : "Activity View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         1,
         50,
         25.5
@@ -16284,7 +16332,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "836693f2821a78a3d4981ac2d24f404663db91324e6164e6bea133d044bba02c",
+  "schema_hash" : "8cce04acb64bdef230943e7548d46d8cbb5685380793f92d6428cfc1dd70d27d",
   "sections" : [
     {
       "id" : "general",

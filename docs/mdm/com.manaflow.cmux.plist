@@ -1973,6 +1973,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Shows chats that need you at the top, then every chat by day, in place of the sidebar sections.</string>
+			<key>pfm_name</key>
+			<string>sidebar.activityView</string>
+			<key>pfm_title</key>
+			<string>Activity View</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>8</integer>
 			<key>pfm_description</key>
 			<string>How many chats the All chats section shows before it scrolls.</string>

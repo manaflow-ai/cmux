@@ -153,6 +153,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
 | `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
 | `sidebar.showChats` | boolean | `true` |  | Show All Chats. Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. |
+| `sidebar.activityView` | boolean | `false` |  | Activity View. Shows chats that need you at the top, then every chat by day, in place of the sidebar sections. |
 | `sidebar.allChatsRows` | real | `8` | 1 to 50 | All Chats Rows. How many chats the All chats section shows before it scrolls. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |

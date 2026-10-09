@@ -1420,6 +1420,12 @@
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
     },
+    "sidebar.activityView" : {
+      "default" : false,
+      "description" : "Shows chats that need you at the top, then every chat by day, in place of the sidebar sections.",
+      "title" : "Activity View",
+      "type" : "boolean"
+    },
     "sidebar.allChatsRows" : {
       "default" : 8,
       "description" : "How many chats the All chats section shows before it scrolls.",
