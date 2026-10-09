@@ -22,9 +22,10 @@ pub mod fs_sandbox;
 pub mod gate;
 #[cfg(unix)]
 pub mod headless_activity;
-pub mod headless_linger;
 #[cfg(unix)]
 pub mod headless_configure;
+#[cfg(unix)]
+pub mod headless_linger;
 #[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
