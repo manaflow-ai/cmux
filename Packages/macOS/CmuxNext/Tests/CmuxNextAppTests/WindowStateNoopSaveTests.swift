@@ -39,7 +39,9 @@ struct WindowStateNoopSaveTests {
         let puts = Puts()
         let server = try ScriptedDaemonSocket(handler: Self.daemon(puts))
         defer { server.stop() }
-        let store = WindowStateStore(connection: DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path)))
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        _ = try await connection.start()
+        let store = WindowStateStore(connection: connection)
         try await store.load()
         let record = WindowRecord(id: "w1", frame: WindowFrame(x: 1, y: 2, width: 3, height: 4))
         try await store.update { $0.windows = [record] }
@@ -49,5 +51,6 @@ struct WindowStateNoopSaveTests {
         #expect(puts.count.withLock { $0 } == 1, "the same records again are not written")
         try await store.update { $0.windows = [record, WindowRecord(id: "w2")] }
         #expect(puts.count.withLock { $0 } == 2, "a later change is written")
+        await connection.close()
     }
 }
