@@ -32,7 +32,7 @@ public enum StoreKitBillingError: Error, Hashable, Sendable {
     }
 }
 
-public enum BillingErrorMapper {
+public extension StoreKitBillingError {
     public static func map(_ error: Error) -> StoreKitBillingError {
         if let error = error as? StoreKitBillingError { return error }
         if error is CancellationError { return .cancelled }

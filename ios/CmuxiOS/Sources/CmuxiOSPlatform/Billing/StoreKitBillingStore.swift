@@ -87,7 +87,7 @@ public actor StoreKitBillingStore: BillingStore {
                 return .refused(key: key, reason: StoreKitBillingError.unknown.userMessage)
             }
         } catch {
-            let mapped = BillingErrorMapper.map(error)
+            let mapped = StoreKitBillingError.map(error)
             return .refused(key: key, reason: mapped.userMessage)
         }
     }
@@ -109,7 +109,7 @@ public actor StoreKitBillingStore: BillingStore {
         do {
             try await AppStore.sync()
         } catch {
-            return .refused(key: key, reason: BillingErrorMapper.map(error).userMessage)
+            return .refused(key: key, reason: StoreKitBillingError.map(error).userMessage)
         }
 
         var lastRevision = revision
@@ -127,7 +127,7 @@ public actor StoreKitBillingStore: BillingStore {
                 }
             }
         }
-        state.currentPlanID = BillingStateProjection.currentPlanID(from: entitlements.values)
+        state.currentPlanID = BillingState.currentPlanID(from: entitlements.values)
         publish()
         // A restore with no active entitlement is still a successful, idempotent
         // owner operation; the UI can continue to show the available plans.
@@ -183,10 +183,10 @@ public actor StoreKitBillingStore: BillingStore {
             // A network failure must remain visible as offline.  A DEBUG build
             // may use canned plans only when StoreKit has no products at all;
             // this avoids masking a live outage with misleading sample data.
-            if BillingErrorMapper.map(error) == .productNotFound {
+            if StoreKitBillingError.map(error) == .productNotFound {
                 await activateFallbackOrUnavailable(reason: .productNotFound)
             } else {
-                connection = .offline(reason: BillingErrorMapper.map(error).userMessage)
+                connection = .offline(reason: StoreKitBillingError.map(error).userMessage)
                 state.phase = .idle
                 publish()
             }
@@ -198,13 +198,13 @@ public actor StoreKitBillingStore: BillingStore {
             guard case .verified(let transaction) = result else { continue }
             record(entitlement: Self.entitlement(from: transaction))
         }
-        state.currentPlanID = BillingStateProjection.currentPlanID(from: entitlements.values)
+        state.currentPlanID = BillingState.currentPlanID(from: entitlements.values)
     }
 
     private func handleTransactionUpdate(_ result: VerificationResult<Transaction>) async {
         guard case .verified(let transaction) = result else { return }
         record(entitlement: Self.entitlement(from: transaction))
-        state.currentPlanID = BillingStateProjection.currentPlanID(from: entitlements.values)
+        state.currentPlanID = BillingState.currentPlanID(from: entitlements.values)
         publish()
         // Updates that arrive outside an explicit purchase (for example a
         // renewal) still have to reach the owner.  Keep the transaction
@@ -220,7 +220,7 @@ public actor StoreKitBillingStore: BillingStore {
         }
         let value = Self.value(from: result, transaction: transaction)
         record(entitlement: Self.entitlement(from: transaction))
-        state.currentPlanID = BillingStateProjection.currentPlanID(from: entitlements.values)
+        state.currentPlanID = BillingState.currentPlanID(from: entitlements.values)
         publish()
 
         guard let transactionSink else {
@@ -234,7 +234,7 @@ public actor StoreKitBillingStore: BillingStore {
             publish()
             return .committed(key: key, revision: ownerReceipt.revision)
         } catch {
-            let mapped = BillingErrorMapper.map(error)
+            let mapped = StoreKitBillingError.map(error)
             return .refused(key: key, reason: mapped == .unknown ? StoreKitBillingError.ownerUnavailable.userMessage : mapped.userMessage)
         }
     }
@@ -337,7 +337,10 @@ public actor StoreKitBillingStore: BillingStore {
 
     public func updates() async -> AsyncStream<SourceSnapshot<BillingState>> {
         if let fallback { return await fallback.updates() }
-        let (stream, continuation) = AsyncStream.makeStream(of: SourceSnapshot<BillingState>.self)
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: SourceSnapshot<BillingState>.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
         continuation.yield(SourceSnapshot(revision: 1, value: BillingState(plans: [], currentPlanID: nil), connection: .offline(reason: StoreKitBillingError.unavailable.userMessage)))
         continuation.finish()
         return stream

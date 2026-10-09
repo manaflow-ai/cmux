@@ -91,7 +91,7 @@ public protocol BillingTransactionSubmitting: Sendable {
 /// A pure projection shared by StoreKit and tests.  If several subscriptions
 /// are active, the newest purchase wins and the product id is the stable tie
 /// breaker.  Revoked or expired transactions never become the current plan.
-public enum BillingStateProjection {
+public extension BillingState {
     public static func currentPlanID(
         from entitlements: some Sequence<BillingEntitlement>,
         at date: Date = Date()

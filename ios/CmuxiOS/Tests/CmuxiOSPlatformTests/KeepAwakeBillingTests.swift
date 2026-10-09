@@ -45,7 +45,7 @@ struct KeepAwakeBillingTests {
             BillingEntitlement(productID: "revoked", transactionID: "2", purchasedAt: Date(timeIntervalSince1970: 1_500), revocationDate: now.addingTimeInterval(-1)),
             BillingEntitlement(productID: "pro.yearly", transactionID: "3", purchasedAt: Date(timeIntervalSince1970: 1_900), expirationDate: now.addingTimeInterval(60)),
         ]
-        #expect(BillingStateProjection.currentPlanID(from: entitlements, at: now) == "pro.yearly")
+        #expect(BillingState.currentPlanID(from: entitlements, at: now) == "pro.yearly")
     }
 
     @Test func billingProjectionUsesNewestPurchaseAndStableTieBreak() {
@@ -54,7 +54,7 @@ struct KeepAwakeBillingTests {
             BillingEntitlement(productID: "pro.yearly", transactionID: "b", purchasedAt: when),
             BillingEntitlement(productID: "pro.monthly", transactionID: "a", purchasedAt: when),
         ]
-        #expect(BillingStateProjection.currentPlanID(from: entitlements, at: when) == "pro.monthly")
+        #expect(BillingState.currentPlanID(from: entitlements, at: when) == "pro.monthly")
     }
 
     @Test func storeKitConfigurationPrefersEnvironmentAndBoundsProductIDs() {
@@ -66,10 +66,10 @@ struct KeepAwakeBillingTests {
     }
 
     @Test func billingErrorsAreBoundedAndMappedWithoutLeakingRawText() {
-        let mapped = BillingErrorMapper.map(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet))
+        let mapped = StoreKitBillingError.map(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet))
         #expect(mapped == .network)
         #expect(mapped.userMessage.count < 160)
-        #expect(BillingErrorMapper.message(for: StoreKitBillingError.verificationFailed).contains("verified"))
+        #expect(StoreKitBillingError.message(for: StoreKitBillingError.verificationFailed).contains("verified"))
     }
 
     @Test func storeKitUsesMockOnlyWhenExplicitFallbackIsEnabled() async throws {
