@@ -147,6 +147,16 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// caller rebuilds the masks once after a batch (``load(_:isCancelled:)``)
     /// instead of after every value. A value's earlier masks stay until then.
     private func register(name: String, value: String, domains rawDomains: [String], totp: Bool, title: String, rebuild: Bool) throws {
+        let domains = try validate(name: name, value: value, domains: rawDomains, title: title)
+        try lock.withLock {
+            try registerLocked(name: name, value: value, domains: domains, totp: totp, title: title)
+            if rebuild { rebuildLocked() }
+        }
+    }
+
+    /// The checks of a registration that do not depend on the store: the
+    /// name, the value's size and the domain patterns, parsed.
+    private func validate(name: String, value: String, domains rawDomains: [String], title: String) throws -> [BrowserReplDomainPattern] {
         guard name.range(of: "^[\\w.-]{1,64}$", options: .regularExpression) != nil else {
             throw invalid("\(title): name: expected letters, digits, _, . or - (at most 64), got \(Self.quote(name))")
         }
@@ -160,10 +170,16 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         guard rawDomains.count <= Self.maximumDomains else {
             throw invalid("\(title): \(name): domains: at most \(Self.maximumDomains), got \(rawDomains.count)")
         }
-        let domains = try rawDomains.map { try BrowserReplDomainPattern.parse($0, title: title, publicSuffixes: publicSuffixes) }
+        return try rawDomains.map { try BrowserReplDomainPattern.parse($0, title: title, publicSuffixes: publicSuffixes) }
+    }
+
+    /// Registers a validated entry (``validate(name:value:domains:title:)``)
+    /// against the store's limits. Call with `lock` held; masks are not
+    /// rebuilt.
+    private func registerLocked(name: String, value: String, domains: [BrowserReplDomainPattern], totp: Bool, title: String) throws {
         let isTOTP = totp || name.hasSuffix("bu_2fa_code")
         if isTOTP, Self.base32Decode(value) == nil { throw invalid("secrets: a TOTP secret must be base32") }
-        try lock.withLock {
+        do {
             if !registered.contains(name), registered.count >= Self.maximumSecrets {
                 throw invalid("\(title): \(name): a session holds at most \(Self.maximumSecrets) secrets; delete one (secrets.delete) first")
             }
@@ -187,7 +203,6 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
             lastRevision += 1
             revisions[name] = lastRevision
-            if rebuild { rebuildLocked() }
         }
     }
 
@@ -292,8 +307,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// - Returns: The names loaded, in order.
     /// - Throws: `CancellationError` when `isCancelled` says so between
     ///   entries (it runs on the session's JavaScript thread, inside a
-    ///   synchronous host call). The masks are rebuilt once when it returns
-    ///   or throws, so what it loaded is masked either way.
+    ///   synchronous host call). A load that throws registers nothing:
+    ///   every entry is checked first, then all are registered at once.
     public func load(_ object: Any, allowWeak: Bool = false, isCancelled: () -> Bool = { false }) throws -> [String] {
         if isCancelled() { throw CancellationError() }
         guard let groups = object as? [String: Any] else {
@@ -334,9 +349,12 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 )
             }
         }
+        // Every entry is read and checked before any is registered, and
+        // they are registered in one hold of the lock that restores the
+        // store when one is refused: a load registers all its entries or
+        // none, so a failed load leaves nothing of its file behind.
+        var staged: [(name: String, value: String, pattern: BrowserReplDomainPattern, totp: Bool)] = []
         var names: [String] = []
-        var changed = false
-        defer { if changed { lock.withLock { rebuildLocked() } } }
         for (pattern, rawEntries) in groups.sorted(by: { $0.key < $1.key }) {
             if isCancelled() { throw CancellationError() }
             guard let group = rawEntries as? [String: Any] else {
@@ -348,13 +366,31 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 guard let value = (object?["value"] ?? raw) as? String else {
                     throw invalid("secrets.load: \(name): value: expected a non-empty string")
                 }
-                let prior = lock.withLock { entries[name] }
-                let domains = prior.map { $0.value == value ? $0.domains.map(\.raw) + [pattern] : [pattern] } ?? [pattern]
-                let totp = (object?["totp"] as? Bool ?? false) || (prior?.totp ?? false)
-                try register(name: name, value: value, domains: domains, totp: totp, title: "secrets.load", rebuild: false)
-                changed = true
+                let domain = try validate(name: name, value: value, domains: [pattern], title: "secrets.load")[0]
+                staged.append((name, value, domain, object?["totp"] as? Bool ?? false))
                 if !names.contains(name) { names.append(name) }
             }
+        }
+        if isCancelled() { throw CancellationError() }
+        try lock.withLock {
+            let saved = (entries, order, retired, registered, heldValues, revisions, lastRevision)
+            do {
+                for entry in staged {
+                    let prior = entries[entry.name]
+                    let domains = prior.map { $0.value == entry.value ? $0.domains + [entry.pattern] : [entry.pattern] } ?? [entry.pattern]
+                    guard domains.count <= Self.maximumDomains else {
+                        throw invalid("secrets.load: \(entry.name): domains: at most \(Self.maximumDomains), got \(domains.count)")
+                    }
+                    try registerLocked(
+                        name: entry.name, value: entry.value, domains: domains,
+                        totp: entry.totp || (prior?.totp ?? false), title: "secrets.load"
+                    )
+                }
+            } catch {
+                (entries, order, retired, registered, heldValues, revisions, lastRevision) = saved
+                throw error
+            }
+            if !staged.isEmpty { rebuildLocked() }
         }
         return names
     }
