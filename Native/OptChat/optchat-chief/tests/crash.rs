@@ -127,10 +127,11 @@ fn a_crash_while_a_message_is_logged_logs_it_once_and_answers_it() {
                 assert_eq!(sends.len(), 1, "{point}: {sends:?}");
                 assert_eq!(sends[0].1, "answer 0", "{point}");
             }
-            // Logged with its pending turn, the turn never ran: told once.
+            // Logged with its pending turn, the turn never ran: resumed
+            // and answered once (E23).
             ("brain:after-turn-log", true) => {
                 assert_eq!(sends.len(), 1, "{point}: {sends:?}");
-                assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
+                assert_eq!(sends[0].1, "answer 0", "{point}: {sends:?}");
             }
             // The turn finished before the restart: nothing to do again.
             _ => assert!(sends.is_empty(), "{point}: {sends:?}"),
@@ -268,8 +269,7 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     assert_eq!(count(&h.log(), "user", "first"), 1);
     assert!(h.brain.state().turn.is_none());
     let sends = h.owner.lock().unwrap().sends();
-    assert!(
-        sends.iter().any(|(_, t)| t.starts_with("(interrupted")),
-        "{sends:?}"
-    );
+    // The cut turn is resumed and answers once (E23).
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
 }
