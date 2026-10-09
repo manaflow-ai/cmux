@@ -75,6 +75,8 @@ and render-server field animation, blurred header and native scrolling.
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | LongText | the off-main streaming tail renders a block's tiles from its layout without a force unwrap (crash ratchet) |
 | MarkdownStore, LongText | `isPlain`/`setPlain`: a message HomeMapping marks plain (a person's text) never takes the Markdown engine; only an agent's text is Markdown |
+| MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
+| ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
 
 ## Updating
 
