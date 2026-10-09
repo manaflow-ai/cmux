@@ -63,7 +63,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
-import { Inspector } from "./Inspector";
+import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
@@ -139,6 +139,8 @@ declare global {
   interface Window {
     cmuxAcpmuxBridge?: {
       receive(snapshot: AcpmuxSnapshot): void;
+      /** Sets or toggles the inspector and returns its next visibility. */
+      toggleInspector(open?: boolean): boolean;
       applyTheme(theme: Record<string, unknown>): void;
       applyCustomization(customization: {
         themeCSS?: string;
@@ -202,6 +204,15 @@ function cachedSnapshot(): AcpmuxSnapshot {
 }
 
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
+/** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
+export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+  try {
+    return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
+  } catch {
+    return "unavailable";
+  }
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -1048,7 +1059,12 @@ function AcpmuxPane() {
   }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
-  const closeInspector = useCallback(() => setInspectorOpen(false), []);
+  const inspectorOpenRef = useRef(false);
+  const inspectorHiddenSurfaceRef = useRef(false);
+  const closeInspector = useCallback(() => {
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, []);
   useLayoutEffect(() => {
     if (inspectorOpen || !inspectorOpener.current) return;
     inspectorOpener.current.focus();
@@ -1061,10 +1077,26 @@ function AcpmuxPane() {
     path?: string;
     opener?: HTMLElement;
   }>();
+  const toggleInspector = useCallback((open?: boolean) => {
+    if (inspectorHiddenSurfaceRef.current) {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      return false;
+    }
+    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+    inspectorOpenRef.current = next;
+    if (next) {
+      setDiffView(undefined);
+      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    }
+    setInspectorOpen(next);
+    return next;
+  }, []);
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    inspectorOpenRef.current = false;
     setInspectorOpen(false);
     setDiffView({
       sessionId: sessionIdRef.current,
@@ -1391,6 +1423,7 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      toggleInspector,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
@@ -1903,8 +1936,8 @@ function AcpmuxPane() {
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
     };
-    // Both are stable for the pane's life (a state initializer and the provider's client).
-  }, [harnessSwitch, queryClient]);
+    // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
+  }, [harnessSwitch, queryClient, toggleInspector]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -1952,8 +1985,7 @@ function AcpmuxPane() {
           inspectorOpener.current = Array.from(
             document.querySelectorAll<HTMLElement>(".acpmux-header-tools button"),
           ).find((button) => button.getAttribute("aria-label") === t("chatMenu.open"));
-          setDiffView(undefined);
-          setInspectorOpen(true);
+          toggleInspector(true);
         },
       },
       ...(forkable && lastForkSeq !== undefined
@@ -2045,6 +2077,13 @@ function AcpmuxPane() {
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  const inspectorHiddenSurface = quick || showNewTab;
+  inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
+  useEffect(() => {
+    if (!inspectorHiddenSurface) return;
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+  }, [inspectorHiddenSurface]);
   const importFile = useCallback(async (file: File) => {
     setImportError(undefined);
     try {
@@ -2473,6 +2512,7 @@ function AcpmuxPane() {
                     snapshot={snapshot}
                     sessionEvents={() => directClient.current?.sessionEvents() ?? []}
                     onClose={closeInspector}
+                    onExport={saveLogNatively}
                   />
                 )}
                 {diffView && diffFiles && (

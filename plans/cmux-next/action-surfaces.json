@@ -16200,6 +16200,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-acp-inspector",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.toggleInspector",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show ACP Inspector",
+      "title_key" : "action.agentPane.toggleInspector",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent quick",
       "context_menu" : "noObject",
       "context_menus" : [

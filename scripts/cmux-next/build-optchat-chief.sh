@@ -18,13 +18,17 @@ usage() {
   sed -n '2,12p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path]
+Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+  --check-build-allowed  exit 0 when this host may build optchat-chief on a miss
 Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_ARCHS  arm64 and/or x86_64 (default: ARCHS, else the host)
   CMUX_NEXT_OPTCHAT_CHIEF_CACHE  cache root (default: <crate>/target/hosted)
 USAGE
 }
 
+# A build host may run Cargo on a miss: CI, a fleet build (CMUX_FLEET_BUILD_TAG)
+# or an nx-remote job on a build host (NX_JOB_ID). A developer Mac never does.
+build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 output=""
 cached_only=0
 print_path=0
@@ -33,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --output) output="${2:?missing path after --output}"; shift 2 ;;
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
+    --check-build-allowed) build_allowed; exit $? ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -76,8 +81,8 @@ if [[ "$cached_only" -eq 1 ]]; then
   [[ "$print_path" -eq 1 ]] || echo "error: no cached optchat-chief at $cache_bin" >&2
   exit 1
 fi
-[[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
-  echo "error: optchat-chief is not cached; build it on CI or the fleet (cargo never runs on a developer Mac)" >&2
+build_allowed || {
+  echo "error: optchat-chief is not cached; build it on CI, the fleet or nx-remote (cargo never runs on a developer Mac)" >&2
   exit 1
 }
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build optchat-chief" >&2; exit 1; }
