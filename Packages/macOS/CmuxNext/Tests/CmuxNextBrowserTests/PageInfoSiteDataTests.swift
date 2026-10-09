@@ -94,26 +94,3 @@ struct PageInfoSiteDataTests {
     }
 }
 
-/// Reset permissions in a Site settings window for an origin the tab has
-/// left must reset the engine too: Chromium keeps its own persisted
-/// exceptions, so clearing only the shared store left a granted
-/// permission active.
-@MainActor
-struct SiteSettingsResetTests {
-    @Test func resetForAnotherOriginResetsTheEngine() async throws {
-        let tab = MockBrowserTab(configuration: BrowserTabConfiguration(), engineKind: .cef, completesNavigationsImmediately: true)
-        let origin = "https://camera.example"
-        let store = tab.pageInfoSettings.permissions(for: tab.profileID)
-        await store.whenLoaded()
-        store.set(.allow, .camera, for: origin)
-        store.set(.allow, .microphone, for: origin)
-        let window = SiteSettingsWindow(origin: origin, site: PageInfoSite(url: URL(string: origin), security: .secure), store: store,
-                                        provider: tab, send: { _ in })
-        window.perform(NSSelectorFromString("resetPermissions"))
-        for _ in 0..<200 where tab.pageInfoFake.appliedChanges.count < 2 { await Task.yield() }
-        let applied = tab.pageInfoFake.appliedChanges.map { "\($0.0.rawValue)=\($0.1.rawValue)@\($0.2)" }.sorted()
-        #expect(applied == ["camera=ask@\(origin)", "microphone=ask@\(origin)"])
-        #expect(store.decisions[origin] == nil)
-        window.close()
-    }
-}

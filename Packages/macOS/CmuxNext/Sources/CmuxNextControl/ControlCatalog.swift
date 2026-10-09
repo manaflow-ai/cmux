@@ -225,18 +225,18 @@ public struct ControlCatalog: Sendable {
     public func resolve(_ name: String) -> ControlActionInfo? {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         if let index = indexByID[trimmed] ?? aliases[trimmed].flatMap({ indexByID[$0] }) {
-            return actions[index]
+            return actions[checked: index]
         }
         let spaced = trimmed.split(whereSeparator: { $0 == " " }).joined(separator: " ")
-        if let index = indexByCLIName[spaced] { return actions[index] }
-        if let index = indexByCLIName[Self.renamedCLIName(spaced)] { return actions[index] }
+        if let index = indexByCLIName[spaced] { return actions[checked: index] }
+        if let index = indexByCLIName[Self.renamedCLIName(spaced)] { return actions[checked: index] }
         return nil
     }
 
     /// Resolves a CLI name only (`tab-group create`, extra spaces allowed).
     public func resolveCLIName(_ name: String) -> ControlActionInfo? {
         let spaced = name.split(whereSeparator: { $0 == " " }).joined(separator: " ")
-        return indexByCLIName[spaced].map { actions[$0] }
+        return indexByCLIName[spaced].flatMap { actions[checked: $0] }
     }
 
     /// The current name of a CLI name from before Rooms became Spaces

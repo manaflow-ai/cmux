@@ -619,6 +619,195 @@
       "query": "font size",
       "expect": ["setting:terminal.fontSize", "action:terminal.increaseFontSize"],
       "group": "exact"
+    },
+    {
+      "query": "theme",
+      "expect": ["setting:appearance.theme"],
+      "group": "guard",
+      "guard": true,
+      "note": "the one Theme setting stays in the top 3 (chief, 2026-10-09)"
+    },
+    {
+      "query": "color",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "guard",
+      "guard": true,
+      "note": "ten settings titled Color never bury Set Workspace Color (chief, 2026-10-09)"
+    },
+    {
+      "query": "add agent",
+      "expect": ["action:agent.harness.add", "action:agent.harness.addFromRegistry"],
+      "group": "exact"
+    },
+    {
+      "query": "harness",
+      "expect": ["action:agent.harness.add", "action:agent.harness.addFromRegistry", "action:palette.addHarness"],
+      "group": "concept"
+    },
+    {
+      "query": "sp",
+      "expect": ["action:splitBrowserRight"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 3
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 2
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 1
+        }
+      ],
+      "note": "3 picks of a row for a query lift it over better text matches"
+    },
+    {
+      "query": "co",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "co",
+          "pick": "action:palette.workspaceColor",
+          "daysAgo": 0
+        }
+      ],
+      "note": "the latest pick for the exact query lifts after one pick"
+    },
+    {
+      "query": "col",
+      "expect": ["action:palette.workspaceColor"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "co",
+          "pick": "action:palette.workspaceColor",
+          "daysAgo": 0
+        }
+      ],
+      "note": "prefix stability: typing more letters keeps the picked row first while it matches"
+    },
+    {
+      "query": "col",
+      "expect": [],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "co",
+          "pick": "action:palette.workspaceColor",
+          "daysAgo": 30
+        }
+      ],
+      "notFirst": "action:palette.workspaceColor",
+      "note": "one pick 30 days ago no longer beats a better text match"
+    },
+    {
+      "query": "ne",
+      "expect": ["action:newColumn"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "n",
+          "pick": "action:newColumn",
+          "daysAgo": 5
+        },
+        {
+          "query": "n",
+          "pick": "action:newColumn",
+          "daysAgo": 4
+        },
+        {
+          "query": "n",
+          "pick": "action:newColumn",
+          "daysAgo": 3
+        },
+        {
+          "query": "n",
+          "pick": "action:newColumn",
+          "daysAgo": 2
+        },
+        {
+          "query": "n",
+          "pick": "action:newColumn",
+          "daysAgo": 1
+        }
+      ],
+      "note": "Lawrence: New Column picked for n lifts for ne"
+    },
+    {
+      "query": "s",
+      "expect": ["action:splitDown"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "s",
+          "pick": "action:splitDown",
+          "daysAgo": 3
+        },
+        {
+          "query": "s",
+          "pick": "action:splitDown",
+          "daysAgo": 2
+        },
+        {
+          "query": "s",
+          "pick": "action:splitDown",
+          "daysAgo": 2
+        },
+        {
+          "query": "s",
+          "pick": "action:screen.new",
+          "daysAgo": 0
+        }
+      ],
+      "note": "the strongest pick wins over a single latest pick"
+    },
+    {
+      "query": "split d",
+      "expect": ["action:splitDown"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 3
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 2
+        },
+        {
+          "query": "sp",
+          "pick": "action:splitBrowserRight",
+          "daysAgo": 1
+        }
+      ],
+      "note": "a pick that no longer matches the query does not lift"
+    },
+    {
+      "query": "new tab",
+      "expect": ["action:openBrowser"],
+      "group": "replay",
+      "replay": [
+        {
+          "query": "new tab",
+          "pick": "action:openBrowser",
+          "daysAgo": 2
+        },
+        {
+          "query": "new tab",
+          "pick": "action:openBrowser",
+          "daysAgo": 1
+        }
+      ],
+      "note": "two picks for a whole query lift over the whole-title match"
     }
   ]
 }

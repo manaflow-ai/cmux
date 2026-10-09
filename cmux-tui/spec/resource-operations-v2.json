@@ -29,6 +29,7 @@
     "closed",
     "window_record",
     "sidebar_layout",
+    "palette_usage",
     "git_checkpoint",
     "conversation"
   ],
@@ -8181,6 +8182,187 @@
       ],
       "discriminator": "kind"
     },
+    "PaletteUsageRow": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          },
+          "description": "The palette row's usage key (action:<id>, setting:<id>, workspace:<id>, tab:<id>, ...)."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "The decayed use count as of last_used_ms; each use adds 1 and it halves every half_life_ms."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The daemon's clock (Unix milliseconds) at the latest use."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsagePick": {
+      "kind": "object",
+      "fields": {
+        "prefix": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "A normalized query start (lowercased, white space collapsed, 1 to 8 characters) the row was picked for."
+        },
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          },
+          "description": "The picked row's usage key."
+        },
+        "score": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "float64"
+          },
+          "description": "The decayed pick count as of last_used_ms; it halves every pick_half_life_ms."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The daemon's clock at the latest pick of this row for this prefix."
+        },
+        "last": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "This row is the latest pick for this prefix."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 before the first use."
+        },
+        "half_life_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Half-life of a row's use count."
+        },
+        "pick_half_life_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Half-life of a learned pick."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteUsageRow"
+            }
+          },
+          "description": "Used rows, most used first (at most 500)."
+        },
+        "picks": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PaletteUsagePick"
+            }
+          },
+          "description": "Learned picks by prefix, strongest first within a prefix."
+        },
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Sources already imported (palette_usage.import)."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageRecordResult": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision after this use. The result carries no usage data (the replay record keeps it); read the history with palette_usage.get."
+        }
+      },
+      "extra": false
+    },
+    "PaletteUsageImportResult": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision after this import."
+        },
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the source was imported before and nothing changed."
+        }
+      },
+      "extra": false
+    },
     "SidebarLayoutSnapshot": {
       "kind": "object",
       "fields": {
@@ -9028,6 +9210,25 @@
             "name": "boolean"
           },
           "description": "false when no turn was running."
+        },
+        "subagents": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The subagents that stopped."
+        },
+        "note": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "What the Chief logged about the stop."
         }
       },
       "extra": false
@@ -10928,6 +11129,24 @@
               "max_length": 128
             },
             "description": "minimal, low, medium, high, xhigh or max; empty or default clears it."
+          },
+          "speed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "default or fast (the codex priority tier; a Claude harness refuses fast); empty or default clears it."
+          },
+          "compactor_speed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
           }
         },
         "extra": false
@@ -10953,8 +11172,8 @@
       ],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
-        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
-        "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model}, choice, last_turn, recent}.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, invalid_speed, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model, speed, compactor_speed}, choice, last_turn, recent}.",
         "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
       ]
     },
@@ -10970,7 +11189,17 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "One subagent to stop (its id, e.g. a3); absent stops the turn and every subagent at work."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -10995,7 +11224,7 @@
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
-        "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false)."
+        "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
       ]
     },
     "client.cell_pixels.set": {
@@ -13483,6 +13712,163 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "PaletteUsageSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Where the history comes from (the defaults domain of a former build); each source imports once."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PaletteUsageRow"
+              },
+              "max_items": 500
+            },
+            "description": "Former rows; each score is decayed to now and added to the row's score."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A source imported before commits no change (imported false); every source is remembered.",
+          "Scores above 1e6 are clamped.",
+          "Rows with an empty or over-long key, or a score that is not a positive number, are skipped."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "palette_usage.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "palette_usage",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 512
+            },
+            "description": "The run row's usage key."
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "The query the row was run for; empty or absent records no learned pick."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The daemon stamps the use with its own clock.",
+          "A blank key is validation.invalid key_required; a key over 512 characters is key_too_long.",
+          "The session.events state_upsert of resource palette_usage carries only {revision}, the result only {revision}, and the replay fingerprint a SHA-256 of the key and query: usage never reaches an event or the journal."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "PaletteUsageRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

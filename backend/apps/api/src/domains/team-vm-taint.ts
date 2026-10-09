@@ -85,11 +85,17 @@ export const reduceMemberRemoved = (state: TeamVmState, params: unknown, ctx: Re
   if (!d.ok) return d
   // A forged or misrouted notice (another team's TeamDO, or any other system source) changes nothing.
   if (state.team === null || ctx.principal.identity !== `system:team:${state.team}`) return same(state)
-  // No VM, or the member's certificates all ended before this VM existed: nothing they could have touched.
-  if (state.vm === null || d.value.cert_valid_before <= (state.vm_created_at ?? 0)) return same(state)
+  // The removed member's wake leases end now (cx-3bi.43): they no longer keep the VM awake.
+  const kept = Object.fromEntries(Object.entries(state.leases).filter(([, l]) => l.user !== d.value.user && l.holder !== `session:${d.value.user}`))
+  const dropped = Object.keys(kept).length !== Object.keys(state.leases).length
+  const leased: TeamVmState = dropped ? { ...state, leases: kept, updated_at: ctx.now } : state
+  const untainted = (): ReduceResult<TeamVmState> => (dropped ? { ok: true, state: leased, value: { applied: true, leases_dropped: true } } : same(state))
+  // No certificate, no VM, or the member's certificates all ended before this VM existed: nothing they could have touched.
+  if (d.value.cert_valid_before === undefined || state.vm === null || d.value.cert_valid_before <= (state.vm_created_at ?? 0)) return untainted()
+  state = leased
   const cur = currentTaint(state)
   // The same removal again (a redelivery), or one the owner already accepted, changes nothing.
-  if (cur?.users.includes(d.value.user) && (cur.accepted_at === null || d.value.at <= cur.accepted_at)) return same(state)
+  if (cur?.users.includes(d.value.user) && (cur.accepted_at === null || d.value.at <= cur.accepted_at)) return untainted()
   // A new removal after an acceptance (another member, or the same one re-joined and removed again)
   // needs a new decision: the acceptance covered the removals made before it.
   const taint: TeamVmTaint = cur

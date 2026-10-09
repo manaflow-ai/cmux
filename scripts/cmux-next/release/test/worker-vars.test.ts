@@ -125,3 +125,59 @@ describe("vars: the deploy may change only code", () => {
     expect(existsSync(calls)).toBe(true)
   })
 })
+
+/**
+ * --base-config: wrangler.jsonc at the push's BEFORE commit. The deployed vars must equal it (else
+ * drift: refuse, as above); a var the push itself changes then deploys, and its change is logged.
+ */
+describe("vars --base-config: a var change made in the pushed commits deploys", () => {
+  const before = join(dir, "wrangler.before.jsonc")
+  const withSnapshot = (img: string, extra = "") => readFileSync(config, "utf8").replace('"TEAM_VM_SNAPSHOT": "img-a"', `"TEAM_VM_SNAPSHOT": "${img}"${extra}`)
+  const after = join(dir, "wrangler.after.jsonc")
+  const argsWith = (want: string) => ["vars", "--worker", "cmux-api-development", "--config", want, "--base-config", before, "--env", "development", "--wrangler", wrangler]
+
+  it("a change in the push (base = deployed, config differs): passes and logs each intended change by name and plain value", async () => {
+    writeFileSync(before, readFileSync(config, "utf8"))
+    writeFileSync(after, withSnapshot("img-b", ', "NEW_FLAG": "1"'))
+    const r = await run(argsWith(after), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.errors).toEqual([])
+    expect(r.code).toBe(0)
+    const out = r.logs.join("\n")
+    expect(out).toContain("vars change in this push")
+    expect(out).toContain("TEAM_VM_SNAPSHOT: img-a -> img-b")
+    expect(out).toContain("NEW_FLAG: (unset) -> 1")
+  })
+
+  it("drift (deployed differs from the base): refuses and names the var, even when the push changes nothing", async () => {
+    writeFileSync(before, readFileSync(config, "utf8"))
+    const drift = same.map((b) => (b.name === "TEAM_VM_SNAPSHOT" ? { ...b, text: "img-hand-set" } : b))
+    const r = await run(argsWith(config), { STATUS_JSON: serving, VERSION_JSON: version(drift) })
+    expect(r.code).toBe(1)
+    const out = r.errors.join("\n")
+    expect(out).toContain("changed: TEAM_VM_SNAPSHOT")
+    expect(out).toContain("deploy refused")
+    expect(out).not.toContain("img-hand-set")
+  })
+
+  it("drift is refused also when the push changes another var", async () => {
+    writeFileSync(before, readFileSync(config, "utf8"))
+    writeFileSync(after, readFileSync(config, "utf8").replace('"ENVIRONMENT": "development",', '"ENVIRONMENT": "development", "NEW_FLAG": "1",'))
+    const drift = same.map((b) => (b.name === "TEAM_VM_SNAPSHOT" ? { ...b, text: "img-hand-set" } : b))
+    const r = await run(argsWith(after), { STATUS_JSON: serving, VERSION_JSON: version(drift) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join("\n")).toContain("changed: TEAM_VM_SNAPSHOT")
+  })
+
+  it("no change anywhere passes as 'vars unchanged'", async () => {
+    writeFileSync(before, readFileSync(config, "utf8"))
+    const r = await run(argsWith(config), { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.code).toBe(0)
+    expect(r.logs.join("\n")).toContain("vars unchanged")
+  })
+
+  it("a base config that cannot be read refuses", async () => {
+    const r = await run(["vars", "--worker", "cmux-api-development", "--config", config, "--base-config", join(dir, "missing.jsonc"), "--env", "development", "--wrangler", wrangler], { STATUS_JSON: serving, VERSION_JSON: version(same) })
+    expect(r.code).toBe(1)
+    expect(r.errors.join()).toContain("deploy refused")
+  })
+})

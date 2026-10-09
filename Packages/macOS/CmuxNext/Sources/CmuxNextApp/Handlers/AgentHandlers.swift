@@ -33,8 +33,12 @@ enum AgentHandlers {
         AgentSessionWorkspace.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
+        AgentHarnessHandlers.bind(into: registry, context: context)
         registry.bind("home.toggleChiefSettings", run: { _ in
             NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
+        })
+        registry.bind(HomeChiefControl.stopAction, run: { _ in
+            NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
         })
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
         // does Start Agent from Any App, its opt-in system-wide key (`app.startAgentGlobalHotKey`).
@@ -120,6 +124,18 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.showContinueIn()
+        })
+        // Switch Model… (Ctrl-Cmd-M) opens the page's model picker; the view gives the page the
+        // keyboard first, so the menu's search field gets it wherever focus was in the pane.
+        registry.bind("agentPane.switchModel", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.switchModelNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.switchModelNeedsAgentChat)
+            }
+            view.showModelPicker()
         })
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {

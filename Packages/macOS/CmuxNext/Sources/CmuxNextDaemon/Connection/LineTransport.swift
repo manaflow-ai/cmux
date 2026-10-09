@@ -57,6 +57,19 @@ final class LineTransport: Sendable {
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+
+        /// Marks a pending reply expired; its command and slot, or nil when
+        /// `id` is not waiting for a reply.
+        mutating func expireReply(_ id: UInt64) -> (String, ReplySlot)? {
+            guard case .reply(let cmd, let slot)? = pending[id] else { return nil }
+            pending.updateValue(.expired(cmd: cmd), forKey: id)
+            return (cmd, slot)
+        }
+
+        /// Every pending waiter, in send order.
+        func waitersInSendOrder() -> [Waiter] {
+            order.compactMap { pending[$0] }
+        }
     }
 
     /// An `ok:true` response line plus the number of events routed before it
@@ -114,9 +127,10 @@ final class LineTransport: Sendable {
             Darwin.close(fd)
             throw .socketPathTooLong(path)
         }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
+            var raw = sunPath  // the same memory; `modify` is mutating on the view
             raw.copyBytes(from: pathBytes)
-            raw[pathBytes.count] = 0
+            raw.modify(checked: pathBytes.count) { $0 = 0 }
         }
         address.sun_len = UInt8(clamping: MemoryLayout<sockaddr_un>.size) // 106 bytes
         let result = withUnsafePointer(to: &address) { pointer in
@@ -179,12 +193,8 @@ final class LineTransport: Sendable {
 
     /// Fails a still-pending request with `timedOut`.
     func expire(id: UInt64, after timeout: Duration) {
-        let pending: (String, ReplySlot)? = state.withLock { state in
-            guard case .reply(let cmd, let slot)? = state.pending[id] else { return nil }
-            state.pending[id] = .expired(cmd: cmd)
-            return (cmd, slot)
-        }
-        guard let (cmd, slot) = pending else { return }
+        let expired: (String, ReplySlot)? = state.withLock { state in state.expireReply(id) }
+        guard let (cmd, slot) = expired else { return }
         slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
@@ -228,7 +238,7 @@ final class LineTransport: Sendable {
             let payload: Data
             do { payload = try body(id) } catch { return error }
             state.withLock { state in
-                state.pending[id] = waiter
+                state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
             }
             submittedID = id
@@ -270,7 +280,7 @@ final class LineTransport: Sendable {
     private func failAll(_ reason: TransportCloseReason) {
         let waiters: [Waiter] = state.withLock { state in
             if state.closed == nil { state.closed = reason }
-            let waiters = state.order.compactMap { state.pending[$0] }
+            let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
             return waiters

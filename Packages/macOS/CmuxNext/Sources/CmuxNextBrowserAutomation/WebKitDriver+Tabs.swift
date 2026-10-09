@@ -43,13 +43,13 @@ extension WebKitDriver {
         return .object(["targetId": .string(tab.id.rawValue)])
     }
 
-    func tabsClose(_ params: DriverParams) throws(DriverError) -> DriverJSON {
+    func tabsClose(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         if try params.optionalString("reason") == "session_end" {
             // The host closes the session's own tabs at its end, for either engine.
             let id = try params.string("targetId")
             let page = provider?.automationTabs(all: true).first { $0.tab.id.rawValue == id }?.tab
             // A tab the app keeps stays driven; only a tab that closes leaves the session.
-            guard provider?.endSessionTab(id) == true else { return .null }
+            guard await provider?.endSessionTab(id) == true else { return .null }
             if let page {
                 AgentWorld.uninstall(from: page.webView.configuration.userContentController)
                 tabClosed(page.id)
@@ -77,9 +77,12 @@ extension WebKitDriver {
 
     /// Selecting a tab changes the user's view, so the host passes it only
     /// for origin `user` or `focus: true`.
+    /// The App owns selection for both engines: a Chromium tab it lets
+    /// agents drive is accepted too (the WebKit driver never holds it).
     func tabsActivate(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (tab, _) = try target(params)
-        provider?.activateAutomationTab(tab.id)
+        let raw = try params.string("targetId")
+        guard let provider, provider.isDrivable(raw) else { throw DriverError(.notFound, "\(params.method): no tab \(raw)") }
+        provider.activateAutomationTab(BrowserTabID(rawValue: raw))
         return .null
     }
 

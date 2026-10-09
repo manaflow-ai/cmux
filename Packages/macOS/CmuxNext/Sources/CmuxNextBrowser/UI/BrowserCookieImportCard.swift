@@ -32,7 +32,8 @@ final class BrowserCookieImportCard: NSView {
         detailLabel.maximumNumberOfLines = 2
         detailLabel.cell?.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
-        neverButton.configure(title: offer.neverTitle, target: self, action: #selector(never))
+        neverButton.configure(title: offer.neverTitle ?? "", target: self, action: #selector(never))
+        neverButton.isHidden = offer.neverTitle == nil
         icons.orientation = .horizontal
         icons.setHuggingPriority(.required, for: .horizontal)
         for image in offer.icons.prefix(Self.maximumIcons) { icons.addArrangedSubview(Self.iconView(image)) }
@@ -134,7 +135,7 @@ final class BrowserCookieImportCard: NSView {
 
     /// The card's lines and buttons as shown (tests, diagnostics).
     var shownText: [String] {
-        [titleLabel.stringValue, detailLabel.stringValue, neverButton.title, offer.notNowTitle, offer.importTitle]
+        [titleLabel.stringValue, detailLabel.stringValue] + (offer.neverTitle.map { [$0] } ?? []) + [offer.notNowTitle, offer.importTitle]
     }
 
     var shownIconCount: Int { icons.arrangedSubviews.count }

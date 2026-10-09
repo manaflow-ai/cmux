@@ -136,6 +136,7 @@ export const ErrorCode = Schema.Literals([
   "operation.failed",
   "auth.unauthenticated",
   "auth.forbidden",
+  "team.not_member",
   "owner.unreachable",
   "mutation.indeterminate",
   "policy.invalid",

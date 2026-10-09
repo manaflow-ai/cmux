@@ -144,7 +144,7 @@ final class AppOnboardingServices: OnboardingServices {
         let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
-        owner.cookiePrompt.importFinished(summary)
+        owner.browserImportOffer.importFinished(summary)
         return summary
     }
 

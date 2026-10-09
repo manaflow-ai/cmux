@@ -12,11 +12,18 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
-                        Outbound::Lines(vec![json!({
+                        let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
                             "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
-                        })])
+                        })];
+                        // Ultracode and fast mode survive a respawn on the live channel
+                        // (no CLI flag); the answer ("boot-*") needs no reply.
+                        let effort = self.effort.lock().await.clone();
+                        if let Some(settings) = startup_settings(&effort, *self.fast.lock().await) {
+                            lines.push(json!({"type": "control_request", "request_id": format!("boot-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}));
+                        }
+                        Outbound::Lines(lines)
                     }
                     method::SESSION_NEW | method::SESSION_LOAD => {
                         // The claude process already carries the session.
@@ -75,6 +82,10 @@ impl Translator {
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
+                        let mut content = content;
+                        if !steer && *self.effort.lock().await == "ultrathink" {
+                            ultrathink(&mut content);
+                        }
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
@@ -123,15 +134,34 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_permission_mode", "mode": val}}),
                                 ])
                             }
+                            "fast-mode" => {
+                                let on = match val.as_str() {
+                                    "on" => true,
+                                    "off" => false,
+                                    _ => {
+                                        return Outbound::Reply(Message::err(
+                                            id.clone(),
+                                            RpcError::invalid_params("fast-mode must be on or off"),
+                                        ));
+                                    }
+                                };
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Fast, val.clone()),
+                                );
+                                Outbound::Lines(vec![
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": {"fastMode": on}}}),
+                                ])
+                            }
                             "effort" => {
-                                if !EFFORTS.iter().any(|(v, _)| *v == val) {
+                                if !EFFORTS.iter().any(|(v, _, _)| *v == val) {
                                     return Outbound::Reply(Message::err(
                                         id.clone(),
                                         RpcError::invalid_params(format!(
                                             "effort must be one of {}",
                                             EFFORTS
                                                 .iter()
-                                                .map(|(v, _)| *v)
+                                                .map(|(v, _, _)| *v)
                                                 .collect::<Vec<_>>()
                                                 .join(", ")
                                         )),
@@ -142,9 +172,8 @@ impl Translator {
                                     Pending::Control(Setting::Effort, val.clone()),
                                 );
                                 // Claude Code's live effort switch is the flag-settings channel.
-                                let level = if val == "default" { "auto".to_owned() } else { val };
                                 Outbound::Lines(vec![
-                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": {"effortLevel": level}}}),
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(&val)}}),
                                 ])
                             }
                             other => Outbound::Reply(Message::err(
@@ -225,6 +254,18 @@ impl Translator {
                 ])
             }
         }
+    }
+}
+
+/// Ultrathink: the prompt's first text block starts with the prefix (one is
+/// added when the prompt has only images or resources).
+fn ultrathink(content: &mut Vec<Value>) {
+    match content.iter_mut().find(|b| b["type"] == "text") {
+        Some(block) => {
+            let text = block["text"].as_str().unwrap_or("");
+            block["text"] = json!(format!("{ULTRATHINK_PREFIX}{text}"));
+        }
+        None => content.insert(0, json!({"type": "text", "text": ULTRATHINK_PREFIX.trim_end()})),
     }
 }
 
