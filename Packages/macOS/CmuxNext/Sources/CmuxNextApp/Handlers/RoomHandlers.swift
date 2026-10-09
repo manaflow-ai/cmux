@@ -153,6 +153,11 @@ enum RoomHandlers {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {
                 _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
+                // The reply comes before the home store mirrors the room
+                // (`personal-changed`, then a resync). Entering it earlier
+                // files the new workspace unpinned (so in `default`) and
+                // the window falls back as from a deleted room (cx-d8x5).
+                await services.machines.local.store.mirrored(profile: id)
                 if let active, let state = services.windows.states[active.id] {
                     if let enter { enter(id, state) } else { services.windows.switchProfile(id, in: state) }
                 }

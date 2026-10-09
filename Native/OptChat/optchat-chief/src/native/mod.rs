@@ -51,9 +51,17 @@ use crate::turn::{TurnOutcome, TurnStart, usage_line};
 /// The result of a local tool call in a remote-origin turn on this engine.
 const REMOTE_REFUSED: &str = "Refused: this turn started from a paired device, and running commands or editing files then needs the user's approval, which this engine cannot ask for. Say what you would run; the user can approve it from the Mac.";
 
-/// Tries per model call; transient failures wait `Native::retry` between
-/// tries (fixed, not exponential: the user waits on the turn).
-const TRIES: u32 = 6;
+/// Tries per model call (parity item 8). A transient failure waits the
+/// server's `retry-after` when it gives one, else `Native::retry` doubled
+/// each try (1, 2, 4 ... times), capped at `MAX_WAIT`.
+const TRIES: u32 = 8;
+
+/// The longest wait between two tries.
+const MAX_WAIT: Duration = Duration::from_secs(120);
+
+/// The native engine's base wait between tries: busy and rate-limited
+/// calls clear in seconds, and the user waits on the turn.
+pub const RETRY_BASE: Duration = Duration::from_secs(1);
 
 /// How the native engine runs.
 #[derive(Clone, Debug)]
@@ -206,12 +214,20 @@ impl Native {
             match self.model.send(body, stop) {
                 Ok(message) => return Ok(message),
                 Err(e) if e.retry && tries < TRIES && !stop() => {
+                    let backoff = self.retry.saturating_mul(1 << (tries - 1));
+                    let wait = e.retry_after.unwrap_or(backoff).min(MAX_WAIT);
                     log(&format!(
-                        "turn {key}: model call failed ({}); retrying in {} s",
+                        "turn {key}: model call failed ({}); try {} of {TRIES} in {:.1} s{}",
                         e.message,
-                        self.retry.as_secs()
+                        tries + 1,
+                        wait.as_secs_f64(),
+                        if e.retry_after.is_some() {
+                            " (retry-after)"
+                        } else {
+                            ""
+                        }
                     ));
-                    std::thread::sleep(self.retry);
+                    std::thread::sleep(wait);
                 }
                 Err(e) if e.retry && stop() => return Err(CallError::interrupted()),
                 Err(e) => return Err(e),
@@ -413,6 +429,7 @@ impl Native {
             // The Messages API, no acpmux harness.
             harness: None,
             refused: false,
+            done_draft: None,
         }
     }
 

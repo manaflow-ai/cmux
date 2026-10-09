@@ -1,6 +1,7 @@
 {
  "_comment": "crash_ratchet.py BAN mode (plans/cmux-next/crash-elimination.md). A class in 'banned' fails on every hit in the app's Swift package closure; an inline `// crash-allow:` does not waive it. Only an 'allow' entry passes, at most 'count' hits of 'class' in 'path', with the reason and the reviewer who signed it off. Add an entry only with the crash lead's or a review subagent's sign-off named in 'reviewer'.",
  "banned": [
+  "swift.as_bang",
   "swift.fatal_error",
   "swift.objc_selector"
  ],

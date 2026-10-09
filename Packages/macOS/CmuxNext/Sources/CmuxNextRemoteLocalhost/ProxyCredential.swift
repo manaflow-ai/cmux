@@ -11,11 +11,16 @@ public struct ProxyCredential: Sendable, Hashable {
         "Basic " + Data("\(username):\(password)".utf8).base64EncodedString()
     }
 
-    /// `bytes` random bytes as lowercase hex (SecRandomCopyBytes).
+    /// `bytes` random bytes as lowercase hex (SecRandomCopyBytes). If that call
+    /// fails, the bytes come from SystemRandomNumberGenerator (arc4random_buf, also
+    /// a cryptographically secure source on Darwin), so the secret stays unguessable.
     public static func randomToken(bytes: Int) -> String {
-        var raw = [UInt8](repeating: 0, count: bytes)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes, &raw)
-        precondition(status == errSecSuccess, "SecRandomCopyBytes failed") // crash-allow: no secure randomness means no safe proxy secret
+        let count = max(0, bytes)
+        var raw = [UInt8](repeating: 0, count: count)
+        if SecRandomCopyBytes(kSecRandomDefault, count, &raw) != errSecSuccess {
+            var generator = SystemRandomNumberGenerator()
+            raw = (0..<count).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        }
         return raw.map { String(format: "%02x", $0) }.joined()
     }
 
