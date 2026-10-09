@@ -40,9 +40,19 @@ test("a pick that is still not a folder keeps the line with the new reason", asy
 });
 
 test("a cancelled pick changes nothing", async () => {
-  expect(await chooseChatFolder(async () => ({}), async () => undefined)).toEqual({});
+  expect(
+    await chooseChatFolder(
+      async () => ({}),
+      async () => undefined,
+    ),
+  ).toEqual({});
 });
 
 test("a chat opened elsewhere (a terminal chat) is done", async () => {
-  expect(await chooseChatFolder(async () => ({ opened: true }), async () => undefined)).toEqual({ done: true });
+  expect(
+    await chooseChatFolder(
+      async () => ({ opened: true }),
+      async () => undefined,
+    ),
+  ).toEqual({ done: true });
 });
