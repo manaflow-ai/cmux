@@ -60,8 +60,12 @@ public final class WindowOverlayHost {
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
     var forwardButton = 0
-    /// Another window became key while a modal showed: dismissing it leaves the keyboard there.
-    var focusMoved = false
+    /// Another window (not the panel nor the overlay's own window) became key while a modal
+    /// showed: dismissing it leaves the keyboard there (`focusMoved`).
+    var otherWindowTookKey = false
+    /// A tab dialog (a modal with a region) showed: the rest of the window took clicks, so
+    /// a first responder change there is a move. Kept here, as `endModal` runs after it left.
+    var modalLeftWindowUsable = false
     var keyObserver: (any NSObjectProtocol)?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
