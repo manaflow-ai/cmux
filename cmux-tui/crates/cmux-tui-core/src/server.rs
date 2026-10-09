@@ -104,8 +104,6 @@ mod admission;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
-mod agent_session_link;
-#[cfg(unix)]
 pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};

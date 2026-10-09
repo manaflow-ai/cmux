@@ -59,10 +59,12 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_link::{AcpmuxLink, Inbound, LinkError};
+#[path = "agent_session_link.rs"]
+mod agent_session_link;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
