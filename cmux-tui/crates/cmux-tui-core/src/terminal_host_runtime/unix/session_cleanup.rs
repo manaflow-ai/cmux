@@ -61,8 +61,12 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
         let mut fields = fields.split_whitespace();
         let Some(state) = fields.next() else { continue };
         let Some(_ppid) = fields.next() else { continue };
-        let Some(pgid) = fields.next().and_then(|value| value.parse().ok()) else { continue };
-        let Some(sid) = fields.next().and_then(|value| value.parse().ok()) else { continue };
+        let Some(pgid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        let Some(sid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
         if sid == session && state != "Z" && pgid > 0 {
             groups.insert(pgid);
         }
