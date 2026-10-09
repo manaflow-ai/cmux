@@ -353,6 +353,9 @@ pub struct AcpmuxCompactor {
     /// Warm sessions kept for the next nodes (`with_warm`; 0: none).
     warm: usize,
     reaped: AtomicBool,
+    /// This compactor, when shared (`shared`): a warm session then starts on
+    /// its own thread after the node returns.
+    me: std::sync::Weak<AcpmuxCompactor>,
     log: Option<Log>,
     trace: crate::trace::Trace,
 }
@@ -380,6 +383,7 @@ impl AcpmuxCompactor {
             model_fallback: None,
             warm: 0,
             reaped: AtomicBool::new(false),
+            me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
         }
@@ -442,9 +446,14 @@ impl AcpmuxCompactor {
         true
     }
 
-    /// The compactor shared, as the host holds it.
+    /// The compactor shared, as the host holds it: a node's slot then warms
+    /// up on its own thread, after the node's line is returned.
     pub fn shared(self) -> Arc<AcpmuxCompactor> {
-        Arc::new(self)
+        let mut compactor = self;
+        Arc::new_cyclic(|me| {
+            compactor.me = me.clone();
+            compactor
+        })
     }
 
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
@@ -1043,7 +1052,21 @@ impl AcpmuxCompactor {
         // The next node's session starts now, in this slot, so it does not
         // wait for one; else the slot goes back.
         if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
-            self.warm_up(live.slot, live.system.clone(), live.ours);
+            // Off the node's path: starting Claude Code takes seconds, and
+            // the node's line (and any turn waiting for it) must not wait.
+            let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
+            match self.me.upgrade() {
+                Some(me) => {
+                    let spawned = std::thread::Builder::new()
+                        .name("optchat-compact-warm".into())
+                        .spawn(move || me.warm_up(slot, system, ours));
+                    if let Err(e) = spawned {
+                        self.say(&format!("starting a warm compactor session: {e}"));
+                        self.slots.give_slot(slot, true);
+                    }
+                }
+                None => self.warm_up(slot, system, ours),
+            }
         } else {
             if live.system.is_some() {
                 let _ = self.port.set_system_prompt(&live.preset, "");

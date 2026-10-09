@@ -760,11 +760,10 @@ fn start(
                 .map(|m| Arc::new(build(Some(m))) as Arc<dyn CompactModel>);
             // An account without the compactor model (Haiku on some
             // subscriptions) builds with the turn model instead, logged once.
-            let main = Arc::new(
-                build(compactor_model.as_deref())
-                    .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                    .with_warm(crate::compactor::WARM_SESSIONS),
-            );
+            let main = build(compactor_model.as_deref())
+                .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
+                .with_warm(crate::compactor::WARM_SESSIONS)
+                .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
                 main as Arc<dyn CompactModel>,
