@@ -46,19 +46,42 @@ impl Surface {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        let (status_changed, alerts) = {
+        let (status_revision, status_change) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            (records.take_change(), records.take_alerts())
+            records
+                .claim_pending_change()
+                .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
         };
+        let status_changed = status_change.is_some();
         if !progress_changed && !status_changed {
             return;
         }
-        let Some(mux) = pty.mux.upgrade() else { return };
+        let Some(mux) = pty.mux.upgrade() else {
+            if let Some(revision) = status_revision {
+                records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .finish_change_publication(revision, false);
+            }
+            return;
+        };
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if let Err(error) = mux.publish_terminal_progress(self, mutation) {
-            eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        let published = match mux.publish_terminal_progress(self, mutation, status_change) {
+            Ok(published) => published,
+            Err(error) => {
+                eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+                false
+            }
+        };
+        if let Some(revision) = status_revision {
+            records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .finish_change_publication(revision, published);
         }
-        if !alerts.is_empty() {
+        if published && status_changed {
+            let alerts =
+                records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
             let notifications = pty
                 .terminal_metadata
                 .lock()
