@@ -16,6 +16,8 @@ extension AppOnboardingServices {
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {
         guard let windows = services.windows else { return }
         let target = windows.targetWindow(preferring: windows.active?.state.id)
+        // Read before the task: after a suspension the onboarding service may be gone.
+        let machines = services.machines, logger = services.daemon.logger
         Task { @MainActor [weak self] in
             guard let self else { return }
             for saved in workspaces {
@@ -26,10 +28,10 @@ extension AppOnboardingServices {
                     var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
                     spawn.slot = .bottom(anchor: nil)
                     let id = try await windows.createWorkspace(spawn, into: target)
-                    guard let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
+                    guard let daemon = machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
                     try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
                 }
-                catch { services.daemon.logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
+                catch { logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
             }
         }
     }
