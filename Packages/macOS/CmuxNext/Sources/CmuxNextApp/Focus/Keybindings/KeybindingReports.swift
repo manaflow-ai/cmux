@@ -63,13 +63,24 @@ enum KeybindingReports {
     /// entry, but a user Ghostty keybind once. Its app-wide
     /// `.ghosttyFallback` entry (same keys and command as its `.ghostty`
     /// entry) is not a second row, so the remaining `ghostty-fallback` rows
-    /// are Ghostty's defaults.
-    static func pageList(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+    /// are Ghostty's defaults. A row of an action in `heldElsewhere` (a
+    /// system-wide key `GlobalHotKeyService` could not register: another app
+    /// holds it) carries `heldElsewhere: true`.
+    static func pageList(_ params: [String: JSONValue], registry: ActionRegistry,
+                         heldElsewhere: Set<ActionID> = []) -> JSONValue {
         let entries = RegistryKeyBindings(registry).table.entries
         let user = Set(entries.filter { $0.source == .ghostty }.map { GhosttyRow(keys: $0.keys, command: $0.command) })
-        return list(params, registry: registry) { entry in
+        let page = list(params, registry: registry) { entry in
             entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command))
         }
+        guard !heldElsewhere.isEmpty, case .object(var object) = page, case .array(let rows)? = object["bindings"] else { return page }
+        object["bindings"] = .array(rows.map { row in
+            guard case .object(var entry) = row, entry["removed"] == nil,
+                  let command = entry["command"]?.stringValue, heldElsewhere.contains(ActionID(rawValue: command)) else { return row }
+            entry["heldElsewhere"] = true
+            return .object(entry)
+        })
+        return .object(object)
     }
 
     private struct GhosttyRow: Hashable {
