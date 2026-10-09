@@ -261,8 +261,10 @@ struct BrowserReplPinnedFileAccessTests {
 
         /// Reloads the frame and returns what it shows once it loaded, or
         /// `nil` when its navigation or response was refused. WebKit itself
-        /// may refuse the file with no response to judge (macOS 27): the
-        /// frame's `load` event ends the wait then.
+        /// may refuse the file outside its grant with no response to judge
+        /// and no `load` event (macOS 27): after 10 s with neither, what the
+        /// frame shows then is read (on macOS 26 the swapped file loads in
+        /// well under a second when nothing refuses it).
         func reloadFrame(_ query: String) async throws -> String? {
             waiter.onChildFrameRefused = {
                 webView.evaluateJavaScript("window.frameRefused && frameRefused()", completionHandler: nil)
@@ -272,11 +274,12 @@ struct BrowserReplPinnedFileAccessTests {
                 const done = new Promise(resolve => {
                     frame.addEventListener('load', () => resolve('loaded'), { once: true })
                     window.frameRefused = () => resolve('refused')
+                    setTimeout(() => resolve('unsettled'), 10000)
                 })
                 frame.src = 'frame/inner.html?\(query)'
                 return await done
                 """, contentWorld: .page) as? String
-            return outcome == "loaded" ? await frameText() : nil
+            return outcome == "refused" ? nil : await frameText()
         }
         // Another session moves the frame's directory away and a link to a
         // directory outside takes its name, after the frame's navigation
