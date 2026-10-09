@@ -146,7 +146,7 @@ final class MachineBrowserStateView: NSView {
 }
 
 /// Strings of machine browser tabs (Resources/Remote.xcstrings).
-enum MachineBrowserStrings {
+nonisolated enum MachineBrowserStrings {
     static var notReadyTitle: String {
         String(localized: "remote.machineBrowser.notReady", defaultValue: "Not Ready", table: "Remote", bundle: .module)
     }
