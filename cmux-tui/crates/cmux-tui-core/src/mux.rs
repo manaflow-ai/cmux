@@ -18,6 +18,13 @@ pub(crate) use browser_tab_create::{
 pub(crate) mod app_terminals;
 mod cloud_conversations;
 mod conversations;
+mod deadline_fanout;
+#[cfg(test)]
+use deadline_fanout::DeadlineCompletion;
+use deadline_fanout::{
+    CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
+    bounded_deadline_map,
+};
 mod dock_columns;
 mod exit_settle;
 mod host_close;
@@ -43,6 +50,8 @@ mod resource_topology;
 mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
+mod signaled_mutex;
+pub(crate) use signaled_mutex::SignaledMutex;
 mod session_paths;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
@@ -102,14 +111,10 @@ use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{
-    Arc, Condvar, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError,
-    TryLockResult, Weak,
-};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use topology_result::persist_public_topology_result;
 
@@ -183,152 +188,6 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 /// log, so the core does not need to know how diagnostics are persisted.
 pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
 
-pub(crate) struct SignaledMutex<T> {
-    value: Mutex<T>,
-    release_epoch: Mutex<u64>,
-    released: Condvar,
-    /// Contention record with `#[track_caller]` attribution, reported by
-    /// `server-stats` so lock convoys are visible without external sampling.
-    stats: crate::diagnostics::LockStats,
-}
-
-impl<T> SignaledMutex<T> {
-    fn new(value: T) -> Self {
-        Self {
-            value: Mutex::new(value),
-            release_epoch: Mutex::new(0),
-            released: Condvar::new(),
-            stats: crate::diagnostics::LockStats::new(),
-        }
-    }
-
-    fn stats(&self) -> &crate::diagnostics::LockStats {
-        &self.stats
-    }
-
-    fn guard<'a>(
-        &'a self,
-        value: MutexGuard<'a, T>,
-        site: crate::diagnostics::LockSite,
-        waited_from: Instant,
-        blocker: Option<crate::diagnostics::LockSite>,
-    ) -> SignaledMutexGuard<'a, T> {
-        self.stats.acquired(site, waited_from.elapsed(), blocker);
-        SignaledMutexGuard { value: Some(value), owner: self, site, acquired_at: Instant::now() }
-    }
-
-    #[track_caller]
-    pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
-        let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
-        let blocker = self.stats.wait_started();
-        match self.value.lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(error) => {
-                Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
-            }
-        }
-    }
-
-    #[cfg(test)]
-    #[track_caller]
-    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
-    }
-
-    fn try_lock_at(
-        &self,
-        site: crate::diagnostics::LockSite,
-        waited_from: Instant,
-        blocker: Option<crate::diagnostics::LockSite>,
-    ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.try_lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
-                self.guard(error.into_inner(), site, waited_from, blocker),
-            ))),
-        }
-    }
-
-    #[track_caller]
-    fn lock_until(&self, deadline: Instant) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
-        let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
-        let blocker = self.stats.wait_started();
-        loop {
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let observed = *self.release_epoch.lock().unwrap();
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let mut epoch = self.release_epoch.lock().unwrap();
-            if *epoch != observed {
-                continue;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
-            }
-            let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
-            epoch = next;
-            if result.timed_out() && *epoch == observed {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
-            }
-        }
-    }
-}
-
-pub(crate) struct SignaledMutexGuard<'a, T> {
-    value: Option<MutexGuard<'a, T>>,
-    owner: &'a SignaledMutex<T>,
-    site: crate::diagnostics::LockSite,
-    acquired_at: Instant,
-}
-
-impl<T> Deref for SignaledMutexGuard<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.value.as_deref().expect("signaled mutex guard has a value")
-    }
-}
-
-impl<T> DerefMut for SignaledMutexGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value.as_deref_mut().expect("signaled mutex guard has a value")
-    }
-}
-
-impl<T> Drop for SignaledMutexGuard<'_, T> {
-    fn drop(&mut self) {
-        // Clear holder attribution before the inner mutex is released, so a
-        // waiter that acquires next can never have its holder record erased
-        // by this older unlock.
-        self.owner.stats.released(self.site, self.acquired_at.elapsed());
-        drop(self.value.take());
-        let mut epoch = self.owner.release_epoch.lock().unwrap();
-        *epoch = epoch.wrapping_add(1);
-        self.owner.released.notify_all();
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaemonIdentity {
     pub(crate) pid: u32,
@@ -367,8 +226,6 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
-const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
-const DEADLINE_FANOUT_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
@@ -690,235 +547,6 @@ fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
-}
-
-type DeadlineFanoutJob = Box<dyn FnOnce() + Send + 'static>;
-
-#[derive(Default)]
-struct DeadlineFanoutState {
-    jobs: VecDeque<DeadlineFanoutJob>,
-    worker_count: usize,
-    admitted_jobs: usize,
-    next_worker: u64,
-    shutdown: bool,
-}
-
-#[derive(Default)]
-struct DeadlineFanoutInner {
-    state: Mutex<DeadlineFanoutState>,
-    changed: Condvar,
-}
-
-struct DeadlineFanoutPool {
-    inner: Arc<DeadlineFanoutInner>,
-}
-
-impl DeadlineFanoutPool {
-    fn new() -> Self {
-        Self { inner: Arc::new(DeadlineFanoutInner::default()) }
-    }
-
-    fn submit(&self, job: DeadlineFanoutJob) -> bool {
-        self.submit_until(None, job)
-    }
-
-    fn submit_before(&self, deadline: Instant, job: DeadlineFanoutJob) -> bool {
-        self.submit_until(Some(deadline), job)
-    }
-
-    fn submit_until(&self, deadline: Option<Instant>, job: DeadlineFanoutJob) -> bool {
-        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline)
-            || state.shutdown
-            || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS
-        {
-            return false;
-        }
-
-        let active_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
-        let available_workers = state.worker_count.saturating_sub(active_jobs);
-        if state.jobs.len() + 1 > available_workers
-            && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
-        {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
-            state.worker_count += 1;
-            let inner = self.inner.clone();
-            if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
-            {
-                state.worker_count -= 1;
-                if state.worker_count == 0 {
-                    return false;
-                }
-            }
-        }
-
-        // Thread creation can outlive a short shared deadline. Sample time
-        // again while queue capacity is still protected by the admission lock.
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return false;
-        }
-
-        state.jobs.push_back(job);
-        state.admitted_jobs += 1;
-        self.inner.changed.notify_one();
-        true
-    }
-
-    #[cfg(test)]
-    fn worker_count(&self) -> usize {
-        self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
-    }
-}
-
-impl Drop for DeadlineFanoutPool {
-    fn drop(&mut self) {
-        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.shutdown = true;
-        state.admitted_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
-        state.jobs.clear();
-        self.inner.changed.notify_all();
-    }
-}
-
-fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
-    loop {
-        let job = {
-            let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.shutdown {
-                state.worker_count = state.worker_count.saturating_sub(1);
-                inner.changed.notify_all();
-                return;
-            }
-            let (mut state, _) = inner
-                .changed
-                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
-                    !state.shutdown && state.jobs.is_empty()
-                })
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.shutdown || state.jobs.is_empty() {
-                state.worker_count = state.worker_count.saturating_sub(1);
-                inner.changed.notify_all();
-                return;
-            }
-            state.jobs.pop_front().expect("deadline fanout queue was checked as non-empty")
-        };
-
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
-        let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.admitted_jobs = state.admitted_jobs.saturating_sub(1);
-    }
-}
-
-struct DeadlinePending<R> {
-    result: Arc<Mutex<Option<DeadlineCompletion<R>>>>,
-}
-
-struct DeadlineCompletion<R> {
-    completed_at: Instant,
-    value: R,
-}
-
-impl<R> DeadlinePending<R> {
-    fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take().map(|completion| completion.value)
-    }
-
-    fn try_take_before(&self, deadline: Instant) -> Option<R> {
-        let mut result = self.result.lock().unwrap();
-        if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
-            result.take().map(|completion| completion.value)
-        } else {
-            None
-        }
-    }
-}
-
-enum DeadlineMapResult<R> {
-    Complete(R),
-    Pending(DeadlinePending<R>),
-    Unscheduled,
-}
-
-fn bounded_deadline_map<T, R, F>(
-    pool: &DeadlineFanoutPool,
-    items: &[T],
-    deadline: Instant,
-    operation: F,
-) -> Vec<DeadlineMapResult<R>>
-where
-    T: Clone + Send + 'static,
-    R: Send + 'static,
-    F: Fn(&T, Instant) -> R + Send + Sync + 'static,
-{
-    if items.is_empty() {
-        return Vec::new();
-    }
-
-    let mut ordered = std::iter::repeat_with(|| DeadlineMapResult::Unscheduled)
-        .take(items.len())
-        .collect::<Vec<_>>();
-    let operation = Arc::new(operation);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let mut submitted = 0;
-    for (index, item) in items.iter().cloned().enumerate() {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let sender = sender.clone();
-        let operation = operation.clone();
-        let result = Arc::new(Mutex::new(None));
-        let job_result = result.clone();
-        let job = Box::new(move || {
-            let value = operation(&item, deadline);
-            *job_result.lock().unwrap() =
-                Some(DeadlineCompletion { completed_at: Instant::now(), value });
-            let _ = sender.send(index);
-        });
-        if pool.submit_before(deadline, job) {
-            submitted += 1;
-            ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
-        }
-    }
-    drop(sender);
-
-    while submitted > 0 {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        match receiver.recv_timeout(remaining) {
-            Ok(index) => {
-                let pending =
-                    std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
-                match pending {
-                    DeadlineMapResult::Pending(pending) => {
-                        if let Some(result) = pending.try_take_before(deadline) {
-                            ordered[index] = DeadlineMapResult::Complete(result);
-                            submitted -= 1;
-                        } else {
-                            ordered[index] = DeadlineMapResult::Pending(pending);
-                        }
-                    }
-                    result => ordered[index] = result,
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    for result in &mut ordered {
-        let completed = match result {
-            DeadlineMapResult::Pending(pending) => pending.try_take_before(deadline),
-            DeadlineMapResult::Complete(_) | DeadlineMapResult::Unscheduled => None,
-        };
-        if let Some(completed) = completed {
-            *result = DeadlineMapResult::Complete(completed);
-        }
-    }
-    ordered
 }
 
 #[derive(Debug, Default)]
