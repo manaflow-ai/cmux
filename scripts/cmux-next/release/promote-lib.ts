@@ -252,6 +252,8 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     promotion: rollback ? { rollback: true } : { smoke: smokeRecord },
   })
   const latest = existsSync(file) ? readJson(file) : doc // dev.json may have gained a promotion_smokes entry
+  // A top-level section is the whole file: its history is the copy read before the smoke, so the latest one wins.
+  if (!SECTION[v]) delete written.history
   writeJson(file, SECTION[v] ? { ...latest, [SECTION[v]!]: written } : { ...latest, ...written })
   const worker = WORKER_OF[channel]
   const version = value("--worker-version")
