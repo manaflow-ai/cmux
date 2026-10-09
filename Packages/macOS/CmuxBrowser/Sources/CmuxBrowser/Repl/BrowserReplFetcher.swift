@@ -151,8 +151,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             return
         }
         isInvalidated = true
+        let hops = Array(redirectWork.values)
         lock.unlock()
         session.invalidateAndCancel()
+        for hop in hops { hop.cancel() }
     }
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "fetch: the REPL session was closed")
@@ -249,11 +251,20 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             return task
         }
         guard let task = created else { return (.failure(Self.closedError), 0) }
+        let outcome: Result<(Data, URLResponse), any Error>
         do {
-            let (data, response) = try await data(for: task, onResponse: onResponse) {
+            outcome = .success(try await data(for: task, onResponse: onResponse) {
                 // The policy may have narrowed while the cookies were read.
                 self.reason(url) ?? self.upgradeBlockReason(url)
-            }
+            })
+        } catch {
+            outcome = .failure(error)
+        }
+        // A redirect hop's cookie work belongs to this fetch: the fetch
+        // (and the slot the session holds for it) ends only after it.
+        await settleRedirectWork(of: task)
+        do {
+            let (data, response) = try outcome.get()
             guard let http = response as? HTTPURLResponse else {
                 bodyBudget.release(data.count)
                 return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response")), 0)
@@ -386,6 +397,24 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             }
         } onCancel: {
             task.cancel()
+            // A redirect hop waiting on a cookie call stops too.
+            self.lock.withLock { self.redirectWork[task.taskIdentifier] }?.cancel()
+        }
+    }
+
+    /// Waits until the redirect hop `task` is handling ends; cancelling the
+    /// waiting fetch cancels the hop.
+    private func settleRedirectWork(of task: URLSessionTask) async {
+        let id = task.taskIdentifier
+        while let hop = lock.withLock({ redirectWork[id] }) {
+            await withTaskCancellationHandler {
+                await hop.value
+            } onCancel: {
+                hop.cancel()
+            }
+            lock.withLock {
+                if redirectWork[id] == hop { redirectWork[id] = nil }
+            }
         }
     }
 
@@ -405,6 +434,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 
     private var collectors: [Int: FetchCollector] = [:]
+    /// The work of each task's redirect hop being handled (its cookie
+    /// calls), which its fetch cancels and waits for. Under `lock`.
+    private var redirectWork: [Int: Task<Void, Never>] = [:]
 
     #if DEBUG
     /// Test seam: runs in a fetch after its task's collector is registered
@@ -497,28 +529,55 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 redirected.setValue(nil, forHTTPHeaderField: name)
             }
         }
-        Task {
-            if let from = response.url, Self.sendsCookies(info, to: from) {
-                await self.storeCookies(from: response, targetID: info.targetID)
+        // The hop's cookie calls run in a task its fetch owns: the fetch
+        // cancels it when it is cancelled (its cell timed out) and waits
+        // for it before it returns, and invalidate() cancels it (the session
+        // closed). A cancelled hop makes no further driver call and is not
+        // followed.
+        let identifier = task.taskIdentifier
+        let hopRequest = redirected
+        let started: Bool = lock.withLock {
+            guard !isInvalidated, tasks[identifier] != nil else { return false }
+            redirectWork[identifier] = Task {
+                if let from = response.url, Self.sendsCookies(info, to: from), !Task.isCancelled {
+                    await self.storeCookies(from: response, targetID: info.targetID)
+                }
+                var next = hopRequest
+                // The Cookie header goes on every hop; cookies for the new
+                // URL come from the tab by the credentials rules.
+                Self.removeCookieHeaders(from: &next)
+                if let url = next.url, Self.sendsCookies(info, to: url), !Task.isCancelled,
+                   let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
+                    next.setValue(cookie, forHTTPHeaderField: "Cookie")
+                }
+                self.followRedirect(next, of: task, completionHandler: completionHandler)
             }
-            var next = redirected
-            // The Cookie header goes on every hop; cookies for the new URL
-            // come from the tab by the credentials rules.
-            Self.removeCookieHeaders(from: &next)
-            if let url = next.url, Self.sendsCookies(info, to: url),
-               let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
-                next.setValue(cookie, forHTTPHeaderField: "Cookie")
-            }
-            // The awaits above let the policy narrow; the hop is judged
-            // again against the current policy right before it is followed.
-            if let url = next.url, let reason = self.reason(url) ?? self.upgradeBlockReason(url) {
-                self.lock.withLock { self.tasks[task.taskIdentifier]?.blocked = "fetch: redirect to \(url.absoluteString) is blocked: \(reason)" }
-                completionHandler(nil)
-                task.cancel()
-                return
-            }
-            completionHandler(next)
+            return true
         }
+        if !started { completionHandler(nil) }
+    }
+
+    /// Follows a redirect hop once its cookies are settled, unless the
+    /// hop's work was cancelled or the current policy blocks it.
+    private func followRedirect(
+        _ next: URLRequest,
+        of task: URLSessionTask,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        if Task.isCancelled {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        // The cookie awaits let the policy narrow; the hop is judged again
+        // against the current policy right before it is followed.
+        if let url = next.url, let reason = reason(url) ?? upgradeBlockReason(url) {
+            lock.withLock { tasks[task.taskIdentifier]?.blocked = "fetch: redirect to \(url.absoluteString) is blocked: \(reason)" }
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        completionHandler(next)
     }
 
     /// Removes `Cookie` and `Cookie2`, whose cookies the credentials mode
