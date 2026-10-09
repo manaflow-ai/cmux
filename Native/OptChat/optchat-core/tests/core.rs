@@ -300,7 +300,7 @@ fn size_loop_retries_with_the_cut_and_keeps_the_shortest() {
     match size_check(std::slice::from_ref(&long)) {
         SizeCheck::Retry(msg) => {
             assert!(msg
-                .starts_with("Too long: your line is 600 bytes, over the 512-byte limit. Write\n"));
+                .starts_with("Too long: your last line for this <input> was 600 bytes,\nover the 512-byte limit."));
             assert!(msg.ends_with("| ← LIMIT"));
             assert_eq!(cut_at_bytes(&long, 512).len(), 512);
         }
@@ -496,7 +496,7 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
     let reply = "x".repeat(480);
     match size_check_in(std::slice::from_ref(&reply), room) {
         SizeCheck::Retry(text) => assert!(
-            text.starts_with("Too long: your line is 480 bytes, over the 450-byte limit."),
+            text.starts_with("Too long: your last line for this <input> was 480 bytes,\nover the 450-byte limit."),
             "{text}"
         ),
         other => panic!("{other:?}"),
@@ -774,7 +774,11 @@ fn the_task_aims_well_inside_the_limit_and_the_note_names_the_last_line() {
         memory.append();
     }
     let leaf = compact_request(&memory, &store, NodeId::new(0, 1), String::new()).unwrap();
-    assert!(leaf.step.contains("aim for about 400 bytes"), "{}", leaf.step);
+    assert!(
+        leaf.step.contains("aim for about 400 bytes"),
+        "{}",
+        leaf.step
+    );
     drain(&mut memory, &store);
     store.push(Kind::Echo, "z".repeat(5_000));
     memory.append();

@@ -165,7 +165,7 @@ fn the_size_loop_retries_in_the_same_conversation() {
     assert_eq!(seen[1][0].reply.text, "a".repeat(700));
     assert!(seen[1][0]
         .retry
-        .starts_with("Too long: your line is 700 bytes, over the 512-byte limit."));
+        .starts_with("Too long: your last line for this <input> was 700 bytes,"));
     assert!(seen[1][0].retry.ends_with("| ← LIMIT"));
     assert_eq!(chat.zoom(0, 1).unwrap(), format!("0+0|user: {}", long(0)));
     assert!(chat
