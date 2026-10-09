@@ -18,6 +18,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
     private var hoveredID: String?
+    private var boundsObserver: NSObjectProtocol?
     /// No rubber band while every result fits.
     private var scrollFit: ScrollFitElasticity?
 
@@ -44,10 +45,17 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.onClick = { [weak self] row in self?.activate(row: row) }
         documentView = table
         contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: contentView
-        )
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
+        ) { [weak self] _ in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.boundsChanged() }
+        }
         scrollFit = ScrollFitElasticity(scrollView: self)
+    }
+
+    deinit {
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 
     @available(*, unavailable)
@@ -109,7 +117,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     // MARK: Mouse
 
-    @objc private func boundsChanged() {
+    private func boundsChanged() {
         // Scrolling moves rows under a still pointer; re-hit-test so hover
         // follows the pointer, not the row it was over before the scroll.
         guard let window else { return }

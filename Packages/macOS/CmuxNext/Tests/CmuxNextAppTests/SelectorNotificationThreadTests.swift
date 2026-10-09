@@ -1,11 +1,9 @@
 import AppKit
 import Testing
 
-/// Selector-based NotificationCenter observers run synchronously on the posting
-/// thread. AppKit's notification names are usually posted on the main thread,
-/// but that is not part of NotificationCenter's contract. Keep this probe
-/// deliberately actor-isolated: it is the regression that selector observers
-/// must pass after they are converted to a main-queue delivery path.
+/// AppKit's notification names are usually posted on the main thread, but
+/// NotificationCenter does not guarantee that. Every UI observer in CmuxNext
+/// therefore uses this main-queue delivery contract.
 @MainActor
 @Suite(.serialized)
 struct SelectorNotificationThreadTests {
@@ -37,41 +35,35 @@ struct SelectorNotificationThreadTests {
     }
 
     @MainActor
-    private final class SelectorProbe: NSObject {
+    private final class MainQueueProbe: NSObject {
         private let center: NotificationCenter
-        private let lock = NSLock()
-        nonisolated(unsafe) private var callbackThreads: [Bool] = []
+        private var callbackThreads: [Bool] = []
+        private var observers: [NSObjectProtocol] = []
 
         init(center: NotificationCenter, names: [Notification.Name]) {
             self.center = center
             super.init()
-            for name in names {
-                center.addObserver(self, selector: #selector(received(_:)), name: name, object: nil)
+            observers = names.map { name in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                    // main-proof: NotificationCenter delivers this block on the main operation queue.
+                    MainActor.assumeIsolated { self?.received(note) }
+                }
             }
         }
 
-        @objc private func received(_ note: Notification) {
-            lock.lock()
+        private func received(_ note: Notification) {
             callbackThreads.append(Thread.isMainThread)
-            lock.unlock()
         }
 
-        func callbackThreadsSnapshot() -> [Bool] {
-            lock.lock()
-            defer { lock.unlock() }
-            return callbackThreads
-        }
+        func callbackThreadsSnapshot() -> [Bool] { callbackThreads }
 
-        deinit { center.removeObserver(self) }
+        deinit { observers.forEach(center.removeObserver) }
     }
 
-    /// This is intentionally red on the current selector registrations: every
-    /// callback is delivered on the detached posting thread. Once the app's
-    /// selector observers use `queue: .main` (or `MainDelivery`), this contract
-    /// protects all nine notification names in one focused test.
-    @Test func selectorNotificationsPostedOffMainDeliverOnMain() async {
+    /// A detached post must still deliver every observed notification on main.
+    @Test func observedNotificationsPostedOffMainDeliverOnMain() async {
         let center = NotificationCenter()
-        let probe = SelectorProbe(center: center, names: Self.selectorNotificationNames)
+        let probe = MainQueueProbe(center: center, names: Self.selectorNotificationNames)
         await Self.postFromBackground(Self.selectorNotificationNames, on: center)
         let callbacks = probe.callbackThreadsSnapshot()
         #expect(callbacks.count == Self.selectorNotificationNames.count)

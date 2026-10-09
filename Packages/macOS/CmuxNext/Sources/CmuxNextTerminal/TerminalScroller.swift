@@ -17,6 +17,7 @@ final class TerminalScroller: NSScrollView {
     private let document = TerminalScrollerDocument()
     private var applying = false
     private var shown: TerminalScrollbar?
+    private var boundsObserver: NSObjectProtocol?
     /// The user dragged the legacy scroller: show this row at the top.
     var onScrollToRow: ((UInt64) -> Void)?
     /// A wheel event over the legacy scroller belongs to the terminal.
@@ -41,8 +42,16 @@ final class TerminalScroller: NSScrollView {
             self?.apply(style)
             self?.onStyleChange?()
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved(_:)),
-                                               name: NSView.boundsDidChangeNotification, object: contentView)
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
+        ) { [weak self] note in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.clipMoved(note) }
+        }
+    }
+
+    deinit {
+        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
     }
 
     @available(*, unavailable)
@@ -96,7 +105,7 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    @objc private func clipMoved(_ note: Notification) {
+    private func clipMoved(_ note: Notification) {
         guard !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)

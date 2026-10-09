@@ -28,6 +28,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private let reduceTransparency: @MainActor () -> Bool
     /// Sets the window's behind-window blur radius (tests record it).
     private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
+    private var displayOptionsObserver: NSObjectProtocol?
     let contentHost = NSView()
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
@@ -121,12 +122,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             }
         }
         placementObservation = observePlacement()
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
-                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // main-proof: NSWorkspace delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.displayOptionsChanged() }
+        }
         themeDidChange()
     }
 
-    @objc private func displayOptionsChanged() {
+    private func displayOptionsChanged() {
         themeDidChange()
     }
 
@@ -136,6 +141,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     isolated deinit {
         tokenObservation?.cancel()
         placementObservation?.cancel()
+        if let displayOptionsObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver)
+        }
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }

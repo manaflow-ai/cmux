@@ -15,6 +15,7 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
 /// resize handle.
 public final class SidebarView: NSView {
     public let model: SidebarModel
+    private var notificationObservers: [NSObjectProtocol] = []
     /// Height reserved at the top for the window's traffic lights (the
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
@@ -89,6 +90,7 @@ public final class SidebarView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
         observation?.cancel()
+        for observer in notificationObservers { NotificationCenter.default.removeObserver(observer) }
     }
     override public var isFlipped: Bool { true }
     // MARK: Public API
@@ -197,10 +199,25 @@ public final class SidebarView: NSView {
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+        ) { [weak self] note in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.clipBoundsChanged(note) }
+        })
         scrollView.contentView.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
+        ) { [weak self] note in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.clipFrameChanged(note) }
+        })
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.scrollerStyleChanged(note) }
+        })
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -213,16 +230,16 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
     }
 
-    @objc private func clipBoundsChanged(_ note: Notification) {
+    private func clipBoundsChanged(_ note: Notification) {
         list.realizeVisibleRows()
         PointerHover.refresh(in: window)
     }
 
-    @objc private func clipFrameChanged(_ note: Notification) {
+    private func clipFrameChanged(_ note: Notification) {
         syncListSize()
     }
 
-    @objc private func scrollerStyleChanged(_ note: Notification) {
+    private func scrollerStyleChanged(_ note: Notification) {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListSize()
     }

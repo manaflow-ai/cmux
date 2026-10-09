@@ -21,17 +21,26 @@ import WebKit
 public final class WebKitInspectorWatch: NSObject {
     public private(set) var isVisible = false
     @ObservationIgnored private weak var webView: WKWebView?
+    private var windowCloseObserver: NSObjectProtocol?
 
     override init() {}
 
     func attach(webView: WKWebView, container: WebKitPageContainer) {
         self.webView = webView
         container.onSubviewsChange = { [weak self] in self?.refresh() }
-        // A selector observer is removed when this object is freed.
-        NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil)
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.windowWillClose(notification) }
+        }
     }
 
-    @objc private func windowWillClose(_ notification: Notification) { refresh() }
+    deinit {
+        if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
+    }
+
+    private func windowWillClose(_ notification: Notification) { refresh() }
 
     /// Reads the inspector's visibility now and once more on the next turn.
     public func refresh() {

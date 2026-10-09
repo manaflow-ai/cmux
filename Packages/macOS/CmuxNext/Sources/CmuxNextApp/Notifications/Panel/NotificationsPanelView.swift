@@ -52,6 +52,7 @@ final class NotificationsPanelView: NSView {
 
     var onMarkAllRead: (() -> Void)?
     var onClearAll: (() -> Void)?
+    private var scrollerStyleObserver: NSObjectProtocol?
 
     private let background = NSView()
     private let body = NSView()
@@ -118,8 +119,12 @@ final class NotificationsPanelView: NSView {
         scroll.hasVerticalScroller = true
         // The system's "Show scroll bars" setting (R111).
         SystemScrollers.follow(scroll)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged),
-                                               name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        scrollerStyleObserver = NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.scrollerStyleChanged(note) }
+        }
         document.translatesAutoresizingMaskIntoConstraints = false
 
         emptyIcon.image = NSImage.icon(.notification, size: 28)
@@ -211,7 +216,11 @@ final class NotificationsPanelView: NSView {
         }
     }
 
-    @objc private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = SystemScrollers.preferredStyle }
+    deinit {
+        if let scrollerStyleObserver { NotificationCenter.default.removeObserver(scrollerStyleObserver) }
+    }
+
+    private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = SystemScrollers.preferredStyle }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }

@@ -12,6 +12,7 @@ import WebKit
 /// use their own views and are not affected.
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
+    private var menuActionObserver: NSObjectProtocol?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -30,8 +31,16 @@ final class PageWKWebView: WKWebView {
         super.init(frame: frame, configuration: configuration)
         allowsMagnification = false
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
-        NotificationCenter.default.addObserver(self, selector: #selector(menuWillSendAction(_:)),
-                                               name: NSMenu.willSendActionNotification, object: nil)
+        menuActionObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.willSendActionNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.menuWillSendAction(notification) }
+        }
+    }
+
+    deinit {
+        if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
     }
 
     @available(*, unavailable)
@@ -70,7 +79,7 @@ final class PageWKWebView: WKWebView {
     /// An item of this view's context menu (or one of its submenus) is about to send its action:
     /// the person chose it, so the page call it leads to (a host-built Copy) follows a gesture.
     /// AppKit posts this only for a real menu choice; page script cannot.
-    @objc private func menuWillSendAction(_ notification: Notification) {
+    private func menuWillSendAction(_ notification: Notification) {
         guard let opened = openedMenu, var menu = notification.object as? NSMenu else { return }
         while menu !== opened {
             guard let parent = menu.supermenu else { return }

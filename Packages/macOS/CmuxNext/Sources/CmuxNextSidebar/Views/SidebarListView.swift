@@ -81,10 +81,11 @@ final class SidebarListView: NSView {
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
-        NotificationCenter.default.removeObserver(self)
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
+    private var occlusionObserver: NSObjectProtocol?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -92,13 +93,19 @@ final class SidebarListView: NSView {
         if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
-        if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
+        if let occlusionObserver { center.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
         observedWindow = window
         if let window {
-            center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            occlusionObserver = center.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+            ) { [weak self] note in
+                // main-proof: NotificationCenter delivers this block on the main operation queue.
+                MainActor.assumeIsolated { self?.windowOcclusionChanged(note) }
+            }
         }
     }
-    @objc private func windowOcclusionChanged(_ note: Notification) {
+    private func windowOcclusionChanged(_ note: Notification) {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
     /// Pauses (or resumes) every row's activity animation.

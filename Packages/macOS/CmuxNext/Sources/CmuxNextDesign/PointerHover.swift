@@ -201,27 +201,39 @@ public final class PointerHover: NSObject {
 /// Key-window changes refresh that window's hover (`PointerHover`).
 @MainActor
 private final class KeyWindowObserver: NSObject {
+    private var observers: [NSObjectProtocol] = []
+
     override init() {
         super.init()
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            center.addObserver(self, selector: #selector(keyWindowChanged(_:)), name: name, object: nil)
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                // main-proof: NotificationCenter delivers this block on the main operation queue.
+                MainActor.assumeIsolated { self?.keyWindowChanged(notification) }
+            })
         }
         #if DEBUG
-        center.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: nil)
+        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notification in
+            // main-proof: NotificationCenter delivers this block on the main operation queue.
+            MainActor.assumeIsolated { self?.windowWillClose(notification) }
+        })
         #endif
+    }
+
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
 
     #if DEBUG
     /// A closed window's synthesized pointer must not pass to a new window
     /// that reuses its address.
-    @objc private func windowWillClose(_ notification: Notification) {
+    private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         PointerHover.debugPointers[ObjectIdentifier(window)] = nil
     }
     #endif
 
-    @objc private func keyWindowChanged(_ notification: Notification) {
+    private func keyWindowChanged(_ notification: Notification) {
         PointerHover.refresh(in: notification.object as? NSWindow)
     }
 }
