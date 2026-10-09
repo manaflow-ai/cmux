@@ -35154,17 +35154,20 @@ export default {
         } else {
             config = [:]
         }
-        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
+        // OpenCode V2's schema uses the singular `plugin` array. Accept the
+        // legacy plural spelling while migrating it to the V2 contract so an
+        // installed bridge is loadable by the current CLI.
+        let configuredPlugins = (config["plugin"] as? [Any] ?? []) + (config["plugins"] as? [Any] ?? [])
         var plugins = Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
             plugins.append(Self.openCodeSessionPluginConfigSpec)
         }
-        config.removeValue(forKey: "plugin")
         if shouldInstall || !plugins.isEmpty {
-            config["plugins"] = plugins
+            config["plugin"] = plugins
         } else {
-            config.removeValue(forKey: "plugins")
+            config.removeValue(forKey: "plugin")
         }
+        config.removeValue(forKey: "plugins")
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)

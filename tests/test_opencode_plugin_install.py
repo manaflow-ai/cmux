@@ -102,7 +102,7 @@ def main() -> int:
         except Exception as exc:
             print(f"FAIL: invalid opencode.json after install: {exc}")
             return 1
-        plugins = config.get("plugins")
+        plugins = config.get("plugin")
         if not isinstance(plugins, list):
             print(f"FAIL: expected plugin list in opencode.json, got {plugins!r}")
             return 1
@@ -496,7 +496,7 @@ await v1Hooks.event({
             foreign_uninstall.returncode != 0
             or foreign_session.read_text(encoding="utf-8") != "// user-owned plugin\n"
             or foreign_tui.exists()
-            or "./plugins/cmux" in foreign_config.get("plugins", [])
+            or "./plugins/cmux" in foreign_config.get("plugin", [])
         ):
             print("FAIL: uninstall removed or retained the wrong files for an unmarked legacy plugin")
             return 1
