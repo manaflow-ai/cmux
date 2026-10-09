@@ -94,6 +94,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .and_then(|error| error.code().map(str::to_string))
         })
         .or_else(|| permanent_column_code(error))
+        .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
@@ -112,7 +113,15 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
 /// Read from the whole chain: a resource commit may carry the refusal as a
 /// cause under its own context ("close pane 3").
 fn permanent_column_code(error: &anyhow::Error) -> Option<String> {
-    let code = crate::mux::PERMANENT_COLUMN_CODE;
+    resource_refusal_code(error, crate::mux::PERMANENT_COLUMN_CODE)
+}
+
+/// A split or edge drop the agent chat dock guard refused.
+fn agent_chat_column_code(error: &anyhow::Error) -> Option<String> {
+    resource_refusal_code(error, crate::mux::AGENT_CHAT_COLUMN_CODE)
+}
+
+fn resource_refusal_code(error: &anyhow::Error, code: &str) -> Option<String> {
     let refused = error.chain().any(|cause| {
         cause
             .downcast_ref::<crate::resource::ResourceError>()

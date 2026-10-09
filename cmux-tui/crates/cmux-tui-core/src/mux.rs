@@ -15,6 +15,7 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
+mod agent_chat_columns;
 pub(crate) mod app_terminals;
 mod cloud_conversations;
 mod conversations;
@@ -72,6 +73,8 @@ use agent_hook_errors::{
     agent_hook_retry_class, agent_hook_terminal_gone,
 };
 
+pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
+pub(crate) use agent_chat_columns::{agent_chat_columns, ensure_agent_chat_columns_unsplit};
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
