@@ -4456,6 +4456,12 @@ mod unix {
             // soon as the session leader exits: an HUP-ignoring descendant
             // can still be alive in the now-invisible original group.
             self.signal_terminal_process_groups(libc::SIGKILL);
+            if let Some(cleanup) = self.session_cleanup.lock().unwrap().clone() {
+                // Do not publish a successful explicit teardown until every
+                // captured PTY-session group has disappeared. The wait is
+                // bounded so an escaped descriptor cannot stall shutdown.
+                let _ = cleanup.wait_for_exit(HOST_KILL_WAIT);
+            }
             self.finish_group_escalation();
             let child_exited = self.wait_for_child_exit(HOST_KILL_WAIT);
             if child_exited && self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE) {

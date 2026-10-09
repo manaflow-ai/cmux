@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::fs;
 #[cfg(not(target_os = "linux"))]
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub(super) struct SessionCleanup {
@@ -39,6 +40,21 @@ impl SessionCleanup {
             // SAFETY: the group was observed in the captured PTY session and
             // revalidated in that same session immediately before signaling.
             let _ = unsafe { libc::killpg(group, signal) };
+        }
+    }
+
+    pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let live =
+                session_groups(self.session).into_iter().any(|group| self.groups.contains(&group));
+            if !live {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 }
