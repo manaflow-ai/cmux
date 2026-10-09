@@ -79,16 +79,12 @@ final class SidebarListView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
     isolated deinit {
-        // The frame client deactivates in its own deinit (touching the lazy
-        // property here would create one that weakly captures a dying self).
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     }
-    // MARK: - Window occlusion
     private var observedWindow: NSWindow?
     private var occlusionObserver: NSObjectProtocol?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // A move to another window (or none) ends this list's card only.
         hoverCards.unregister(hoverCard)
         if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
@@ -100,7 +96,6 @@ final class SidebarListView: NSView {
             occlusionObserver = center.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
             ) { [weak self] _ in
-                // main-proof: NotificationCenter delivers this block on the main operation queue.
                 MainActor.assumeIsolated { self?.windowOcclusionChanged() }
             }
         }

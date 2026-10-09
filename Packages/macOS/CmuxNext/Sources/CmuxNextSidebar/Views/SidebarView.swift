@@ -192,30 +192,19 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111); the list follows
-        // the clip's width when a legacy scroller narrows it.
         SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
-        notificationObservers.append(NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
-        ) { [weak self] _ in
-            // main-proof: NotificationCenter delivers this block on the main operation queue.
+        notificationObservers.append(NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.clipBoundsChanged() }
         })
         scrollView.contentView.postsFrameChangedNotifications = true
-        notificationObservers.append(NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main
-        ) { [weak self] _ in
-            // main-proof: NotificationCenter delivers this block on the main operation queue.
+        notificationObservers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.clipFrameChanged() }
         })
-        notificationObservers.append(NotificationCenter.default.addObserver(
-            forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            // main-proof: NotificationCenter delivers this block on the main operation queue.
+        notificationObservers.append(NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.scrollerStyleChanged() }
         })
         scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
