@@ -720,6 +720,7 @@
 		B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */; };
 		7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */; };
 		C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */; };
+		6E47320B17B75FED0EBF916D /* CLIVaultForkSelectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16EC3A2761AEFC3648D86C1B /* CLIVaultForkSelectorTests.swift */; };
 		C5E7D1A90000000000000002 /* CLIVersionSkew+Diagnose.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E7D1A90000000000000001 /* CLIVersionSkew+Diagnose.swift */; };
 		C5E719492D2B290FD528A0A2 /* CLIVersionSkew.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */; };
 		C5E7D1A90000000000000003 /* CLIVersionSkew.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */; };
@@ -5321,6 +5322,7 @@
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
 		7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatResizePaneTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatStoreConcurrencyTests.swift; sourceTree = "<group>"; };
+		16EC3A2761AEFC3648D86C1B /* CLIVaultForkSelectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVaultForkSelectorTests.swift"; sourceTree = "<group>"; };
 		C5E7D1A90000000000000001 /* CLIVersionSkew+Diagnose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIVersionSkew+Diagnose.swift"; sourceTree = "<group>"; };
 		C5E79F791C88A42032AB6198 /* CLIVersionSkew.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVersionSkew.swift; sourceTree = "<group>"; };
 		C5E77DFE66FE1C6A88ADD10F /* CLIVersionSkewErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVersionSkewErrorTests.swift; sourceTree = "<group>"; };
@@ -13388,6 +13390,7 @@
 				3115B11FBE63D81B98EBAE5A /* CloudDesktopGraphOpenTests.swift */,
 				8B32678EFAC31EA6D25F35B9 /* MobileTerminalFramePacerTests.swift */,
 				99CD6A76F75825E105715C8C /* CLIWorkspaceRefResolutionTests.swift */,
+				16EC3A2761AEFC3648D86C1B /* CLIVaultForkSelectorTests.swift */,
 				E9A79D080D5B1E7996CC8586 /* CloudReadResponseGate.swift */,
 				0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */,
 				1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */,
@@ -17665,6 +17668,7 @@
 				C11757000000000000000054 /* CLITestBundleAnchor.swift in Sources */,
 				B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */,
 				7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */,
+				6E47320B17B75FED0EBF916D /* CLIVaultForkSelectorTests.swift in Sources */,
 				C5E7D1A90000000000000003 /* CLIVersionSkew.swift in Sources */,
 				279535607B3531BAA835B41E /* CLIVersionSkewMessageTests.swift in Sources */,
 				84ED8B0271A2FD801E8F280C /* CLIVMDevTests.swift in Sources */,
