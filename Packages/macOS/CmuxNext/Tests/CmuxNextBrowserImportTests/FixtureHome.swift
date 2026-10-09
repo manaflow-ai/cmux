@@ -69,27 +69,3 @@ final class FixtureHome {
     }
 }
 
-/// Builds SNSS session files command by command.
-struct SNSSWriter {
-    private(set) var data = Data("SNSS".utf8) + le32(1)
-
-    static func le32(_ value: Int32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
-
-    mutating func command(_ id: UInt8, _ payload: Data) {
-        withUnsafeBytes(of: UInt16(payload.count + 1).littleEndian) { data.append(contentsOf: $0) }
-        data.append(id)
-        data.append(payload)
-    }
-
-    static func pad(_ data: Data) -> Data { data + Data(count: (4 - data.count % 4) % 4) }
-
-    mutating func navigation(tab: Int32, index: Int32, url: String, title: String) {
-        var body = Self.le32(tab) + Self.le32(index)
-        body += Self.le32(Int32(url.utf8.count)) + Self.pad(Data(url.utf8))
-        let units = Array(title.utf16)
-        body += Self.le32(Int32(units.count)) + Self.pad(Data(units.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }))
-        command(6, Self.le32(Int32(body.count)) + body)
-    }
-
-    mutating func raw(_ id: UInt8, _ values: Int32...) { command(id, values.reduce(Data()) { $0 + Self.le32($1) }) }
-}
