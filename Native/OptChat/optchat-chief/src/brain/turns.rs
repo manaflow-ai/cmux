@@ -746,8 +746,13 @@ impl Brain {
         };
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
+        let owner_stopped = std::mem::take(&mut self.owner_stopped);
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
+            (reply, _) if owner_stopped && outcome.cancelled => match reply {
+                Some(reply) => format!("{reply}\n\n(turn stopped)"),
+                None => "(turn stopped)".to_owned(),
+            },
             (None, Some(error)) if outcome.refused => format!("(turn {error})"),
             (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
             (Some(reply), None) => reply,
