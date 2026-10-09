@@ -2451,13 +2451,14 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        # Published nightly-next waits at most 20m (usually a few minutes):
+        # Every track waits at most 40m (usually a few minutes; three
+        # nightly-next builds in a row outlasted 20m). On published nightly-next
         # an Accepted build is stapled and published by this run, and one still
-        # in Apple's queue is handed to the next nightly-next run through the
-        # recovery artifact below. Private nightly/RC paths keep the 40m wait.
+        # in Apple's queue is handed to a later nightly-next run through the
+        # recovery artifact below.
         timeout-minutes: 50
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && '20m' || '40m' }}
+          CMUX_NOTARY_WAIT_TIMEOUT: 40m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
