@@ -9,19 +9,6 @@ extension Workspace {
         var store = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
         store.apply(report)
         programStatusStoresByPanelId[panelId] = store
-
-        switch report.event {
-        case .promptStart:
-            setAgentLifecycle(key: Self.programStatusKey, panelId: panelId, lifecycle: .idle)
-        case .report:
-            switch report.state {
-            case .working: setAgentLifecycle(key: Self.programStatusKey, panelId: panelId, lifecycle: .running)
-            case .blocked: setAgentLifecycle(key: Self.programStatusKey, panelId: panelId, lifecycle: .needsInput)
-            case .idle, .done, .error: setAgentLifecycle(key: Self.programStatusKey, panelId: panelId, lifecycle: .idle)
-            case .clear:
-                _ = clearAgentLifecycle(key: Self.programStatusKey, panelId: panelId)
-            }
-        }
         projectProgramStatus(panelId: panelId)
     }
 
@@ -42,7 +29,6 @@ extension Workspace {
     func clearProgramStatusPanel(panelId: UUID) {
         programStatusStoresByPanelId.removeValue(forKey: panelId)
         programStatusUrgencyByPanelId.removeValue(forKey: panelId)
-        _ = clearAgentLifecycle(key: Self.programStatusKey, panelId: panelId)
         removePanelStatusEntry(key: Self.programStatusKey, panelId: panelId)
         refreshProgramStatusWorkspaceEntry()
     }
@@ -80,7 +66,8 @@ extension Workspace {
             return
         }
         let detail = message ?? title ?? fallback
-        let value = [app, detail].compactMap { $0 }.joined(separator: " · ")
+        let percent = record.progress.map { "\($0)%" }
+        let value = [app, detail, percent].compactMap { $0 }.joined(separator: " · ")
         let entry = SidebarStatusEntry(
             key: Self.programStatusKey,
             value: value,
@@ -93,9 +80,7 @@ extension Workspace {
             },
             color: state == .blocked ? "#4C8DFF" : nil,
             priority: ProgramStatusRecordStore.urgencyRank(state),
-            timestamp: Date(),
-            workState: state == .working || state == .blocked ? .running : nil,
-            progress: record.progress.map { SidebarProgressState(value: Double($0) / 100, label: "\($0)%") }
+            timestamp: Date()
         )
         setStatusEntry(entry, key: Self.programStatusKey, panelId: panelId)
         refreshProgramStatusWorkspaceEntry()

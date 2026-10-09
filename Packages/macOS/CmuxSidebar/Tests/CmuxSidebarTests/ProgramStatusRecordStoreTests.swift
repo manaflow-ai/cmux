@@ -6,10 +6,11 @@ struct ProgramStatusRecordStoreTests {
     @Test func reportsReplaceRecordsAndClearSubtrees() {
         var store = ProgramStatusRecordStore()
         store.apply(ProgramStatusReport(state: .working, id: "build", app: "cargo"))
-        store.apply(ProgramStatusReport(state: .blocked, id: "build/test", kind: .question))
+        store.apply(ProgramStatusReport(state: .blocked, kind: .question, id: "build/test"))
         store.apply(ProgramStatusReport(state: .done, id: "build", message: "done"))
         #expect(store.record(id: "build")?.state == .done)
-        #expect(store.record(id: "build")?.app == "cargo")
+        // A report replaces its record completely, so the earlier app is gone.
+        #expect(store.record(id: "build")?.app == nil)
         #expect(store.record(id: "build/test")?.state == .blocked)
         store.apply(ProgramStatusReport(state: .clear, id: "build"))
         #expect(store.records.isEmpty)
@@ -30,7 +31,7 @@ struct ProgramStatusRecordStoreTests {
     @Test func inheritanceAndLifetimeRules() {
         var store = ProgramStatusRecordStore()
         store.apply(ProgramStatusReport(state: .working, id: "deploy", app: "terraform"))
-        store.apply(ProgramStatusReport(state: .blocked, id: "deploy/eu", kind: .permission, progress: 40))
+        store.apply(ProgramStatusReport(state: .blocked, kind: .permission, progress: 40, id: "deploy/eu"))
         #expect(store.effectiveApp(for: store.record(id: "deploy/eu")!) == "terraform")
         store.dropTransient()
         #expect(store.records.isEmpty)
@@ -40,7 +41,7 @@ struct ProgramStatusRecordStoreTests {
         #expect(store.records.isEmpty)
     }
 
-    @Test func PromptStartDropsOnlyTransientRecords() {
+    @Test func promptStartDropsOnlyTransientRecords() {
         var store = ProgramStatusRecordStore()
         store.apply(ProgramStatusReport(state: .working, id: "working"))
         store.apply(ProgramStatusReport(state: .blocked, id: "blocked"))

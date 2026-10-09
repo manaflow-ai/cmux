@@ -209,15 +209,6 @@ Puts the workspace's own status on one line, like the Claude desktop session lis
 
 Lines you added yourself stay where they are: the workspace description, your own `cmux set-status` keys, logs, progress, ports, the checklist, and a remote workspace's connection row with its Reconnect button. So `cmux set-status` under your own key is still the way to keep a line of your own in compact mode.
 
-### OSC 7501 program status
-
-Programs can report `idle`, `working`, `blocked`, `done`, or `error` over OSC
-7501. cmux keeps those records per terminal panel, inherits an app name from a
-parent record, shows the most urgent record in the sidebar, and removes active
-work when the next prompt or process exit arrives. Messages are treated as
-plain text and are bounded before display. Completed and failed rows clear when
-their panel is focused again.
-
 ```json
 {
   "sidebar": {
