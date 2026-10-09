@@ -1,4 +1,6 @@
 import AppKit
+import CmuxCloud
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +11,24 @@ import Testing
 
 @Suite("Cloud welcome")
 struct CloudWelcomeTests {
+    @Test("welcome includes Cloud on and off; only MDM blocks it", arguments: [false, true], [false, true])
+    func welcomeIgnoresActivation(cloudIsOn: Bool, blockedByMDM: Bool) throws {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(cloudIsOn, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key in
+            key == ManagedDevicePolicyKey.disableCloud.rawValue ? blockedByMDM : nil
+        }
+
+        #expect(CloudWelcomeWindowController.shouldPresentAutomatically(
+            seenVersion: defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey),
+            appVersion: "0.65.1",
+            cloudAvailable: CloudMachinesFeature.isAvailable(policy: policy),
+            cloudEnabled: CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy)
+        ) == !blockedByMDM)
+    }
+
     @Test("welcome owns close instead of the terminal behind it")
     @MainActor
     func welcomeOwnsCloseShortcut() {
