@@ -19,6 +19,12 @@ import Testing
         #expect(frame.width == 320)
     }
 
+    @Test func iOS27SitsOnTheSafeArea() {
+        // iOS 27.0: the same "+"; popover {10, 383.3, 320, 456.6}.
+        let frame = SendMenuGeometry.openFrame(anchor: CGRect(x: 28, y: 806, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 9, bottomInset: SendMenuGeometry.bottomInset(iOS27: true))
+        #expect(frame.origin == CGPoint(x: 10, y: 383))
+    }
+
     @Test func openCenteredOnARaisedPlusMatchesMessages() {
         // iOS 27.0 with the keyboard up: "+" at {16, 490, 40, 40}; popover {10, 281, 320, 456.6}.
         let frame = SendMenuGeometry.openFrame(anchor: CGRect(x: 16, y: 490, width: 40, height: 40), in: screen, safeArea: safe, itemCount: 9)
@@ -38,17 +44,23 @@ import Testing
         #expect(SendMenuGeometry.dragProgress(translation: -40) == 0)
     }
 
-    @Test func springsMatchChatKitImplicitDurations() {
+    @Test func springsMatchTheRecordedFrames() {
         // UIKit's implicit durations printed beside the ChatKit animators.
-        #expect(abs(SendMenuGeometry.Present.horizontal.dampingRatio - 0.7348469) < 1e-6)
-        #expect(abs(SendMenuGeometry.Present.vertical.dampingRatio - 0.6917482) < 1e-6)
-        #expect(abs(SendMenuGeometry.Dismiss.vertical.dampingRatio - 0.9593835) < 1e-6)
+        // Recorded on iOS 27.0 (top edge, per 60 fps frame): 0.475 after 5
+        // frames, 0.892 after 10, 0.986 after 13, then ~1% over.
+        let open = SendMenuGeometry.Present.vertical
+        #expect(abs(open.progress(at: 5.0 / 60) - 0.475) < 0.02)
+        #expect(abs(open.progress(at: 10.0 / 60) - 0.892) < 0.02)
+        #expect(abs(open.progress(at: 13.0 / 60) - 0.986) < 0.02)
+        #expect(abs(open.dampingRatio - 0.81) < 0.005)
+        // Back in the "+" (98.6%) after 12 frames.
+        #expect(abs(SendMenuGeometry.Dismiss.geometry.progress(at: 12.0 / 60) - 0.986) < 0.02)
     }
 }
 
 @Suite struct SendMenuSpringTests {
     @Test func underdampedSpringOvershootsByTheTextbookAmount() {
-        let spring = SendMenuGeometry.Present.horizontal
+        let spring = SendMenuGeometry.Spring(mass: 2, stiffness: 300, damping: 36, settlingDuration: 0.8490879)
         // Peak at pi / omega_d: overshoot exp(-pi zeta / sqrt(1 - zeta^2)), 3.3% for zeta 0.735.
         let omega = (spring.stiffness / spring.mass).squareRoot()
         let zeta = spring.dampingRatio
@@ -66,7 +78,7 @@ import Testing
     }
 
     @Test func horizontalTracksStartAFewMillisecondsLate() {
-        #expect(abs(SendMenuGeometry.Present.horizontal.delay - 0.0212) < 0.0005)
+        #expect(abs(SendMenuGeometry.Present.horizontal.delay - 0.025) < 0.0005)
     }
 }
 

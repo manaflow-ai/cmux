@@ -101,7 +101,9 @@ final class AppsMenuOverlay: UIView {
 
     func present() {
         let insets = superview?.safeAreaInsets ?? .zero
-        openFrame = G.openFrame(anchor: anchor, in: bounds, safeArea: (insets.top, insets.left, insets.bottom, insets.right), itemCount: rows.arrangedSubviews.count)
+        var iOS27 = false
+        if #available(iOS 27, *) { iOS27 = true }
+        openFrame = G.openFrame(anchor: anchor, in: bounds, safeArea: (insets.top, insets.left, insets.bottom, insets.right), itemCount: rows.arrangedSubviews.count, bottomInset: G.bottomInset(iOS27: iOS27))
         let size = openFrame.size
         for view in [contentX, contentY] { view.bounds = CGRect(origin: .zero, size: size) }
         contentY.center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -177,10 +179,6 @@ final class AppsMenuOverlay: UIView {
         /// Set by the first frame drawn, so building the menu costs no motion.
         var start: CFTimeInterval?
         var centerX, width, centerY, height, plusScaleX, plusScaleY, plusAlpha, contentAlpha: Track
-        /// The popover never leaves the space between where it starts and
-        /// where it lands: the springs' overshoot shows only in the plus and
-        /// contents, as in the recorded Messages frames.
-        var bounds: CGRect
         var completion: (() -> Void)?
     }
 
@@ -201,7 +199,6 @@ final class AppsMenuOverlay: UIView {
             plusScaleY: Track(from: state.plusScale, to: target.plusScale, spring: springs.vertical),
             plusAlpha: Track(from: state.plusAlpha, to: target.plusAlpha, spring: springs.plus, delay: springs.contentDelay),
             contentAlpha: Track(from: state.contentAlpha, to: target.contentAlpha, spring: springs.content, delay: springs.contentDelay),
-            bounds: from.union(frame),
             completion: completion
         )
         if displayLink == nil {
@@ -222,8 +219,7 @@ final class AppsMenuOverlay: UIView {
         }
         let elapsed = now - (morph.start ?? now)
         let width = morph.width.value(elapsed), height = morph.height.value(elapsed)
-        var frame = CGRect(x: morph.centerX.value(elapsed) - width / 2, y: morph.centerY.value(elapsed) - height / 2, width: width, height: height)
-        frame = frame.intersection(morph.bounds)
+        let frame = CGRect(x: morph.centerX.value(elapsed) - width / 2, y: morph.centerY.value(elapsed) - height / 2, width: width, height: height)
         state = State(plusScale: morph.plusScaleY.value(elapsed), plusAlpha: morph.plusAlpha.value(elapsed), contentAlpha: morph.contentAlpha.value(elapsed))
         apply(state, frame: frame, plusScaleX: morph.plusScaleX.value(elapsed))
         let tracks = [morph.centerX, morph.width, morph.centerY, morph.height, morph.plusAlpha, morph.contentAlpha]
@@ -257,6 +253,14 @@ final class AppsMenuOverlay: UIView {
             plusY.transform = CGAffineTransform(scaleX: 1, y: state.plusScale)
             plusX.alpha = state.plusAlpha
         }
+    }
+
+    /// Rows take their own touches; everywhere else belongs to the menu's
+    /// tap and swipe (a glass container passes misses through on iOS 27).
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled, !isHidden, self.point(inside: point, with: event) else { return nil }
+        if let hit = super.hitTest(point, with: event), hit.isDescendant(of: panel) { return hit }
+        return self
     }
 
     override func accessibilityPerformEscape() -> Bool {

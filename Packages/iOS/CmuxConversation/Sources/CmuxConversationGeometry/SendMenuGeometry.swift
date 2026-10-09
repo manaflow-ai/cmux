@@ -46,16 +46,21 @@ public enum SendMenuGeometry {
         return verticalInset + rows * rowHeight + verticalInset
     }
 
+    /// Space kept above the bottom safe area: 10 pt on iOS 26, none on iOS 27
+    /// (the same 456.6 pt menu sits at y 373 on 26.5 and y 383.3 on 27.0).
+    public static func bottomInset(iOS27: Bool) -> CGFloat { iOS27 ? 0 : edgeInset }
+
     /// The open popover: centered vertically on the "+" button, kept inside
-    /// `bounds` less the safe area and `edgeInset` (Messages measured: a
-    /// 456.6 pt menu at y 373 above an iPhone 17 Pro's home indicator, and
-    /// at y 281 centered on a "+" raised by the keyboard).
-    public static func openFrame(anchor: CGRect, in bounds: CGRect, safeArea: (top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat), itemCount: Int) -> CGRect {
+    /// `bounds` less the safe area, `edgeInset` and `bottomInset` (Messages
+    /// measured on iOS 26.5: a 456.6 pt menu at y 373 above an iPhone 17
+    /// Pro's home indicator; on 27.0, at y 281 centered on a "+" raised by
+    /// the keyboard).
+    public static func openFrame(anchor: CGRect, in bounds: CGRect, safeArea: (top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat), itemCount: Int, bottomInset: CGFloat = edgeInset) -> CGRect {
         let minX = bounds.minX + safeArea.left + edgeInset
         let maxX = bounds.maxX - safeArea.right - edgeInset
         let width = min(maximumWidth, maxX - minX)
         let minY = bounds.minY + safeArea.top + edgeInset
-        let maxY = bounds.maxY - safeArea.bottom - edgeInset
+        let maxY = bounds.maxY - safeArea.bottom - bottomInset
         let height = min(height(itemCount: itemCount), maxY - minY)
         var y = anchor.midY - height / 2
         y = min(y, maxY - height)
@@ -140,12 +145,16 @@ public enum SendMenuGeometry {
         }
     }
 
-    /// `CKSendMenuPresentationPopoverView animationForPresentingInitialView`.
+    /// Opening. ChatKit's `newSendMenuPresentPopover{Width,CenterX}Animator`
+    /// (m2 k300 c36, delayFactor 0.025) and `{Height,CenterY}Animator`
+    /// (m2 k320 c35) are not what the screen shows: in a clean 60 fps
+    /// recording of MobileSMS on iOS 27.0 every edge of the menu follows
+    /// omega 17.3, zeta 0.81 (89% in 10 frames, then a 1% overshoot), and the
+    /// iOS 26.5 recording agrees. Widening trails rising by about a frame
+    /// (ChatKit adds its horizontal tracks with a delayFactor).
     public enum Present {
-        /// `newSendMenuPresentPopover{Width,CenterX,PlusCenterX,PlusIconScaleX}Animator`, delayFactor 0.025.
-        public static let horizontal = Spring(mass: 2, stiffness: 300, damping: 36, settlingDuration: 0.8490879, delayFactor: 0.025)
-        /// `newSendMenuPresentPopover{Height,CenterY,PlusIconScaleY}Animator`.
-        public static let vertical = Spring(mass: 2, stiffness: 320, damping: 35, velocity: CGVector(dx: 0, dy: 1), settlingDuration: 0.8662441)
+        public static let horizontal = Spring(mass: 1, stiffness: 300, damping: 28, settlingDuration: 0.5, delayFactor: 0.05)
+        public static let vertical = Spring(mass: 1, stiffness: 300, damping: 28, settlingDuration: 0.5)
         /// `newSendMenuPresentPopoverPlusIcon{Opacity,BlurRadius}Animator`.
         public static let plusFade = Spring(mass: 1, stiffness: 2706, damping: 104, settlingDuration: 0.2026780)
         /// `newSendMenuPresentPopoverAnimator`, `sendMenuIconBlurAppearanceAnimator`.
@@ -154,15 +163,18 @@ public enum SendMenuGeometry {
         /// while the circle swells (5-6 frames in the iOS 26.5 and 27.0
         /// recordings: ChatKit fades them once the menu's list has loaded).
         public static let contentDelay: Double = 0.09
-        /// `sendMenuTextOpacityAppearanceAnimationDelay`.
-        public static let labelDelay: Double = 0.025
     }
 
-    /// `newSendMenuDismissPopover*Animator`.
+    /// Closing (tap outside, an item, a swipe). ChatKit's
+    /// `newSendMenuDismissPopover*Animator` springs (m2 k300 c50 / c47) are
+    /// not what MobileSMS shows either: the 27.0 recording folds back into
+    /// the "+" in 12 frames (omega 21-22, zeta 0.82-0.87), which is
+    /// ChatKit's `sendMenuStatusBarAnimator` spring.
     public enum Dismiss {
-        public static let horizontal = Spring(mass: 2, stiffness: 300, damping: 50, settlingDuration: 0.7540376)
-        public static let vertical = Spring(mass: 2, stiffness: 300, damping: 47, velocity: CGVector(dx: 0, dy: 1), settlingDuration: 0.7140036)
-        public static let plusOpacity = Spring(mass: 1, stiffness: 203.35, damping: 28.5202, settlingDuration: 0.6476145)
-        public static let content = Spring(mass: 2, stiffness: 300, damping: 50, settlingDuration: 0.7540376)
+        public static let geometry = Spring(mass: 1, stiffness: 443, damping: 36, settlingDuration: 0.4379076)
+        public static let horizontal = geometry
+        public static let vertical = geometry
+        public static let plusOpacity = geometry
+        public static let content = geometry
     }
 }
