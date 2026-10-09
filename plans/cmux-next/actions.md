@@ -79,7 +79,7 @@ Palette 856, CLI verbs 484, right-click 464, MCP tools 424.
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
 - **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.removeEverywhere sidebar.item.remove sidebar.item.hideApp
 - **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.hide | sidebar.section.remove sidebar.item.hideApp
-- **agentChat**: appearance.changeBackground | appearance.interfaceSize.increase appearance.interfaceSize.decrease appearance.interfaceSize.reset | agentPane.toggleInspector
+- **agentChat**: appearance.changeBackground | appearance.interfaceSize.increase appearance.interfaceSize.decrease appearance.interfaceSize.reset | agentPane.toggleInspector agentPaneZoomIn agentPaneZoomOut agentPaneZoomReset
 
 ## Exemptions: palette
 

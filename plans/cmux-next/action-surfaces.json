@@ -24842,6 +24842,45 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomIn",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomOut",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPaneZoomReset",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "agentPaneFocused"
+            ]
+          }
+        },
+        {
           "kind" : "separator",
           "order" : 5
         },

@@ -220,5 +220,8 @@ nonisolated extension ActionSurfaceCatalog {
         "appearance.interfaceSize.increase": [p(.agentChat, .layout, 0)],
         "appearance.interfaceSize.decrease": [p(.agentChat, .layout, 1)],
         "appearance.interfaceSize.reset": [p(.agentChat, .layout, 2)],
+        "agentPaneZoomIn": [p(.agentChat, .layout, 3)],
+        "agentPaneZoomOut": [p(.agentChat, .layout, 4)],
+        "agentPaneZoomReset": [p(.agentChat, .layout, 5)],
     ]
 }
