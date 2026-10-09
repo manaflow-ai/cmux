@@ -193,7 +193,12 @@ describe("buildPickerCatalog", () => {
       session: {
         harness: "claude",
         configOptions: [
-          { id: "model", category: "model", currentValue: "claude-opus-5-5", options: [{ value: "opus", name: "Opus 5.5" }] },
+          {
+            id: "model",
+            category: "model",
+            currentValue: "claude-opus-5-5",
+            options: [{ value: "opus", name: "Opus 5.5" }],
+          },
         ] as never,
       },
     }).harnesses[0]!.models;
