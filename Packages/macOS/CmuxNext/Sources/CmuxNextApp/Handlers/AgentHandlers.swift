@@ -235,7 +235,7 @@ enum AgentHandlers {
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let line = command + "\n"
         let logger = context.daemon.logger
-        let repair = context.services.emptyWorkspaces!
+        let repair = context.services.emptyWorkspaces
         Task {
             do {
                 let surface: SurfaceID?

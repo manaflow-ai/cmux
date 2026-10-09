@@ -9,7 +9,8 @@ public import Foundation
 /// marks working, blocked (with the OSC 7501 kind: permission, question,
 /// auth), done and error; idle draws nothing. Loading (busy, paused) and
 /// known progress keep the loading style's marks. Colors are theme roles
-/// only. The default stays `current` until Lawrence picks.
+/// only. The default is `symbols` (Lawrence, 2026-10-09); `current` keeps the
+/// original drawing.
 public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableChoice {
     /// Today's marks: working dots, a still attention dot, a danger dot, a check.
     case current
@@ -35,12 +36,12 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Candidates for review; the default is unchanged until one is picked.",
-        default: .current, code: "StatusIconSet.tunable")
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Symbols is the default; Dots is the original drawing.",
+        default: .symbols, code: "StatusIconSet.tunable")
 
     public var tunableTitle: String {
         switch self {
-        case .current: String(localized: "statusIconSet.current", defaultValue: "Dots (current)", bundle: .module)
+        case .current: String(localized: "statusIconSet.current", defaultValue: "Dots (original)", bundle: .module)
         case .shapes: String(localized: "statusIconSet.shapes", defaultValue: "Shapes", bundle: .module)
         case .rings: String(localized: "statusIconSet.rings", defaultValue: "Rings", bundle: .module)
         case .badges: String(localized: "statusIconSet.badges", defaultValue: "Badges", bundle: .module)

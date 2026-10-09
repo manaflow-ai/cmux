@@ -69,9 +69,10 @@ typedef struct {
   // Chromium reset this browser's dialog state (navigation, close): its
   // pending dialog callbacks are gone; the host cancels them on the viewers.
   void (*on_dialog_reset)(void* context, int browser_id);
-  // A popup surface (RP7; date, color and datalist pickers): opened or moved
-  // (visible 1, rect in the page's DIP) or gone (visible 0). `kind` is
-  // cef_cmux.h's CMUX_RP_SURFACE_* (1 = page popup).
+  // A popup surface (RP7; date and color pickers, autofill and datalist
+  // suggestions, extension popups): opened or moved (visible 1, rect in the
+  // page's DIP) or gone (visible 0). `kind` is cef_cmux.h's CMUX_RP_SURFACE_*
+  // (1 page popup; API 21: 2 autofill, 3 extension popup, 4 bubble).
   void (*on_surface)(void* context, int browser_id, int surface_id, int kind,
                      int visible, int x, int y, int width, int height);
   // A captured frame of a surface (rb_shim_surface_capture); hand it back
@@ -147,6 +148,9 @@ int rb_shim_surface_capture(int surface_id);
 int rb_shim_surface_send_mouse(int surface_id, int kind, double x, double y,
                                int button, int click_count, int modifiers);
 int rb_shim_surface_close(int surface_id);
+// One full frame of a captured surface now (cmux_rp_surface_refresh, API 21;
+// 0 on an older fork or for an unknown surface).
+int rb_shim_surface_refresh(int surface_id);
 
 // Menu answers: command id (-1 cancels) / option indices (count < 0 cancels).
 int rb_shim_context_menu_result(int64_t token, int command_id);

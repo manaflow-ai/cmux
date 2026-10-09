@@ -115,6 +115,14 @@ pub fn turn_preset(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if isolate {
+            // The Chief's own codex home: no native subagents (its subagents
+            // are `chief spawn` sessions), no user MCP servers, hooks or skills.
+            env.insert(
+                "CODEX_HOME".to_owned(),
+                paths.turn_codex.display().to_string(),
+            );
+        }
     }
     if family == Family::Claude && isolate {
         // The preset's system prompt carries the instructions: no CLAUDE.md
@@ -612,6 +620,13 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some()
+        && isolate
+        && let Err(e) =
+            crate::codex_home::prepare_turn_codex_home(paths, &crate::codex_home::user_codex_home())
+    {
+        log(format!("the codex turns' CODEX_HOME: {e}"));
+    }
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
@@ -760,11 +775,10 @@ fn start(
                 .map(|m| Arc::new(build(Some(m))) as Arc<dyn CompactModel>);
             // An account without the compactor model (Haiku on some
             // subscriptions) builds with the turn model instead, logged once.
-            let main = Arc::new(
-                build(compactor_model.as_deref())
-                    .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                    .with_warm(crate::compactor::WARM_SESSIONS),
-            );
+            let main = build(compactor_model.as_deref())
+                .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
+                .with_warm(crate::compactor::WARM_SESSIONS)
+                .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
                 main as Arc<dyn CompactModel>,

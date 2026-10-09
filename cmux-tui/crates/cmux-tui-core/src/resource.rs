@@ -174,6 +174,12 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "chief.engine.get")]
+    ChiefEngineGet,
+    #[serde(rename = "chief.engine.set")]
+    ChiefEngineSet,
+    #[serde(rename = "chief.stop")]
+    ChiefStop,
     #[serde(rename = "conversation.list")]
     ConversationList,
     #[serde(rename = "conversation.get")]
@@ -577,6 +583,7 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::ChiefEngineGet
                 | Self::ConversationList
                 | Self::ConversationGet
                 | Self::ConversationHistory

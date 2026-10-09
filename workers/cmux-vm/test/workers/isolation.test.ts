@@ -41,6 +41,8 @@ describe("the endpoint table", () => {
       "POST /v1/devices/{deviceId}/signed/peers",
       "POST /v1/devices/{deviceId}/signed/tunnel",
       "POST /v1/devices/{deviceId}/signed/rotate-key",
+      // Same credential; test/workers/mesh-ipv6.test.ts covers it (another device's signature is 404).
+      "POST /v1/devices/{deviceId}/signed/address",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),

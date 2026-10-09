@@ -16,7 +16,7 @@ import Testing
         let before = provider.observation
         services.cache.release("cx-x3t9-no-such-tab")
         #expect(provider.observation > before, "the browser host re-reads its tabs on a presentation change")
-        #expect(services.input.monitor.isPending, "the input monitor checks once the change settles")
+        #expect(services.input.monitor?.isPending == true, "the input monitor checks once the change settles")
     }
 
     /// Each owner has its own subscription: a later owner adds to the list,

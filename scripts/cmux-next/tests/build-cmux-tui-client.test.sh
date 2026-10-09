@@ -13,14 +13,16 @@ fail() { printf '%s\n' "$@" >&2; exit 1; }
 
 src="$TMP/src"
 git_q init "$src"
-mkdir -p "$src/cmux-tui/crates/cmux-app-host" "$src/scripts/cmux-next" "$src/scripts/ci" "$TMP/bin"
+detector="cmux-tui/bindings/examples/rust-agent-screen-detection"
+mkdir -p "$src/cmux-tui/crates/cmux-app-host" "$src/$detector" "$src/scripts/cmux-next" "$src/scripts/ci" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/build-cmux-tui-client.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo '[package]' > "$src/cmux-tui/crates/cmux-app-host/Cargo.toml"
-printf '#!/bin/sh\n# installs cmux-app-host beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
+echo '[package]' > "$src/$detector/Cargo.toml"
+printf '#!/bin/sh\n# installs cmux-app-host and cmux-agent-screen-detection beside cmux\n' > "$src/scripts/cmux-next/bundle-cmux-tui.sh"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -34,7 +36,7 @@ while [[ $# -gt 0 ]]; do case "$1" in --bin) name="$2"; shift ;; esac; shift; do
 mkdir -p "$CARGO_TARGET_DIR/release"
 printf '#!/bin/sh\necho "%s 0.1.0 (%s 2026-10-08)"\n' "$name" "${CMUX_TUI_BUILD_COMMIT:-0000000000000000000000000000000000000000}" > "$CARGO_TARGET_DIR/release/$name"
 chmod 755 "$CARGO_TARGET_DIR/release/$name"
-echo "$name" >> "$FAKE_CARGO_LOG"
+echo "$name $PWD" >> "$FAKE_CARGO_LOG"
 EOF
 chmod 755 "$TMP/bin/cargo"
 run() { (cd "$src" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"); }
@@ -44,14 +46,18 @@ if run bash scripts/cmux-next/build-cmux-tui-client.sh 2>"$TMP/err"; then fail "
 grep -q "never runs Cargo" "$TMP/err" || fail "unexpected refusal: $(cat "$TMP/err")"
 
 path=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") || fail "an nx-remote job did not build: $(cat "$TMP/err")"
-[[ -x "$path" && -x "$(dirname "$path")/cmux-app-host" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
+[[ -x "$path" && -x "$(dirname "$path")/cmux-app-host" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
 (cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh local-build "$path") || fail "pin-cmux-tui.sh local-build refused the build"
-[[ "$(builds)" == 2 ]] || fail "want cmux-tui and cmux-app-host built once each: $(cat "$TMP/cargo.log")"
+[[ "$(builds)" == 3 ]] || fail "want cmux-tui, cmux-app-host and the detector built once each: $(cat "$TMP/cargo.log")"
+# The detector is its own Cargo workspace: built from its own directory.
+grep -qx "cmux-agent-screen-detection $src/$detector" "$TMP/cargo.log" \
+  || grep -q "^cmux-agent-screen-detection .*/rust-agent-screen-detection$" "$TMP/cargo.log" \
+  || fail "the detector was not built from $detector: $(cat "$TMP/cargo.log")"
 
 again=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>/dev/null)
-[[ "$again" == "$path" && "$(builds)" == 2 ]] || fail "a clean tree rebuilt its set"
+[[ "$again" == "$path" && "$(builds)" == 3 ]] || fail "a clean tree rebuilt its set"
 
 echo edit >> "$src/cmux-tui/a"
 run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>&1 || fail "a dirty tree did not build"
-[[ "$(builds)" == 4 ]] || fail "a tree with uncommitted cmux-tui edits reused the set"
+[[ "$(builds)" == 6 ]] || fail "a tree with uncommitted cmux-tui edits reused the set"
 echo "build-cmux-tui-client: ok"

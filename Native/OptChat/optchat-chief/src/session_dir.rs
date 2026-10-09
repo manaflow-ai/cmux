@@ -379,6 +379,20 @@ pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
 /// Claude Code's own cache marks then take the TTL of ours, since the API
 /// refuses a 1h mark after a 5m one. Claude Code reads it at session start.
 pub fn set_prompt_cache_ttl(session: &Path, ttl: crate::prompt::CacheTtl) -> io::Result<()> {
+    set_session_cache(session, ttl, false)
+}
+
+/// `set_prompt_cache_ttl`, and with `ours` (the session's first message
+/// carries our mark) DISABLE_PROMPT_CACHING=1: Claude Code then places none
+/// of its own. It marks its two system blocks and the last two messages of
+/// every request after a session's first (Claude Code 2.1.287, measured),
+/// and the API takes at most 4, so our mark in the history makes 5 on the
+/// session's second request. Without our mark, Claude Code's own stay.
+pub fn set_session_cache(
+    session: &Path,
+    ttl: crate::prompt::CacheTtl,
+    ours: bool,
+) -> io::Result<()> {
     let dir = session.join(".claude");
     std::fs::create_dir_all(&dir)?;
     for name in ["settings.json", "settings.local.json"] {
@@ -403,6 +417,11 @@ pub fn set_prompt_cache_ttl(session: &Path, ttl: crate::prompt::CacheTtl) -> io:
                     env.remove("FORCE_PROMPT_CACHING_5M");
                 }
             }
+        }
+        if ours {
+            value["env"]["DISABLE_PROMPT_CACHING"] = json!("1");
+        } else if let Some(env) = value["env"].as_object_mut() {
+            env.remove("DISABLE_PROMPT_CACHING");
         }
         let text = format!(
             "{}\n",
