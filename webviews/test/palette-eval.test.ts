@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { formatReport, evaluate } from "../src/palette/eval";
 import { loadEval } from "../scripts/palette-eval";
 
@@ -9,6 +9,8 @@ import { loadEval } from "../scripts/palette-eval";
 const floors = { top1: 0.69, top3: 0.81, mrr: 0.765 };
 
 describe("palette ranking eval", () => {
+  // Ranking all 114 queries takes several seconds on the hosted 4 vCPU lane.
+  setDefaultTimeout(15_000);
   const { fixture, cases } = loadEval();
 
   test("every expected row exists in the fixture", () => {
