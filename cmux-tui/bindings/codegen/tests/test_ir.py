@@ -296,7 +296,7 @@ class IrTests(unittest.TestCase):
             "set-viewport-pane-width": {
                 "since": 9,
                 "capability": "viewport-column-resize-v1",
-                "result": "EmptyResult",
+                "result": "ViewportPaneWidthResult",
                 "fields": {
                     "pane": ("ref", "Id", "required", False, False, None, None, None),
                     "width": (

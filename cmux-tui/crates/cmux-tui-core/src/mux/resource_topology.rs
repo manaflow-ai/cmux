@@ -79,7 +79,6 @@ use registry_layout::overwrite_layout_snapshot;
 use registry_layout::registry_screen_from_layout;
 use registry_layout::set_layout_split_ratio;
 use registry_layout::swap_layout_panes;
-use registry_layout::sync_layout_column_widths;
 mod batch_close;
 mod close_effects;
 mod column_update;
