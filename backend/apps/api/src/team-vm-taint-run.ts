@@ -1,5 +1,5 @@
 import type { OwnerFrame } from "@cmux/ownership"
-import { currentTaint, pausingRetired, taintBlocks, type TeamVmTaint } from "./domains/team-vm-taint.ts"
+import { currentTaint, pausingRetired, retireDue, taintBlocks, type TeamVmTaint } from "./domains/team-vm-taint.ts"
 import type { TeamVmState } from "./domains/team-vm.ts"
 import { DriverError, type TeamVmDriver } from "./team-vm-driver.ts"
 
@@ -75,7 +75,7 @@ export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<A
 
 /** Retires (budget spent, then paused: no inbound traffic resumes it) every retired VM due for a try; a failure is committed and retried by the alarm with backoff. */
 export const pauseRetired = async (d: TaintRunDeps, now: number = Date.now()): Promise<void> => {
-  const due = (d.state()?.retired ?? []).filter((r) => r.state === "pausing" && (r.pause_retry_at ?? r.at) <= now)
+  const due = (d.state()?.retired ?? []).filter((r) => retireDue(r) && (r.pause_retry_at ?? r.at) <= now)
   if (due.length === 0) return
   const driver = d.driver()
   for (const r of due) {
@@ -87,10 +87,11 @@ export const pauseRetired = async (d: TaintRunDeps, now: number = Date.now()): P
       // A VM deleted outside cmux is as good as paused: nothing of it runs.
       if (!(e instanceof DriverError && e.code === "team_vm.vm_missing")) {
         console.warn(JSON.stringify({ msg: "team vm retired pause failed", vm: r.vm, attempt: attempt + 1, error: e instanceof DriverError ? e.code : String(e) }))
-        d.submitSystem("team_vm.retired_pause_failed", { vm: r.vm }, `retired-pause-failed:${r.vm}:${attempt}`)
+        // The keys carry the fence (cx-009a): a row paused before it already used the old keys, and a replay does not reduce again.
+        d.submitSystem("team_vm.retired_pause_failed", { vm: r.vm }, `retired-fence-failed:${r.vm}:${attempt}`)
         continue
       }
     }
-    d.submitSystem("team_vm.retired_paused", { vm: r.vm }, `retired-paused:${r.vm}`)
+    d.submitSystem("team_vm.retired_paused", { vm: r.vm }, `retired-fenced:${r.vm}`)
   }
 }

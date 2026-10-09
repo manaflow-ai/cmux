@@ -31,6 +31,12 @@ export interface TeamVmRetired {
   /** While `pausing`: failed pause attempts and when the alarm tries again (backoff). */
   readonly pause_attempts?: number
   readonly pause_retry_at?: number
+  /**
+   * The provider confirmed the retire: run budget spent, then paused, so no inbound traffic
+   * resumes it (cx-009a). A `paused` row without it was paused before the fence existed; the
+   * alarm retires it again.
+   */
+  readonly fenced?: boolean
 }
 
 /** A rebuild keeps at most this many replaced VMs until an owner deletes some. */
@@ -57,9 +63,12 @@ export const pausingRetired = (s: TeamVmState): TeamVmRetired | null => (s.retir
 /** Installs of epochs below this are revoked: a rebuilt epoch's install goes before its replacement exists. */
 export const staleBelow = (s: TeamVmState): number => ((s.retired ?? []).some((r) => r.epoch === s.epoch) ? s.epoch + 1 : s.epoch)
 
+/** A retired VM the alarm still retires: not yet paused, or paused before the fence (cx-009a). */
+export const retireDue = (r: TeamVmRetired): boolean => r.state === "pausing" || r.fenced !== true
+
 /** The next pause retry of a retired VM, for the alarm. */
 export const pauseWakeAt = (s: TeamVmState): number | null => {
-  const times = (s.retired ?? []).filter((r) => r.state === "pausing").map((r) => r.pause_retry_at ?? r.at)
+  const times = (s.retired ?? []).filter(retireDue).map((r) => r.pause_retry_at ?? r.at)
   return times.length ? Math.min(...times) : null
 }
 
@@ -136,14 +145,14 @@ export const reduceRetired = (state: TeamVmState, op: "team_vm.retired_paused" |
   const row = list.find((r) => r.vm === d.value.vm)
   if (!row) return op === "team_vm.retired_deleted" ? reject("selector.not_found", "no retired VM with this id") : same(state)
   if (op === "team_vm.retired_pause_failed") {
-    if (row.state === "paused") return same(state)
+    if (!retireDue(row)) return same(state)
     const attempts = (row.pause_attempts ?? 0) + 1
     const retiredList = list.map((r) => (r.vm === row.vm ? { ...r, pause_attempts: attempts, pause_retry_at: ctx.now + pauseDelayMs(attempts) } : r))
     return { ok: true, state: { ...state, retired: retiredList, updated_at: ctx.now }, value: { vm: row.vm, attempts } }
   }
   if (op === "team_vm.retired_paused") {
-    if (row.state === "paused") return same(state)
-    return { ok: true, state: { ...state, retired: list.map((r) => (r.vm === row.vm ? { ...r, state: "paused" as const } : r)), updated_at: ctx.now }, value: { vm: row.vm, state: "paused" } }
+    if (!retireDue(row)) return same(state)
+    return { ok: true, state: { ...state, retired: list.map((r) => (r.vm === row.vm ? { ...r, state: "paused" as const, fenced: true } : r)), updated_at: ctx.now }, value: { vm: row.vm, state: "paused" } }
   }
   return { ok: true, state: { ...state, retired: list.filter((r) => r.vm !== row.vm), updated_at: ctx.now }, value: { vm: row.vm, deleted: true } }
 }

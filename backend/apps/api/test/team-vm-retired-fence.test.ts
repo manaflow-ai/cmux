@@ -21,7 +21,7 @@ const fakeState = (team: string, vm: string) =>
   inDO(vmStub(team), async (_i, st) => st.storage.sql.exec<{ state: string }>(`SELECT state FROM fake_vm WHERE id = ?`, vm).toArray()[0]?.state ?? null)
 
 let n = 0
-const rebuilt = async () => {
+const rebuilt = async (opts: { failPause?: boolean } = {}) => {
   const t = await setup(`stack-fence-${String(++n).padStart(4, "0")}${Date.now() % 1_000_000}`)
   const admin = (p: Principal, op: string, params: unknown) => (t.stub as any).vmAdminOp(t.team, p, { op, params, idempotency_key: crypto.randomUUID() })
   const status = async () => (await api(t.token, "/v1/read", { op: "team_vm.status", params: {} })).value
@@ -33,6 +33,7 @@ const rebuilt = async () => {
   expect(removed.frames.find((f: any) => f.t === "reject")).toBeUndefined()
   await fireAlarm(t.stub)
   await fireAlarm(t.stub)
+  if (opts.failPause) await vmStub(t.team).fakeControl({ fail_pause: 1000 })
   const r = await admin(t.ownerP, "team_vm.rebuild", { epoch: first.epoch })
   expect(r.ok, JSON.stringify(r)).toBe(true)
   return { ...t, first, status }
@@ -52,16 +53,18 @@ describe("a retired team VM stays paused on inbound traffic (cx-009a)", { timeou
   })
 
   it("a retired VM paused before the fence existed gets fenced on the next alarm and then stays paused", async () => {
-    const t = await rebuilt()
-    // Stand for a row a pre-fence TeamVmDO paused: paused, no fence flag, and no budget spent at the provider.
+    // The provider refuses the rebuild's retire, so neither the budget nor the new event key is spent.
+    const t = await rebuilt({ failPause: true })
+    // What a pre-fence TeamVmDO left: the row paused (its old reducer set no flag), no budget spent at the provider.
     await inDO(vmStub(t.team), async (instance) => {
       const engine = instance.boundEngine
-      const retired = engine.currentState.retired.map(({ fenced: _f, ...r }: any) => ({ ...r, state: "paused" }))
-      engine.state = { ...engine.currentState, retired }
-      instance.sqlStore.exec(`DELETE FROM fake_fence WHERE id = ?`, t.first.vm)
+      engine.state = { ...engine.currentState, retired: engine.currentState.retired.map((r: any) => ({ ...r, state: "paused" })) }
+      instance.sqlStore.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, t.first.vm)
     })
+    await vmStub(t.team).fakeControl({ fail_pause: 0 })
     await vmStub(t.team).fakeAlarm(10 * 60_000)
-    expect((await t.status()).retired).toEqual([expect.objectContaining({ vm: t.first.vm, state: "paused" })])
+    const row = await inDO(vmStub(t.team), async (instance) => instance.boundEngine.currentState.retired[0])
+    expect(row).toMatchObject({ vm: t.first.vm, state: "paused", fenced: true })
     await inbound(t.team, t.first.vm)
     expect(await fakeState(t.team, t.first.vm)).toBe("paused")
   })
