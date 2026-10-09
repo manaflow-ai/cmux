@@ -5,6 +5,57 @@ Owner: the crash lead. Started after cmux NIGHTLY aborted three times on
 or daemon state can end the app, and every crash that still happens is
 collected, symbolicated and filed without a person copying files.
 
+## 0. Model: why a Swift app dies
+
+A process ends only in five ways:
+
+| Way | Mechanism | 2026-10 cmux examples |
+| --- | --- | --- |
+| a. A runtime-checked invariant fails | Swift traps: `x!`, IUO, `as!`, `try!`, `unowned` to a freed object, an index out of range, overflow, `precondition`/`fatalError`, `MainActor.assumeIsolated` off main, exclusivity, continuation misuse | KeyViewProxy `unowned` |
+| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
+| c. Memory unsafety | C/C++/Zig/Rust FFI, unsafe pointers, a C callback into a freed object | none filed this month |
+| d. An embedded engine asserts | CEF CHECK/DCHECK, a Rust panic across FFI with abort | CEF WebAuthn DCHECK (section 1) |
+| e. Something outside kills it | jetsam/OOM, hang watchdog, launch constraints, our own scripts | Launch Constraint kills, terminal hosts ended by a reaper LaunchAgent |
+
+The common root of a and b: an invariant that the type system does not hold
+is checked at run time, at a boundary with an untyped or dynamic system
+(Objective-C selectors and KVC, NSString UTF-16 offsets, C callbacks), or on
+state shared across threads and time (a range computed for one string and
+used on another, an owner freed before its callback). "Zero crashes" is not
+reachable (e, d and hardware stay), so the program has two halves:
+
+1. Make each class impossible to write: the type carries the invariant (a
+   text range that is valid only for the string it came from, a callback
+   delivered on main at its source, a weak owner), and a lint bans the
+   trapping construct. Ratchet first, then BAN.
+2. Report the crashes that remain honestly (Lawrence, 2026-10-08: no
+   auto-restart, so crashes stay visible and get fixed at their class). A
+   crash handler writes a report; the next launch shows a crash dialog with
+   Reopen (restore windows, workspaces and panes from daemon state;
+   terminals already live in their hosts) and Report. The weight of the
+   program is on half 1 and on Phase 3 (fuzz, sanitizers).
+
+### Program status
+
+| Phase | Item | State |
+| --- | --- | --- |
+| 1 | Ratchet v2: scope = CmuxNext + every package in its `.package(path:)` closure except vendor/ (the TextLayout crash was in CmuxHomeRender, outside v1's scope); BAN mode with `scripts/cmux-next/crash-allowlist.json` (path, class, count, reason, reviewer; inline crash-allow does not waive a banned class); `// main-proof:` exempts assumeIsolated; new classes `objc_selector` (BAN) and `dynamic_dispatch` (ratchet); `fatal_error` BAN | landing (P1a) |
+| 1 | Swift classes to 0 per module, then BAN: force_unwrap 338, iuo 61, unowned 110, as! 12, precondition 40, assumeIsolated 123 (counts in the widened scope at 406a70f2f39e) | next (P1b, helpers per module, at most 3 at a time) |
+| 1 | NSRange/UTF-16 ban outside one TextRange module | after the TextLayout fix (cx-qpqs) lands |
+| 1 | Rust: poison-tolerant lock helper with worker restart, clippy `unwrap_used`/`expect_used`/`panic`/`indexing_slicing` warn then deny per crate | planned (CORE window) |
+| 2 | Crash handler (uncaught NSException handler + signal report the crash watcher reads), crash dialog on next launch (Reopen restores from daemon state, Report sends the report), crash e2e (debug.crash.app, then Reopen: no lost terminals). No auto-restart (Lawrence 2026-10-08) | design |
+| 3 | Fuzz/property tests (text layout, markdown, protocol decoding), nightly ASan/TSan | planned |
+| 4 | CEF out of process go/no-go | planned |
+
+P1b rules (chief, 2026-10-08): no behavior change except "no trap". An
+`assumeIsolated` site first tries delivery on main at its source (the
+registration's queue or run loop); a hop (`DispatchQueue.main.async`) only
+where the call returns nothing and order does not matter; otherwise keep it
+with a `// main-proof:` that names the guarantee. A guard that returns must
+not drop a user action silently: show the existing error toast where the
+user acted, or log a fault for non-user paths. Each commit names its choice
+per site.
+
 ## 1. The 2026-10-04 crash
 
 Stack (main thread, symbolicated with the unstripped cmux.15 framework,
@@ -89,6 +140,8 @@ radius):
 | 13 | WebKit (WKWebView) page crashes | pages | contained: WebContent process |
 | 14 | Chromium renderer, GPU, utility crashes | pages | contained: child process; tab shows "This page crashed" |
 | 15 | Debug-only asserts (`assert`, `assertionFailure`: 5; Rust `debug_assert!`) | none in Release | DEV builds only |
+
+Ratchet v2 (2026-10-08) widened the scope to the app package closure, so the counts above (CmuxNext only, 2026-10-04) are lower than the v2 baseline; see the program status in section 0.
 
 Already in place: `try!` is banned (0), force unwrap and `as!` are banned in
 CmuxNextDaemon, CmuxNextControl and CmuxNextMobile (external input), and
