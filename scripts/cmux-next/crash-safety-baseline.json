@@ -51,13 +51,11 @@
   "index_subscript": {
    "CmuxIrohTransport": 22,
    "CmuxIrxTransport": 15,
-   "CmuxNextControl": 18,
    "CmuxNextDaemon": 41
   },
   "int_conversion": {
    "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 10,
-   "CmuxNextControl": 5,
    "CmuxNextDaemon": 4
   },
   "objc_observer": {
