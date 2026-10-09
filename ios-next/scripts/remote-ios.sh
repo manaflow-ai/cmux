@@ -9,6 +9,8 @@
 #   ios-next/scripts/remote-ios.sh openurl [--slot S] --url <url>
 #   ios-next/scripts/remote-ios.sh test   [--slot S]            (swift test of CmuxNextMobile on macOS)
 #   ios-next/scripts/remote-ios.sh sim    [--slot S] -- <simctl args...>   (raw simctl on the slot sim)
+#   ios-next/scripts/remote-ios.sh axe    [--slot S] -- <axe args...>      (AXe tap/swipe/type/describe-ui; --udid added)
+#   ios-next/scripts/remote-ios.sh fetch  [--slot S] --url <remote path> --out <local path>
 #
 # Each slot has its own remote source copy, DerivedData and simulator, so
 # parallel agents do not collide. Builds within one slot are serialized.
@@ -112,6 +114,12 @@ case "$cmd" in
     ;;
   sim)
     remote "xcrun simctl ${raw[*]//\$UDID/\$(cat ~/$R/sim.udid)}"
+    ;;
+  axe)
+    remote "axe ${raw[*]} --udid \$(cat ~/$R/sim.udid)"
+    ;;
+  fetch)
+    scp -q "$HOST:$url" "$out"; echo "$out"
     ;;
   test)
     sync_src
