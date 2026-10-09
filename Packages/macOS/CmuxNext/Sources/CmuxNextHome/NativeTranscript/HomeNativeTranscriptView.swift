@@ -206,7 +206,7 @@ public final class HomeNativeTranscriptView: NSView {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
             observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() }
+                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
         windowStateChanged()
@@ -234,6 +234,7 @@ public final class HomeNativeTranscriptView: NSView {
         // The header's band: a light fade of the window background, shown only
         // near the top; the design system's fades, none under Reduce Motion.
         let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
+        transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
         transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
             Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
         }

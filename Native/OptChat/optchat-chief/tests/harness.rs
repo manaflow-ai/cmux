@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{Tools, cached_layout, claude_md, system_text, turn_blocks};
+use optchat_chief::prompt::{
+    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
+};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -97,13 +99,23 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(markers(blocks), vec![t.len() - 3]);
     let marked = &t[t.len() - 3];
     assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
+    // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral"})
+        json!({"type": "ephemeral", "ttl": "1h"})
     );
     assert_eq!(
         *blocks,
-        cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
+        cached_layout_marked(
+            &claude_md(None),
+            &view,
+            "where is project 7?",
+            Some(Mark {
+                piece: t.len() - 3,
+                ttl: CacheTtl::OneHour
+            })
+        )
+        .blocks
     );
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
@@ -425,7 +437,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
-        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+        optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
         node: optchat_host::NodeId::new(0, 0),

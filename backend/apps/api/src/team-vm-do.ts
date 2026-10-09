@@ -128,6 +128,9 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   /** RPC from TeamDO's certificate issue: the taint of a team that has a VM record (never creates one). */
   async taintStatus(entity: string): Promise<TaintSummary | null> { return this.isBound(entity) ? taintSummary(this.bind(entity).currentState) : null }
 
+  /** RPC from TeamDO (cx-n3fb): the install bound for the current epoch, null when none (never creates a record). */
+  async currentInstall(entity: string): Promise<string | null> { return this.isBound(entity) ? (this.bind(entity).currentState.vm_install ?? null) : null }
+
   /** RPC from TeamDO after its owner/admin check; TeamDO audits the outcome. */
   async adminAction(entity: string, req: AdminRequest): Promise<AdminReply> {
     if (!this.isBound(entity)) return { ok: false, code: "selector.not_found", message: "this team has no VM" }

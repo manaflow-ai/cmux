@@ -201,7 +201,8 @@ fn a_3000_message_chat_reads_98_percent_of_turns_and_96_of_compactions_from_the_
             now += rng.range(3, 20) as f64;
             let call = format!("tool: shell {{\"cmd\": \"step {s} of {}\"}}", memory.len());
             let result = "r".repeat(rng.range(200, 6_000) as usize);
-            let before: usize = system.len() + view.len() + tail.iter().map(String::len).sum::<usize>();
+            let before: usize =
+                system.len() + view.len() + tail.iter().map(String::len).sum::<usize>();
             tail.push(call.clone());
             tail.push(result.clone());
             let t: Vec<&str> = tail.iter().map(String::as_str).collect();
@@ -232,5 +233,99 @@ fn a_3000_message_chat_reads_98_percent_of_turns_and_96_of_compactions_from_the_
         compactions.prefix
     );
     assert!(turns.pct() >= 98.0, "turns read {:.2}%", turns.pct());
-    assert!(compactions.pct() >= 96.0, "compactions read {:.2}%", compactions.pct());
+    assert!(
+        compactions.pct() >= 96.0,
+        "compactions read {:.2}%",
+        compactions.pct()
+    );
+}
+
+/// Seconds from a compaction call's send to its response start (its cache
+/// entry exists from then on), and to its whole reply: a Haiku compactor
+/// call as the reference client measured it (about 1.1 s, 2026-10-08).
+const START: f64 = 0.4;
+const REPLY: f64 = 1.1;
+
+/// A burst of `n` long messages appended at once (an import), drained in
+/// rounds: each pump's model calls start together; per marked prefix one
+/// call writes and the others wait `release` seconds (single-flight), then
+/// read its entry. Returns the seconds until every node is built and the
+/// compactions' cache rate.
+fn burst(n: u64, release: f64) -> (f64, Rate) {
+    let system = CompactPrompt::default().text("Chief");
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    let mut cache = Cache::default();
+    let mut rate = Rate::default();
+    let mut rng = Rng(0x9E3779B97F4A7C15);
+    for k in 0..n {
+        let len = rng.range(700, 3_000) as usize;
+        store
+            .messages
+            .borrow_mut()
+            .push((Kind::Echo, format!("imported {k} {}", "x".repeat(len))));
+        memory.append();
+    }
+    let mut now = 0.0f64;
+    loop {
+        let work = memory.pump(&store);
+        if work.is_empty() {
+            break;
+        }
+        let mut writers: HashMap<u64, ()> = HashMap::new();
+        let mut followers = Vec::new();
+        let mut end = now;
+        let mut built = Vec::new();
+        for w in work {
+            let node = match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                    continue;
+                }
+                Work::Model { node } => node,
+            };
+            let req = compact_request(&memory, &store, node, system.clone()).unwrap();
+            let r = Request::new(&blocks(&system, &req.context, &[&req.step]));
+            let key = r.ends[r.marks[r.marks.len() - 2]].0;
+            rate.prefix += system.len() + req.context.len();
+            if writers.insert(key, ()).is_none() {
+                rate.read += cache.send(&r, now);
+                end = end.max(now + REPLY);
+            } else {
+                followers.push(r);
+            }
+            built.push(node);
+        }
+        for r in &followers {
+            rate.read += cache.send(r, now + release);
+            end = end.max(now + release + REPLY);
+        }
+        for node in built {
+            let text = summary(node);
+            store.nodes.borrow_mut().insert(node, text.clone());
+            memory.complete(node, &text).unwrap();
+        }
+        now = end;
+    }
+    assert!(memory.settled());
+    (now, rate)
+}
+
+/// hq-6d gap 3: single-flight releases waiting calls at the writer's
+/// response start, not its reply, and 64 calls run at once. A 512-message
+/// import then settles in about a third of the time, and the waiting calls
+/// still read the writer's entry.
+#[test]
+fn an_import_burst_settles_fast_and_reads_the_writers_entry() {
+    let (at_start, rate) = burst(512, START);
+    let (at_reply, rate_reply) = burst(512, REPLY);
+    eprintln!(
+        "512-message burst: {at_start:.1} s releasing at the response start, {at_reply:.1} s at the reply; compactions read {:.2}% / {:.2}%",
+        rate.pct(),
+        rate_reply.pct()
+    );
+    assert!(at_start < at_reply, "{at_start} vs {at_reply}");
+    assert!((rate.pct() - rate_reply.pct()).abs() < 0.01);
+    assert!(rate.pct() >= 90.0, "compactions read {:.2}%", rate.pct());
+    assert!(at_start <= 40.0, "the burst took {at_start:.1} s");
 }

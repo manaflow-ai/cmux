@@ -101,6 +101,10 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_session_attach;
+#[cfg(unix)]
+pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -5164,6 +5168,9 @@ pub(crate) struct ClientRegistry {
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
+    #[cfg(unix)]
+    agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
@@ -5184,6 +5191,8 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            #[cfg(unix)]
+            agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
@@ -6241,6 +6250,8 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
+        #[cfg(unix)]
+        self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
@@ -10462,6 +10473,10 @@ fn handle_connection_frame(
         return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
@@ -15860,6 +15875,10 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 #[path = "server/loopback_forward_tests.rs"]
 mod loopback_forward_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_attach_tests.rs"]
+mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]

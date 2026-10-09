@@ -1,0 +1,26 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+@@ -523,10 +523,12 @@
+                 let total = first + counts.reduce(0) { $0 + $1.1 }
+                 var line = first
+                 for (b, c) in counts {
++                    // cmux: every block in `counts` has its layout; no force unwrap (crash ratchet).
++                    guard let layout = layouts[b] else { line += c; continue }
+                     let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
+                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {
+                         let k = TiledBubble.tileKey(self, block: b, chunk: chunk, outgoing: h.outgoing, scale: h.scale, palette: h.palette)
+-                        tiles.append((k, TiledBubble.render(layouts[b]!, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale)))
++                        tiles.append((k, TiledBubble.render(layout, chunk: chunk, outgoing: h.outgoing, width: h.width, scale: h.scale)))
+                     }
+                     line += c
+                 }
+@@ -817,7 +819,8 @@
+     /// (MarkdownStore.showsSource) lays its markdown text out as plain text.
+     func layout(_ text: String, width: CGFloat, message: ID? = nil) -> LongTextLayout {
+         let idx = index(for: text)!
+-        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
++        // cmux: a plain message (MarkdownStore.isPlain) is laid out as plain text too.
++        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) || MarkdownStore.shared.isPlain($0) } ?? false)
+         let wk = md || !idx.markdown ? width : -width
+         lock.lock()
+         let id = ObjectIdentifier(idx)

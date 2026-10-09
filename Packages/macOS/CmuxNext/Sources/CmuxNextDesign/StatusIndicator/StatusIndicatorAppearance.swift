@@ -1,5 +1,6 @@
 public import AppKit
 import Observation
+import CmuxNextWakeups
 
 /// Every input that shapes how indicators look, resolved once: the
 /// `appearance.statusIndicator.*` settings plus the Debug Settings
@@ -88,14 +89,14 @@ public final class StatusIndicatorAppearance {
         let center = NSWorkspace.shared.notificationCenter
         reduceMotionObserver = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
                                                   object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
+            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) } // main-proof: observer on queue: .main
         }
         // The override (tests) is a plain static: re-read synchronously when it
         // changes, or an appearance created before the override keeps the
         // system setting's loops (a runner with Reduce Motion on shows no spinner).
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
-            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
+            MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
         }
     }
 

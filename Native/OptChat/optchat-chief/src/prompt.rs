@@ -7,12 +7,11 @@ use serde_json::{Value, json};
 /// The agent's name in the prompts (section 7.2: rename the agent).
 pub const AGENT: &str = "Chief";
 
-/// The line on messages the user sends mid-turn, our one change to the
-/// spec's system prompt (decision 2026-10-04): it says what the host does,
-/// instead of "reach you between tool calls".
-pub const MIDRUN: &str = "A message the user sends while you work interrupts you at once, even
-mid-thought; a tool call already running finishes first, then you go on
-with the message.";
+/// The line on messages the user sends mid-turn (parity item 7): they are
+/// delivered between tool calls (a harness that cannot steer stops the turn
+/// instead, and the next turn answers).
+pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
+calls; take it into account and go on.";
 
 /// The spec's one system prompt for turns and compactions (gist 3c190e0,
 /// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief.
@@ -62,8 +61,8 @@ cmux Home, and your final reply of each turn is posted there.
   the user can watch and join its chat, or that it has none and why. Tell
   the user only what that answer says. A subagent sees your view and its
   task, so say in the task what it must do and report.
-  When all of one spawn's subagents finish, their reports reach you as ONE
-  message, \"[id] report\" each. `tell(id, message)` sends a running
+  Each one's report reaches you as a message, \"[id] report\", when it
+  finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
@@ -122,8 +121,8 @@ cmux Home, and your final reply of each turn is posted there.
   directory the work is in); it prints their ids at once, and for each one
   the cmux workspace where the user can watch and join its chat, or that it
   has none and why. Tell the user only what it prints. A subagent sees your
-  view and its task, so say in the task what it must do and report. When all of one spawn's subagents finish, their reports reach
-  you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
+  view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
+  \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
@@ -193,10 +192,88 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. When all of them finish, their reports reach you as one message, \"[id] report\" each. Never wait or poll for them.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The directory the subagents work in, on the machine you run on (~ is its home). The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str =
     "Send a message to a running subagent; it reaches it after its current step.";
+
+/// How long a cache entry lives after its last read: Anthropic's two TTLs.
+/// Every mark of one request has the same TTL (the API refuses a 1h mark
+/// after a 5m one, and Claude Code places marks before and after ours).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CacheTtl {
+    FiveMinutes,
+    OneHour,
+}
+
+impl CacheTtl {
+    /// `5m` or `1h` (the settings and env spelling).
+    pub fn parse(text: &str) -> Option<CacheTtl> {
+        match text.trim() {
+            "5m" => Some(CacheTtl::FiveMinutes),
+            "1h" => Some(CacheTtl::OneHour),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CacheTtl::FiveMinutes => "5m",
+            CacheTtl::OneHour => "1h",
+        }
+    }
+
+    /// The `cache_control` of a mark: the API's default TTL is 5 minutes,
+    /// so a 5m mark carries no `ttl`.
+    pub fn cache_control(self) -> Value {
+        match self {
+            CacheTtl::FiveMinutes => json!({"type": "ephemeral"}),
+            CacheTtl::OneHour => json!({"type": "ephemeral", "ttl": "1h"}),
+        }
+    }
+}
+
+/// The turns' cache TTL from the host env, None when it names none:
+/// Claude Code's own switches first (`FORCE_PROMPT_CACHING_5M`,
+/// `CLAUDE_CODE_PROMPT_CACHE_TTL`), since every turn's harness inherits
+/// them and its marks must match ours, then `OPTCHAT_CACHE_TTL`.
+pub fn cache_ttl_from_env(env: &dyn Fn(&str) -> Option<String>) -> Option<CacheTtl> {
+    if env("FORCE_PROMPT_CACHING_5M").is_some_and(|v| !v.is_empty() && v != "0") {
+        return Some(CacheTtl::FiveMinutes);
+    }
+    env("CLAUDE_CODE_PROMPT_CACHE_TTL")
+        .as_deref()
+        .and_then(CacheTtl::parse)
+        .or_else(|| {
+            env("OPTCHAT_CACHE_TTL")
+                .as_deref()
+                .and_then(CacheTtl::parse)
+        })
+}
+
+/// Whether a failed turn's error is the API refusing a mark's TTL: a
+/// 1-hour mark after a 5-minute one ("a ttl='1h' cache_control block must
+/// not come after a ttl='5m' cache_control block"), or a route that takes
+/// no `ttl` at all.
+pub fn is_ttl_refused_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("cache_control") && lower.contains("ttl")
+}
+
+/// Our one mark in a cached layout: the view piece it sits on
+/// (`optchat_core::mark_piece`) and its TTL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub piece: usize,
+    pub ttl: CacheTtl,
+}
+
+impl Mark {
+    /// The mark on the last whole block of `context`, None when it has none.
+    pub fn last_whole(context: &str, ttl: CacheTtl) -> Option<Mark> {
+        optchat_core::mark_piece(context, None).map(|piece| Mark { piece, ttl })
+    }
+}
 
 /// A prompt in the cached layout: the session's system prompt and the user
 /// blocks.
@@ -210,18 +287,32 @@ pub struct CachedPrompt {
 /// (spec 3.3, gist 3c190e0): `system` is the session's system prompt as is
 /// (the same text for turns and compactions); the view follows in blocks of
 /// 4 lines, the last whole block carrying the one `cache_control` marker
-/// when `marker`; then `tail`. Claude Code puts its own breakpoints on the
-/// system prompt and the last messages (three of the API's four), so one
-/// marker is all a request may add. A block cut depends only on the lines
-/// before it, so the next call has a boundary at this marker, within the
-/// API's 20-block lookback from its own.
+/// when `marker` (5 minutes); then `tail`. See `cached_layout_marked`.
 pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> CachedPrompt {
+    let mark = marker
+        .then(|| Mark::last_whole(context, CacheTtl::FiveMinutes))
+        .flatten();
+    cached_layout_marked(system, context, tail, mark)
+}
+
+/// The cached layout with our one mark on piece `mark.piece` of the view's
+/// blocks, with its TTL. Claude Code puts its own breakpoints on the system
+/// prompt and the request's end (three of the API's four), so one mark is
+/// all a request may add. A block cut depends only on the lines before it,
+/// so the next call has a boundary at this mark; `optchat_core::mark_piece`
+/// keeps the next call's mark within the API's 20-block lookback of it.
+pub fn cached_layout_marked(
+    system: &str,
+    context: &str,
+    tail: &str,
+    mark: Option<Mark>,
+) -> CachedPrompt {
     let text = |t: &str| json!({"type": "text", "text": t});
     let pieces = optchat_core::block_pieces(context);
     let whole = pieces.len() - 1;
     let mut blocks: Vec<Value> = pieces.into_iter().map(text).collect();
-    if marker && whole > 0 {
-        blocks[whole - 1]["cache_control"] = json!({"type": "ephemeral"});
+    if let Some(mark) = mark.filter(|m| m.piece < whole) {
+        blocks[mark.piece]["cache_control"] = mark.ttl.cache_control();
     }
     blocks.push(text(tail));
     CachedPrompt {
@@ -251,6 +342,8 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
+/// What zoom adds for subagents (the MCP tool; the native engine has none).
+pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
 /// The turn's user message (spec 6): the view rendered before the new
@@ -279,7 +372,11 @@ mod tests {
         let text = claude_md(None);
         assert!(!text.contains("OptChat"), "the agent is renamed");
         assert!(text.starts_with("You are Chief, an AI agent"));
-        assert!(text.contains("\n# The view\n\nChief's memory: the whole chat between Chief and the user"));
+        assert!(
+            text.contains(
+                "\n# The view\n\nChief's memory: the whole chat between Chief and the user"
+            )
+        );
         assert!(text.contains("before you act, guess or\nask."), "{text}");
         assert!(text.ends_with("read your memory.\n"));
     }

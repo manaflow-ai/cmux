@@ -123,6 +123,10 @@ fi
 # a durable sidecar, and fail closed until a later run verifies Accepted.
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-25m}"
 SUBMIT_ONLY="${CMUX_NOTARY_SUBMIT_ONLY:-false}"
+# Published nightly-next waits up to NOTARY_WAIT_TIMEOUT, then hands a submission
+# still in Apple's queue to the next run (submission_pending) instead of failing.
+PENDING_ON_TIMEOUT="${CMUX_NOTARY_PENDING_ON_TIMEOUT:-false}"
+NOTARY_WAIT_TIMED_OUT=false
 NOTARY_SUBMISSION_FILE="${CMUX_NOTARY_SUBMISSION_FILE:-${DMG_RELEASE}.notarization.state}"
 NOTARY_OUTPUT_FILE="${CMUX_NOTARY_OUTPUT_FILE:-${DMG_RELEASE}.notarization.log}"
 NOTARY_SUBMIT_OUTPUT="$NOTARY_DIR/dmg-submit-output"
@@ -191,6 +195,9 @@ write_notary_state() {
     printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
     printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
+    if [ "$NOTARY_WAIT_TIMED_OUT" = true ]; then
+      printf 'wait_timed_out=true\n'
+    fi
   } > "$state_tmp"
   /bin/mv "$state_tmp" "$NOTARY_SUBMISSION_FILE"
 }
@@ -236,6 +243,15 @@ if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ]; then
   save_notary_output
   if grep -Eiq 'timeout|timed out' "$NOTARY_OUTPUT_FILE"; then
     notary_failure="did not finish within $NOTARY_WAIT_TIMEOUT"
+    if [ "$PENDING_ON_TIMEOUT" = true ] && [ -n "$DMG_SUBMIT_ID" ]; then
+      NOTARY_WAIT_TIMED_OUT=true
+      write_notary_state
+      echo "DMG notarization $notary_failure (submission $DMG_SUBMIT_ID); the next run continues it and publication awaits Accepted" >&2
+      if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+      fi
+      exit 0
+    fi
   else
     notary_failure="submit exited $NOTARY_SUBMIT_EXIT"
   fi
