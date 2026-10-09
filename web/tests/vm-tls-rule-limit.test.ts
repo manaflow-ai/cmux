@@ -30,7 +30,7 @@ function accountAtCap(
   owned: string[],
   otherRules: number,
   cap: number,
-  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[]; readonly failDelete?: (domain: string) => boolean } = {},
+  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[]; readonly failDelete?: (domain: string) => boolean; readonly failListFromCall?: number } = {},
 ) {
   const tls: TlsRule[] = [
     ...owned.map((domain, index) => ({
@@ -40,6 +40,7 @@ function accountAtCap(
   ];
   const log: string[] = [];
   let next = 0;
+  let listCalls = 0;
   const client = {
     firewall: {
       rules: {
@@ -50,7 +51,13 @@ function accountAtCap(
     },
     tls: {
       rules: {
-        list: async () => ({ rules: tls, totalCount: tls.length }),
+        list: async () => {
+          listCalls += 1;
+          if (options.failListFromCall !== undefined && listCalls >= options.failListFromCall) {
+            throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "list unavailable" });
+          }
+          return { rules: tls, totalCount: tls.length };
+        },
         create: async (rule: { domain: string; source: Record<string, unknown>; destination: Record<string, unknown> }) => {
           if (tls.length + otherRules >= cap || options.refuse?.(rule.domain)) {
             log.push(`tls! ${rule.domain}`);
@@ -139,6 +146,19 @@ describe("the account-wide Freestyle TLS rule cap", () => {
     expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
     expect((err as FreestyleTlsRuleLimitRestoreError).unrestored).toEqual([]);
     expect(fake.log).toContain("tls+ old-a.example.com");
+    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
+  });
+
+  test("an unreadable rule list during rollback still recreates the retired rules", async () => {
+    const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
+    // Calls 1 and 2 are the first reconcile and the retry; call 3 is the rollback.
+    const fake = accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com", failListFromCall: 3 });
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
+
+    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
+    expect((err as FreestyleTlsRuleLimitRestoreError).restored).toBe(1);
+    expect(fake.log).toContain("tls+ old.example.com");
     expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
   });
 

@@ -208,27 +208,43 @@ class TlsSwapStarted extends Error {
  * Undo a swap's TLS changes best-effort, then describe the failure: a
  * capacity refusal becomes {@link FreestyleTlsRuleLimitRestoreError}, any
  * other failure is returned as it was after the rollback ran.
+ *
+ * The retired domains come from the in-memory record of successful
+ * deletions, so they are recreated even when the rule list is unreadable.
+ * The list is used only to find rules the swap added, which are removed
+ * first to free their slots; when it fails, that cleanup is reported as
+ * incomplete and the recreation still runs.
  */
 async function rollBackTlsSwap(fs: Freestyle, vmId: string, swap: TlsSwap, failure: unknown): Promise<unknown> {
-  let unrestored: string[] = [...swap.retired];
+  let addedCleanupComplete = true;
   try {
     const current = (await fs.tls.rules.list({ vmId, limit: 1000 })).rules.filter((rule) => isManagedTlsRule(rule, vmId));
     const added = current.filter((rule) => !swap.before.has(rule.domain));
-    await Promise.allSettled(added.map((rule) => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
-    const present = new Set(current.map((rule) => rule.domain));
-    const missing = swap.retired.filter((domain) => !present.has(domain));
-    const results = await Promise.allSettled(missing.map((domain) =>
-      fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })));
-    unrestored = missing.filter((_, index) => results[index]?.status === "rejected");
-  } catch (rollbackErr) {
-    console.error("[freestyle] TLS swap rollback could not read the VM's rules", vmId, rollbackErr);
+    const removals = await Promise.allSettled(added.map((rule) => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
+    addedCleanupComplete = removals.every((result) => result.status === "fulfilled");
+  } catch (listErr) {
+    addedCleanupComplete = false;
+    console.error("[freestyle] TLS swap rollback could not list the VM's rules", vmId, listErr);
   }
-  if (unrestored.length > 0) {
-    console.error("[freestyle] TLS swap rollback left retired rules missing", JSON.stringify({ vmId, unrestored }));
+  const results = await Promise.allSettled(swap.retired.map((domain) => createIgnoringExisting(() =>
+    fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } }))));
+  const unrestored = swap.retired.filter((_, index) => results[index]?.status === "rejected");
+  if (unrestored.length > 0 || !addedCleanupComplete) {
+    console.error("[freestyle] TLS swap rollback incomplete", JSON.stringify({ vmId, unrestored, addedCleanupComplete }));
   }
   return isFreestyleTlsRuleLimit(failure)
     ? new FreestyleTlsRuleLimitRestoreError(swap.retired.length - unrestored.length, unrestored, failure)
     : failure;
+}
+
+/** A create that finds the rule already there has reached its goal; a capacity refusal has not. */
+async function createIgnoringExisting(create: () => Promise<unknown>): Promise<void> {
+  try {
+    await create();
+  } catch (err) {
+    const exists = err instanceof FreestyleApiError && err.status === 409 && !isFreestyleTlsRuleLimit(err);
+    if (!exists) throw err;
+  }
 }
 
 async function reconcileOnce(
@@ -274,8 +290,12 @@ async function reconcileOnce(
     // net-growth change cannot fit, and deleting first would only lose access.
     const swapFits = tlsToDelete.length > 0 && tlsToCreate.length <= tlsToDelete.length;
     if (!options.freeTlsAtLimit || !swapFits || !isFreestyleTlsRuleLimit(err)) throw err;
-    const swap = { before: new Set(managedTls.map((rule) => rule.domain)), retired: tlsToDelete.map((rule) => rule.domain) };
     const deletions = await Promise.allSettled(tlsToDelete.map((rule) => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
+    // Record only what was actually deleted: rollback recreates exactly these.
+    const swap = {
+      before: new Set(managedTls.map((rule) => rule.domain)),
+      retired: tlsToDelete.filter((_, index) => deletions[index]?.status === "fulfilled").map((rule) => rule.domain),
+    };
     const failedDeletion = deletions.find((result) => result.status === "rejected");
     if (failedDeletion) {
       console.error("[freestyle] TLS swap could not retire a rule; rolling back", vmId, failedDeletion.reason);
