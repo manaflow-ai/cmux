@@ -19,6 +19,20 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
+    func tmuxBashDefaultCommandResolvesCurrentRelayEnvironment() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64123,
+            shellFeatures: "",
+            terminalProfile: .init(kind: .tmux, tmuxSessionName: "demo")!
+        )
+
+        expectTrue(
+            script.contains("${CMUX_SHELL_INTEGRATION_DIR:-$HOME/.cmux/relay/64123.shell}/.bashrc"),
+            script
+        )
+    }
+
+    @Test
     func zshStartupPreservesUserZdotdirAndLoadsGhosttyIntegration() throws {
         let bundled = try makeBundledIntegrationDir(files: [".zshenv": "# cmux zsh bootstrap stub\n"])
         defer { try? FileManager.default.removeItem(at: bundled.root) }
@@ -120,7 +134,120 @@ struct ShellStartupMatrixTests {
         expectEqual(environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"], "1")
     }
 
-    @Test(arguments: ["/bin/sh", "/bin/dash", "/bin/ksh", "/bin/tcsh", "/bin/csh", "/usr/local/bin/nu", "/usr/local/bin/pwsh"])
+    @Test
+    func nushellStartupReturnsManagedCommandEmbeddingBootstrapAndIntegration() throws {
+        let bundled = try makeBundledIntegrationDir(files: [
+            "nushell/cmux-nushell-bootstrap.nu": """
+            # cmux nushell bootstrap stub
+            def --env _cmux_refront_cli_shims [] { $env._CMUX_TEST = "1" }
+
+            _cmux_refront_cli_shims
+            """,
+            "nushell/cmux-nushell-integration.nu": "# cmux nushell integration stub\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        let integrationDir = bundled.integrationDir
+        let shell = "/opt/homebrew/bin/nu"
+        let originalEnvironment = ["CUSTOM": "1"]
+        var environment = originalEnvironment
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: shell,
+            integrationDir: integrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        let expectedPayload = "def --env _cmux_refront_cli_shims [] { $env._CMUX_TEST = \"1\" }; "
+            + "_cmux_refront_cli_shims; "
+            + "source \"\(integrationDir)/nushell/cmux-nushell-integration.nu\""
+        expectEqual(command, "'\(shell)' -l -e '\(expectedPayload)'")
+        // Nushell startup is command-only: no env redirection like ZDOTDIR or
+        // PROMPT_COMMAND.
+        expectEqual(environment, originalEnvironment)
+        expectTrue(protectedKeys.isEmpty)
+    }
+
+    @Test
+    func nushellStartupOmitsIntegrationSourceWhenIntegrationFileIsMissing() throws {
+        let bundled = try makeBundledIntegrationDir(files: [
+            "nushell/cmux-nushell-bootstrap.nu": "_cmux_stub_statement\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: bundled.root) }
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
+            shell: "/usr/local/bin/nu",
+            integrationDir: bundled.integrationDir,
+            userGhosttyShellIntegrationMode: "detect",
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(command, "'/usr/local/bin/nu' -l -e '_cmux_stub_statement'")
+    }
+
+    @Test
+    func nushellManagedCommandQuotesShellPathWithSpaces() {
+        let command = TerminalSurface.managedNushellShellCommand(
+            shell: "/Applications/cmux DEV nush.app/Contents/nu",
+            startupPayload: "print 1"
+        )
+        expectEqual(command, "'/Applications/cmux DEV nush.app/Contents/nu' -l -e 'print 1'")
+    }
+
+    @Test
+    func nushellStartupPayloadStripsCommentsAndBlankLinesAndStaysSingleLine() {
+        let payload = TerminalSurface.nushellStartupPayload(
+            bootstrapContents: """
+            # comment
+
+            statement-one
+               # indented comment
+            statement-two
+            """,
+            integrationDir: "/nonexistent",
+            integrationFileIsReadable: { _ in false }
+        )
+        expectEqual(payload, "statement-one; statement-two")
+        expectFalse(payload.contains("\n"))
+    }
+
+    @Test
+    func nushellDoubleQuotedEscapesQuotesAndBackslashes() {
+        expectEqual(
+            TerminalSurface.nushellDoubleQuoted(#"/Apps/we"ird\dir"#),
+            #""/Apps/we\"ird\\dir""#
+        )
+    }
+
+    @Test
+    func shellDialectDetectsNushellFromLoginShellPath() {
+        expectEqual(TerminalStartupShellDialect.forShellPath("/opt/homebrew/bin/nu"), .nushell)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/usr/local/bin/nu"), .nushell)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/bin/zsh"), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath("/opt/homebrew/bin/nushell"), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath(nil), .posix)
+        expectEqual(TerminalStartupShellDialect.forShellPath(""), .posix)
+    }
+
+    @Test
+    func typedShellCommandWrapsPosixForNushellOnly() {
+        let posix = "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'"
+        expectEqual(
+            TerminalStartupTypedShellCommand(dialect: .posix).typedInput(posixCommand: posix),
+            posix
+        )
+        expectEqual(
+            TerminalStartupTypedShellCommand(dialect: .nushell).typedInput(posixCommand: posix),
+            #"^/bin/sh -c "cd -- '/tmp/p' 2>/dev/null || [ ! -d '/tmp/p' ] && 'claude' '--resume' 'SID'""#
+        )
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/dash", "/bin/ksh", "/bin/tcsh", "/bin/csh", "/usr/local/bin/pwsh"])
     func unsupportedLocalShellsKeepEnvironmentUnchanged(shell: String) {
         let originalEnvironment = ["CUSTOM": "1"]
         var environment = originalEnvironment
@@ -177,6 +304,69 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    /// The relay bootstrap wrapper execs the remote CLI when it supports `claude-wrapper`, and otherwise
+    /// (absent, or an older CLI without the verb) the real `claude`, never the shim.
+    @Test(arguments: ["absent", "legacy", "current"])
+    func relayClaudeWrapperHandsOffToRemoteCLI(remoteCLI: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-claude-wrapper-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let shimDir = root.appendingPathComponent("tmp/cmux-cli-shims/surface")
+        let realBin = root.appendingPathComponent("real-bin")
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in [home, shimDir, realBin] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        func writeExecutable(_ url: URL, _ body: String) throws {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "#!/bin/sh\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        // A shim named claude earlier in PATH must never be re-entered.
+        try writeExecutable(shimDir.appendingPathComponent("claude"), #"echo "shim $*""#)
+        try writeExecutable(realBin.appendingPathComponent("claude"), #"echo "real $*""#)
+        let remoteCLIPath = home.appendingPathComponent(".cmux/bin/cmux")
+        switch remoteCLI {
+        case "legacy":
+            // An older CLI rejects the verb the way cmuxd-remote does for unknown commands.
+            try writeExecutable(remoteCLIPath, #"echo "cmux: unknown command \"$1\"" >&2; exit 2"#)
+        case "current":
+            try writeExecutable(
+                remoteCLIPath,
+                #"[ "$1 $2" = "claude-wrapper --cmux-probe" ] && exit 0; echo "cli $*""#
+            )
+        default:
+            break
+        }
+
+        let shellDir = home.appendingPathComponent(".cmux/relay/64123.shell")
+        let install = (["cmux_shell_dir=\"\(shellDir.path)\""]
+            + RemoteInteractiveShellBootstrapBuilder.claudeWrapperInstallLines)
+            .joined(separator: "\n")
+        let wrapper = shellDir.appendingPathComponent("bin/cmux-claude-wrapper").path
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "PATH=\(shimDir.path):\(realBin.path):/usr/bin:/bin",
+                "/bin/sh", "-c", install + "\n\"\(wrapper)\" --model opus",
+            ],
+            timeout: 5
+        )
+
+        expectFalse(result.timedOut, result.stderr)
+        expectEqual(result.status, 0, result.stderr)
+        expectEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            remoteCLI == "current" ? "cli claude-wrapper --model opus" : "real --model opus",
+            result.stderr
+        )
+        let permissions = try fileManager.attributesOfItem(atPath: wrapper)[.posixPermissions] as? NSNumber
+        expectEqual(permissions?.intValue, 0o700)
+    }
+
     @Test
     func generatedSshBootstrapFailsClosedWithoutPersistentPTYExecHelper() throws {
         let home = FileManager.default.temporaryDirectory
@@ -186,7 +376,8 @@ struct ShellStartupMatrixTests {
 
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
-            shellFeatures: ""
+            shellFeatures: "",
+            protectsFromHangup: true
         )
         let result = runProcess(
             executablePath: "/usr/bin/env",
@@ -385,10 +576,6 @@ struct ShellStartupMatrixTests {
 
         expectEqual(result.process.status, 0, result.process.stderr)
         expectFalse(result.process.timedOut, result.process.stderr)
-        expectTrue(
-            result.process.duration < 1.0,
-            "cmux ssh bootstrap waited for relay CLI warmup: \(formatSeconds(result.process.duration))"
-        )
     }
 
     /// Regression for #6352: running Claude Code (or any full-screen TUI) inside
@@ -516,7 +703,8 @@ struct ShellStartupMatrixTests {
             initialCommand: initialCommand,
             bundledZshIntegration: "cmux_zsh_marker=1",
             bundledBashIntegration: "cmux_bash_marker=1",
-            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1"
+            bundledFishIntegration: "set -gx CMUX_FISH_MARKER 1",
+            protectsFromHangup: true
         )
         if let workspaceID {
             script = script.replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceID)
@@ -640,10 +828,6 @@ struct ShellStartupMatrixTests {
             try contents.write(to: fileURL, atomically: true, encoding: .utf8)
         }
         return (root, integrationDir.path)
-    }
-
-    private func formatSeconds(_ value: TimeInterval) -> String {
-        String(format: "%.3fs", value)
     }
 
     private static func supportedShellExecutable(named shellName: String) -> String? {

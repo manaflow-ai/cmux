@@ -3,26 +3,14 @@ import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceActiveSurfaceTests {
-    @Test func chatTakesPrecedenceOverBrowserWhenSessionIsChosen() {
+    @Test func browserTakesPrecedenceOverTerminal() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: true,
-            hasChosenChatSession: true,
-            hasActiveBrowser: true
-        ) == .chat)
-    }
-
-    @Test func browserTakesPrecedenceWhenChatHasNoChosenSession() {
-        #expect(WorkspaceActiveSurface.derive(
-            isChatMode: true,
-            hasChosenChatSession: false,
             hasActiveBrowser: true
         ) == .browser)
     }
 
     @Test func terminalIsDefaultSurface() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false
         ) == .terminal)
     }
@@ -30,14 +18,10 @@ import CmuxMobileShellModel
     @Test func explicitMacSurfaceIsBelowBrowserAndAboveTerminal() {
         let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             selectedMacSurface: surface
         ) == .macSurface(surface))
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: true,
             selectedMacSurface: surface
         ) == .browser)
@@ -45,8 +29,6 @@ import CmuxMobileShellModel
 
     @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: true
         ) == .browserStream)
@@ -55,8 +37,6 @@ import CmuxMobileShellModel
     @Test func browserStreamOverlaysASelectedMacSurface() {
         let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: true,
             selectedMacSurface: surface
@@ -65,8 +45,6 @@ import CmuxMobileShellModel
 
     @Test func simulatorStreamActivatesWhenNoBrowserSurfaceIsOpen() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: false,
             hasActiveSimulatorStream: true
@@ -76,8 +54,6 @@ import CmuxMobileShellModel
     @Test func simulatorStreamOverlaysASelectedMacSurface() {
         let surface = MobileSurfacePreview(id: "surface", kind: .markdown, title: "README")
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: false,
             hasActiveSimulatorStream: true,

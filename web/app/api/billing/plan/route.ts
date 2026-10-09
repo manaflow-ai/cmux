@@ -4,16 +4,25 @@ import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   FREE_PLAN_ID,
-  TEAM_PLAN_ID,
-  hasActiveTeamSubscriptionForTeam,
+  PRO_PLAN_ID,
   resolveProPlanStatus,
-  type BillingManagementKind,
 } from "../../../../services/billing/pro";
 import {
+  billingSeatsFromMetadata,
   resolveBillingTeam,
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
+import {
+  explicitTeamId,
+  resolveTeamBillingAccess,
+  teamBillingAccessStatus,
+  type TeamBillingAccessUser,
+} from "../../../../services/billing/teamBillingAccess";
+import {
+  teamPlanStatusForTeam,
+  type TeamPlanStatus,
+} from "../../../../services/billing/teamPlanStatus";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -24,8 +33,11 @@ export async function GET(request: NextRequest) {
       authenticated: false,
       billingAvailable: false,
       planId: FREE_PLAN_ID,
+      subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
@@ -58,22 +70,36 @@ export async function GET(request: NextRequest) {
       authenticated: false,
       billingAvailable,
       planId: FREE_PLAN_ID,
+      subscriptionPlanId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
+      billingSource: "none",
+      manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
       user: null,
     });
   }
 
+  const requestedTeamId = explicitTeamId(request.nextUrl.searchParams.get("teamId"));
+  if (requestedTeamId) return explicitTeamPlanResponse(user, requestedTeamId, billingAvailable);
+
   const status = await resolveProPlanStatus(user);
   const teamStatus = await resolveTeamPlanStatus(user);
   return jsonResponse({
     authenticated: !user.isAnonymous,
     billingAvailable,
-    planId: status.planId,
+    // `planId` stays "free" | "pro" for installed clients that decode it as a
+    // two-value enum; `subscriptionPlanId` carries the exact personal plan
+    // (free, go, pro, or max) for clients that know the exact plan.
+    planId: status.isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    subscriptionPlanId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
+    // Who bills the personal plan ("stripe", "apple", or "none"), and where an
+    // App Store subscriber manages it. `billingManagement` is "external" then.
+    billingSource: status.billingSource,
+    manageUrl: status.manageUrl,
     teamPlanId: teamStatus.planId,
     teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,
@@ -86,19 +112,36 @@ export async function GET(request: NextRequest) {
   });
 }
 
-type TeamPlanStatus = {
-  readonly planId: typeof FREE_PLAN_ID | typeof TEAM_PLAN_ID;
-  readonly billingManagement: BillingManagementKind;
-};
+/**
+ * `?teamId=`: that team's plan for any member. `role` and `canManageBilling`
+ * tell the client whether to offer checkout/portal actions or "ask an admin".
+ */
+async function explicitTeamPlanResponse(
+  user: TeamBillingAccessUser & { readonly isAnonymous?: boolean },
+  teamId: string,
+  billingAvailable: boolean,
+) {
+  const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: false });
+  if (!access.ok) {
+    return jsonResponse({ error: access.error }, teamBillingAccessStatus(access.error));
+  }
+  const teamStatus = await teamPlanStatusForTeam(access.team);
+  return jsonResponse({
+    authenticated: !user.isAnonymous,
+    billingAvailable,
+    teamId: access.team.id,
+    teamPlanId: teamStatus.planId,
+    teamBillingManagement: teamStatus.billingManagement,
+    seats: billingSeatsFromMetadata(access.team.clientReadOnlyMetadata),
+    role: access.role,
+    canManageBilling: access.canManageBilling,
+  });
+}
 
 async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
   const team = await resolveBillingTeam(user);
   if (!team?.id) {
-    return { planId: FREE_PLAN_ID, billingManagement: "none" };
+    return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
   }
-  const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  if (stripeActive) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
-  }
-  return { planId: FREE_PLAN_ID, billingManagement: "none" };
+  return teamPlanStatusForTeam(team);
 }

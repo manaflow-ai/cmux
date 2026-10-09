@@ -51,6 +51,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    let makeWatcher: @Sendable (GitWorkspaceMetadataWatchDescriptor) async -> RecursivePathWatcher?
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     private(set) weak var host: (any SidebarGitHosting)?
@@ -72,6 +73,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     var workspaceGitMetadataWatcherDescriptorInvalidatedKeys: Set<WorkspaceGitProbeKey> = []
     var workspaceGitMetadataDegradationLoggedRepositoryRoots: Set<String> = []
+    var workspaceGitMetadataWatcherTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
     let workspaceGitSnapshotCacheNamespace = UUID()
@@ -93,7 +95,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     ///   - clock: Initial-probe retry clock; tests inject virtual time.
     ///   - mobileHostDeferral: Mobile-host deferral intervals.
     ///   - debugLog: Diagnostics sink; defaults to a no-op.
-    public init(
+    public convenience init(
         workspaceGitMetadataReader: any WorkspaceGitMetadataReading,
         gitMetadataService: any GitMetadataWatchDescriptorReading,
         pullRequestProbing: any PullRequestProbing,
@@ -102,6 +104,36 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
+        self.init(
+            workspaceGitMetadataReader: workspaceGitMetadataReader,
+            gitMetadataService: gitMetadataService,
+            pullRequestProbing: pullRequestProbing,
+            probeLimiter: probeLimiter,
+            clock: clock,
+            mobileHostDeferral: mobileHostDeferral,
+            debugLog: debugLog,
+            makeWatcher: { descriptor in
+                await RecursivePathWatcher(
+                    paths: descriptor.watchedPaths,
+                    throttleInterval: descriptor.eventCoalescingInterval,
+                    eventFilter: { descriptor.containsRelevantChange(
+                        paths: $0.paths, requiresFullRescan: $0.requiresFullRescan
+                    ) }
+                )
+            }
+        )
+    }
+
+    init(
+        workspaceGitMetadataReader: any WorkspaceGitMetadataReading,
+        gitMetadataService: any GitMetadataWatchDescriptorReading,
+        pullRequestProbing: any PullRequestProbing,
+        probeLimiter: WorkspaceGitMetadataProbeLimiter,
+        clock: any GitPollClock,
+        mobileHostDeferral: MobileHostDeferralPolicy = .standard,
+        debugLog: @escaping @Sendable (String) -> Void = { _ in },
+        makeWatcher: @escaping @Sendable (GitWorkspaceMetadataWatchDescriptor) async -> RecursivePathWatcher?
+    ) {
         self.workspaceGitMetadataReader = workspaceGitMetadataReader
         self.gitMetadataService = gitMetadataService
         self.pullRequestProbing = pullRequestProbing
@@ -109,9 +141,12 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.clock = clock
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
+        self.makeWatcher = makeWatcher
     }
 
     deinit {
+        for task in workspaceGitMetadataWatcherTasksByKey.values { task.cancel() }
+        for task in workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.values { task.cancel() }
         for task in workspaceGitProbeTasksByKey.values {
             task.cancel()
         }
@@ -168,18 +203,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         lastSidebarGitMetadataActivity = activity
 
         guard activity.performsActivePolling else {
-            stopAllWorkspaceGitMetadataWatchers()
-            workspaceGitProbeStateByKey.removeAll()
-            for task in workspaceGitProbeTasksByKey.values {
-                task.cancel()
-            }
-            workspaceGitProbeTasksByKey.removeAll()
-            cancelAllWorkspaceGitSnapshotTasks()
-            workspaceGitTrackedDirectoryByKey.removeAll()
-            workspaceGitCleanIndexSignatureByKey.removeAll()
-            workspaceGitCleanIndexContentSignatureByKey.removeAll()
-            workspaceGitHeadSignatureByKey.removeAll()
-            pullRequestProbing.resetWorkspacePullRequestRefreshState()
+            resetAllWorkspaceGitProbeTracking()
             if activity == .disabled {
                 host?.clearAllSidebarGitMetadata()
             }
@@ -330,13 +354,17 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     public func resetAllWorkspaceGitProbeTracking() {
-        let existingProbeKeys = Set(workspaceGitProbeStateByKey.keys)
-            .union(workspaceGitProbeTasksByKey.keys)
-        for key in existingProbeKeys {
-            clearWorkspaceGitProbe(key)
-        }
         stopAllWorkspaceGitMetadataWatchers()
+        workspaceGitProbeStateByKey.removeAll()
+        for task in workspaceGitProbeTasksByKey.values {
+            task.cancel()
+        }
+        workspaceGitProbeTasksByKey.removeAll()
+        cancelAllWorkspaceGitSnapshotTasks()
         workspaceGitTrackedDirectoryByKey.removeAll()
+        workspaceGitCleanIndexSignatureByKey.removeAll()
+        workspaceGitCleanIndexContentSignatureByKey.removeAll()
+        workspaceGitHeadSignatureByKey.removeAll()
         pullRequestProbing.resetWorkspacePullRequestRefreshState()
     }
 

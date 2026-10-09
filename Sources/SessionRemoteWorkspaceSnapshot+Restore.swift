@@ -6,14 +6,20 @@ import Security
 #endif
 
 extension SessionRemoteWorkspaceSnapshot {
+    /// Reconstructs a remote configuration from a persisted session descriptor.
+    /// The optional environment and liveness seam lets restore tests model a
+    /// moved agent without touching the process-wide environment.
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
         preserveSSHOptions: Bool = false,
-        agentSocketPath overrideAgentSocketPath: String? = nil
+        agentSocketPath overrideAgentSocketPath: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isLiveAgent: @escaping (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedDestination.isEmpty else { return nil }
+        guard !normalizedDestination.isEmpty,
+              !normalizedDestination.isOptionLikeSSHDestination else { return nil }
         let normalizedManagedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
         if transport == .websocket {
             guard let normalizedManagedCloudVMID else { return nil }
@@ -41,6 +47,33 @@ extension SessionRemoteWorkspaceSnapshot {
         guard transport == .ssh else { return nil }
         let normalizedPort = port.flatMap { port in
             (1...65535).contains(port) ? port : nil
+        }
+
+        let agentSocketPath = overrideAgentSocketPath
+            ?? restorableAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
+        let agentSocketPathOverrideIsSet = overrideAgentSocketPath != nil
+            || agentSocketPath != nil
+            // A saved path is a route hint, not an explicit disable. If it
+            // stopped serving and no inherited agent is live, clear the bit
+            // so a later restore can adopt a newly available agent. A saved
+            // empty value remains an explicit disable.
+            || (self.agentSocketPathOverrideIsSet == true &&
+                SSHAgentSocketResolver(environment: [:]).normalizedAgentSocketPath(self.agentSocketPath) == nil)
+        if let configuration = tuiSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
+        if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
+        if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
+           preserveAfterTerminalExit == true {
+            // Preserve the old descriptor for recovery, but never resume its daemon
+            // or start a replacement workload under a different session owner.
+            var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
+                port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+                localSocketPath: nil, terminalStartupCommand: nil,
+                agentSocketPath: agentSocketPath,
+                agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
+                preserveAfterTerminalExit: true)
+            configuration.restoredSSHSession = self
+            return configuration
         }
 
         let normalizedPersistentDaemonSlot = WorkspaceRemoteConfiguration.normalizedPersistentDaemonSlot(persistentDaemonSlot)
@@ -105,7 +138,7 @@ extension SessionRemoteWorkspaceSnapshot {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: normalizedDestination,
                 port: normalizedPort,
-                identityFile: Self.normalizedIdentityPath(identityFile),
+                identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
                 sshOptions: restoredSSHOptions,
                 token: $0
             )
@@ -130,7 +163,7 @@ extension SessionRemoteWorkspaceSnapshot {
             terminalProfile: restoredTerminalProfile,
             destination: normalizedDestination,
             port: normalizedPort,
-            identityFile: Self.normalizedIdentityPath(identityFile),
+            identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
             sshOptions: restoredSSHOptions,
             localProxyPort: nil,
             relayPort: restoreRelayNamespace ? normalizedRelayPort : nil,
@@ -199,8 +232,18 @@ extension SessionRemoteWorkspaceSnapshot {
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
-                explicitAgentSocketPath: overrideAgentSocketPath
+                // The agent the connection authenticated with wins over a
+                // `ForwardAgent` path, as it does for cmux-tui carriers.
+                explicitAgentSocketPath: agentSocketPath,
+                explicitAgentSocketPathIsSet: agentSocketPathOverrideIsSet,
+                // `restorableAgentSocketPath` already applied the restore
+                // liveness policy (and accepts an injected test seam). Do not
+                // replace that result with a second process-wide filesystem
+                // check here. An explicit override is caller-supplied and
+                // retains the normal filesystem validation.
+                explicitAgentSocketPathAlreadyValidated: overrideAgentSocketPath == nil
             ),
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession || restoreDefaultFreestyleSSHD,
             persistentDaemonSlot: (preservePTYSession || restoreDefaultFreestyleSSHD) ? effectivePersistentDaemonSlot : nil,
@@ -318,16 +361,16 @@ extension SessionRemoteWorkspaceSnapshot {
         // POSIX lifecycle/relay script by making /bin/sh the command's
         // outermost interpreter explicitly.
         let remoteCommandTemplate = "/bin/sh -c \(Self.shellQuote(remoteCommandScript))"
-        let script = [
+        let script = ([
             "cmux_restore_fail() { \(failureScript); }",
             "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_restore_cli\" ] || [ ! -x \"$cmux_restore_cli\" ]; then cmux_restore_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_restore_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_restore_fail; fi",
-            "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || cmux_restore_fail",
-            "export CMUX_SSH_ATTEMPT_ID",
-            "cmux_restore_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
-            "cmux_restore_launch_retry=0",
-            "while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; do cmux_restore_launch_retry=$((cmux_restore_launch_retry + 1)); if [ \"$cmux_restore_launch_retry\" -ge 3 ]; then cmux_restore_fail; fi; /bin/sleep 0.1; done",
+            "cmux_restore_register_attempt() { cmux_restore_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"; CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_restore_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_restore_launch_payload\" >/dev/null 2>&1; }",
+        ] + SSHPTYAttachRetryScriptBuilder().launchRegistrationRetryLines(functionPrefix: "cmux_restore") + [
+            "cmux_restore_begin_attempt",
+            "cmux_restore_launch_status=$?",
+            "if [ \"$cmux_restore_launch_status\" -ne 0 ]; then cmux_restore_fail; fi",
             staging.preparationShellScript,
             "if [ \"$cmux_remote_install_status\" -ne 0 ]; then cmux_restore_fail; fi",
             "unset cmux_remote_install_status",
@@ -338,7 +381,7 @@ extension SessionRemoteWorkspaceSnapshot {
             "cmux_restore_remote_command_template=\(Self.shellQuote(remoteCommandTemplate))",
             "cmux_restore_remote_command=\"$(printf '%s' \"$cmux_restore_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_restore_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_restore_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_restore_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_restore_attempt_id/g\")\"",
             "exec \(sshInvocation) \"$cmux_restore_remote_command\"",
-        ].joined(separator: "\n")
+        ]).joined(separator: "\n")
         return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
@@ -374,7 +417,11 @@ extension SessionRemoteWorkspaceSnapshot {
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
-        let invocationSSHOptions = Self.removingRemoteCommand(from: reconnectSSHOptions)
+        // Mosh owns terminal allocation; the separately built SSH fallback
+        // still receives the durable RequestTTY option.
+        let invocationSSHOptions = SSHAgentSocketResolver().moshManagementOptions(
+            from: Self.removingRemoteCommand(from: reconnectSSHOptions)
+        )
         let sshArguments = sshBootstrapArguments(
             port: normalizedPort,
             sshOptions: invocationSSHOptions
@@ -486,7 +533,7 @@ extension SessionRemoteWorkspaceSnapshot {
         if let normalizedPort {
             arguments += ["-p", String(normalizedPort)]
         }
-        if let identityFile = Self.normalizedIdentityPath(identityFile) {
+        if let identityFile = WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile) {
             arguments += ["-i", identityFile]
         }
         let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
@@ -494,10 +541,6 @@ extension SessionRemoteWorkspaceSnapshot {
             arguments += ["-o", option]
         }
         return arguments
-    }
-
-    private static func normalizedIdentityPath(_ value: String?) -> String? {
-        WorkspaceRemoteConfiguration.normalizedIdentityPath(value)
     }
 
     private static func normalizedSSHOptions(_ options: [String]) -> [String] {
@@ -532,7 +575,7 @@ extension SessionRemoteWorkspaceSnapshot {
             "cmux_freestyle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_freestyle_cli\" ] || [ ! -x \"$cmux_freestyle_cli\" ]; then cmux_freestyle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_freestyle_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for Cloud VM SSH attach.' >&2; exit 127; fi",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
@@ -564,10 +607,30 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
+    }
+}
+
+extension SessionRemoteWorkspaceSnapshot {
+    /// The agent a restored carrier authenticates with. cmux keys its shared
+    /// SSH master by agent, and `cmux ssh` sends its shell's `SSH_AUTH_SOCK`,
+    /// so a restore that dropped the agent would dial a master no login opened.
+    /// The saved agent wins while it still serves; after a reboot moves it,
+    /// the app's own agent matches what a new `cmux ssh` sends, as the CLI
+    /// falls back to the same environment. A path that exists but no longer
+    /// accepts connections never beats a live agent.
+    func restorableAgentSocketPath(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isLiveAgent: (String) -> Bool = Self.acceptsAgentConnections(atPath:)
+    ) -> String? {
+        restoredAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
+    }
+
+    /// Whether an agent socket has a live listener run by this user or by
+    /// launchd, which owns the macOS `SSH_AUTH_SOCK` and starts the agent on
+    /// demand. Another user's listener is refused.
+    static func acceptsAgentConnections(atPath path: String) -> Bool {
+        UnixSocketConnectProbe().acceptsConnections(atPath: path)
+            || UnixSocketConnectProbe(peerCheck: UnixSocketPeerCheck(expectedUserID: 0)).acceptsConnections(atPath: path)
     }
 }

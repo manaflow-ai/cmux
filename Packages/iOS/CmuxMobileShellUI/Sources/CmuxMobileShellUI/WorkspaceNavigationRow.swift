@@ -17,6 +17,7 @@ struct WorkspaceNavigationRow: View {
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -43,6 +44,9 @@ struct WorkspaceNavigationRow: View {
     /// The binding is owned by the list so recycled rows do not own presentation
     /// state, but the presenter stays attached to the swiped row.
     var isConfirmingClose: Binding<Bool> = .constant(false)
+    /// The copy for that confirmation, resolved by the list when the close
+    /// was requested.
+    var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     /// Performs the confirmed close. Separate from ``closeWorkspace`` so a
     /// full-swipe can request confirmation without directly closing the row.
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
@@ -108,12 +112,12 @@ struct WorkspaceNavigationRow: View {
             renameWorkspace?(workspace.id, trimmed)
         }
         .confirmationDialog(
-            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            closeConfirmation.title,
             isPresented: isConfirmingClose,
             titleVisibility: .visible
         ) {
             if let confirmCloseWorkspace {
-                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                Button(closeConfirmation.actionTitle, role: .destructive) {
                     confirmCloseWorkspace(workspace.id)
                 }
                 .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
@@ -122,7 +126,7 @@ struct WorkspaceNavigationRow: View {
                 isConfirmingClose.wrappedValue = false
             }
         } message: {
-            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
+            Text(closeConfirmation.message)
         }
     }
 
@@ -157,7 +161,8 @@ struct WorkspaceNavigationRow: View {
             onOpenChanges: onOpenChanges,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
-            unreadIndicatorLeftShift: unreadIndicatorLeftShift
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter
         )
     }
 

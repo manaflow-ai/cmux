@@ -43,11 +43,25 @@ struct OnboardingSceneFooter: View {
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
         }
 
-        if let secondaryTitle {
-            Button(secondaryTitle, action: onSecondary)
+        // Onboarding rule: every regular-height page with a primary action
+        // reserves the secondary-action slot so primary buttons share one
+        // vertical guide across the full flow.
+        if secondaryTitle != nil || (primaryTitle != nil && verticalSizeClass != .compact) {
+            // Reserve the actual control's size, including system button
+            // padding, to keep primary actions aligned across every page.
+            // Compact height places actions side by side and needs no slot.
+            Button(
+                secondaryTitle ?? L10n.string(
+                    "mobile.onboarding.push.notNow", defaultValue: "Not Now"
+                ),
+                action: onSecondary
+            )
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: verticalSizeClass == .compact ? .infinity : nil)
-                .frame(minHeight: 36)
+                .frame(minHeight: 44)
+                .opacity(secondaryTitle == nil ? 0 : 1)
+                .disabled(secondaryTitle == nil)
+                .accessibilityHidden(secondaryTitle == nil)
                 .accessibilityIdentifier("MobileOnboardingSecondaryButton")
         }
     }

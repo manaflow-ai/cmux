@@ -1,8 +1,4 @@
-import { env } from "../../app/env";
-import {
-  defaultHostedSubrouterURL,
-  hostedSubrouterBaseURL,
-} from "./constants";
+import { hostedSubrouterBaseURL } from "./constants";
 import type {
   SubrouterAccount,
   SubrouterAccountInput,
@@ -70,20 +66,38 @@ export function createHostedSubrouterClient(options: {
   readonly tenantDeleteToken?: string;
   readonly fetch?: typeof fetch;
 } = {}): HostedSubrouterClient {
-  const baseUrl = hostedSubrouterBaseURL(
-    options.baseUrl ?? env.SUBROUTER_HOSTED_URL ?? defaultHostedSubrouterURL(),
-  );
-  const fetchImpl = options.fetch ?? fetch;
   // Read lazily from process.env, not the validated `env` object: t3-env
   // freezes values at first import, but tenant-control configuration must be
-  // observable per client construction (env.ts still validates presence on
+  // observable per client construction (env.ts still validates the token on
   // Vercel non-preview deployments).
+  //
+  // There is no default service URL. The hosted deployments behind the old
+  // defaults (sr.cmux.com and staging.sr.cmux.com) were retired, so a
+  // deployment without SUBROUTER_HOSTED_URL reports the hosted service as not
+  // configured and makes no outbound request.
+  const configuredBaseUrl = (
+    options.baseUrl ?? process.env.SUBROUTER_HOSTED_URL ?? ""
+  ).trim();
+  const baseUrl = configuredBaseUrl
+    ? hostedSubrouterBaseURL(configuredBaseUrl)
+    : null;
+  const fetchImpl = options.fetch ?? fetch;
   const tenantDeleteToken = (
     options.tenantDeleteToken ??
     process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
     ""
   ).trim();
+  const requireBaseUrl = (): string => {
+    if (baseUrl === null) {
+      throw new HostedSubrouterError(
+        "hosted Subrouter is not configured",
+        503,
+      );
+    }
+    return baseUrl;
+  };
   const assertTenantControlConfigured = (): void => {
+    requireBaseUrl();
     if (!tenantDeleteToken) {
       throw new HostedSubrouterError(
         "hosted Subrouter tenant control is not configured",
@@ -99,7 +113,7 @@ export function createHostedSubrouterClient(options: {
   ): Promise<unknown> => {
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${tenantKey}`);
-    return requestJson(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+    return requestJson(fetchImpl, `${requireBaseUrl()}${path}`, { ...init, headers });
   };
   const tenantRequestResponse = (
     tenantKey: string,
@@ -108,7 +122,7 @@ export function createHostedSubrouterClient(options: {
   ): Promise<Response> => {
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${tenantKey}`);
-    return requestResponse(fetchImpl, `${baseUrl}${path}`, { ...init, headers });
+    return requestResponse(fetchImpl, `${requireBaseUrl()}${path}`, { ...init, headers });
   };
   const tenantRequestWithoutResponse = async (
     tenantKey: string,
@@ -141,7 +155,7 @@ export function createHostedSubrouterClient(options: {
   };
 
   return {
-    tenantControlConfigured: tenantDeleteToken.length > 0,
+    tenantControlConfigured: baseUrl !== null && tenantDeleteToken.length > 0,
     assertTenantDeletionConfigured: assertTenantControlConfigured,
     exchangeTeam: async (accessToken, team) => {
       assertTenantControlConfigured();
@@ -155,7 +169,7 @@ export function createHostedSubrouterClient(options: {
       }
       const response = await requestJson(
         fetchImpl,
-        `${baseUrl}/_subrouter/auth/stack`,
+        `${requireBaseUrl()}/_subrouter/auth/stack`,
         {
           method: "POST",
           headers: {
@@ -190,7 +204,7 @@ export function createHostedSubrouterClient(options: {
       assertTenantControlConfigured();
       const upstreamResponse = await requestResponse(
         fetchImpl,
-        `${baseUrl}/_subrouter/auth/stack/tenant`,
+        `${requireBaseUrl()}/_subrouter/auth/stack/tenant`,
         {
           method: "DELETE",
           headers: {
@@ -296,6 +310,14 @@ export class HostedSubrouterError extends Error {
   }
 }
 
+/** The hosted service could not be reached at all (DNS, connection, timeout). */
+export class HostedSubrouterUnreachableError extends HostedSubrouterError {
+  constructor() {
+    super("hosted Subrouter unavailable", 503);
+    this.name = "HostedSubrouterUnreachableError";
+  }
+}
+
 async function requestJson(
   fetchImpl: typeof fetch,
   url: string,
@@ -332,7 +354,7 @@ async function requestResponse(
       signal: init.signal ?? AbortSignal.timeout(10_000),
     });
   } catch {
-    throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
+    throw new HostedSubrouterUnreachableError();
   }
   if (!response.ok) {
     throw new HostedSubrouterError(

@@ -115,6 +115,12 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
     "appFocused": false,
     "focusedPanel": false
   },
+  "agent": {
+    "kind": "claude",
+    "category": "turn-complete",
+    "pending": false,
+    "isSubagent": true
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -133,6 +139,32 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
           desktop: (chunks) => <code>{chunks}</code>,
           hooksMode: (chunks) => <code>{chunks}</code>,
           replace: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={3} id="agent-event-context">{t("hooksAgentTitle")}</DocsHeading>
+      <p>
+        {t.rich("hooksAgentIntro", {
+          agent: (chunks) => <code>{chunks}</code>,
+          kind: (chunks) => <code>{chunks}</code>,
+          category: (chunks) => <code>{chunks}</code>,
+          pending: (chunks) => <code>{chunks}</code>,
+          isSubagent: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title={t("hooksAgentExampleTitle")} lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "mute-subagent-completions",
+        "command": "if [ \\"\${CMUX_NOTIFICATION_AGENT_IS_SUBAGENT-0}\\" = \\"1\\" ] && [ \\"$CMUX_NOTIFICATION_AGENT_CATEGORY\\" = \\"turn-complete\\" ]; then printf '{\\"effects\\":{\\"desktop\\":false,\\"sound\\":false,\\"paneFlash\\":false}}'; fi"
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("hooksAgentDetails", {
+          suppressSetting: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 
@@ -212,46 +244,31 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
 
       <DocsHeading level={3} id="create-hook-script">{t("createHookScript")}</DocsHeading>
       <CodeBlock title="~/.claude/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
-# Skip if not in cmux
+# Outside cmux there is no socket to talk to, so do nothing.
 [ -S /tmp/cmux.sock ] || exit 0
 
-EVENT=$(cat)
-EVENT_TYPE=$(echo "$EVENT" | jq -r '.hook_event_name // "unknown"')
-TOOL=$(echo "$EVENT" | jq -r '.tool_name // ""')
+payload=$(cat)
+field() { printf '%s' "$payload" | jq -r "$1 // empty"; }
 
-case "$EVENT_TYPE" in
-    "Stop")
-        cmux notify --title "Claude Code" --body "Session complete"
-        ;;
-    "PostToolUse")
-        [ "$TOOL" = "Task" ] && cmux notify --title "Claude Code" --body "Agent finished"
-        ;;
-esac`}</CodeBlock>
+event=$(field .hook_event_name)
+if [ "$event" = "Stop" ]; then
+    cmux notify --title "Claude Code" --body "Session complete"
+elif [ "$event" = "SubagentStop" ]; then
+    cmux notify --title "Claude Code" --body "Agent finished"
+fi`}</CodeBlock>
       <CodeBlock lang="bash">{`chmod +x ~/.claude/hooks/cmux-notify.sh`}</CodeBlock>
 
       <DocsHeading level={3} id="configure-claude">{t("configureClaude")}</DocsHeading>
       <CodeBlock title="~/.claude/settings.json" lang="json">{`{
   "hooks": {
-    "Stop": [
+    "SubagentStop": [
       {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/cmux-notify.sh"
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "~/.claude/hooks/cmux-notify.sh" }]
       }
     ],
-    "PostToolUse": [
+    "Stop": [
       {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/cmux-notify.sh"
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "~/.claude/hooks/cmux-notify.sh" }]
       }
     ]
   }

@@ -12,7 +12,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxSentryTelemetry",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [

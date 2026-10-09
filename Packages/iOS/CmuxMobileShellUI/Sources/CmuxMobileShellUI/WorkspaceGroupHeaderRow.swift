@@ -18,11 +18,12 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     }
 
     private var group: MobileWorkspaceGroupPreview { value.group }
-    /// Aggregate unread state for the header dot, computed by
+    /// Aggregate unread state for the header indicator, computed by
     /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
-    /// the whole group's (anchor included) while collapsed, mirroring the Mac
-    /// sidebar header badge so collapsing a group never hides activity.
-    private var hasUnread: Bool { value.hasUnread }
+    /// the whole group's (anchor included, counts summed) while collapsed,
+    /// mirroring the Mac sidebar header badge so collapsing a group never
+    /// hides activity.
+    private var unread: MobileWorkspaceUnreadState { value.unread }
     private var navigationStyle: WorkspaceNavigationStyle { value.navigationStyle }
     /// Whether the anchor workspace is the current selection (sidebar style only).
     private var isAnchorSelected: Bool { value.isAnchorSelected }
@@ -30,6 +31,21 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     @State private var isRenaming = false
     @State private var renameDraft = ""
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
+
+    /// Daylight between the unread badge's trailing edge and the chevron's
+    /// hit frame. Internal (not private) so layout tests can assert the
+    /// reservation math against the shipped constant.
+    static let indicatorChevronVisualGap: CGFloat = 3
+
+    /// Width reserved between the unread gutter and the chevron so the badge's
+    /// gutter overflow never reaches the chevron.
+    private var chevronLayoutGap: CGFloat {
+        WorkspaceUnreadDot.layoutGap(
+            afterGutterForDiameter: value.unreadBadgeDiameter,
+            leftShift: value.unreadIndicatorLeftShift,
+            visualGap: Self.indicatorChevronVisualGap
+        )
+    }
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
@@ -90,38 +106,47 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
 
     @ViewBuilder
     private var anchorTarget: some View {
-        switch navigationStyle {
-        case .push:
-            Button {
-                actions.selectWorkspace(group.anchorWorkspaceID)
-            } label: {
-                nameLabel
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            switch navigationStyle {
+            case .push, .sidebar:
+                Button {
+                    actions.selectWorkspace(anchorWorkspaceID)
+                } label: {
+                    nameLabel
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-        case .sidebar:
-            Button {
-                actions.selectWorkspace(group.anchorWorkspaceID)
-            } label: {
-                nameLabel
-            }
-            .buttonStyle(.plain)
+        } else {
+            nameLabel
         }
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Same leading unread gutter as workspace rows (dot hidden when
-            // read) so headers and top-level rows keep their columns aligned.
-            WorkspaceUnreadDot(isUnread: hasUnread, leftShift: value.unreadIndicatorLeftShift)
+        HStack(spacing: 0) {
+            // Same leading unread gutter as workspace rows (indicator hidden
+            // when read) so headers and top-level rows keep their columns
+            // aligned.
+            WorkspaceUnreadDot(
+                unread: unread,
+                leftShift: value.unreadIndicatorLeftShift,
+                diameter: value.unreadBadgeDiameter
+            )
+            // The badge overflows the gutter toward the chevron, so the
+            // chevron must reserve that overflow (exactly as `WorkspaceRow`
+            // reserves it for the rail) or the badge leans on it. The gap is
+            // measured to the chevron's hit frame; its glyph centers ~5pt
+            // inside, so the optical badge-to-glyph gap matches the rows'
+            // 8pt badge-to-rail rhythm. The reservation ignores unread state,
+            // so read and unread headers keep one chevron column.
+            Spacer()
+                .frame(width: chevronLayoutGap)
             chevron
+            Spacer()
+                .frame(width: 6)
             anchorTarget
-                // The dot itself is accessibility-hidden; VoiceOver hears the
-                // unread state on the anchor target, like workspace rows.
-                .accessibilityValue(
-                    hasUnread
-                        ? L10n.string("mobile.workspace.unread", defaultValue: "Unread")
-                        : ""
-                )
+                // The indicator itself is accessibility-hidden; VoiceOver hears
+                // the unread state on the anchor target, like workspace rows.
+                .accessibilityValue(unread.isUnread ? L10n.unreadLabel(count: unread.count) : "")
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)

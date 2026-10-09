@@ -127,6 +127,36 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testRejectsMissingParentBeforeNormalizingSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let realBin = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
+        let executable = realBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let missingParentTraversal = root
+            .appendingPathComponent("missing-directory", isDirectory: true)
+            .appendingPathComponent("..", isDirectory: true)
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": "\(missingParentTraversal.path):\(realBin.path)",
+                "HOME": root.path,
+            ],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.claude)
+        let runtimePath = plan.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        expectEqual(plan.executableURL.path, executable.standardizedFileURL.path)
+        expectFalse(runtimePath.contains(root.standardizedFileURL.path))
+    }
+
+    @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -373,12 +403,15 @@ struct AgentExecutableResolverTests {
         }
     }
 
-    @Test
-    func testSkipsCmuxAgentCommandShim() throws {
+    @Test(arguments: [false, true])
+    func testSkipsCmuxAgentCommandShim(durableInheritedRoot: Bool) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
-        let shimBin = root.appendingPathComponent("shim-bin", isDirectory: true)
+        let shimBin = root.appendingPathComponent(
+            durableInheritedRoot ? ".cmuxterm/cmux-cli-shims/old-surface" : "shim-bin",
+            isDirectory: true
+        )
         let realBin = root.appendingPathComponent("real-bin", isDirectory: true)
         try FileManager.default.createDirectory(at: shimBin, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
@@ -395,8 +428,8 @@ struct AgentExecutableResolverTests {
             environment: [
                 "PATH": "\(shimBin.path):\(realBin.path)",
                 "HOME": root.path,
-                "CMUX_CLAUDE_WRAPPER_SHIM": shimClaude.path,
-                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": shimBin.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM": durableInheritedRoot ? "" : shimClaude.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": durableInheritedRoot ? "" : shimBin.path,
             ],
             bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
         )

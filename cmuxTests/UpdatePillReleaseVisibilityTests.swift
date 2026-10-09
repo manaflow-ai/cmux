@@ -64,11 +64,46 @@ private func checkGreaterThanOrEqual<T: Comparable>(_ actual: T, _ expected: T, 
 @Suite
 struct BrowserInsecureHTTPSettingsTests {
     @Test
+    func privateNetworkLiteralsSkipTheInsecureHTTPWarning() {
+        // cmux VPC machine addresses (through the WireGuard tunnel) and home
+        // LAN gear: traffic never crosses the public network, so no modal.
+        for host in [
+            "10.16.133.3", "10.0.0.1", "172.16.0.9", "172.31.255.255",
+            "192.168.1.20", "169.254.77.2",
+            "fd60:1e5e:6720::3", "fc00::1", "fe80::1",
+        ] {
+            #expect(BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
+    func publicHostsStillWarnOnPlainHTTP() {
+        for host in [
+            "example.com", "8.8.8.8", "172.32.0.1", "11.0.0.1", "2602:f75c::1",
+            // A NAME is never private, even if it would resolve to a private
+            // address — DNS must not smuggle a bypass in.
+            "router.local.example",
+        ] {
+            #expect(!BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
     func testDefaultAllowlistPatternsArePresent() {
         checkEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
             ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
+    }
+
+    @Test
+    func testExplicitlyEmptyAllowlistRemovesTheLoopbackDefaults() {
+        checkEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: ""),
+            []
+        )
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: ""))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: ""))
     }
 
     @Test
@@ -133,7 +168,9 @@ struct BrowserInsecureHTTPSettingsTests {
         checkEqual(prepared.httpMethod, "POST")
         checkEqual(prepared.httpBody, Data("token=abc123".utf8))
         checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
+        // #13003: the prepared request keeps the caller's cache policy so refreshing a
+        // failed navigation replays the original request semantics.
+        checkEqual(prepared.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
     @Test
@@ -378,14 +415,21 @@ struct TitlebarControlsSizingPolicyTests {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         let classicRepeat = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         checkEqual(classic, classicRepeat)
-        checkEqual(classic.width, 152, accuracy: 0.001)
+        // System font metrics determine hint widths; every native control must
+        // still fit inside the deterministic reservation for each style.
+        let classicRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: classicConfig)
+            .map(\.upperBound).max() ?? 0
+        checkGreaterThanOrEqual(classic.width, classicRightEdge)
         checkEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compactConfig = TitlebarControlsStyle.compact.config
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         let compactRepeat = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         checkEqual(compact, compactRepeat)
-        checkEqual(compact.width, 139, accuracy: 0.001)
+        let compactRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: compactConfig)
+            .map(\.upperBound).max() ?? 0
+        checkGreaterThanOrEqual(compact.width, compactRightEdge)
+        checkGreaterThan(classic.width, compact.width)
         checkEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 
@@ -528,9 +572,9 @@ struct TitlebarControlsHoverPolicyTests {
                 let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
                 let expectedWidth: CGFloat = switch slot {
                 case .some(.newTab):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
-                case .some(.cloudVM):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                    TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.newWorkspaceMenu):
+                    TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config)
                 case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
                     config.buttonSize
                 }

@@ -46,6 +46,7 @@ struct CmxIrohConnectionCheckReportTests {
             managedRelays: [],
             customRelays: [],
             policySource: .server,
+            staleRelayIDs: ["retired-relay"],
             failureDescription: "redacted relay configuration failure"
         )
         let report = CmxIrohConnectionCheckReport(
@@ -56,6 +57,32 @@ struct CmxIrohConnectionCheckReportTests {
         )
 
         #expect(report.recommendation == .reviewRelaySettings)
+    }
+
+    @Test(arguments: [
+        (CmxIrohConnectionCheckReport.RelayReachability.unavailable, CmxIrohConnectionCheckReport.Recommendation.retry),
+        (.unreachable, .allowRelayTraffic),
+    ])
+    func certificateFailureWithoutCustomRelaysDoesNotSuggestEditingRelays(
+        reachability: CmxIrohConnectionCheckReport.RelayReachability,
+        expected: CmxIrohConnectionCheckReport.Recommendation
+    ) {
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: CmxIrohSettingsSnapshot(
+                runtimeStatus: .degraded,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .server,
+                failureDescription: "Relay connection to usc1.relay.cmux.dev failed: UnknownIssuer."
+            ),
+            diagnostics: .empty,
+            relayReachability: reachability
+        )
+
+        #expect(!report.isReady)
+        #expect(report.recommendation == expected)
     }
 
     @Test
@@ -173,7 +200,9 @@ struct CmxIrohConnectionCheckReportTests {
             preference: .automatic,
             managedRelays: [],
             customRelays: [],
-            privateNetworkMacs: hasMac ? [.init(id: "mac", displayName: "Mac")] : [],
+            privateNetworkMacs: hasMac
+                ? [.init(macDeviceID: "mac", displayName: "Mac")]
+                : [],
             policySource: .server
         )
     }

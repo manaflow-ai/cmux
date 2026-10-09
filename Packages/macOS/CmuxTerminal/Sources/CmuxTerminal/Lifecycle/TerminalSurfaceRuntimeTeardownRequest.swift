@@ -24,6 +24,14 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
+    /// Ghostty's renderer layer, detached on the main actor before
+    /// `freeSurface` is scheduled so no later Core Animation display can call
+    /// into the renderer the free destroys.
+    let displayLayer: TerminalSurfaceRuntimeDisplayLayer?
+    /// Suspends until all work that borrowed `surface` before teardown has
+    /// finished. Native free is scheduled only after this operation returns;
+    /// the request retains all userdata until that later free completes.
+    let beforeFree: @Sendable () async -> Void
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
     let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
@@ -39,6 +47,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
+        displayLayer: TerminalSurfaceRuntimeDisplayLayer? = nil,
+        beforeFree: @escaping @Sendable () async -> Void,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
@@ -49,6 +59,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
+        self.displayLayer = displayLayer
+        self.beforeFree = beforeFree
         self.freeSurface = freeSurface
         self.completion = completion
 #if DEBUG

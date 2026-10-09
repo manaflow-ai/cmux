@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxWorkspaces
@@ -27,6 +30,8 @@ extension Workspace {
         let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
+        var surfaceMachine: SurfaceMachineID? = nil
+        var origin: SurfaceTransferOrigin? = nil
         let title: String
         let icon: String?
         let iconImageData: Data?
@@ -44,13 +49,25 @@ extension Workspace {
         let customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
+        /// The panel's last submitted prompt, carried so the destination
+        /// sidebar keeps it. Unlike ``Workspace/panelGitBranches``, nothing
+        /// re-reports a prompt after the move, so dropping it here loses it.
+        var promptState: SidebarPanelPromptState? = nil
+        /// OSC 7501 records belong to the terminal, so they follow it across
+        /// workspace and Dock moves instead of waiting for the next report.
+        var programStatusStore: ProgramStatusRecordStore? = nil
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
         let shellActivityState: PanelShellActivityState?
         var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
+        /// Typed restore selector still awaiting its shell, carried so the
+        /// idle-prompt replay survives a Workspace/Dock move.
+        var restoredStartupInput: String? = nil
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// Deferred ownership resolution carried across a Workspace/Dock transfer.
+        var deferredAgentResumeRestore: DeferredAgentResumeRestore? = nil
         /// Authoritative hook identity when `resumeBinding` is an effective
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
@@ -83,6 +100,8 @@ extension Workspace {
                 sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
+                surfaceMachine: surfaceMachine,
+                origin: origin,
                 title: title,
                 icon: icon,
                 iconImageData: iconImageData,
@@ -100,13 +119,17 @@ extension Workspace {
                 customTitleSource: customTitleSource,
                 manuallyUnread: manuallyUnread,
                 restoredUnreadIndicator: restoredUnreadIndicator,
+                promptState: promptState,
+                programStatusStore: programStatusStore,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
                 shellActivityState: shellActivityState,
                 restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                restoredStartupInput: restoredStartupInput,
                 resumeBinding: resumeBinding,
+                deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

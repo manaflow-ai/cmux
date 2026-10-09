@@ -7,6 +7,7 @@ extension TaskComposerSheet {
         TaskComposerDirectoryCandidates(
             store: store,
             selectedMacDeviceID: selectedMacDeviceID,
+            selectedMacInstanceTag: selectedMacInstanceTag,
             selectedTemplate: selectedTemplate
         ).make()
     }
@@ -17,6 +18,7 @@ extension TaskComposerSheet {
             directory = path
             didEditDirectory = true
         }
+        persistPickerPreferences()
         store.recordAppEvent(.taskDirectorySearchSucceeded, count: 1)
     }
 }

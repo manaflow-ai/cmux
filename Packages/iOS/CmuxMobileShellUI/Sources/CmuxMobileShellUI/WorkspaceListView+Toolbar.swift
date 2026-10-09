@@ -17,7 +17,7 @@ extension WorkspaceListView {
     /// selection stays in its dedicated title picker). The icon fills while a
     /// narrowing filter is active, mirroring Mail.
     @ViewBuilder
-    func viewOptionsButton() -> some View {
+    func viewOptionsButton(orderMachines: [WorkspaceFilterMachine]) -> some View {
         Button {
             viewOptionsPresentation.present()
         } label: {
@@ -42,7 +42,7 @@ extension WorkspaceListView {
             WorkspaceListViewOptionsPopover(
                 filter: filter,
                 sortMode: workspaceSortMenuMode,
-                orderMachines: computerOrderSheetMachines,
+                orderMachines: orderMachines,
                 saveComputerOrder: setWorkspaceComputerPriority,
                 actions: workspaceListFilterMenuActions
             )
@@ -58,9 +58,15 @@ extension WorkspaceListView {
         filterMachines: [WorkspaceFilterMachine]
     ) -> some View {
         #if os(iOS)
-            if showsNavigationToolbar {
-                content
-                    .toolbar {
+            // The toolbar-visibility flip (off while a workspace is pushed on
+            // the compact stack, back on at exit) must stay inside the toolbar
+            // content builder. Branching the whole subtree on it changes the
+            // list's structural identity on every workspace enter/exit, which
+            // dismantles the represented workspace table and resets its scroll
+            // position to the top (issue #10481).
+            content
+                .toolbar {
+                    if showsNavigationToolbar {
                         if !usesExternalSharedToolbar {
                             ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
                                 settingsMenu
@@ -83,15 +89,30 @@ extension WorkspaceListView {
                                     dismiss: dismissMacUpdateHint
                                 )
                             }
-                            viewOptionsButton()
-                            if canCreateWorkspace {
+                            viewOptionsButton(
+                                orderMachines: computerOrderSheetMachines(
+                                    machineSnapshots: machineSnapshots
+                                )
+                            )
+                        }
+                        if showsNewWorkspaceControl {
+                            // Keep creation separate from the filter group. On
+                            // narrow Cloud lists UIKit can otherwise drop the
+                            // second group child while retaining the filter.
+                            ToolbarItem(id: "workspace-list-new-workspace", placement: .topBarTrailing) {
                                 newWorkspaceButton.equatable()
                             }
                         }
+                        if let sidebarToggleAction {
+                            ToolbarItem(id: "workspace-list-sidebar-toggle", placement: .topBarTrailing) {
+                                WorkspaceSidebarToggleButton(
+                                    action: sidebarToggleAction,
+                                    usesSystemToolbarChrome: true
+                                )
+                            }
+                        }
                     }
-            } else {
-                content
-            }
+                }
         #else
             content
                 .toolbar {
@@ -102,7 +123,7 @@ extension WorkspaceListView {
                             actions: workspaceListFilterMenuActions
                         )
                         .equatable()
-                        if canCreateWorkspace {
+                        if showsNewWorkspaceControl {
                             newWorkspaceButton.equatable()
                         }
                     }

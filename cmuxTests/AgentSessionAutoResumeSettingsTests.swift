@@ -1,4 +1,6 @@
 import CMUXAgentLaunch
+import CmuxFoundation
+import CmuxTerminal
 import Foundation
 import CmuxCore
 import XCTest
@@ -168,14 +170,22 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let liveIdentity = AgentPIDProcessIdentity(pid: 42_101, startSeconds: 10, startMicroseconds: 20)
             let sourceIndex = try makeRestorableAgentIndex(
                 workspaceId: source.id,
                 panelId: sourcePanelId,
-                sessionId: "codex-running-at-snapshot-session"
+                sessionId: "codex-running-at-snapshot-session",
+                liveProcessIdentity: liveIdentity
             )
-            // Simulate: agent was still running when cmux quit
+            // Simulate: agent was still running when cmux quit. Shell activity
+            // alone is not agent liveness (#17475); the live agent process is.
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
-            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                currentAgentProcessIdentity: { $0 == Int(liveIdentity.pid) ? liveIdentity : nil },
+                agentProcessPresence: { _ in .present }
+            )
 
             XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, true,
                            "snapshot should record wasAgentRunning=true when agent was running at save time")
@@ -274,10 +284,16 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 input
             )
             XCTAssertFalse(input.contains("/tmp/repo"), input)
+            // The remote cwd survives restore as the panel's trusted remote
+            // directory report, not as the host shell's spawn directory: the
+            // restored resume input owns the `cd`, and a remote-host path is
+            // never enterable locally (OneShotTerminalLauncherStore filters it),
+            // so seeding it as the local spawn cwd would break the owning shell.
             XCTAssertEqual(
-                restoredPanel.requestedWorkingDirectory,
+                restored.panelDirectories[restoredPanelId],
                 remoteWorkingDirectory
             )
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .awaitingAutoResumeCommand
@@ -556,10 +572,12 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let liveIdentity = AgentPIDProcessIdentity(pid: 42_102, startSeconds: 10, startMicroseconds: 20)
         let sourceIndex = try makeRestorableAgentIndex(
             workspaceId: source.id,
             panelId: sourcePanelId,
-            sessionId: "codex-binding-auto-resume-session"
+            sessionId: "codex-binding-auto-resume-session",
+            liveProcessIdentity: liveIdentity
         )
         let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
             SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
@@ -577,7 +595,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex,
-            surfaceResumeBindingIndex: bindingIndex
+            surfaceResumeBindingIndex: bindingIndex,
+            currentAgentProcessIdentity: { $0 == Int(liveIdentity.pid) ? liveIdentity : nil },
+            agentProcessPresence: { _ in .present }
         )
 
         let restored = Workspace()
@@ -737,7 +757,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         workspaceId: UUID,
         panelId: UUID,
         sessionId: String,
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        liveProcessIdentity: AgentPIDProcessIdentity? = nil
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -777,7 +798,33 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
         try data.write(to: storeURL, options: .atomic)
-        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        guard let liveProcessIdentity else {
+            return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        }
+        // Process evidence for the hook record's session; keeps the record's
+        // snapshot and launch command.
+        let processID = Int(liveProcessIdentity.pid)
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: sessionId,
+                        workingDirectory: "/tmp/repo",
+                        launchCommand: nil
+                    ),
+                    updatedAt: Date().timeIntervalSince1970,
+                    processIDs: [processID],
+                    agentProcessIDs: [processID],
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { $0 == processID ? liveProcessIdentity : nil }
+        )
     }
 }
 
@@ -793,7 +840,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -818,7 +868,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = clipboard"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
         )
         XCTAssertEqual(notificationCount, 1)
 
@@ -834,7 +884,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = false"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = false"
         )
         XCTAssertEqual(notificationCount, 2)
 
@@ -844,7 +894,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
         XCTAssertEqual(notificationCount, 2)
     }
 }

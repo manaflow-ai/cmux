@@ -19,8 +19,10 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-testbox-warmup.yml"
+GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "testbox-broker-guard.yml"
 JOB = "cmux-tui-rust"
 BEGIN_TESTBOX = "useblacksmith/begin-testbox"
+WARM_TARGET_KEY = "cmux-tui-target-v1"
 
 
 def load_job() -> dict:
@@ -37,6 +39,14 @@ class TestboxBrokerGuardTests(unittest.TestCase):
             for index, step in enumerate(self.steps)
             if BEGIN_TESTBOX in str(step.get("uses", ""))
         )
+
+    def test_guard_is_dispatch_only(self) -> None:
+        # The trust-boundary checks run in the routed CI guard matrix. Keep
+        # this workflow available for an explicit diagnostic run without
+        # spending a Blacksmith job on every pull request and main push.
+        guard_document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+        triggers = guard_document[True]
+        self.assertEqual(list(triggers), ["workflow_dispatch"])
 
     def test_only_manual_dispatch_with_no_candidate_selector(self) -> None:
         # yaml.safe_load turns a bare `on:` key into True.
@@ -106,6 +116,56 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         script = ROOT / "scripts" / "blacksmith-testbox-keepalive.sh"
         self.assertTrue(script.is_file())
         self.assertIn("/tmp/.testbox", script.read_text(encoding="utf-8"))
+
+    def test_only_the_testbox_job_mounts_the_warm_target_disk(self) -> None:
+        # The warm target snapshot holds build output of candidate code synced
+        # onto earlier boxes. It must never feed CI, release, or nightly
+        # builds, so this job is the only one in the repository that names
+        # the key, and it mounts the disk after the trust guards.
+        mounts = [
+            (index, step)
+            for index, step in enumerate(self.steps)
+            if "useblacksmith/stickydisk" in str(step.get("uses", ""))
+        ]
+        self.assertEqual(len(mounts), 1)
+        index, step = mounts[0]
+        self.assertGreater(index, self.begin_index)
+        self.assertEqual(step["with"]["key"], WARM_TARGET_KEY)
+        self.assertEqual(step["with"]["path"], "cmux-tui/target")
+        for path in sorted((ROOT / ".github").rglob("*.y*ml")):
+            if path == WORKFLOW:
+                continue
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn(
+                "cmux-tui-target",
+                text,
+                f"{path.relative_to(ROOT)} must not mount the Testbox warm target disk",
+            )
+            # A computed key could still resolve to the Testbox key, so any
+            # other sticky disk must use a literal key.
+            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
+                self.assertNotRegex(
+                    match.group(1),
+                    r"key:\s*[^\n]*\$\{\{",
+                    f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
+                )
+
+    def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
+        document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+        steps = document["jobs"]["guard"]["steps"]
+        self.assertFalse(
+            any("actions/setup-python" in str(step.get("uses", "")) for step in steps),
+            "the diagnostic guard must not download setup-python",
+        )
+        prepare = next(step for step in steps if step.get("name") == "Prepare guard Python")
+        self.assertIn("python3 -m venv", prepare["run"])
+        self.assertIn("PyYAML==6.0.3", prepare["run"])
+        validate = next(
+            step
+            for step in steps
+            if step.get("name") == "Validate Blacksmith Testbox broker trust boundary"
+        )
+        self.assertIn("$TESTBOX_GUARD_PYTHON", validate["run"])
 
     def test_the_runner_label_is_declared_for_actionlint(self) -> None:
         label = self.job["runs-on"]

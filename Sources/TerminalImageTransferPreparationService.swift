@@ -2,14 +2,22 @@ import AppKit
 import Foundation
 
 /// Preserves accepted paste commands in a bounded FIFO outside the main actor.
-/// Every accepted command has one admission-to-completion deadline, including
-/// time spent waiting behind the active worker.
+/// Full preparation commands have one deadline, including time spent waiting
+/// behind the active worker. Text-only commands may use the resident helper
+/// concurrently, so they do not wait behind image/file work. Expiry cancels
+/// active work; completion awaits its teardown. A cancelled operation is
+/// reaped before returning so its caller retains any clipboard-read lease until
+/// that operation can no longer access pboard.
 actor TerminalImageTransferPreparationService {
-    /// Cancellation must return only after any owned work terminates and is
-    /// reaped so the service's single-operation resource bound remains true.
+    /// Cancellation must return only after any owned full-worker work
+    /// terminates and is reaped so a clipboard-read lease cannot overlap a
+    /// provider that is still accessing the pasteboard.
     typealias Operation = @Sendable (
         TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult
+    typealias FastOperation = @Sendable (
+        TerminalPastePreparationRequest
+    ) async throws -> TerminalPastePreparationResult?
     typealias Cleanup = @Sendable (TerminalPastePreparationResult) -> Void
     typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
     /// Observes requests only after the actor has accepted them into its lane.
@@ -28,6 +36,7 @@ actor TerminalImageTransferPreparationService {
     private let deadlineSleep: DeadlineSleep
     private let admissionSignal: AdmissionSignal
     private let operation: Operation
+    private let fastOperation: FastOperation?
     private let cleanup: Cleanup
     private let failureSignal: FailureSignal
     private var activeJob: TerminalPastePreparationJob?
@@ -45,6 +54,7 @@ actor TerminalImageTransferPreparationService {
         admissionSignal: @escaping AdmissionSignal = { _ in },
         operation: @escaping Operation,
         cleanup: @escaping Cleanup,
+        fastOperation: FastOperation? = nil,
         failureSignal: @escaping FailureSignal = { _ in NSSound.beep() }
     ) {
         self.deadline = deadline
@@ -52,6 +62,7 @@ actor TerminalImageTransferPreparationService {
         self.deadlineSleep = deadlineSleep
         self.admissionSignal = admissionSignal
         self.operation = operation
+        self.fastOperation = fastOperation
         self.cleanup = cleanup
         self.failureSignal = failureSignal
     }
@@ -72,21 +83,98 @@ actor TerminalImageTransferPreparationService {
         request: TerminalPasteboardReadRequest,
         mode: TerminalImageTransferMode
     ) async -> TerminalImageTransferPreparedContent {
-        let outcome = await submit(
-            TerminalPastePreparationRequest(
-                pasteboard: request,
-                mode: mode,
-                destination: .terminal
-            )
+        await prepareReportingFailure(request: request, mode: mode).content
+    }
+
+    /// Same as ``prepare(request:mode:)``, but also reports why an accepted
+    /// request produced no content, so a paste can tell the user. The failure
+    /// signal (the beep) fires exactly as it does for `prepare`.
+    func prepareReportingFailure(
+        request: TerminalPasteboardReadRequest,
+        mode: TerminalImageTransferMode
+    ) async -> TerminalImageTransferPreparationOutcome {
+        let preparationRequest = TerminalPastePreparationRequest(
+            pasteboard: request,
+            mode: mode,
+            destination: .terminal
         )
+        if let fastOutcome = await prepareFastPath(preparationRequest) {
+            if let failure = fastOutcome.failure {
+                await signalFailureIfNeeded(failure)
+            }
+            return fastOutcome
+        }
+        let outcome = await submit(preparationRequest)
         switch outcome {
         case .success(.terminal(let content)):
-            return content
+            return TerminalImageTransferPreparationOutcome(content: content, failure: nil)
         case .success:
-            return .reject
+            return TerminalImageTransferPreparationOutcome(content: .reject, failure: nil)
         case .failure(let failure):
             await signalFailureIfNeeded(failure)
-            return .reject
+            return TerminalImageTransferPreparationOutcome(content: .reject, failure: failure)
+        }
+    }
+
+    private enum FastPathResult: Sendable {
+        case unavailable
+        case prepared(TerminalPastePreparationResult)
+        case failed(TerminalPastePreparationFailure)
+    }
+
+    /// Runs the resident text helper without waiting behind image/file work.
+    /// A nil result means the request needs the isolated full-worker lane.
+    private func prepareFastPath(
+        _ request: TerminalPastePreparationRequest
+    ) async -> TerminalImageTransferPreparationOutcome? {
+        guard let fastOperation else { return nil }
+        let deadline = self.deadline
+        let deadlineSleep = self.deadlineSleep
+        let raceResult = await withTaskGroup(
+            of: FastPathResult.self,
+            returning: FastPathResult.self
+        ) { group in
+            group.addTask {
+                do {
+                    guard let result = try await fastOperation(request) else {
+                        return .unavailable
+                    }
+                    return .prepared(result)
+                } catch is CancellationError {
+                    return .failed(.cancelled)
+                } catch {
+                    return .failed(.workerFailed)
+                }
+            }
+            group.addTask {
+                do {
+                    try await deadlineSleep(deadline)
+                    return .failed(.deadlineExceeded)
+                } catch {
+                    return .failed(.cancelled)
+                }
+            }
+
+            let firstResult = await group.next() ?? .failed(.cancelled)
+            group.cancelAll()
+            while await group.next() != nil {}
+            return firstResult
+        }
+        switch raceResult {
+        case .unavailable:
+            return nil
+        case .prepared(.terminal(let content)):
+            return TerminalImageTransferPreparationOutcome(
+                content: content,
+                failure: nil
+            )
+        case .prepared:
+            return nil
+        case .failed(let failure):
+            return TerminalImageTransferPreparationOutcome(
+                content: .reject,
+                failure: failure
+            )
         }
     }
 
@@ -204,9 +292,11 @@ actor TerminalImageTransferPreparationService {
             return
         }
         activeJob = nil
-        if job.continuation == nil {
+        switch job.phase {
+        case .cancelling(let failure):
             cleanup(result)
-        } else {
+            resume(&job, returning: .failure(failure))
+        case .preparing:
             resume(&job, returning: .success(result))
         }
         startNextJobIfPossible()
@@ -218,7 +308,10 @@ actor TerminalImageTransferPreparationService {
     ) {
         guard var job = activeJob, job.id == jobID else { return }
         activeJob = nil
-        if job.continuation != nil {
+        switch job.phase {
+        case .cancelling(let cancellationFailure):
+            resume(&job, returning: .failure(cancellationFailure))
+        case .preparing:
             resume(&job, returning: .failure(failure))
         }
         startNextJobIfPossible()
@@ -245,14 +338,18 @@ actor TerminalImageTransferPreparationService {
         }
         guard var job = activeJob,
               job.id == jobID,
-              job.continuation != nil else {
+              case .preparing = job.phase else {
             return
         }
 
-        resume(&job, returning: .failure(failure))
+        job.phase = .cancelling(failure)
+        job.deadlineTask?.cancel()
+        job.deadlineTask = nil
         let operationTask = job.operationTask
-        // Keep the lane occupied until cancellation finishes terminating and
-        // reaping its worker; advancing sooner could overlap wedged workers.
+        // The caller owns a clipboard-read lease, not just this worker lane.
+        // Publishing failure here would release that lease and allow a write
+        // while the cancelled worker is still inside the pasteboard service.
+        // finish() delivers the saved failure after teardown and result cleanup.
         activeJob = job
         operationTask?.cancel()
     }
@@ -271,8 +368,7 @@ actor TerminalImageTransferPreparationService {
     ) {
         job.deadlineTask?.cancel()
         job.deadlineTask = nil
-        job.continuation?.resume(returning: outcome)
-        job.continuation = nil
+        job.continuation.resume(returning: outcome)
     }
 
     private func signalFailureIfNeeded(

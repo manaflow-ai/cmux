@@ -9,7 +9,8 @@ final class FakeTerminalSurfaceNativeView: NSView {
     weak var attachedController: (any TerminalSurfaceControlling)?
     var attachedSurfaceController: (any TerminalSurfaceControlling)? { attachedController }
     var currentKeyStateIndicatorText: String? { nil }
-    var isKeyboardCopyModeActive: Bool { false }
+    var isKeyboardCopyModeActive = false
+    private(set) var keyboardCopyModeCancellationCount = 0
     var shouldDeferRuntimeInput = false
     var runtimeInputDeferralResponses: [Bool] = []
     var runtimeInputDeferralCallCount = 0
@@ -18,6 +19,10 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var mobileMouseButtonEvents: [String] = []
 
     func toggleKeyboardCopyMode() -> Bool { false }
+    func cancelKeyboardCopyMode() {
+        keyboardCopyModeCancellationCount += 1
+        isKeyboardCopyModeActive = false
+    }
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
     func runtimeSurfaceDidBecomeReady() {}

@@ -159,7 +159,8 @@ impl SurfaceSessionScope {
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
-            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            | MuxEvent::ScrollChanged { surface, .. }
+            | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
@@ -182,6 +183,7 @@ impl SurfaceSessionScope {
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
+            | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::Empty => true,
         }
     }
@@ -378,6 +380,38 @@ impl MuxEventReceiver {
         }
     }
 
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        interrupt.on_fire(move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                let _state = mailbox.state.lock().unwrap_or_else(|error| error.into_inner());
+                mailbox.changed.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        let mut state = self.mailbox.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.pop() {
+                return Ok(event);
+            }
+            if state.closed {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            state = self.mailbox.changed.wait(state).unwrap();
+        }
+    }
+
     pub fn try_recv(&self) -> Result<MuxEvent, TryRecvError> {
         let mut state = self.mailbox.state.lock().unwrap();
         if let Some(event) = state.pop() {
@@ -466,6 +500,7 @@ mod tests {
                 state: format!("one-{index}").into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: index,
             });
             broadcaster.emit(MuxEvent::AgentChanged {
@@ -473,6 +508,7 @@ mod tests {
                 state: format!("two-{index}").into(),
                 source: "socket".into(),
                 session: Some("agent-session".into()),
+                agent: None,
                 updated_at_ms: index,
             });
         }
@@ -493,6 +529,7 @@ mod tests {
                 state,
                 source,
                 session: Some(session),
+                agent: None,
                 updated_at_ms: 9_999,
             } if state.as_ref() == "two-9999"
                 && source.as_ref() == "socket"
@@ -558,6 +595,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: None,
+            agent: None,
             updated_at_ms: 1,
         });
         broadcaster.emit(MuxEvent::SurfaceExited(4));

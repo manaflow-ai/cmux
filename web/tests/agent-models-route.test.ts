@@ -51,13 +51,7 @@ describe("agent models route", () => {
       "gpt-5.5",
       "gpt-5.5-pro",
     ]);
-    expect(agentModelCatalog.providers.codex.models[0].efforts?.map((effort) => effort.value)).toEqual([
-      "none",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
+    expect(agentModelCatalog.providers.codex.models.every((model) => !("efforts" in model))).toBe(true);
 
     expect(agentModelCatalog.providers.opencode).toEqual({
       defaultModel: "anthropic/claude-sonnet-5",

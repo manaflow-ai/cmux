@@ -7,6 +7,28 @@ import Testing
 @MainActor
 @Suite("Mobile feature flags")
 struct MobileFeatureFlagsTests {
+    @Test("Feed telemetry defaults off, updates live, and keeps its last value through outages")
+    func feedPerformanceRollout() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let loader = QueueClientConfigLoader([
+            .success(config(feedPerformanceEnabled: true)),
+            .failure(.unavailable),
+            .success(config(feedPerformanceEnabled: false)),
+        ])
+        var updates: [Bool] = []
+        let flags = MobileFeatureFlags(
+            loader: loader, request: ClientConfigRequest(distinctId: "test"), defaults: defaults,
+            onFeedPerformanceChanged: { updates.append($0) }
+        )
+        #expect(updates == [false])
+        await flags.refresh()
+        await flags.refresh()
+        #expect(updates == [false, true])
+        await flags.refresh()
+        #expect(updates == [false, true, false])
+    }
+
     @Test("terminal Files chip ships on and ignores the retired local preference")
     func terminalFilesChipDefaultsOn() throws {
         let (defaults, suiteName) = try makeDefaults()
@@ -75,6 +97,48 @@ struct MobileFeatureFlagsTests {
         #expect(flags.terminalFilesChipEnabled)
     }
 
+    @Test("keyboard rebuild revert ships off so legacy pinning is the default")
+    func keyboardDockRebuildRevertDefaultsOff() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let flags = MobileFeatureFlags(
+            loader: QueueClientConfigLoader([.failure(.unavailable)]),
+            request: ClientConfigRequest(distinctId: "test"),
+            defaults: defaults
+        )
+
+        #expect(!flags.keyboardDockRebuildRevertEnabled)
+    }
+
+    @Test("remote keyboard revert applies live and survives an outage")
+    func keyboardDockRebuildRevertCachesLastValue() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let request = ClientConfigRequest(distinctId: "test")
+        let revertThenUnavailable = QueueClientConfigLoader([
+            .success(config(keyboardDockRebuildRevertEnabled: true)),
+            .failure(.unavailable),
+        ])
+        let flags = MobileFeatureFlags(
+            loader: revertThenUnavailable,
+            request: request,
+            defaults: defaults
+        )
+
+        await flags.refresh()
+        #expect(flags.keyboardDockRebuildRevertEnabled)
+
+        let reloaded = MobileFeatureFlags(
+            loader: revertThenUnavailable,
+            request: request,
+            defaults: defaults
+        )
+        #expect(reloaded.keyboardDockRebuildRevertEnabled)
+        await reloaded.refresh()
+        #expect(reloaded.keyboardDockRebuildRevertEnabled)
+    }
+
     private func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "MobileFeatureFlagsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -83,12 +147,18 @@ struct MobileFeatureFlagsTests {
     }
 
     private func config(
-        terminalFilesChipEnabled: Bool,
+        feedPerformanceEnabled: Bool = false,
+        terminalFilesChipEnabled: Bool = true,
+        keyboardDockRebuildRevertEnabled: Bool = false,
         hasEvaluationErrors: Bool = false
     ) -> ClientConfig {
         ClientConfig(
             featureFlags: [
+                MobileFeatureFlags.feedPerformanceFlag.key: .bool(feedPerformanceEnabled),
                 MobileFeatureFlags.terminalFilesChipFlag.key: .bool(terminalFilesChipEnabled),
+                MobileFeatureFlags.keyboardDockRebuildRevertFlag.key: .bool(
+                    keyboardDockRebuildRevertEnabled
+                ),
             ],
             featureFlagPayloads: [:],
             errorsWhileComputingFlags: hasEvaluationErrors

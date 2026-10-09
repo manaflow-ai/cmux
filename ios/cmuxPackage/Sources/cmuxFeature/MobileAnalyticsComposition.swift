@@ -32,6 +32,20 @@ public struct MobileAnalyticsComposition {
     public let clientConfig: any ClientConfigLoading
     /// The per-install anonymous id used for analytics and feature flag evaluation.
     public let anonymousID: String
+    /// Important transport and backend outcomes sent to the authenticated Axiom bridge.
+    public let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    /// One app-open attempt from foreground through a usable terminal, sent to
+    /// PostHog and the authenticated Axiom bridge.
+    public let initialConnectionReporter: MobileInitialConnectionReporter
+    /// Bounded visible Feed update and scroll callback measurements.
+    public let feedPerformanceReporter: MobileFeedPerformanceReporter
+    /// Bounded terminal input-to-visible and render timing aggregates.
+    public let terminalLatencyReporter: MobileTerminalLatencyReporter
+    /// Slow and failed terminal-operation summaries sent to the same Axiom bridge.
+    public let terminalTraceReporter: MobileTerminalTraceReporter
+    /// The network emitter owns the same consent provider and revocation
+    /// observer as the product emitter, so opt-out cancels both upload paths.
+    public let networkOutcomeEmitter: AnalyticsEmitter
     /// The default mobile evaluation context sent to `/api/client-config`.
     public let clientConfigContext: ClientConfigEvaluationContext
     /// A request for anonymous mobile flag evaluation.
@@ -66,7 +80,8 @@ public struct MobileAnalyticsComposition {
         defaults: UserDefaults = .standard,
         consent: (any AnalyticsConsentProviding)? = nil,
         session: URLSession? = nil,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        onFeedScrollAnomaly: @escaping @MainActor @Sendable (MobileFeedScrollAnomaly) -> String? = { _ in nil }
     ) {
         let networkSession = session ?? Self.analyticsSession()
         let uploadSession = session ?? Self.analyticsSession()
@@ -93,9 +108,52 @@ public struct MobileAnalyticsComposition {
         if resolved.created {
             emitter.capture("ios_app_first_launch", ["client_id": .string(anonymousID)])
         }
+        let networkOutcomeEmitter = AnalyticsEmitter(
+            uploader: HTTPMobileNetworkOutcomeUploader(
+                apiBaseURL: apiBaseURL,
+                tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
+                session: session ?? Self.analyticsSession()
+            ),
+            consent: consent,
+            anonymousID: anonymousID,
+            flushBatchSize: 25,
+            flushInterval: .seconds(10),
+            maxPendingEvents: 500,
+            diagnosticLog: nil
+        )
+        networkOutcomeEmitter.setSuperProperties(Self.networkObservabilityProperties())
         self.emitter = emitter
         self.clientConfig = HTTPClientConfigLoader(apiBaseURL: apiBaseURL, session: networkSession)
         self.anonymousID = anonymousID
+        self.networkOutcomeEmitter = networkOutcomeEmitter
+        self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
+        self.initialConnectionReporter = MobileInitialConnectionReporter(
+            productEmitter: emitter,
+            operationalEmitter: networkOutcomeEmitter
+        )
+        self.terminalLatencyReporter = MobileTerminalLatencyReporter(
+            emitter: networkOutcomeEmitter,
+            consent: consent,
+            onAnomaly: { [weak diagnosticLog] durationMilliseconds in
+                diagnosticLog?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    elapsedMilliseconds: durationMilliseconds,
+                    failure: .timedOut
+                )
+            }
+        )
+        #if targetEnvironment(simulator)
+        let isSimulator = true
+        #else
+        let isSimulator = false
+        #endif
+        self.feedPerformanceReporter = MobileFeedPerformanceReporter(
+            emitter: networkOutcomeEmitter, consent: consent,
+            buildSHA: Bundle.main.object(forInfoDictionaryKey: "CMUXGitSHA") as? String,
+            isSimulator: isSimulator,
+            onAnomaly: onFeedScrollAnomaly
+        )
+        self.terminalTraceReporter = MobileTerminalTraceReporter(emitter: networkOutcomeEmitter)
         self.clientConfigContext = ClientConfigEvaluationContext(
             personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
             anonDistinctId: anonymousID,
@@ -117,11 +175,42 @@ public struct MobileAnalyticsComposition {
         return URLSession(configuration: config)
     }
 
+    /// Signed app metadata attached to every Axiom outcome. Values come from
+    /// the bundle and OS, never from terminal or user content.
+    @MainActor private static func networkObservabilityProperties() -> [String: AnalyticsValue] {
+        let info = Bundle.main.infoDictionary
+        var properties: [String: AnalyticsValue] = [
+            "platform": .string("ios"),
+            "os_version": .string(UIDevice.current.systemVersion),
+            "device_model": .string(UIDevice.current.model),
+        ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            properties["bundle_identifier"] = .string(bundleIdentifier)
+            let normalized = bundleIdentifier.lowercased()
+            // All development bundle identifiers use the `dev.` namespace;
+            // beta and test bundles may omit the word `debug` entirely.
+            let channel = normalized.contains("nightly") ? "nightly"
+                : normalized.hasPrefix("dev.") || normalized.contains("debug") || normalized.contains(".beta") || normalized.contains(".test") ? "dev"
+                : "production"
+            properties["client_channel"] = .string(channel)
+        }
+        if let version = info?["CFBundleShortVersionString"] as? String {
+            properties["app_version"] = .string(version)
+        }
+        if let build = info?["CFBundleVersion"] as? String {
+            properties["build_number"] = .string(build)
+        }
+        return properties
+    }
+
     /// The static device/app super-properties merged onto every event. Sizes and
     /// enums only — no identifiers beyond the anonymous install id.
     @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }
@@ -143,6 +232,9 @@ public struct MobileAnalyticsComposition {
             "client_id": .string(anonymousID),
             "platform": .string("ios"),
         ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

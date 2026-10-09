@@ -1,9 +1,11 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
-import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
-import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
 import { getCurrentYear } from "@/app/lib/current-year";
 
@@ -14,7 +16,6 @@ function isExternal(href: string) {
 type FooterLink = {
   label: string;
   href: string;
-  proUpgrade?: boolean;
   unlocalized?: boolean;
   contentLocales?: readonly Locale[];
 };
@@ -36,13 +37,17 @@ export async function SiteFooter() {
         {
           label: t("pricing"),
           href: "/pricing",
-          proUpgrade: true,
           contentLocales: fallbackContentLocales,
         },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
+        {
+          label: t("jobs"),
+          href: "/jobs",
+          contentLocales: jobsContentLocales,
+        },
       ] satisfies FooterLink[],
     },
     {
@@ -52,6 +57,7 @@ export async function SiteFooter() {
         { label: t("guides"), href: "/guides" },
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
+        { label: t("support"), href: "/support" },
       ] satisfies FooterLink[],
     },
     {
@@ -68,7 +74,7 @@ export async function SiteFooter() {
         { label: t("github"), href: "https://github.com/manaflow-ai/cmux" },
         { label: t("twitter"), href: "https://twitter.com/manaflowai" },
         { label: t("discord"), href: "https://discord.gg/xsgFEVrWCZ" },
-        { label: t("contact"), href: "mailto:founders@manaflow.com" },
+        { label: t("contact"), href: "mailto:founders@cmux.com" },
       ] satisfies FooterLink[],
     },
   ];
@@ -118,13 +124,7 @@ export async function SiteFooter() {
                       )}
                     </li>
                   );
-                  return link.proUpgrade ? (
-                    <ProUpgradeVisibility key={link.href}>
-                      {item}
-                    </ProUpgradeVisibility>
-                  ) : (
-                    item
-                  );
+                  return item;
                 })}
               </ul>
             </div>

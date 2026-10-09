@@ -47,6 +47,57 @@ struct MobileTaskModelCatalogClientTests {
         ])
     }
 
+    @Test func parsesEffortsOnlyFromTheirExactModel() throws {
+        let data = Data(#"{"schemaVersion":1,"providers":{"codex":{"models":[{"id":"gpt-large","label":"GPT Large","efforts":[{"value":"medium","label":"Medium","description":"Balanced"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-small","label":"GPT Small","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]}}}"#.utf8)
+
+        let models = try MobileTaskModelCatalogClient.models(
+            from: data,
+            provider: .codex
+        )
+
+        #expect(models == [
+            MobileTaskAgentModel(
+                id: "gpt-large",
+                displayName: "GPT Large",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "medium",
+                        displayName: "Medium",
+                        description: "Balanced"
+                    ),
+                    MobileTaskAgentEffort(id: "high", displayName: "High"),
+                ],
+                defaultEffortID: "medium"
+            ),
+            MobileTaskAgentModel(
+                id: "gpt-small",
+                displayName: "GPT Small",
+                efforts: [MobileTaskAgentEffort(id: "low", displayName: "Low")],
+                defaultEffortID: "low"
+            ),
+        ])
+    }
+
+    @Test func resolvesProviderDefaultModelEffortsWithoutInventingAPickerModel() throws {
+        let data = Data(#"{"schemaVersion":1,"providers":{"claude":{"defaultModel":"claude-default","models":[{"id":"claude-default","label":"Claude Default","efforts":[{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"claude-other","label":"Claude Other","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]}}}"#.utf8)
+
+        let result = try MobileTaskModelCatalogClient.result(
+            from: data,
+            provider: .claude
+        )
+
+        #expect(result.models.map(\.id) == ["claude-default", "claude-other"])
+        #expect(result.defaultModel == MobileTaskAgentModel(
+            id: "claude-default",
+            displayName: "Claude Default",
+            efforts: [
+                MobileTaskAgentEffort(id: "medium", displayName: "Medium"),
+                MobileTaskAgentEffort(id: "high", displayName: "High"),
+            ],
+            defaultEffortID: "medium"
+        ))
+    }
+
     @Test func sameInstalledClientObservesModelsReleasedAfterFirstRefresh() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
@@ -68,18 +119,30 @@ struct MobileTaskModelCatalogClientTests {
         #expect(await probe.requestCount == 2)
     }
 
+    @Test func prefetchRejectsAnInvalidPresentProviderInsteadOfSilentlySkippingIt() async {
+        let client = MobileTaskModelCatalogClient(endpoint: endpoint) { _ in
+            Data(#"{"schemaVersion":1,"providers":{"claude":{"models":[]},"codex":{"models":[{"id":"gpt","label":"GPT"}]}}}"#.utf8)
+        }
+
+        await #expect(throws: Error.self) {
+            try await client.allResults()
+        }
+    }
+
     @MainActor
-    @Test func authoritativeHostCatalogPerformsZeroBackendRequests() async {
+    @Test func authoritativeHostCatalogPerformsZeroBackendRequests() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
         ])
-        let store = MobileShellComposite(
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            hostCapabilities: [],
             taskModelCatalogClient: makeClient(probe: probe)
         )
 
         await store.refreshTaskModels(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             hostResult: MobileTaskModelListResult(
                 models: [
                     MobileTaskAgentModel(
@@ -93,12 +156,12 @@ struct MobileTaskModelCatalogClientTests {
 
         #expect(store.discoveredTaskModels(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             instanceTag: nil
         )?.map(\.id) == ["host-next-999"])
         #expect(store.taskModelListSource(
             provider: .claude,
-            macDeviceID: "mac-host",
+            macDeviceID: "test-mac",
             instanceTag: nil
         ) == .discovered)
         #expect(await probe.requestCount == 0)
@@ -114,7 +177,15 @@ struct MobileTaskModelCatalogClientTests {
             [
                 MobileTaskAgentModel(
                     id: "host-next-999",
-                    displayName: "Host Next 999"
+                    displayName: "Host Next 999",
+                    efforts: [
+                        MobileTaskAgentEffort(
+                            id: "high",
+                            displayName: "High",
+                            description: "More reasoning"
+                        ),
+                    ],
+                    defaultEffortID: "high"
                 ),
             ],
             provider: .claude
@@ -139,7 +210,15 @@ struct MobileTaskModelCatalogClientTests {
         ) == [
             MobileTaskAgentModel(
                 id: "host-next-999",
-                displayName: "Host Next 999"
+                displayName: "Host Next 999",
+                efforts: [
+                    MobileTaskAgentEffort(
+                        id: "high",
+                        displayName: "High",
+                        description: "More reasoning"
+                    ),
+                ],
+                defaultEffortID: "high"
             ),
         ])
         #expect(store.taskModelListSource(
@@ -340,6 +419,7 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
+            instanceTag: "stable",
             hostResult: MobileTaskModelListResult(
                 models: [
                     MobileTaskAgentModel(
@@ -364,6 +444,7 @@ struct MobileTaskModelCatalogClientTests {
         await store.refreshTaskModels(
             provider: .claude,
             macDeviceID: "mac-a",
+            instanceTag: "stable",
             hostResult: nil
         )
 

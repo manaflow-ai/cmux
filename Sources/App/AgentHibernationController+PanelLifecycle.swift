@@ -8,6 +8,7 @@ extension AgentHibernationController {
         terminalInputByPanel.removeValue(forKey: key)
         lifecycleChangeByPanel.removeValue(forKey: key)
         teardownValidationEpochByPanel.removeValue(forKey: key)
+        disarmSessionEndPreservation(panelKey: key)
         discardTransientTrackingState(for: key)
     }
 
@@ -44,6 +45,11 @@ extension AgentHibernationController {
             teardownValidationEpochByPanel[destinationKey] =
                 max(sourceEpoch ?? 0, destinationEpoch ?? 0) &+ 1
         }
+        transferSessionEndPreservation(
+            panelID: panelId,
+            from: sourceWorkspaceId,
+            to: destinationWorkspaceId
+        )
         // Confirmation, fingerprints, and retries are ownership-specific. A move
         // preserves raw input/lifecycle safety but requires a fresh qualification.
         discardTransientTrackingState(for: sourceKey)

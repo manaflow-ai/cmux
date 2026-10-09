@@ -4,6 +4,16 @@ import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceListView {
+    /// Which copy the aggregated (All Computers) empty state gives. With SSH
+    /// computers and no paired Mac, the Mac-pairing copy would describe a Mac
+    /// the user does not have; any paired Mac keeps Macs the context.
+    var emptyStateGuidance: WorkspaceListEmptyGuidance {
+        WorkspaceListEmptyGuidance(
+            hasSSHComputers: !(store?.sshComputers.hosts.isEmpty ?? true),
+            hasPairedMacs: !displayPairedMacsForPicker.isEmpty
+        )
+    }
+
     var showsWorkspaceTableFilterEmptyRow: Bool {
         activeFilter.isActive
             && trimmedQuery.isEmpty
@@ -27,18 +37,29 @@ extension WorkspaceListView {
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: groupedItems.map { item in
-                switch item {
-                case .groupHeader(let group, _):
-                    .groupHeader(group.id)
-                case .groupFooter(let groupID):
-                    .groupFooter(groupID)
-                case .workspace(let workspace, let indented):
-                    .workspace(workspace.id, indented: indented)
-                }
-            })
+            if groupedItems.isEmpty
+                && trimmedQuery.isEmpty
+                && !activeFilter.isActive
+                && workspaces.isEmpty {
+                items.append(.emptyWorkspaceList)
+            } else {
+                items.append(contentsOf: groupedItems.map { item in
+                    switch item {
+                    case .groupHeader(let group, _):
+                        .groupHeader(group.id)
+                    case .groupFooter(let groupID):
+                        .groupFooter(groupID)
+                    case .workspace(let workspace, let indented):
+                        .workspace(workspace.id, indented: indented)
+                    }
+                })
+            }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
+        } else if trimmedQuery.isEmpty
+            && !activeFilter.isActive
+            && workspaces.isEmpty {
+            items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
                 .workspace($0.id, indented: false)
@@ -47,13 +68,13 @@ extension WorkspaceListView {
         return items
     }
 
-    func workspaceTableGroupHasUnreadByID(
+    func workspaceTableGroupUnreadByID(
         groupedItems: [MobileWorkspaceListItem]
-    ) -> [MobileWorkspaceGroupPreview.ID: Bool] {
-        var result: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+    ) -> [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] {
+        var result: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:]
         for item in groupedItems {
-            if case .groupHeader(let group, let hasUnread) = item {
-                result[group.id] = hasUnread
+            if case .groupHeader(let group, let unread) = item {
+                result[group.id] = unread
             }
         }
         return result
@@ -74,11 +95,79 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
+        let emptyStateRecoveryTarget = store?.workspaceListRecoveryTarget
+        let emptyStateMacDeviceID = emptyStateRecoveryTarget?.macDeviceID
+        let emptyStateMacInstanceTag = emptyStateRecoveryTarget?.instanceTag
+        let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                let currentTarget = store.workspaceListRecoveryTarget
+                if store.isRecoveringWorkspaceList {
+                    return store.isWorkspaceListRecoveryOwned(
+                        byMacDeviceID: emptyStateMacDeviceID,
+                        instanceTag: emptyStateMacInstanceTag
+                    )
+                        && currentTarget?.macDeviceID == emptyStateMacDeviceID
+                        && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                }
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
+            }
+        }
+        let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                let currentTarget = store.workspaceListRecoveryTarget
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                    && store.workspaces.isEmpty
+                    // Hiding the empty row is itself part of the active
+                    // recovery transition. Do not let that structural
+                    // disappearance cancel the retry that owns recovery.
+                    && !store.isRecoveringWorkspaceList
+            }
+        }
+        let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
+            }
+        } ?? cancelRefresh
+        let cancelRefreshOnDisappearForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
+            }
+        }
+        let beginRefreshForEmptyState: (() -> UUID?)? = store.map { store in
+            {
+                store.prepareWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag
+                )
+            }
+        }
+        let cancelRefreshAttemptForEmptyState: ((UUID?) -> Void)? = store.map { store in
+            { generation in
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    expectedGeneration: generation,
+                    ownerScoped: true
+                )
+            }
+        } ?? cancelRefresh.map { suppliedCancel in
+            { _ in suppliedCancel() }
+        }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
-            groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
+            groupUnreadByID: workspaceTableGroupUnreadByID(
                 groupedItems: groupedItems
             ),
             filter: activeFilter,
@@ -87,7 +176,12 @@ extension WorkspaceListView {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter,
             connectionStatus: connectionStatus,
+            workspaceOwnerID: emptyStateMacDeviceID,
+            workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
+            showsWorkspaceEmptyState: connectionChrome.showsWorkspaceEmptyState,
+            emptyStateGuidance: emptyStateGuidance,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
@@ -126,6 +220,7 @@ extension WorkspaceListView {
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             closeWorkspace: closeWorkspace,
+            closeConfirmation: { workspaceCloseConfirmation(for: $0) },
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: requestWorkspaceRename,
@@ -147,7 +242,14 @@ extension WorkspaceListView {
             retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
-            refresh: refresh
+            refresh: refresh,
+            cancelRefresh: cancelRefreshForEmptyState,
+            cancelRefreshOnDisappear: cancelRefreshOnDisappearForEmptyState,
+            beginRefresh: beginRefreshForEmptyState,
+            cancelRefreshAttempt: cancelRefreshAttemptForEmptyState,
+            cancelRefreshAttemptOnDisappear: cancelRefreshAttemptForEmptyState,
+            shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
+            isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )
     }
 }

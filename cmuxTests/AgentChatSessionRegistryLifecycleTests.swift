@@ -1,4 +1,6 @@
 import CMUXAgentLaunch
+import CmuxFoundation
+@testable import CmuxMobileHost
 import Foundation
 import Testing
 
@@ -9,6 +11,87 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleTests {
+    @MainActor
+    @Test("Claude blocking PreToolUse stays needs input before its journal event")
+    func claudeBlockingToolDoesNotFlashWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "claude-question-session"
+        let surfaceID = UUID().uuidString
+
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        let question = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .preToolUse,
+            source: "claude",
+            surfaceId: surfaceID,
+            toolName: "AskUserQuestion",
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+
+        #expect(question.state == .needsInput(since: Date(timeIntervalSince1970: 101)))
+    }
+
+    @MainActor
+    @Test("Terminal input optimistically clears needs input")
+    func terminalInputMovesWaitingSessionToWorking() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "waiting-session"
+        let surfaceID = UUID().uuidString
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 100)
+        ))
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+
+        #expect(registry.noteUserInput(surfaceID: surfaceID, at: Date(timeIntervalSince1970: 102)) == 1)
+        #expect(registry.record(sessionID: sessionID)?.state == .working(since: Date(timeIntervalSince1970: 102)))
+
+        let corrected = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            receivedAt: Date(timeIntervalSince1970: 103)
+        ))
+        #expect(corrected.state == .needsInput(since: Date(timeIntervalSince1970: 103)))
+    }
+
+    @MainActor
+    @Test("Feed v1 ids are decoded before chat records are indexed")
+    func canonicalFeedIDIsDecodedBeforeChatBinding() throws {
+        let sessionID = "thread-with-hyphens"
+        let canonicalID = try #require(
+            FeedWorkstreamIdentifier(agentID: "codex", sessionID: sessionID)?.rawValue
+        )
+        let registry = AgentChatSessionRegistry()
+
+        let record = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: canonicalID,
+            hookEventName: .sessionStart,
+            source: "codex"
+        ))
+
+        #expect(record.sessionID == sessionID)
+        #expect(record.hookStoreLookupSessionID == sessionID)
+        #expect(record.hookStoreSessionID == nil)
+    }
+
     @MainActor
     @Test func hookStoreSeedDoesNotRestoreStalePIDOntoExistingLiveRecord() async throws {
         let home = try temporaryHomeDirectory()

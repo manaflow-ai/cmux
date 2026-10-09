@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -9,6 +10,8 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    /// Delivers a trusted notification now, following its surface to the workspace that currently owns it unless the caller confined the target.
+    @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,
         surfaceId: UUID?,
@@ -16,8 +19,13 @@ extension TerminalController {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
-        retargetsToLiveSurfaceOwner: Bool = true
-    ) {
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        correlationKey: String? = nil,
+        retargetsToLiveSurfaceOwner: Bool = true,
+        origin: TerminalNotificationOrigin = .local,
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
+    ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
             // Trusted local delivery follows the surface's CURRENT workspace.
@@ -26,7 +34,7 @@ extension TerminalController {
             guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
-            ) else { return }
+            ) else { return nil }
             target = liveTarget
         } else {
             // `notification.create_for_target` is relay-reachable and already
@@ -51,14 +59,19 @@ extension TerminalController {
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
-        TerminalNotificationStore.shared.addNotification(
+        return TerminalNotificationStore.shared.addNotification(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body,
             replyShape: replyShape,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            correlationKey: correlationKey,
+            agent: agent,
+            soundContext: soundContext,
+            origin: origin,
+            effects: effects
         )
     }
 }
@@ -76,7 +89,10 @@ extension TerminalNotificationStore {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape,
-        notificationGeneration: UInt64
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
+        notificationGeneration: UInt64,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -102,7 +118,10 @@ extension TerminalNotificationStore {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: true,
-            notificationGeneration: notificationGeneration
+            correlationKey: correlationKey,
+            notificationGeneration: notificationGeneration,
+            agent: agent,
+            soundContext: soundContext
         )
     }
 
@@ -128,7 +147,11 @@ extension TerminalNotificationStore {
             replyShape: request.replyShape,
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
-            isFocusedPanel: request.isFocusedPanel
+            isFocusedPanel: request.isFocusedPanel,
+            agent: request.agent,
+            soundContext: request.soundContext,
+            origin: request.origin,
+            effects: request.effects
         )
     }
 }

@@ -31,6 +31,26 @@ extension MobileShellComposite {
         return scoped.union(userWide)
     }
 
+    /// Matches a stored hidden marker to a typed app-instance key. Older
+    /// markers can use a raw device id or preserve different casing, so a
+    /// string lookup is not sufficient for cached snapshot restoration.
+    /// A raw marker remains scoped to the legacy untagged pairing; a tagged
+    /// marker matches only the same tagged app instance.
+    func isHiddenMacPairingKey(
+        _ key: MacPairingKey,
+        hiddenIDs: Set<String>
+    ) -> Bool {
+        let expectedDeviceID = cmxCanonicalDeviceID(key.canonicalMacDeviceID).lowercased()
+        let expectedTag = macInstanceTagAuthority.normalize(key.normalizedInstanceTag)?.lowercased()
+        return hiddenIDs.contains { marker in
+            let identity = MobilePairedMac.pairingIdentity(from: marker)
+            guard cmxCanonicalDeviceID(identity.macDeviceID).lowercased() == expectedDeviceID else {
+                return false
+            }
+            return macInstanceTagAuthority.normalize(identity.instanceTag)?.lowercased() == expectedTag
+        }
+    }
+
     func visibleStoredPairedMacs(
         from loadedMacs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
@@ -44,7 +64,8 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>
     ) -> [MobilePairedMac] {
         return loadedMacs.filter {
-            !hiddenIDs.contains($0.id) && !hiddenIDs.contains($0.macDeviceID)
+            !hiddenIDs.contains($0.id)
+                && ($0.instanceTag != nil || !hiddenIDs.contains($0.macDeviceID))
         }
     }
 
@@ -57,7 +78,9 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>,
         scope: MobileShellScopeSnapshot
     ) async -> Set<String> {
-        let rowBackedIDs = Set(loadedMacs.flatMap { [$0.id, $0.macDeviceID] })
+        // A bare device marker is backed only by an untagged legacy row. A
+        // Stable/Nightly row backs its exact composite pairing id instead.
+        let rowBackedIDs = Set(loadedMacs.map(\.id))
         let rowlessIDs = hiddenIDs.subtracting(rowBackedIDs)
         guard !rowlessIDs.isEmpty else { return hiddenIDs }
 
@@ -82,10 +105,15 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         let ids = await hiddenMacDeviceIDs(scope: scope)
-        return ids.contains(macDeviceID) || ids.contains(MobilePairedMac.pairingID(
+        let pairingID = MobilePairedMac.pairingID(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
-        ))
+        )
+        // A bare marker is the legacy untagged pairing only. It must never
+        // hide a Stable/Nightly sibling that shares the physical device id.
+        return ids.contains(pairingID)
+            || (macInstanceTagAuthority.normalize(instanceTag) == nil
+                && ids.contains(macDeviceID))
     }
 
     func rememberHiddenMacDeviceID(
@@ -102,9 +130,19 @@ extension MobileShellComposite {
             )
         }
         let identity = MobilePairedMac.pairingIdentity(from: macDeviceID)
-        registryDevices.removeAll {
-            $0.deviceId == macDeviceID || $0.deviceId == identity.macDeviceID
+        for index in registryDevices.indices
+        where registryDevices[index].deviceId == identity.macDeviceID {
+            registryDevices[index].instances.removeAll { instance in
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: instance.tag
+                ).id == CmxMacAppInstanceIdentity(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag
+                ).id
+            }
         }
+        registryDevices.removeAll { $0.instances.isEmpty }
     }
 
     func rememberHiddenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
@@ -120,10 +158,14 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot?
     ) async {
         guard !macDeviceID.isEmpty, let scope else { return }
-        let ids = Set([
-            macDeviceID,
-            MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
-        ])
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        var ids = Set([pairingID])
+        if macInstanceTagAuthority.normalize(instanceTag) == nil {
+            ids.insert(macDeviceID)
+        }
         for id in ids {
             await clearHiddenMacDeviceID(id, scopeKey: pairedMacScopeKey(scope))
         }
@@ -147,13 +189,185 @@ extension MobileShellComposite {
         }
     }
 
+    // MARK: - Forgotten Mac recovery
+
+    private func forgottenMacRecoveryKey(accountID: String) -> String {
+        "cmux.mobile.forgottenMacRecovery.\(accountID)"
+    }
+
+    private func forgottenMacRecoveryIDs(accountID: String) -> Set<String> {
+        guard let values = forgottenMacRecoveryDefaults.array(
+            forKey: forgottenMacRecoveryKey(accountID: accountID)
+        ) as? [String] else { return [] }
+        return Set(values)
+    }
+
+    private func saveForgottenMacRecoveryIDs(
+        _ ids: Set<String>,
+        accountID: String
+    ) {
+        let key = forgottenMacRecoveryKey(accountID: accountID)
+        if ids.isEmpty {
+            forgottenMacRecoveryDefaults.removeObject(forKey: key)
+        } else {
+            forgottenMacRecoveryDefaults.set(Array(ids), forKey: key)
+        }
+    }
+
+    /// Keeps only the identity of a successfully revoked Mac until its fresh
+    /// directory registration arrives. The local paired row has already been
+    /// removed, so this marker cannot leak a revoked route through backup.
+    private func rememberForgottenMacRecovery(
+        for computer: MobileHiddenComputer,
+        accountID: String,
+        deletedScopes: [MobilePairedMacExactScope] = []
+    ) {
+        guard !accountID.isEmpty else { return }
+        var ids = forgottenMacRecoveryIDs(accountID: accountID)
+        let recoveryIDs = deletedScopes.isEmpty
+            ? [computer.instanceTag.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: $0
+                )
+            } ?? cmxCanonicalDeviceID(computer.macDeviceID)]
+            : deletedScopes.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                )
+            }
+        ids.formUnion(recoveryIDs)
+        if let inFlightScope = forgottenMacRecoveryInFlightScope,
+           inFlightScope.userID == accountID {
+            forgottenMacRecoveryIDsRememberedDuringInFlight[accountID, default: []]
+                .formUnion(recoveryIDs)
+        }
+        saveForgottenMacRecoveryIDs(ids, accountID: accountID)
+    }
+
+    private func finishForgottenMacRecovery() -> ForgottenMacRecoveryRerun? {
+        let rerun = forgottenMacRecoveryRerun
+        forgottenMacRecoveryRerun = nil
+        forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
+        forgottenMacRecoveryInFlightScope = rerun?.scope
+        return rerun
+    }
+
+    /// Rehydrates forgotten Macs only from the current authenticated directory.
+    /// A directory event can race the local Forget cleanup, so the identity is
+    /// retained until this reconciliation succeeds. Canonical pairing ids make
+    /// legacy upper/lowercase duplicate records converge to one local row.
+    func recoverForgottenMacsFromDirectory(
+        scope: MobileShellScopeSnapshot,
+        refreshDirectory: Bool
+    ) async {
+        guard let discovery = personalIrohDiscovery else { return }
+        if forgottenMacRecoveryInFlightScope != nil {
+            let pendingRefresh = forgottenMacRecoveryRerun?.refreshDirectory ?? false
+            forgottenMacRecoveryRerun = ForgottenMacRecoveryRerun(
+                scope: scope,
+                refreshDirectory: refreshDirectory || pendingRefresh
+            )
+            return
+        }
+        forgottenMacRecoveryInFlightScope = scope
+        forgottenMacRecoveryRerun = nil
+        forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
+        var request = ForgottenMacRecoveryRerun(scope: scope, refreshDirectory: refreshDirectory)
+        while true {
+            let currentScope = request.scope
+            var recoveryIDs = forgottenMacRecoveryIDs(accountID: currentScope.userID)
+            guard !recoveryIDs.isEmpty else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+
+            if request.refreshDirectory,
+               let firstID = recoveryIDs.first {
+                let identity = MobilePairedMac.pairingIdentity(from: firstID)
+                await discovery.invalidateDiscovery(forMacDeviceID: identity.macDeviceID)
+            }
+            let discovered = await discovery.discoverLiveMacs()
+            guard await isScopeCurrent(currentScope) else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+
+            var seen = Set<String>()
+            var recovered = 0
+            var consumed = Set<String>()
+            for candidate in discovered {
+                guard !candidate.routes.isEmpty else { continue }
+                let identity = CmxMacAppInstanceIdentity(
+                    macDeviceID: candidate.deviceID,
+                    instanceTag: candidate.instanceTag
+                )
+                let canonicalDeviceID = cmxCanonicalDeviceID(candidate.deviceID)
+                let canonicalPairingID = MobilePairedMac.pairingID(
+                    macDeviceID: canonicalDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                let recoveryID = recoveryIDs.contains(canonicalPairingID)
+                    ? canonicalPairingID
+                    : (recoveryIDs.contains(canonicalDeviceID) ? canonicalDeviceID : nil)
+                guard let recoveryID, seen.insert(canonicalPairingID).inserted else { continue }
+                guard let pairedMacStore else {
+                    recoveryIDs.remove(recoveryID)
+                    consumed.insert(recoveryID)
+                    recovered += 1
+                    continue
+                }
+                do {
+                    try await pairedMacStore.upsert(
+                        macDeviceID: canonicalDeviceID,
+                        displayName: candidate.displayName,
+                        routes: candidate.routes,
+                        instanceTag: identity.instanceTag,
+                        markActive: false,
+                        stackUserID: currentScope.userID,
+                        teamID: currentScope.teamID,
+                        now: candidate.lastSeenAt
+                    )
+                    recoveryIDs.remove(recoveryID)
+                    consumed.insert(recoveryID)
+                    recovered += 1
+                } catch {
+                    hiddenMacsLog.error(
+                        "forgotten Mac recovery upsert failed: \(String(describing: error), privacy: .private)"
+                    )
+                }
+            }
+            let currentRecoveryIDs = forgottenMacRecoveryIDs(accountID: currentScope.userID)
+            guard await isScopeCurrent(currentScope) else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+            let newlyRemembered =
+                forgottenMacRecoveryIDsRememberedDuringInFlight[currentScope.userID] ?? []
+            saveForgottenMacRecoveryIDs(
+                currentRecoveryIDs.subtracting(consumed.subtracting(newlyRemembered)),
+                accountID: currentScope.userID
+            )
+            if recovered > 0, await isScopeCurrent(currentScope) {
+                await loadPairedMacs(forceRefresh: true)
+                await loadRegistryDevices()
+            }
+            guard let rerun = finishForgottenMacRecovery() else { return }
+            request = rerun
+        }
+    }
+
     /// Revokes a hidden computer's account bindings, then drops its local row.
     ///
     /// The revoke is the meaningful action: it removes the binding from every
     /// device on the account. On success the paired-Mac row and its hidden
     /// marker are cleared so the computer disappears from every section; a Mac
-    /// that is still online re-registers a fresh binding and reappears on its
-    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// that is still online re-registers a fresh binding and is rehydrated from
+    /// the authenticated directory. Returns `false` (leaving the row untouched) when no forget
     /// capability is wired or the revoke fails, so the caller can surface an
     /// error instead of a silent no-op.
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
@@ -220,7 +434,7 @@ extension MobileShellComposite {
         // one sequential backup request per row, and a device can carry up to
         // the discovery snapshot's 256 bindings. Rows owned by other accounts
         // keep their bindings (the revoke was account-pinned) and stay.
-        let cleaned = await deleteStoredPairedMacRows(
+        let deletion = await deleteStoredPairedMacRows(
             for: computer,
             pinnedAccountID: computer.stackUserID ?? scope.userID,
             displayScope: scope
@@ -233,16 +447,57 @@ extension MobileShellComposite {
         // refresh's rowless-marker migration would see those markers as
         // rowless and clear them, so the hidden entry the user retries from
         // would vanish while a failed sibling keeps its revoked binding.
-        if cleaned {
+        if deletion.cleaned {
+            if let workspaceSnapshotStore {
+                let snapshotAccountID = computer.stackUserID ?? scope.userID
+                let deletedScopes = deletion.deletedScopes.isEmpty
+                    ? [MobilePairedMacExactScope(
+                        macDeviceID: computer.macDeviceID,
+                        instanceTag: computer.instanceTag,
+                        stackUserID: snapshotAccountID,
+                        teamID: computer.teamID
+                    )]
+                    : deletion.deletedScopes
+                for deletedScope in deletedScopes
+                where (deletedScope.stackUserID ?? snapshotAccountID) == snapshotAccountID {
+                    // Legacy paired rows may not carry a team. Their workspace
+                    // snapshot was written under the currently selected team,
+                    // so clear that scoped key as well as the old team-less key.
+                    var snapshotTeamIDs = [deletedScope.teamID]
+                    if deletedScope.teamID == nil, let currentTeamID = scope.teamID {
+                        snapshotTeamIDs.append(currentTeamID)
+                    }
+                    for snapshotTeamID in snapshotTeamIDs {
+                        await workspaceSnapshotStore.remove(
+                            userID: snapshotAccountID,
+                            teamID: snapshotTeamID,
+                            pairing: MacPairingKey(
+                                macDeviceID: deletedScope.macDeviceID,
+                                instanceTag: deletedScope.instanceTag
+                            ),
+                            force: true
+                        )
+                    }
+                }
+            }
+            rememberForgottenMacRecovery(
+                for: computer,
+                accountID: scope.userID,
+                deletedScopes: deletion.deletedScopes
+            )
             await refreshAfterForget(displayScope: scope)
+            await recoverForgottenMacsFromDirectory(
+                scope: scope,
+                refreshDirectory: true
+            )
         }
         recordAppEvent(
-            cleaned ? .computerForgetSucceeded : .computerForgetFailed,
+            deletion.cleaned ? .computerForgetSucceeded : .computerForgetFailed,
             correlationID: computer.id,
             startedAt: startedAt,
-            failure: cleaned ? nil : .unknown
+            failure: deletion.cleaned ? nil : .unknown
         )
-        return cleaned
+        return deletion.cleaned
     }
 
     /// The single post-forget refresh: reload the paired list and registry and
@@ -251,7 +506,7 @@ extension MobileShellComposite {
     /// already reflect its stores).
     private func refreshAfterForget(displayScope: MobileShellScopeSnapshot) async {
         guard await isScopeCurrent(displayScope) else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         await loadRegistryDevices()
         // Mirror the hide path: once the last stored Mac is gone, drop the saved
         // reconnect hint so the app does not keep trying to redial a forgotten Mac.
@@ -278,14 +533,14 @@ extension MobileShellComposite {
         for computer: MobileHiddenComputer,
         pinnedAccountID: String,
         displayScope: MobileShellScopeSnapshot
-    ) async -> Bool {
+    ) async -> (cleaned: Bool, deletedScopes: [MobilePairedMacExactScope]) {
         guard let pairedMacStore else {
             await clearHiddenMacDeviceID(
                 computer.macDeviceID,
                 instanceTag: computer.instanceTag,
                 scope: displayScope
             )
-            return true
+            return (true, [])
         }
         let primary = MobilePairedMacExactScope(
             macDeviceID: computer.macDeviceID,
@@ -310,12 +565,18 @@ extension MobileShellComposite {
             hiddenMacsLog.error(
                 "forget hidden computer sibling enumeration failed: \(String(describing: error), privacy: .private)"
             )
-            return false
+            return (false, [])
         }
         for row in rows
         where row.stackUserID == pinnedAccountID
-            && (computer.instanceTag == nil || row.instanceTag == computer.instanceTag)
-            && !(row.instanceTag == primary.instanceTag && row.teamID == primary.teamID) {
+            && (primary.instanceTag == nil || macInstanceTagAuthority.sameStoredAuthority(
+                row.instanceTag,
+                primary.instanceTag
+            ))
+            && !(macInstanceTagAuthority.sameStoredAuthority(
+                row.instanceTag,
+                primary.instanceTag
+            ) && row.teamID == primary.teamID) {
             scopes.append(MobilePairedMacExactScope(
                 macDeviceID: row.macDeviceID,
                 instanceTag: row.instanceTag,
@@ -395,14 +656,14 @@ extension MobileShellComposite {
                     }
                 }
             }
-            return false
+            return (false, [])
         }
         // Cleared only after the rows are gone, so a still-online Mac that
         // re-registers is not re-hidden by a stale marker.
         for scope in scopes {
             await clearForgottenRowMarkers(scope: scope, displayScope: displayScope)
         }
-        return true
+        return (true, scopes)
     }
 
     /// Clears one deleted row's hidden markers. Markers are stored per
@@ -494,7 +755,7 @@ extension MobileShellComposite {
         guard !Task.isCancelled,
               await isScopeCurrent(scope),
               !Task.isCancelled else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         guard !Task.isCancelled else { return }
         await loadRegistryDevices()
         recordAppEvent(.computerUnhidden, correlationID: correlationID)
@@ -511,7 +772,7 @@ extension MobileShellComposite {
                 macDeviceID: macDeviceID,
                 instanceTag: nil
             ),
-            aliasIDs: pairedMacAliasIDs(for: macDeviceID)
+            aliasIDs: [macDeviceID]
         )
     }
 
@@ -519,7 +780,10 @@ extension MobileShellComposite {
     public func hideMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
@@ -660,7 +924,10 @@ extension MobileShellComposite {
     public func hideStoredMac(macDeviceID: String, instanceTag: String?) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let targets = pairedMacsForIdentityMatching.filter {
-            $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
@@ -750,7 +1017,7 @@ extension MobileShellComposite {
         guard !Task.isCancelled,
               await isScopeCurrent(scope),
               !Task.isCancelled else { return }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
         recordAppEvent(
             .computerHidden,
@@ -783,7 +1050,8 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>
     ) {
         let entries = loadedMacs.compactMap { mac -> MobileHiddenComputer? in
-            guard hiddenIDs.contains(mac.id) || hiddenIDs.contains(mac.macDeviceID) else {
+            guard hiddenIDs.contains(mac.id)
+                || (mac.instanceTag == nil && hiddenIDs.contains(mac.macDeviceID)) else {
                 return nil
             }
             return MobileHiddenComputer(

@@ -42,6 +42,33 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func feedBubbleQuotesDefaultsToEnabledWithoutAWrite() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(settings.feedBubbleQuotes)
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") == nil)
+    }
+
+    @Test func feedBubbleQuotesPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.feedBubbleQuotes = false
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") as? Bool == false)
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+
+        settings.feedBubbleQuotes = true
+        #expect(MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
+    @Test func feedBubbleQuotesReadsLegacyDebugPreference() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesLegacy")
+        defaults.set(false, forKey: "cmux.mobile.debug.feedBubbleQuotes.v1")
+
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
     @Test func showMissingFilesDefaultsToFalseWithoutAWrite() throws {
         let defaults = try makeDefaults("showMissingFilesDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -70,6 +97,22 @@ import Testing
         let settings = MobileDisplaySettings(defaults: defaults)
         settings.terminalFolderTapEnabled = false
         #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
+    }
+
+    @Test func legacyTerminalSizingDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("legacyTerminalSizingDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.useLegacyTerminalSizing)
+        #expect(defaults.object(forKey: "cmux.mobile.useLegacyTerminalSizing") == nil)
+    }
+
+    @Test func legacyTerminalSizingPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("legacyTerminalSizingPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.useLegacyTerminalSizing = true
+        #expect(MobileDisplaySettings(defaults: defaults).useLegacyTerminalSizing)
+        settings.useLegacyTerminalSizing = false
+        #expect(!MobileDisplaySettings(defaults: defaults).useLegacyTerminalSizing)
     }
 
     @Test func hapticFeedbackDefaultsToEnabledWithoutAWrite() throws {
@@ -162,6 +205,27 @@ import Testing
     }
 
     #if DEBUG
+    @Test func taskComposerLiquidGlassDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(!settings.taskComposerFullLiquidGlass)
+        #expect(
+            defaults.object(forKey: "cmux.mobile.debug.taskComposerFullLiquidGlass.v1") == nil
+        )
+    }
+
+    @Test func taskComposerLiquidGlassPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.taskComposerFullLiquidGlass = true
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+
+        settings.taskComposerFullLiquidGlass = false
+        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)

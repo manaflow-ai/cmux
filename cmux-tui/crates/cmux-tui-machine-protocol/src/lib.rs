@@ -32,6 +32,11 @@ pub const CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY: &str = "client-capability-ne
 /// Enables non-scope `ProviderAction::target` values for one control
 /// generation after client-capability negotiation succeeds.
 pub const PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY: &str = "provider-action-targets-v1";
+/// Lets the provider push `connection_progress` events while a machine opens
+/// (for example "resuming the machine"), so the client can render a live
+/// loading state instead of a generic "connecting". Gated because v1 event
+/// decoders reject unknown event names.
+pub const CONNECTION_PROGRESS_CLIENT_CAPABILITY: &str = "connection-progress-v1";
 pub const MIN_WORKSPACE_MIRROR_AUTHORITY_BYTES: usize = 32;
 
 const MAX_OPAQUE_ID_BYTES: usize = 512;
@@ -491,6 +496,7 @@ impl EventEnvelope {
 pub enum ProviderEvent {
     SnapshotChanged(SnapshotChangedEvent),
     ConnectionClosed(ConnectionClosedEvent),
+    ConnectionProgress(ConnectionProgressEvent),
     Notice(ProviderNotice),
 }
 
@@ -1055,6 +1061,17 @@ pub struct ConnectionClosedEvent {
     pub connection_id: OpaqueId,
     pub machine_id: OpaqueId,
     pub reason: String,
+}
+
+/// A transient human-readable step while the provider opens a machine
+/// ("resuming the machine", "waiting for the agent"). Push-only and
+/// presentation-only: the newest message per machine wins, and the client
+/// drops it once the connection settles or fails.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionProgressEvent {
+    pub machine_id: OpaqueId,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1649,6 +1666,26 @@ mod tests {
                 "params": { "revision": 14 }
             })
         );
+    }
+
+    #[test]
+    fn connection_progress_matches_the_wire_document() {
+        let event =
+            EventEnvelope::new(ProviderEvent::ConnectionProgress(ConnectionProgressEvent {
+                machine_id: id("vm-1"),
+                message: "resuming the machine".into(),
+            }));
+        let document = json!({
+            "protocol": "cmux.machine-provider",
+            "version": 1,
+            "event": "connection_progress",
+            "params": {
+                "machine_id": "vm-1",
+                "message": "resuming the machine"
+            }
+        });
+        assert_eq!(serde_json::to_value(&event).unwrap(), document);
+        assert_eq!(serde_json::from_value::<EventEnvelope>(document).unwrap(), event);
     }
 
     #[test]

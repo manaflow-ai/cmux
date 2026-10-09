@@ -3,7 +3,7 @@ public import Foundation
 
 /// Downloads the over-the-air task-model catalog used when a selected Mac
 /// cannot enumerate models from its installed agent.
-public struct MobileTaskModelCatalogClient: Sendable {
+public nonisolated struct MobileTaskModelCatalogClient: Sendable {
     /// Injectable transport used by package tests and debug previews.
     public typealias Loader = @Sendable (URL) async throws -> Data
 
@@ -51,7 +51,53 @@ public struct MobileTaskModelCatalogClient: Sendable {
         for provider: MobileTaskAgentProvider
     ) async throws -> [MobileTaskAgentModel] {
         let data = try await loader(endpoint)
-        return try Self.models(from: data, provider: provider)
+        return try Self.result(from: data, provider: provider).models
+    }
+
+    /// Fetches one provider's latest backend models and its implicit Default
+    /// selection metadata.
+    public func result(
+        for provider: MobileTaskAgentProvider
+    ) async throws -> MobileTaskModelListResult {
+        let data = try await loader(endpoint)
+        return try Self.result(from: data, provider: provider)
+    }
+
+    /// Fetches one full backend catalog so a prefetch wave can distribute the
+    /// same response to every provider and paired Mac.
+    func allResults() async throws -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
+        let data = try await loadPrefetchData()
+        let catalog = try JSONDecoder().decode(Catalog.self, from: data)
+        guard catalog.schemaVersion == 1 else {
+            throw MobileTaskModelCatalogError.invalidCatalog
+        }
+        var results: [MobileTaskAgentProvider: MobileTaskModelListResult] = [:]
+        for provider in MobileTaskAgentProvider.allCases {
+            guard let providerCatalog = catalog.providers[provider.rawValue] else {
+                continue
+            }
+            results[provider] = try Self.result(from: providerCatalog)
+        }
+        guard !results.isEmpty else { throw MobileTaskModelCatalogError.invalidCatalog }
+        return results
+    }
+
+    private func loadPrefetchData() async throws -> Data {
+        let coordinator = MobileTaskModelCatalogLoadCoordinator()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Data, any Error>) in
+                Task {
+                    await coordinator.start(
+                        continuation: continuation,
+                        endpoint: endpoint,
+                        loader: loader
+                    )
+                }
+            }
+        } onCancel: {
+            Task { await coordinator.cancel() }
+        }
     }
 
     /// Parses one provider from the versioned backend payload.
@@ -59,11 +105,26 @@ public struct MobileTaskModelCatalogClient: Sendable {
         from data: Data,
         provider: MobileTaskAgentProvider
     ) throws -> [MobileTaskAgentModel] {
+        try result(from: data, provider: provider).models
+    }
+
+    /// Parses one provider's models and resolves its Default selection to the
+    /// matching catalog model without adding that model to the Default row.
+    public static func result(
+        from data: Data,
+        provider: MobileTaskAgentProvider
+    ) throws -> MobileTaskModelListResult {
         let catalog = try JSONDecoder().decode(Catalog.self, from: data)
         guard catalog.schemaVersion == 1,
               let providerCatalog = catalog.providers[provider.rawValue] else {
             throw MobileTaskModelCatalogError.invalidCatalog
         }
+        return try result(from: providerCatalog)
+    }
+
+    private static func result(
+        from providerCatalog: ProviderCatalog
+    ) throws -> MobileTaskModelListResult {
 
         var seenIDs: Set<String> = []
         var models: [MobileTaskAgentModel] = []
@@ -74,12 +135,42 @@ public struct MobileTaskModelCatalogClient: Sendable {
             guard !id.isEmpty, !label.isEmpty, seenIDs.insert(id).inserted else {
                 continue
             }
-            models.append(MobileTaskAgentModel(id: id, displayName: label))
+            var seenEffortIDs: Set<String> = []
+            let efforts = (model.efforts ?? []).compactMap { effort -> MobileTaskAgentEffort? in
+                let effortID = effort.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                let effortLabel = effort.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !effortID.isEmpty, !effortLabel.isEmpty,
+                      seenEffortIDs.insert(effortID).inserted else { return nil }
+                let description = effort.description?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return MobileTaskAgentEffort(
+                    id: effortID,
+                    displayName: effortLabel,
+                    description: description.flatMap { $0.isEmpty ? nil : $0 }
+                )
+            }
+            models.append(MobileTaskAgentModel(
+                id: id,
+                displayName: label,
+                efforts: efforts,
+                defaultEffortID: model.defaultEffort?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
         }
         guard !models.isEmpty else {
             throw MobileTaskModelCatalogError.invalidCatalog
         }
-        return models
+        let defaultModelID = providerCatalog.defaultModel?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let defaultModel = models.first {
+            $0.id == defaultModelID
+        }
+        return MobileTaskModelListResult(
+            models: models,
+            source: .backend,
+            defaultModel: defaultModel
+        )
     }
 
     private static let productionEndpoint = URL(
@@ -92,12 +183,21 @@ public struct MobileTaskModelCatalogClient: Sendable {
     }
 
     private struct ProviderCatalog: Decodable {
+        let defaultModel: String?
         let models: [Model]
     }
 
     private struct Model: Decodable {
         let id: String
         let label: String
+        let efforts: [Effort]?
+        let defaultEffort: String?
+    }
+
+    private struct Effort: Decodable {
+        let value: String
+        let label: String
+        let description: String?
     }
 }
 

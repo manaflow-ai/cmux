@@ -13,6 +13,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
 
     let remotePath: String
     let localPort: Int
+    let credential: BrowserProxyCredential
     private let startError: NSError?
     let lock = NSLock()
     private var _startCount = 0
@@ -21,9 +22,10 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
     var lifecycleEndCallbacks: [RemotePTYLifecycleKey: @Sendable () -> Void] = [:]
 
-    init(remotePath: String, localPort: Int, startError: NSError?) {
+    init(remotePath: String, localPort: Int, credential: BrowserProxyCredential, startError: NSError?) {
         self.remotePath = remotePath
         self.localPort = localPort
+        self.credential = credential
         self.startError = startError
     }
 
@@ -119,7 +121,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
             token: "tok",
             sessionID: sessionID,
             lifecycleID: lifecycleID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID, daemonVersion: nil
         )
     }
 
@@ -164,6 +166,7 @@ final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable 
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         onFatalError: @escaping @Sendable (String) -> Void
     ) -> any RemoteProxyTunneling {
         lock.lock()
@@ -175,7 +178,12 @@ final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable 
                 NSLocalizedDescriptionKey: "scripted start failure",
             ])
         }
-        let tunnel = FakeProxyTunnel(remotePath: remotePath, localPort: localPort, startError: startError)
+        let tunnel = FakeProxyTunnel(
+            remotePath: remotePath,
+            localPort: localPort,
+            credential: credential,
+            startError: startError
+        )
         _tunnels.append(tunnel)
         _onFatalErrors.append(onFatalError)
         return tunnel
@@ -290,7 +298,11 @@ struct RemoteProxyBrokerTests {
         let tunnel = try #require(provider.tunnels.first)
         #expect(tunnel.startCount == 1)
         #expect(tunnel.remotePath == "/usr/local/bin/cmuxd-remote")
-        #expect(updates.last == .ready(BrowserProxyEndpoint(host: "127.0.0.1", port: tunnel.localPort)))
+        #expect(updates.last == .ready(BrowserProxyEndpoint(
+            host: "127.0.0.1",
+            port: tunnel.localPort,
+            credential: tunnel.credential
+        )))
     }
 
     @Test("a second subscriber on the same transport shares the tunnel and gets .ready immediately")
@@ -306,7 +318,8 @@ struct RemoteProxyBrokerTests {
         defer { leaseB.release() }
 
         #expect(provider.tunnels.count == 1)
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: try #require(provider.tunnels.first).localPort)
+        let tunnel = try #require(provider.tunnels.first)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: tunnel.localPort, credential: tunnel.credential)
         #expect(second.updates == [.ready(endpoint)])
     }
 
@@ -333,6 +346,9 @@ struct RemoteProxyBrokerTests {
         if case .ready = updates[1] {} else { Issue.record("expected .ready, got \(updates[1])") }
         #expect(updates[2] == .connecting)
         if case .ready = updates[3] {} else { Issue.record("expected .ready, got \(updates[3])") }
+        // A restarted tunnel mints its own credential.
+        let restarted = try #require(provider.tunnels.last)
+        #expect(try #require(provider.tunnels.first).credential != restarted.credential)
     }
 
     @Test("start failures publish errors with the legacy escalating retry suffixes and backoff delays")

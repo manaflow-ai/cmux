@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxTerminalCore
-internal import UniformTypeIdentifiers
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -9,6 +8,8 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
     /// Attempts to materialize a decodable pasteboard image into a temporary file.
     /// `rejectedImagePayload` means a real image was found but could not be used,
     /// so callers should not fall back to auxiliary plain text or URLs.
+    /// `rejectedOversizedImagePayload` is the same rejection for an image over
+    /// ``maxClipboardImageSize``.
     public func materializeImageFileURLIfNeeded(
         from pasteboard: NSPasteboard = .general
     ) -> TerminalImageFileMaterialization {
@@ -21,6 +22,8 @@ extension TerminalPasteboardService: TerminalImagePasteWriting {
             return .noDecodableImagePayload
         case .rejectedImagePayload:
             return .rejectedImagePayload
+        case .rejectedOversizedImagePayload:
+            return .rejectedOversizedImagePayload
         }
     }
 
@@ -107,7 +110,7 @@ extension TerminalPasteboardService {
                 logDebugEvent("terminal.paste.image.rejected reason=tooLarge bytes=\(representation.data.count)")
 #endif
                 cleanupTransferredTemporaryImageFiles(fileURLs)
-                return .rejectedImagePayload
+                return .rejectedOversizedImagePayload
             }
 
             let fileURL = temporaryImageFileURL(fileExtension: representation.fileExtension)

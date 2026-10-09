@@ -82,6 +82,20 @@ struct WorkspaceRemoteConfigurationNormalizationTests {
         #expect(WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: "SERVERALIVEINTERVAL"))
         #expect(!WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: "ControlPath"))
     }
+
+    @Test("validated restore agent paths are not rechecked against the process filesystem")
+    func validatedRestoreAgentPathWins() {
+        let path = "/tmp/cmux-test-current-agent.sock"
+        #expect(WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+            sshOptions: [],
+            explicitAgentSocketPath: path,
+            explicitAgentSocketPathAlreadyValidated: true
+        ) == path)
+        #expect(WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
+            sshOptions: [],
+            explicitAgentSocketPath: path
+        ) == nil)
+    }
 }
 
 @Suite("WorkspaceRemoteConfiguration value behavior")
@@ -340,6 +354,30 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(a.hasSamePersistentPTYIdentity(as: b))
     }
 
+    @Test("persistent PTY lookup keys cover exact and managed wildcard owners")
+    func persistentPTYLookupKeys() {
+        let ownerID = UUID()
+        let preserved = makeConfiguration(
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "slot",
+            ownerWorkspaceID: ownerID
+        )
+        #expect(preserved.persistentPTYIdentityLookupKeys.count == 1)
+        #expect(preserved.persistentPTYIdentityLookupKeys.first?.hasSuffix(ownerID.uuidString.lowercased()) == true)
+
+        let managed = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerID
+        )
+        #expect(managed.persistentPTYIdentityLookupKeys.count == 2)
+        #expect(managed.persistentPTYIdentityLookupKeys.last?.hasSuffix("\u{1e}*") == true)
+    }
+
     @Test("sessionSnapshot persists restorable transports with a non-empty destination")
     func sessionSnapshotGating() {
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)
@@ -391,9 +429,10 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.persistentDaemonSlot == nil)
     }
 
+    /// Terminal overlays stay narrow while standalone SSH children receive a complete environment.
     @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")
     func startupEnvironment() {
         #expect(makeConfiguration().sshTerminalStartupEnvironment == nil)
-        #expect(makeConfiguration().sshProcessEnvironment == nil)
+        #expect(makeConfiguration().sshProcessEnvironment != nil)
     }
 }

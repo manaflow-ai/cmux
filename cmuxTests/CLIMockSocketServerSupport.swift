@@ -417,19 +417,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    func assertSSHPTYAttachOmitsSurfaceArgument(
-        _ script: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        XCTAssertFalse(
-            script.contains(#"ssh-pty-attach --wait --workspace "$cmux_ssh_pty_workspace_id" --surface"#),
-            script,
-            file: file,
-            line: line
-        )
-    }
-
     private func agentHookMockResponse(line: String, surfaceId: String) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"

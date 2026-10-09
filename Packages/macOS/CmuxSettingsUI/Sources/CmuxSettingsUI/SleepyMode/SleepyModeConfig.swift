@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 /// Immutable snapshot of the user's Sleepy Mode preferences, read fresh each
 /// frame by the renderer so settings changes preview live.

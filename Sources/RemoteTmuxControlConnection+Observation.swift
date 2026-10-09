@@ -41,6 +41,8 @@ extension RemoteTmuxControlConnection {
     ///     reflow on resize for alt-screen / inline-TUI panes like claude; `false`
     ///     = a plain shell whose primary-screen scrollback may reflow), both the
     ///     initial value and live changes (see ``subscribePaneReflow(paneId:)``).
+    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes,
+    ///     without requiring a full topology rebuild.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -55,30 +57,38 @@ extension RemoteTmuxControlConnection {
     ///   - onConnectionStateChanged: fires on every ``ConnectionState`` transition
     ///     (e.g. `.connected` → `.reconnecting` on a transport loss), so consumers
     ///     can show a disconnected/reconnecting indicator without tearing down.
+    ///   - onAuthRequired: fires when a RECONNECT failed because the host wants
+    ///     interactive authentication the pipe-backed reconnect cannot service.
+    ///     Retrying stops when it fires; the consumer runs the supplied `ssh` argv
+    ///     under a tty and then calls ``resumeAfterInteractiveAuth()``.
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
         onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
-        onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
+        onConnectionStateChanged: ((ConnectionState) -> Void)? = nil,
+        onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
     ) -> ObserverToken {
         observers.add(
             onPaneOutput: onPaneOutput,
             onPaneSeed: onPaneSeed,
             onPaneCwd: onPaneCwd,
             onPaneReflow: onPaneReflow,
+            onPaneTitleChanged: onPaneTitleChanged,
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
             onTopologyChanged: onTopologyChanged,
             onReconnectReady: onReconnectReady,
             onExit: onExit,
-            onConnectionStateChanged: onConnectionStateChanged
+            onConnectionStateChanged: onConnectionStateChanged,
+            onAuthRequired: onAuthRequired
         )
     }
 

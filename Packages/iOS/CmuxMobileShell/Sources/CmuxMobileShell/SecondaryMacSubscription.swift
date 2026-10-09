@@ -11,6 +11,8 @@ final class SecondaryMacSubscription {
     static let eventTopics: Set<String> = [
         "workspace.updated",
         "notification.feed.changed",
+        "feed.changed",
+        "caffeine.status.changed",
     ]
 
     let macDeviceID: String
@@ -90,7 +92,11 @@ final class SecondaryMacSubscription {
         self.supportedHostCapabilities = supportedHostCapabilities
         self.actionCapabilities = actionCapabilities
         self.displayName = displayName
-        self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"
+        let identityID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: storedInstanceTag
+        ).id
+        self.streamID = "ios-secondary-events-\(identityID)-\(UUID().uuidString)"
     }
 
     func cancel() {

@@ -40,6 +40,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         }
     }
 
+    /// The containing workspace group's id (`workspaces[i].group`), or `nil`
+    /// when the workspace is ungrouped.
+    public let groupId: UUID?
     /// The workspace identifier, projected to `workspaces[i].id`.
     public let id: UUID
     /// The display title (custom title falling back to the live title).
@@ -56,6 +59,12 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let listeningPorts: [Int]
     /// The workspace's unread count (`workspaces[i].unread`).
     public let unreadCount: Int
+    /// The workspace's resolved task-status lane (`workspaces[i].status`):
+    /// the raw wire value of `WorkspaceTaskStatus` — `todo`, `working`,
+    /// `needs-attention`, `review` or `done`. Carried as a string so this
+    /// package does not depend on the app-side enum, the same way
+    /// `ControlWorkspaceTodoStatusSnapshot` crosses its seam.
+    public let taskStatus: String
     /// Surfaces in pane order (`workspaces[i].tabs`).
     public let surfaces: [CustomSidebarSurfaceSnapshot]
     /// Total surface count across panes (`workspaces[i].tabCount`).
@@ -84,6 +93,9 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let latestSubmittedAt: Date?
     /// Remote projection; omitted when `nil` (`workspaces[i].remote`).
     public let remote: Remote?
+    /// Coding-agent sessions hosted by this workspace's terminals, most
+    /// recent first (`workspaces[i].agents`); the key is omitted when empty.
+    public let agents: [CustomSidebarAgentSnapshot]
 
     /// Creates a workspace snapshot from already-resolved leaf values.
     public init(
@@ -106,8 +118,13 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         latestConversationMessage: String?,
         latestSubmittedMessage: String?,
         latestSubmittedAt: Date?,
-        remote: Remote?
+        remote: Remote?,
+        agents: [CustomSidebarAgentSnapshot] = [],
+        groupId: UUID? = nil,
+        taskStatus: String
     ) {
+        self.taskStatus = taskStatus
+        self.groupId = groupId
         self.id = id
         self.title = title
         self.isSelected = isSelected
@@ -128,5 +145,6 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         self.latestSubmittedMessage = latestSubmittedMessage
         self.latestSubmittedAt = latestSubmittedAt
         self.remote = remote
+        self.agents = agents
     }
 }

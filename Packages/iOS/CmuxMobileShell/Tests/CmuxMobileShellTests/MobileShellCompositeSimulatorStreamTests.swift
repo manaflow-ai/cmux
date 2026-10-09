@@ -93,9 +93,102 @@ import CmuxMobileShellModel
         #expect(!composite.startedMobileSimulatorPanelIDs.contains("sim-1"))
     }
 
+    @Test func existingSimulatorSelectionSurvivesDefaultSurfaceRefresh() {
+        let workspaceID = "workspace-1"
+        let selectedDescriptor = Self.descriptor(panelID: "sim-2")
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: [],
+            simulators: [Self.descriptor(), selectedDescriptor]
+        )
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: workspaceID, with: [Self.descriptor(), selectedDescriptor])
+        store.activate(panelID: selectedDescriptor.panelID, in: workspaceID)
+        let composite = MobileShellComposite(
+            workspaces: [workspace],
+            simulatorStreamStore: store
+        )
+
+        composite.selectedWorkspaceID = nil
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(store.activeState(in: workspaceID)?.id == selectedDescriptor.panelID)
+    }
+
+    @Test func staleMacSelectionFallsBackToAvailableSimulatorPanel() {
+        let workspaceID = "workspace-1"
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: workspaceID),
+            name: "Workspace",
+            terminals: [],
+            surfaces: []
+        )
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: workspaceID, with: [Self.descriptor()])
+        let composite = MobileShellComposite(
+            workspaces: [workspace],
+            simulatorStreamStore: store
+        )
+        composite.selectedMacSurfaceID = .init(rawValue: "stale-surface")
+
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(composite.selectedMacSurfaceID == nil)
+        #expect(store.activeState(in: workspaceID)?.id == Self.descriptor().panelID)
+    }
+
+    @Test func focusedNonTerminalSelectionWinsWhenWorkspaceAlsoHasTerminal() {
+        let focusedSurface = MobileSurfacePreview(
+            id: "browser-1",
+            kind: .browser,
+            title: "Browser",
+            isFocused: true
+        )
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "zsh")
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: "workspace-1"),
+            name: "Workspace",
+            terminals: [terminal],
+            surfaces: [focusedSurface]
+        )
+        let composite = MobileShellComposite(workspaces: [workspace])
+
+        #expect(workspace.focusedNonTerminalSurface?.id == focusedSurface.id)
+        #expect(composite.selectedWorkspace?.focusedNonTerminalSurface?.id == focusedSurface.id)
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(composite.selectedMacSurfaceID == focusedSurface.id)
+    }
+
+    @Test func staleMacSelectionDoesNotBlockFocusedNonTerminalFallback() {
+        let focusedSurface = MobileSurfacePreview(
+            id: "browser-1",
+            kind: .browser,
+            title: "Browser",
+            isFocused: true
+        )
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: "workspace-1"),
+            name: "Workspace",
+            terminals: [MobileTerminalPreview(id: "terminal-1", name: "zsh")],
+            surfaces: [focusedSurface]
+        )
+        let composite = MobileShellComposite(workspaces: [workspace])
+        composite.selectedMacSurfaceID = .init(rawValue: "removed-surface")
+
+        composite.selectedWorkspaceID = workspace.id
+
+        #expect(composite.selectedMacSurfaceID == focusedSurface.id)
+    }
+
     private static func descriptor() -> MobileSimulatorPanelDescriptor {
+        descriptor(panelID: "sim-1")
+    }
+
+    private static func descriptor(panelID: String) -> MobileSimulatorPanelDescriptor {
         MobileSimulatorPanelDescriptor(
-            panelID: "sim-1",
+            panelID: panelID,
             workspaceID: "workspace-1",
             title: "Simulator",
             selectedDeviceName: "iPhone 17",

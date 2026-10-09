@@ -27,7 +27,7 @@ extension DockSplitStore {
     }
 
     static func makeConfiguration() -> BonsplitConfiguration {
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         return BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
@@ -37,23 +37,41 @@ extension DockSplitStore {
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
-            tabBarVisibility: .always,
+            tabBarVisibility: resolvedTabBarVisibility(),
             appearance: makeAppearance(from: config)
         )
+    }
+
+    /// Resolves the app-level `app.tabBarVisibility` setting to bonsplit's
+    /// visibility mode.
+    static func resolvedTabBarVisibility() -> TabBarVisibility {
+        AppCatalogSection().tabBarVisibility.value(in: .standard).bonsplitVisibility
+    }
+
+    /// Re-resolves `app.tabBarVisibility` into this Dock's split controller so
+    /// an open Dock picks up a settings change without a relaunch.
+    func refreshTabBarVisibility() {
+        let visibility = Self.resolvedTabBarVisibility()
+        var configuration = bonsplitController.configuration
+        guard configuration.tabBarVisibility != visibility else { return }
+        configuration.tabBarVisibility = visibility
+        bonsplitController.configuration = configuration
     }
 
     static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
         makeAppearance(from: config, windowAppearance: nil)
     }
 
+    /// Resolves Dock Bonsplit chrome against the mounted window backdrop when available.
     static func makeAppearance(
         from config: GhosttyConfig,
         windowAppearance: WindowAppearanceSnapshot?
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
-            usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
-        )
+        let renderingMode = windowAppearance?.terminalRenderingMode
+            ?? WindowAppearanceSnapshot.terminalRenderingMode(
+                usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
+            )
         // The controller is created before SwiftUI mounts the Dock view, so
         // there may not be a ``WindowAppearanceSnapshot`` yet. Resolve that
         // first configuration through the same terminal-theme authority as
@@ -85,7 +103,10 @@ extension DockSplitStore {
                 sharesWindowBackdrop: sharesWindowBackdrop,
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
-                chromeBackgroundColor: chromeBackgroundColor
+                splitDividerColor: config.splitDividerColor,
+                chromeBackgroundColor: chromeBackgroundColor,
+                chromeHost: windowAppearance == nil ? .workspace : .dock,
+                increaseContrast: DisplayAccessibilityOptions.current.increaseContrast
             ),
             usesSharedBackdrop: sharesWindowBackdrop
         )

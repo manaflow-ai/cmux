@@ -1,0 +1,79 @@
+name: Auto-triage
+
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      backfill_limit:
+        description: "Label at most this many untriaged open issues (0 = do nothing)"
+        required: false
+        default: "0"
+      dry_run:
+        description: "Print the plan without changing labels"
+        required: false
+        type: boolean
+        default: true
+
+permissions: {}
+
+# One run per issue, and one backfill at a time. Queueing rather than
+# cancelling: a cancelled run can leave labels applied with no receipt line.
+# What actually stops a reopened issue being labelled twice is the check for an
+# existing triage label, not this group.
+concurrency:
+  group: auto-triage-${{ github.event.issue.number || 'backfill' }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    permissions:
+      contents: read
+      issues: write
+    if: github.event_name == 'issues'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted triage code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Propose severity and area
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python3 scripts/ci/auto_triage.py --issue "$ISSUE_NUMBER"
+
+  backfill:
+    permissions:
+      contents: read
+      issues: write
+    if: github.event_name == 'workflow_dispatch' && fromJSON(inputs.backfill_limit || '0') > 0
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Check out trusted triage code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Label untriaged open issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BACKFILL_LIMIT: ${{ inputs.backfill_limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(--backfill --limit "$BACKFILL_LIMIT" --receipt receipt.jsonl)
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 scripts/ci/auto_triage.py "${args[@]}"
+      - name: Keep the receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: auto-triage-receipt-${{ github.run_id }}
+          path: receipt.jsonl
+          if-no-files-found: ignore

@@ -37,12 +37,12 @@ import Testing
 
     @Test func dogfoodEnvCredentialsResolve() {
         let resolver = makeResolver(environment: [
-            "CMUX_DOGFOOD_STACK_EMAIL": "lawrence@manaflow.ai",
+            "CMUX_DOGFOOD_STACK_EMAIL": "dev@manaflow.ai",
             "CMUX_DOGFOOD_STACK_PASSWORD": "dog-pw",
         ])
         #expect(
             resolver.resolve()
-                == .init(email: "lawrence@manaflow.ai", password: "dog-pw")
+                == .init(email: "dev@manaflow.ai", password: "dog-pw")
         )
     }
 
@@ -70,7 +70,7 @@ import Testing
                 (
                     "/secrets/cmuxterm-dev.env",
                     """
-                    CMUX_DOGFOOD_STACK_EMAIL=lawrence@manaflow.ai
+                    CMUX_DOGFOOD_STACK_EMAIL=dev@manaflow.ai
                     CMUX_DOGFOOD_STACK_PASSWORD=dog-pw
                     """
                 ),
@@ -78,7 +78,7 @@ import Testing
         )
         #expect(
             resolver.resolve()
-                == .init(email: "lawrence@manaflow.ai", password: "dog-pw")
+                == .init(email: "dev@manaflow.ai", password: "dog-pw")
         )
     }
 
@@ -161,7 +161,7 @@ import Testing
             readFile: { path in
                 switch path {
                 case "/secrets/cmuxterm-dev.env":
-                    return "# no stack creds here\nE2B_API_KEY=abc\n"
+                    return "# no stack creds here\nFREESTYLE_API_KEY=abc\n"
                 case "/secrets/cmux.env":
                     return """
                     CMUX_UITEST_STACK_EMAIL=agent@manaflow.ai
@@ -181,7 +181,7 @@ import Testing
     @Test func partialCredentialPairIsIgnored() {
         // Email without password must not yield a half-resolved credential.
         let resolver = makeResolver(environment: [
-            "CMUX_DOGFOOD_STACK_EMAIL": "lawrence@manaflow.ai",
+            "CMUX_DOGFOOD_STACK_EMAIL": "dev@manaflow.ai",
         ])
         #expect(resolver.resolve() == nil)
     }
@@ -198,13 +198,13 @@ import Testing
         let parsed = DebugDogfoodCredentialResolver.parseEnvFile(
             """
             # comment line
-            CMUX_DOGFOOD_STACK_EMAIL="lawrence@manaflow.ai"
+            CMUX_DOGFOOD_STACK_EMAIL="dev@manaflow.ai"
             CMUX_DOGFOOD_STACK_PASSWORD='secret value'
 
             BLANK_AFTER=1
             """
         )
-        #expect(parsed["CMUX_DOGFOOD_STACK_EMAIL"] == "lawrence@manaflow.ai")
+        #expect(parsed["CMUX_DOGFOOD_STACK_EMAIL"] == "dev@manaflow.ai")
         #expect(parsed["CMUX_DOGFOOD_STACK_PASSWORD"] == "secret value")
         #expect(parsed["BLANK_AFTER"] == "1")
     }
@@ -382,12 +382,12 @@ import Testing
             secretFilePaths: ["/secrets/cmuxterm-dev.env"],
             readFile: { _ in
                 """
-                CMUX_DOGFOOD_STACK_EMAIL=lawrence@manaflow.ai
+                CMUX_DOGFOOD_STACK_EMAIL=dev@manaflow.ai
                 CMUX_DOGFOOD_STACK_PASSWORD=dog-pw
                 """
             }
         )
-        #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "lawrence@manaflow.ai")
+        #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "dev@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "dog-pw")
         #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1")
         #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")

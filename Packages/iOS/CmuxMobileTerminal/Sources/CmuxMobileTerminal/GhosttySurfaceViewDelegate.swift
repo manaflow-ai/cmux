@@ -16,6 +16,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// viewport ownership. SwiftUI can retain a representable after removing
     /// its view from the window, so dismantle alone is not a mount boundary.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool)
+    /// The app became active while this surface stayed mounted. Hosts should
+    /// reconcile any stream or viewport ownership that may have been cancelled
+    /// while the app was backgrounded.
+    func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView)
     /// Bytes the phone wants to send TO the PTY (typing, paste, mouse
     /// reports). The host forwards them to the Mac, which writes them into
     /// its libghostty surface and down the shared PTY.
@@ -31,6 +35,11 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Whether the phone owns primary-screen scrolling for this surface: the
+    /// same confirmed-primary screen-anchored condition that suppresses the
+    /// Mac scroll RPC. Gates the local mirror's pixel-precise scroll path.
+    /// Optional.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool
     /// Resolves immediate input ownership from a generation-stamped artifact cache.
     /// Hosts defer when the cache is missing, stale, or contains a candidate.
     func ghosttySurfaceView(
@@ -98,6 +107,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The local Ghostty render pipeline was rebuilt after a stuck render/output
     /// operation. The host should replay authoritative terminal state.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView)
+    /// The mounted output consumer exhausted its bounded restart budget. The
+    /// host should give the user an explicit retry/remount action instead of
+    /// silently leaving the terminal without a stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView)
 }
 
 /// Default no-op implementations for the optional delegate requirements, so
@@ -105,8 +118,12 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without window-scoped resources can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
+    /// Default no-op so hosts without app-lifecycle resources can ignore it.
+    func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default false so hosts without screen-anchored sessions keep line units.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool { false }
     /// Default to immediate input for hosts without artifact-path interception.
     func ghosttySurfaceView(
         _ surfaceView: GhosttySurfaceView,
@@ -155,5 +172,8 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal-output replay can ignore renderer resets.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without terminal-output recovery chrome can
+    /// ignore an exhausted stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView) {}
 }
 #endif

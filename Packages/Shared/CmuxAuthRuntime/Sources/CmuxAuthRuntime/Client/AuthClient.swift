@@ -11,6 +11,12 @@ public protocol AuthClient: Sendable {
     /// The current Stack access token, or `nil` when there is no live session.
     func accessToken() async -> String?
 
+    /// Resolves access with typed cancellation/deadline failures when supported.
+    /// - Parameter forceRefresh: Bypasses the cached token after server rejection.
+    /// - Returns: A usable access token, or nil when unavailable.
+    /// - Throws: Cancellation or a classified transient refresh failure.
+    func resolvedAccessToken(forceRefresh: Bool) async throws -> String?
+
     /// The current Stack refresh token, or `nil` when there is no live session.
     func refreshToken() async -> String?
 
@@ -38,6 +44,23 @@ public protocol AuthClient: Sendable {
     /// List the teams the signed-in user belongs to.
     /// - Returns: The user's teams; empty when no user is signed in.
     func listTeams() async throws -> [CMUXAuthTeam]
+
+    /// Read Stack Auth's cross-device selected team, when the backend exposes
+    /// one for the current session.
+    func selectedTeamID() async throws -> String?
+
+    /// Persist the user's selected team in Stack Auth.
+    ///
+    /// The local coordinator keeps a durable fallback for offline launch, but
+    /// this server value is the cross-device source of truth used by the web
+    /// dashboard and other cmux clients.
+    /// - Parameter id: The team id to select, or `nil` to clear the selection.
+    func setSelectedTeam(id: String?) async throws
+
+    /// Create a Stack Auth team and add the current user as its creator.
+    /// - Parameter displayName: The team's display name.
+    /// - Returns: The newly-created team summary.
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam
 
     /// Send a magic-link email and return the opaque nonce to combine with the
     /// user-entered code.
@@ -101,4 +124,26 @@ public protocol AuthClient: Sendable {
     /// session is already cleared. Best-effort: returns `nil` when no token
     /// could be resolved (offline, dead server).
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String?
+}
+
+/// Errors returned when a team operation cannot be performed by an auth client.
+public enum AuthClientError: Error, Equatable, Sendable {
+    /// The client does not support team mutation (used by test-only clients).
+    case unsupported
+    /// The requested team is not in the authenticated user's membership list.
+    case teamNotAvailable
+    /// The requested team name is empty after trimming.
+    case invalidTeamName
+}
+
+public extension AuthClient {
+    func selectedTeamID() async throws -> String? { nil }
+
+    func setSelectedTeam(id: String?) async throws {
+        throw AuthClientError.unsupported
+    }
+
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        throw AuthClientError.unsupported
+    }
 }

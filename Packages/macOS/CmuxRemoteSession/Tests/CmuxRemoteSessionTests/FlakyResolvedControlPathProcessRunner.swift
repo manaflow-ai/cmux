@@ -8,15 +8,18 @@ final class FlakyResolvedControlPathProcessRunner:
     // lint:allow lock - resolution calls consume one scripted test counter.
     private let lock = NSLock()
     private let base: any RemoteSessionProcessRunning
+    private let controlPath: String
     private let failureCount: Int
     private var attempts = 0
 
     init(
         base: any RemoteSessionProcessRunning,
-        failureCount: Int
+        failureCount: Int,
+        controlPath: String = ResolvedControlPathFixture.path
     ) {
         self.base = base
         self.failureCount = failureCount
+        self.controlPath = controlPath
     }
 
     var resolutionAttempts: Int {
@@ -42,7 +45,7 @@ final class FlakyResolvedControlPathProcessRunner:
             }
             return RemoteCommandResult(
                 status: 0,
-                stdout: "controlpath \(ResolvedControlPathFixture.path)\n",
+                stdout: "controlpath \(controlPath)\n",
                 stderr: ""
             )
         }
