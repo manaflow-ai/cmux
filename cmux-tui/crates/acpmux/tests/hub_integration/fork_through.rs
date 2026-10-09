@@ -59,6 +59,11 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
     let prompts =
         hub.events(&fid, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "user_message").count();
     assert_eq!(prompts, 2, "the fork holds both turns");
+    // Each copied turn ends in the fork too, or the pane shows its last
+    // reply as still streaming and the chat as working.
+    let ended =
+        hub.events(&fid, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "turn_result").count();
+    assert_eq!(ended, 2, "the fork holds both turn ends");
     let r = c
         .request(
             method::SESSION_PROMPT,
