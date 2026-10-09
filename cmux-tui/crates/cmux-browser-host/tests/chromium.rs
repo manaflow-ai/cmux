@@ -1037,9 +1037,14 @@ console.log("walked:" + (cr.walks >= 1 && cr.roots >= 3));
     let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = stop.args(["close", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
-    for line in
-        ["skipped:true", "open:true", "declarative:true", "text:true", "scripted:true", "walked:true"]
-    {
+    for line in [
+        "skipped:true",
+        "open:true",
+        "declarative:true",
+        "text:true",
+        "scripted:true",
+        "walked:true",
+    ] {
         assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
     }
 }
