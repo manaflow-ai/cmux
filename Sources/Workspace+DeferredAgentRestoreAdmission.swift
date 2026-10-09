@@ -105,6 +105,11 @@ extension Workspace {
 
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
+            let allowsNativeClaudeResumeFallback = restore.allowsNativeClaudeResumeFallback &&
+                SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                    restorableAgent: restore.restorableAgent,
+                    resumeBinding: currentResumeBinding ?? restore.resumeBinding
+                )
             if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
                     restorableAgent.sessionRestoreStartupInput(
@@ -113,7 +118,8 @@ extension Workspace {
                     )
                 } else {
                     restorableAgent.sessionRestoreStartupInput(
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
+                        restoringWorkingDirectory: restore.resumeWorkingDirectory,
+                        allowNativeClaudeResumeFallback: allowsNativeClaudeResumeFallback
                     )
                 }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
@@ -149,7 +155,8 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
+            let ownedClaim = (restore.restoresRemoteWorkspaceTerminalSnapshot ||
+                allowsNativeClaudeResumeFallback)
                 ? claim
                 : nil
             if let ownedClaim,

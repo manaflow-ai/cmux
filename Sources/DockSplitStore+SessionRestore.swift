@@ -326,7 +326,8 @@ extension DockSplitStore {
             (agentWasRunning || shouldAutoResumeNormallyEndedClaude) &&
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
-            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true) &&
+            !shouldAutoResumeNormallyEndedClaude
         let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
@@ -427,7 +428,7 @@ extension DockSplitStore {
             )
         }
         let restoredTmuxStartCommand = tmuxLauncher == nil ? nil : tmuxStartCommand
-        let agentSessionAlreadyActive = !usesExecutionAdmission && sessionAgentAlreadyActive(
+        var agentSessionAlreadyActive = !usesExecutionAdmission && sessionAgentAlreadyActive(
             restorableAgent: restorableAgent,
             snapshotPanelId: snapshot.id,
             shouldAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
@@ -436,13 +437,36 @@ extension DockSplitStore {
             restoreStartupBlocked: restoreStartupBlocked,
             liveSessionOwner: liveSessionOwner
         )
+        var resumeLaunchClaim: AgentResumeLaunchGuard.Claim?
+        if !agentSessionAlreadyActive,
+           shouldAutoResumeNormallyEndedClaude,
+           let restorableAgent {
+            resumeLaunchClaim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                kind: restorableAgent.kind.rawValue,
+                sessionId: restorableAgent.sessionId
+            )
+            if resumeLaunchClaim == nil {
+                agentSessionAlreadyActive = true
+            }
+        }
         let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
             hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
             ? restorableAgent?.sessionRestoreStartupInput(
-                restoringWorkingDirectory: resumeSessionWorkingDirectory
+                restoringWorkingDirectory: resumeSessionWorkingDirectory,
+                allowNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
+        if agentLaunch == nil,
+           let resumeLaunchClaim,
+           let restorableAgent {
+            _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: restorableAgent.kind.rawValue,
+                sessionId: restorableAgent.sessionId,
+                claim: resumeLaunchClaim
+            )
+            resumeLaunchClaim = nil
+        }
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
         // ordinary shell instead of waiting behind deferred admission.
@@ -451,7 +475,8 @@ extension DockSplitStore {
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
             if let restorableAgent, restorableAgentCanAutoResume {
                 restorableAgent.sessionRestoreStartupInput(
-                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory,
+                    allowNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude
                 )
             } else {
                 policy
@@ -539,6 +564,14 @@ extension DockSplitStore {
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
             if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
+            if let resumeLaunchClaim,
+               let restorableAgent {
+                _ = AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionId: restorableAgent.sessionId,
+                    claim: resumeLaunchClaim
+                )
+            }
             return nil
         }
         armRestoredPanelTitleBoundary(
@@ -615,6 +648,7 @@ extension DockSplitStore {
                     resumeBinding: resumeBinding,
                     tmuxStartCommand: localTmuxStartCommand,
                     restoresRemoteWorkspaceTerminalSnapshot: false,
+                    allowsNativeClaudeResumeFallback: shouldAutoResumeNormallyEndedClaude,
                     remoteResumeContext: resumeBinding?.launchFlavor.remoteContext,
                     workingDirectory: workingDirectory,
                     resumeWorkingDirectory: resumeSessionWorkingDirectory

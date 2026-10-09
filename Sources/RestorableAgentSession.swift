@@ -3749,6 +3749,9 @@ struct DeferredAgentResumeRestore: Sendable {
     /// reattached without starting a second writer.
     let tmuxStartCommand: String?
     let restoresRemoteWorkspaceTerminalSnapshot: Bool
+    /// Whether the validated completed Claude snapshot must use native resume
+    /// after deferred ownership admission resolves.
+    let allowsNativeClaudeResumeFallback: Bool
     /// The persistent-SSH owner captured for deferred admission, if any.
     let remoteResumeContext: SurfaceResumeRemoteContext?
     let workingDirectory: String?
@@ -3765,6 +3768,7 @@ struct DeferredAgentResumeRestore: Sendable {
         resumeBinding: SurfaceResumeBindingSnapshot?,
         tmuxStartCommand: String? = nil,
         restoresRemoteWorkspaceTerminalSnapshot: Bool,
+        allowsNativeClaudeResumeFallback: Bool = false,
         remoteResumeContext: SurfaceResumeRemoteContext? = nil,
         workingDirectory: String?,
         resumeWorkingDirectory: String?
@@ -3774,6 +3778,7 @@ struct DeferredAgentResumeRestore: Sendable {
         self.resumeBinding = resumeBinding
         self.tmuxStartCommand = tmuxStartCommand
         self.restoresRemoteWorkspaceTerminalSnapshot = restoresRemoteWorkspaceTerminalSnapshot
+        self.allowsNativeClaudeResumeFallback = allowsNativeClaudeResumeFallback
         self.remoteResumeContext = remoteResumeContext
         self.workingDirectory = workingDirectory
         self.resumeWorkingDirectory = resumeWorkingDirectory
@@ -3808,6 +3813,7 @@ struct DeferredAgentResumeRestore: Sendable {
             tmuxStartCommand: tmuxStartCommand,
             restoresRemoteWorkspaceTerminalSnapshot:
                 restoresRemoteWorkspaceTerminalSnapshot,
+            allowsNativeClaudeResumeFallback: allowsNativeClaudeResumeFallback,
             remoteResumeContext: destinationContext,
             workingDirectory: workingDirectory,
             resumeWorkingDirectory: resumeWorkingDirectory

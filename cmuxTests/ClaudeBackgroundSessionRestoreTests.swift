@@ -62,6 +62,10 @@ struct ClaudeBackgroundSessionRestoreTests {
                 daemonProcess.terminate()
                 daemonProcess.waitUntilExit()
             }
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: "claude",
+                sessionId: "884a7be7-5a7c-4d54-838e-423426a31aaf"
+            )
             defaults.removePersistentDomain(forName: defaultsName)
             try? FileManager.default.removeItem(at: root)
         }
@@ -259,6 +263,37 @@ struct ClaudeBackgroundSessionRestoreTests {
         #expect(!input.contains(" restore "), Comment(rawValue: input))
     }
 
+    @Test("Duplicate normally completed restores claim one native resume")
+    func duplicateNormallyCompletedRestoresDoNotLaunchTwoWriters() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { source.teardownAllPanels() }
+        let paneID = try #require(source.bonsplitController.allPaneIds.first)
+        _ = try #require(source.newTerminalSurface(inPane: paneID, focus: false)).id
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.workingDirectory = fixture.workingDirectory.path
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = hookBinding(fixture, autoResume: true)
+            terminal.wasAgentRunning = false
+            snapshot.panels[index].terminal = terminal
+        }
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let inputs = try snapshot.panels.compactMap { panel in
+            try restoredIDs[panel.id].flatMap { panelID in
+                restored.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
+            }
+        }
+        #expect(inputs.count == 1, Comment(rawValue: inputs.joined(separator: "\n")))
+        #expect(inputs.first?.contains("--resume") == true, Comment(rawValue: inputs.first ?? ""))
+    }
+
     @Test("A Claude session with an active prompt keeps deferred restore admission")
     func deferredCompletionKeepsRestoreAdmission() throws {
         let fixture = try makeFixture()
@@ -318,6 +353,22 @@ struct ClaudeBackgroundSessionRestoreTests {
             terminal.wasAgentRunning = false
         }
         #expect(missing.input == nil, Comment(rawValue: missing.input ?? ""))
+    }
+
+    @Test("A running Claude snapshot without a binding keeps local restore admission")
+    func missingBindingDoesNotSelectNativeResumeForRunningSnapshot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let restored = try restore(fixture) { terminal in
+            terminal.agent = agent(fixture, hadActivePromptTurn: false)
+            terminal.resumeBinding = nil
+            terminal.wasAgentRunning = true
+        }
+
+        let input = try #require(restored.input)
+        #expect(input.contains(" restore claude "), Comment(rawValue: input))
+        #expect(!input.contains("--resume"), Comment(rawValue: input))
     }
 
     @Test("Unsafe native resume data fails closed and keeps the binding")

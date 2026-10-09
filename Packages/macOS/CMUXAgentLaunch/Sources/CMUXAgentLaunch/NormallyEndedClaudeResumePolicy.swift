@@ -14,14 +14,31 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
 
     /// The evidence needed to admit a normally completed Claude session.
     public struct AdmissionEvidence: Sendable {
+        /// The persisted agent kind.
         public var agentKind: String
+        /// The persisted agent checkpoint identity.
         public var agentSessionID: String
+        /// Whether the captured session still had an active prompt turn.
         public var hadActivePromptTurn: Bool?
+        /// The binding's persisted agent kind.
         public var bindingKind: String?
+        /// The binding's checkpoint identity.
         public var bindingSessionID: String?
+        /// The binding publisher source.
         public var bindingSource: String?
+        /// Whether automatic resume was enabled for the binding.
         public var autoResume: Bool?
 
+        /// Creates captured admission evidence.
+        ///
+        /// - Parameters:
+        ///   - agentKind: The persisted agent kind.
+        ///   - agentSessionID: The persisted agent checkpoint identity.
+        ///   - hadActivePromptTurn: The explicit prompt-turn marker, when present.
+        ///   - bindingKind: The binding's persisted agent kind.
+        ///   - bindingSessionID: The binding's checkpoint identity.
+        ///   - bindingSource: The binding publisher source.
+        ///   - autoResume: Whether automatic resume was enabled.
         public init(
             agentKind: String,
             agentSessionID: String,
@@ -49,6 +66,12 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
     /// A normally ended Claude session is launched through its native resume
     /// command, while every other agent and every unknown marker retains the
     /// caller's existing restore-verb choice.
+    ///
+    /// - Parameters:
+    ///   - requested: Whether the caller requested the local restore verb.
+    ///   - agentKind: The persisted agent kind.
+    ///   - hadActivePromptTurn: The explicit prompt-turn marker, when present.
+    /// - Returns: Whether the local restore verb should remain selected.
     public func usesLocalRestoreVerb(
         requested: Bool,
         agentKind: String,
@@ -66,6 +89,9 @@ public struct NormallyEndedClaudeResumePolicy: Sendable {
     /// Binding source, automatic-resume consent, kind, and the checkpoint
     /// identity are all required. Session IDs are trimmed but remain
     /// case-sensitive, matching Claude's existing identity comparison.
+    ///
+    /// - Parameter evidence: Captured snapshot and binding evidence.
+    /// - Returns: Whether native Claude resume is admitted.
     public func admits(_ evidence: AdmissionEvidence) -> Bool {
         guard isNormallyEndedClaude(
                   agentKind: evidence.agentKind,

@@ -49,25 +49,31 @@ extension SessionRestorableAgentSnapshot {
     /// completed Claude session uses the native `claude --resume` fallback.
     func sessionRestoreStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        allowNativeClaudeResumeFallback: Bool = false
     ) -> String? {
         sessionRestoreStartupInput(
             useLocalRestoreVerb: useLocalRestoreVerb,
-            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory),
+            allowNativeClaudeResumeFallback: allowNativeClaudeResumeFallback
         )
     }
 
     func sessionRestoreStartupInput(
         useLocalRestoreVerb: Bool,
-        workingDirectorySelection: RestorableAgentWorkingDirectorySelection
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection,
+        allowNativeClaudeResumeFallback: Bool = false
     ) -> String? {
         let policy = NormallyEndedClaudeResumePolicy()
-        return resumeStartupInput(
-            useLocalRestoreVerb: policy.usesLocalRestoreVerb(
+        let effectiveUseLocalRestoreVerb = allowNativeClaudeResumeFallback
+            ? policy.usesLocalRestoreVerb(
                 requested: useLocalRestoreVerb,
                 agentKind: kind.rawValue,
                 hadActivePromptTurn: hadActivePromptTurn
-            ),
+            )
+            : useLocalRestoreVerb
+        return resumeStartupInput(
+            useLocalRestoreVerb: effectiveUseLocalRestoreVerb,
             workingDirectorySelection: workingDirectorySelection
         )
     }
