@@ -2,6 +2,7 @@ use super::*;
 
 fn holder(path: &str, args: &[&str], env: &[&str]) -> Holder {
     Holder {
+        pid: 1,
         path: path.to_string(),
         args: args.iter().map(|a| a.to_string()).collect(),
         env: env.iter().map(|e| e.to_string()).collect(),

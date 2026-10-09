@@ -100,13 +100,23 @@ pub fn is_service_name(name: &str) -> bool {
 
 /// This machine's check before a dial (a listener may not exist yet).
 pub fn system_check() -> ServiceCheck {
-    Arc::new(|addr| service_refusal(addr, false))
+    Arc::new(|addr| twice(|| service_refusal(addr, false)))
+}
+
+/// A refusal is checked once more on a fresh snapshot, and stands only if
+/// that check refuses too: a process that starts, execs or exits while the
+/// check reads it can read as an unidentified or unreadable holder (seen as
+/// rare refusals of live test listeners under a busy test run). A real
+/// refusal (a cmux service, a debugger port) refuses both times; the second
+/// check is a full check, so this is no weaker than one.
+fn twice(check: impl Fn() -> Option<String>) -> Option<String> {
+    check().and_then(|_| check())
 }
 
 /// This machine's check of a connected peer: a listener exists, so one
 /// this host cannot see refuses the port (fail closed).
 pub fn system_connected_check() -> ServiceCheck {
-    Arc::new(|addr| service_refusal(addr, true))
+    Arc::new(|addr| twice(|| service_refusal(addr, true)))
 }
 
 #[cfg(target_os = "linux")]
@@ -123,9 +133,8 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
             .then(|| format!("loopback port {port} is held by a socket this host cannot see"));
     }
     let (held, holders) = holders(&inodes);
-    for holder in holders.iter().flatten() {
-        let family = crate::egress_holders::dir_is_chromium_family(&holder.path);
-        if let Some(why) = crate::egress_holders::holder_refusal(holder, port, family) {
+    for (holder, family) in holders.iter().flatten() {
+        if let Some(why) = crate::egress_holders::holder_refusal(holder, port, *family) {
             return Some(why);
         }
     }
@@ -134,7 +143,8 @@ fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
             "the process that listens on loopback port {port} cannot be identified"
         ));
     }
-    None
+    let pids: Vec<i32> = holders.iter().flatten().map(|(holder, _)| holder.pid).collect();
+    crate::egress_devtools::refusal(addr, &pids)
 }
 
 /// App bundle executable names (macOS names them with spaces): cmux
@@ -153,15 +163,28 @@ pub(crate) fn is_app_service_name(name: &str) -> bool {
 /// (crate::egress_listeners).
 #[cfg(target_os = "macos")]
 fn service_refusal(addr: SocketAddr, connected: bool) -> Option<String> {
-    use crate::egress_listeners::{system_listeners, system_own_listeners, verdict};
+    use crate::egress_listeners::{fill_holders, system_listeners, system_own_listeners, verdict};
     // SAFETY: geteuid has no preconditions.
     let own_uid = unsafe { libc::geteuid() };
-    let (Some(table), Some(own)) = (system_listeners(), system_own_listeners(own_uid)) else {
+    let (Some(table), Some(mut own)) = (system_listeners(), system_own_listeners(own_uid)) else {
         return Some(format!(
             "loopback {addr} cannot be checked: the socket tables are unreadable"
         ));
     };
-    verdict(addr, &table, &own, own_uid, connected)
+    fill_holders(&mut own, addr);
+    if let Some(why) = verdict(addr, &table, &own, own_uid, connected) {
+        return Some(why);
+    }
+    let pids: Vec<i32> = own
+        .iter()
+        .filter(|held| crate::egress_listeners::covers(&held.listener, addr))
+        .map(|held| held.pid)
+        .collect();
+    // Nobody this host sees listens: nothing to probe.
+    if pids.is_empty() {
+        return None;
+    }
+    crate::egress_devtools::refusal(addr, &pids)
 }
 
 #[cfg(target_os = "macos")]
@@ -218,7 +241,7 @@ pub fn parse_listening(table: &str, port: u16) -> Vec<u64> {
 /// The holders of `inodes`: how many of the inodes some readable process
 /// holds, and each holder (`None`: unreadable).
 #[cfg(target_os = "linux")]
-fn holders(inodes: &[u64]) -> (usize, Vec<Option<crate::egress_holders::Holder>>) {
+fn holders(inodes: &[u64]) -> (usize, Vec<Option<(crate::egress_holders::Holder, bool)>>) {
     let wanted: Vec<String> = inodes.iter().map(|inode| format!("socket:[{inode}]")).collect();
     let mut held = vec![false; wanted.len()];
     let mut exes = Vec::new();
@@ -238,7 +261,13 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<crate::egress_holders::Holder>>
             }
         }
         if holds {
-            exes.push(crate::egress_holders::system_holder(pid));
+            // The executable path is in the process's mount namespace
+            // (snap, Flatpak): look beside it through its root.
+            exes.push(crate::egress_holders::system_holder(pid).map(|holder| {
+                let seen = format!("/proc/{pid}/root{}", holder.path);
+                let family = crate::egress_holders::dir_is_chromium_family(&seen);
+                (holder, family)
+            }));
         }
     }
     (held.iter().filter(|h| **h).count(), exes)

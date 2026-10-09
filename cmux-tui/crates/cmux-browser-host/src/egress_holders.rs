@@ -20,6 +20,10 @@
 /// The process that holds a listener.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Holder {
+    /// The process id (Linux keys the DevTools probe by it; macOS by the
+    /// listener's pid).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) pid: i32,
     /// The executable path.
     pub(crate) path: String,
     pub(crate) args: Vec<String>,
@@ -42,9 +46,10 @@ enum DebugPorts {
 }
 
 /// The port in a flag value: `9333`, `127.0.0.1:9333`, `[::1]:9333`,
-/// `ws://localhost:9333/path`. `None`: no port given; `Some(0)`: picked by
-/// the system.
+/// `ws://localhost:9333/path`, any of them in double quotes. `None`: no port
+/// given; `Some(0)`: picked by the system.
 fn value_port(value: &str) -> Option<u16> {
+    let value = value.trim_matches('"');
     let value = value.split_once("://").map_or(value, |(_, rest)| rest);
     let value = value.split('/').next().unwrap_or(value);
     if let Ok(port) = value.parse() {
@@ -53,29 +58,39 @@ fn value_port(value: &str) -> Option<u16> {
     value.rsplit_once(':').and_then(|(_, port)| port.parse().ok())
 }
 
+/// An option name as Node and Chromium match it: `_` reads as `-`, and
+/// Chromium takes a single leading dash too.
+fn option_name(flag: &str) -> String {
+    let flag = flag.replace('_', "-");
+    if flag.starts_with('-') && !flag.starts_with("--") { format!("-{flag}") } else { flag }
+}
+
 /// The debugger ports opened by `args` (`--inspect` forms, `--debug`
 /// forms, `--remote-debugging-port`); `None` when there are none.
-fn args_debug_ports<'a>(args: impl IntoIterator<Item = &'a str>) -> Option<DebugPorts> {
-    let args: Vec<&str> = args.into_iter().collect();
+fn args_debug_ports<S: AsRef<str>>(args: &[S]) -> Option<DebugPorts> {
     let mut ports = Vec::new();
     let mut found = false;
     let mut unknown = false;
     for (at, arg) in args.iter().enumerate() {
+        let arg = arg.as_ref();
         let (flag, value) = match arg.split_once('=') {
             Some((flag, value)) => (flag, Some(value)),
-            None => (*arg, None),
+            None => (arg, None),
         };
+        let flag = option_name(flag);
         let port_flag =
-            matches!(flag, "--inspect-port" | "--debug-port" | "--remote-debugging-port");
+            matches!(flag.as_str(), "--inspect-port" | "--debug-port" | "--remote-debugging-port");
         let opens = port_flag
-            || ["--inspect", "--inspect-brk", "--inspect-wait", "--debug", "--debug-brk"]
-                .contains(&flag);
+            || ["--inspect", "--inspect-brk", "--inspect-brk-node", "--inspect-wait"]
+                .contains(&flag.as_str())
+            || ["--debug", "--debug-brk"].contains(&flag.as_str());
         if !opens {
             continue;
         }
         found = true;
         // A port flag may take its value as the next argument.
-        let value = value.or_else(|| port_flag.then(|| args.get(at + 1).copied()).flatten());
+        let value =
+            value.or_else(|| port_flag.then(|| args.get(at + 1).map(AsRef::as_ref)).flatten());
         match value.map(value_port) {
             Some(Some(0)) => unknown = true,
             Some(Some(port)) => ports.push(port),
@@ -90,14 +105,46 @@ fn args_debug_ports<'a>(args: impl IntoIterator<Item = &'a str>) -> Option<Debug
     Some(if unknown { DebugPorts::Unknown } else { DebugPorts::Known(ports) })
 }
 
+/// `NODE_OPTIONS` split as Node splits it: on spaces, with double quotes
+/// grouping and a backslash escaping inside them.
+fn node_options(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut escaped, mut started) = (false, false, false);
+    for c in value.chars() {
+        if escaped {
+            word.push(c);
+            escaped = false;
+        } else if quoted && c == '\\' {
+            escaped = true;
+        } else if c == '"' {
+            quoted = !quoted;
+            started = true;
+        } else if c.is_whitespace() && !quoted {
+            if started || !word.is_empty() {
+                out.push(std::mem::take(&mut word));
+            }
+            started = false;
+        } else {
+            word.push(c);
+        }
+    }
+    if started || !word.is_empty() {
+        out.push(word);
+    }
+    out
+}
+
 /// The debugger ports a process opened, from its arguments and its
 /// environment; `None` when it opened none.
 fn debug_ports(holder: &Holder) -> Option<DebugPorts> {
-    let mut found = vec![args_debug_ports(holder.args.iter().map(String::as_str))];
+    let mut found = vec![args_debug_ports(&holder.args)];
     for entry in &holder.env {
         let Some((name, value)) = entry.split_once('=') else { continue };
         found.push(match name {
-            "NODE_OPTIONS" => args_debug_ports(value.split_whitespace()),
+            "NODE_OPTIONS" => args_debug_ports(&node_options(value)),
+            // A Unix socket opens no TCP port.
+            "BUN_INSPECT" if value.starts_with("ws+unix:") => None,
             // A URL (`ws://host:port/prefix`) or a bare path prefix.
             "BUN_INSPECT" if !value.is_empty() => Some(match value_port(value) {
                 Some(port) if port != 0 && value.contains("://") => DebugPorts::Known(vec![port]),
@@ -143,6 +190,7 @@ pub(crate) fn holder_refusal(holder: &Holder, port: u16, family: bool) -> Option
         }
         _ => {}
     }
+    let name = name.strip_suffix(" (deleted)").unwrap_or(name);
     let runtime = INSPECTOR_RUNTIMES.iter().any(|runtime| {
         name == *runtime
             || name
@@ -157,33 +205,36 @@ pub(crate) fn holder_refusal(holder: &Holder, port: u16, family: bool) -> Option
 const CHROMIUM_FRAMEWORKS: &[&str] =
     &["Electron Framework.framework", "Chromium Embedded Framework.framework"];
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-/// macOS: whether the executable at `path` belongs to an app bundle that
-/// ships Electron or CEF: its own bundle, or, for a helper app inside
-/// `<App>.app/Contents/Frameworks`, that app.
-pub(crate) fn bundle_is_chromium_family(path: &str) -> bool {
-    let path = std::path::Path::new(path);
-    let Some(bundle) = path.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")) else {
-        return false;
-    };
-    let ships = |app: &std::path::Path| {
-        CHROMIUM_FRAMEWORKS.iter().any(|f| app.join("Contents/Frameworks").join(f).exists())
-    };
-    if ships(bundle) {
+/// Whether an app bundle ships Chromium: Electron or CEF, or V8's snapshot
+/// in one of its frameworks (Chrome, Arc, Dia, Vivaldi, Opera).
+fn ships_chromium(app: &std::path::Path) -> bool {
+    let frameworks = app.join("Contents/Frameworks");
+    if CHROMIUM_FRAMEWORKS.iter().any(|f| frameworks.join(f).exists()) {
         return true;
     }
-    // A helper: <App>.app/Contents/Frameworks/<Helper>.app.
-    let mut up = bundle.ancestors().skip(1);
-    match (up.next(), up.next(), up.next()) {
-        (Some(frameworks), Some(contents), Some(app))
-            if frameworks.file_name().is_some_and(|n| n == "Frameworks")
-                && contents.file_name().is_some_and(|n| n == "Contents")
-                && app.extension().is_some_and(|e| e == "app") =>
-        {
-            ships(app)
-        }
-        _ => false,
-    }
+    let Ok(entries) = std::fs::read_dir(&frameworks) else { return false };
+    entries.flatten().any(|framework| {
+        let Ok(versions) = std::fs::read_dir(framework.path().join("Versions")) else {
+            return false;
+        };
+        versions.flatten().any(|version| {
+            std::fs::read_dir(version.path().join("Resources")).is_ok_and(|files| {
+                files.flatten().any(|file| {
+                    file.file_name().to_string_lossy().starts_with("v8_context_snapshot")
+                })
+            })
+        })
+    })
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+/// macOS: whether the executable at `path` sits in an app bundle (at any
+/// depth: helpers live inside the app's frameworks) that ships Chromium.
+pub(crate) fn bundle_is_chromium_family(path: &str) -> bool {
+    std::path::Path::new(path)
+        .ancestors()
+        .filter(|p| p.extension().is_some_and(|e| e == "app"))
+        .any(ships_chromium)
 }
 
 /// Linux: whether the executable at `path` sits beside Chromium's V8
@@ -210,7 +261,9 @@ pub(crate) fn parse_procargs2(data: &[u8]) -> Option<(Vec<String>, Vec<String>)>
     if args.len() != argc {
         return None;
     }
+    // `process.title` pads the argument area with NULs: skip them.
     let env = strings
+        .skip_while(|s| s.is_empty())
         .take_while(|s| !s.is_empty())
         .map(|s| String::from_utf8_lossy(s).into_owned())
         .collect();
@@ -257,7 +310,7 @@ pub(crate) fn system_holder(pid: i32) -> Option<Holder> {
         return None;
     }
     let (args, env) = parse_procargs2(&buffer[..filled])?;
-    Some(Holder { path, args, env })
+    Some(Holder { pid, path, args, env })
 }
 
 /// Linux: the holder `pid` from `/proc`; `None` when it cannot be read.
@@ -273,7 +326,8 @@ pub(crate) fn system_holder(pid: &str) -> Option<Holder> {
     };
     let args = split(std::fs::read(format!("/proc/{pid}/cmdline")).ok()?);
     let env = split(std::fs::read(format!("/proc/{pid}/environ")).ok()?);
-    Some(Holder { path: path.to_string_lossy().into_owned(), args, env })
+    let pid = pid.parse().ok()?;
+    Some(Holder { pid, path: path.to_string_lossy().into_owned(), args, env })
 }
 
 #[cfg(test)]

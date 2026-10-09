@@ -65,10 +65,12 @@ pub(crate) struct Listener {
 }
 
 /// A LISTEN socket of this user and a process that holds it (`None`:
-/// unreadable); `family`: that process is Chromium-based (Electron, CEF).
+/// unreadable or not read yet); `family`: that process is Chromium-based.
+/// `fill_holders` reads the holders of the listeners that matter.
 #[derive(Clone, Debug)]
 pub(crate) struct Held {
     pub(crate) listener: Listener,
+    pub(crate) pid: i32,
     pub(crate) holder: Option<crate::egress_holders::Holder>,
     pub(crate) family: bool,
 }
@@ -125,7 +127,7 @@ pub(crate) fn parse_pcblist64(data: &[u8]) -> Option<Vec<Listener>> {
 }
 
 /// Whether a connection to `target` can reach `listener`.
-fn covers(listener: &Listener, target: SocketAddr) -> bool {
+pub(crate) fn covers(listener: &Listener, target: SocketAddr) -> bool {
     if listener.port != target.port() {
         return false;
     }
@@ -251,17 +253,28 @@ pub(crate) fn system_own_listeners(uid: u32) -> Option<Vec<Held>> {
         if found.is_empty() {
             continue;
         }
-        let holder = crate::egress_holders::system_holder(pid);
-        let family = holder
-            .as_ref()
-            .is_some_and(|h| crate::egress_holders::bundle_is_chromium_family(&h.path));
         out.extend(found.into_iter().map(|listener| Held {
             listener,
-            holder: holder.clone(),
-            family,
+            pid,
+            holder: None,
+            family: false,
         }));
     }
     Some(out)
+}
+
+/// Reads the holders of the listeners that cover `target` (arguments,
+/// environment and bundle cost a sysctl and a few stats each, so only
+/// these).
+#[cfg(target_os = "macos")]
+pub(crate) fn fill_holders(own: &mut [Held], target: SocketAddr) {
+    for held in own.iter_mut().filter(|h| covers(&h.listener, target)) {
+        held.holder = crate::egress_holders::system_holder(held.pid);
+        held.family = held
+            .holder
+            .as_ref()
+            .is_some_and(|h| crate::egress_holders::bundle_is_chromium_family(&h.path));
+    }
 }
 
 /// The pids of `uid`'s processes; grows the buffer until it is not full.
