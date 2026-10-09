@@ -294,7 +294,7 @@ describe("signed-in replay against a fake Stack and a fake origin", () => {
       { method: "GET", path: "/api/vm", params: [], headers: ["Authorization"], sources: [], via: "t", mode: "read", response: { vms: [{ id: "string" }] } },
       { method: "GET", path: "/api/teams/{team}", params: ["team"], headers: ["Authorization"], sources: [], via: "t", mode: "read", response: { id: "string", members: ["object"] }, fill: { team: "team" } },
       { method: "GET", path: "/api/vm/{encodedID}/stats", params: ["encodedID"], headers: ["Authorization"], sources: [], via: "t", mode: "read", response: "object", fill: { encodedID: "vm" } },
-      { method: "GET", path: "/api/whats-new", params: [], headers: ["Accept"], sources: [], via: "t", mode: "read", response: { visibleEntryIds: ["string"] } },
+      { method: "GET", path: "/api/whats-new", params: [], headers: [], sources: [], via: "t", mode: "read", anonymous: true, response: { visibleEntryIds: ["string"] } },
       { method: "POST", path: "/api/vm/tunnel", params: [], headers: ["Authorization"], sources: [], via: "t", mode: "shape-only", reason: "changes state" },
     ],
   }
