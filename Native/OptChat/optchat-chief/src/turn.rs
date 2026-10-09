@@ -37,6 +37,8 @@ pub struct Interrupt {
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
+    /// Wakes [`Interrupt::wait`] on a request.
+    waiting: (Mutex<()>, std::sync::Condvar),
 }
 
 impl Interrupt {
@@ -46,6 +48,14 @@ impl Interrupt {
 
     pub fn request(&self) {
         self.wanted.store(true, Ordering::SeqCst);
+        {
+            let _held = self
+                .waiting
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.waiting.1.notify_all();
+        }
         if let Some(tx) = self
             .wake
             .lock()
@@ -58,6 +68,30 @@ impl Interrupt {
 
     pub fn is_set(&self) -> bool {
         self.wanted.load(Ordering::SeqCst)
+    }
+
+    /// Waits up to `limit` for a request (a bounded wait, woken by
+    /// [`Interrupt::request`], never polled); whether one came.
+    pub fn wait(&self, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        let mut held = self
+            .waiting
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !self.is_set() {
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            held = self
+                .waiting
+                .1
+                .wait_timeout(held, deadline - now)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 
     /// Sets whether the turn's local effects need an approval.
@@ -262,6 +296,16 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
+    // codex under approve-all: no workspace-write sandbox, so the turn's
+    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
+        && let Err(e) = agents.set_mode(&session, mode)
+    {
+        log(&format!(
+            "turn {}: {e}; its cmux calls may be sandboxed",
+            start.key
+        ));
+    }
     folding.replace(Some(session.clone()));
     let drafter = std::cell::RefCell::new(crate::draft::Drafter::new(
         &start.key,
@@ -619,4 +663,127 @@ pub fn adopt_orphan(
         ));
     }
     Ok(())
+}
+
+/// The wait before a capacity refusal names no retry-after.
+pub const CAPACITY_DEFAULT_WAIT: Duration = Duration::from_secs(60);
+/// The longest a turn waits for capacity in all (the turn limit still
+/// applies); past it the refusal is the turn's error.
+pub const CAPACITY_MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// How long to wait before a turn that the model route refused for want of
+/// capacity runs again: the subrouter's "no non-exhausted ... accounts"
+/// (503) and the API's overload (529), at their "retry after Ns", else
+/// [`CAPACITY_DEFAULT_WAIT`]. None for any other error.
+pub fn capacity_retry_after(error: &str) -> Option<Duration> {
+    let lower = error.to_ascii_lowercase();
+    // An overload without a retry-after stays the turn's error (the shared
+    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it).
+    let capacity = lower.contains("no non-exhausted")
+        || ((lower.contains("overloaded")
+            || lower.contains("api error: 529")
+            || lower.contains("api error: 503"))
+            && lower.contains("retry after"));
+    if !capacity {
+        return None;
+    }
+    let seconds = lower.find("retry after ").and_then(|at| {
+        let digits: String = lower[at + 12..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse::<u64>().ok()
+    });
+    Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))
+}
+
+/// Runs `outcome`'s turn again while its route refuses it for want of
+/// capacity or cannot be reached ([`transient_retry_after`]): each time it
+/// waits (a newer message ends the
+/// wait, and the turn then stops as for that message), with one log line
+/// and one trace event, and never posts the refusal. Past
+/// [`CAPACITY_MAX_WAIT`] in all, the refusal stays the turn's error.
+pub fn run_after_capacity_waits(
+    mut outcome: TurnOutcome,
+    start: &TurnStart,
+    interrupt: &Interrupt,
+    log: &dyn Fn(&str),
+    trace: &Trace,
+    mut again: impl FnMut(&TurnStart) -> TurnOutcome,
+) -> TurnOutcome {
+    let mut waited = Duration::ZERO;
+    let mut attempt = 0u32;
+    loop {
+        let error = outcome.error.clone().unwrap_or_default();
+        let Some(wait) = transient_retry_after(&error, attempt) else {
+            return outcome;
+        };
+        let why = if capacity_retry_after(&error).is_some() {
+            "the model route has no capacity now"
+        } else {
+            "the model API cannot be reached now"
+        };
+        if outcome.reply.is_some() || waited + wait > CAPACITY_MAX_WAIT || interrupt.is_set() {
+            return outcome;
+        }
+        attempt += 1;
+        log(&format!(
+            "turn {}: {why}; running the turn again in {} s (attempt {attempt})",
+            start.key,
+            wait.as_secs()
+        ));
+        trace.emit(
+            "turn.capacity_wait",
+            serde_json::json!({"turn": start.key, "seconds": wait.as_secs(), "attempt": attempt}),
+        );
+        if interrupt.wait(wait) {
+            return outcome;
+        }
+        waited += wait;
+        let mut next = start.clone();
+        next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
+        outcome = again(&next);
+    }
+}
+
+/// Tries a turn gets after a connection error before the error stands.
+pub const CONNECTION_TRIES: u32 = 8;
+/// The longest wait between two tries after a connection error.
+pub const CONNECTION_MAX_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether `error` says the model API could not be reached at all (DNS,
+/// refused or reset connections, Claude Code's "Can't reach the API
+/// server" once its own retries end).
+pub fn is_connection_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    [
+        "can't reach the api",
+        "connection error",
+        "enotfound",
+        "econnrefused",
+        "econnreset",
+        "etimedout",
+        "eai_again",
+        "getaddrinfo",
+        "fetch failed",
+        "socket hang up",
+        "network error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+/// The wait before try `attempt` (0-based) runs a turn again after a
+/// transient error: a capacity refusal's own retry-after, or for a
+/// connection error 1 s doubling to [`CONNECTION_MAX_WAIT`] for
+/// [`CONNECTION_TRIES`] tries. None for any other error, and once the tries
+/// are spent.
+pub fn transient_retry_after(error: &str, attempt: u32) -> Option<Duration> {
+    if let Some(wait) = capacity_retry_after(error) {
+        return Some(wait);
+    }
+    if !is_connection_error(error) || attempt >= CONNECTION_TRIES {
+        return None;
+    }
+    Some(Duration::from_secs(1u64 << attempt.min(16)).min(CONNECTION_MAX_WAIT))
 }

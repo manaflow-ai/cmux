@@ -26,45 +26,47 @@ public struct CmxIrohTerminalOutputEnvelopeCodec: Sendable {
         Self.append(envelope.retainedBaseSequence, to: &frame)
         Self.append(envelope.sequence, to: &frame)
         Self.append(envelope.currentSequence, to: &frame)
-        Self.append(UInt32(envelope.payload.count), to: &frame)
+        // The envelope initializers bound the payload to 256 KiB, far below UInt32.max.
+        Self.append(UInt32(clamping: envelope.payload.count), to: &frame)
         frame.append(envelope.payload)
         return frame
     }
 
     public func decodePrefix(_ data: Data) throws -> CmxIrohTerminalOutputEnvelope {
-        guard data.count >= Self.headerByteCount else {
+        var reader = WireByteReader(data)
+        guard data.count >= Self.headerByteCount,
+              let magic = reader.bytes(Self.magic.count),
+              let version = reader.byte(),
+              let rawKind = reader.byte(),
+              let reserved = reader.bigEndian(UInt16.self),
+              let retainedBaseSequence = reader.bigEndian(UInt64.self),
+              let sequence = reader.bigEndian(UInt64.self),
+              let currentSequence = reader.bigEndian(UInt64.self),
+              let payloadLength = reader.bigEndian(UInt32.self) else {
             throw DecodeError.incompleteFrame
         }
-        var offset = 0
-        guard Self.readData(byteCount: Self.magic.count, from: data, offset: &offset) == Self.magic else {
+        guard magic == Self.magic else {
             throw DecodeError.invalidMagic
         }
-        let version = Self.readUInt8(from: data, offset: &offset)
         guard version == Self.version else {
             throw DecodeError.unsupportedVersion(version)
         }
-        let rawKind = Self.readUInt8(from: data, offset: &offset)
         guard let kind = CmxIrohTerminalOutputEnvelope.Kind(rawValue: rawKind) else {
             throw DecodeError.invalidKind(rawKind)
         }
-        let reserved = Self.readUInt16(from: data, offset: &offset)
         guard reserved == 0 else {
             throw DecodeError.invalidReservedBits(reserved)
         }
-        let retainedBaseSequence = Self.readUInt64(from: data, offset: &offset)
-        let sequence = Self.readUInt64(from: data, offset: &offset)
-        let currentSequence = Self.readUInt64(from: data, offset: &offset)
-        let payloadByteCount = Int(Self.readUInt32(from: data, offset: &offset))
+        let payloadByteCount = Int(clamping: payloadLength)
         guard payloadByteCount <= CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount else {
             throw DecodeError.payloadTooLarge(
                 actual: payloadByteCount,
                 maximum: CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount
             )
         }
-        guard data.count >= Self.headerByteCount + payloadByteCount else {
+        guard let payload = reader.bytes(payloadByteCount) else {
             throw DecodeError.incompleteFrame
         }
-        let payload = Self.readData(byteCount: payloadByteCount, from: data, offset: &offset)
         return try CmxIrohTerminalOutputEnvelope(
             kind: kind,
             retainedBaseSequence: retainedBaseSequence,
@@ -77,40 +79,5 @@ public struct CmxIrohTerminalOutputEnvelopeCodec: Sendable {
     private static func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
         var bigEndian = value.bigEndian
         withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
-    }
-
-    private static func readUInt8(from data: Data, offset: inout Int) -> UInt8 {
-        let value = data[data.index(data.startIndex, offsetBy: offset)]
-        offset += 1
-        return value
-    }
-
-    private static func readUInt16(from data: Data, offset: inout Int) -> UInt16 {
-        readInteger(byteCount: 2, from: data, offset: &offset)
-    }
-
-    private static func readUInt32(from data: Data, offset: inout Int) -> UInt32 {
-        readInteger(byteCount: 4, from: data, offset: &offset)
-    }
-
-    private static func readUInt64(from data: Data, offset: inout Int) -> UInt64 {
-        readInteger(byteCount: 8, from: data, offset: &offset)
-    }
-
-    private static func readInteger<T: FixedWidthInteger>(
-        byteCount: Int,
-        from data: Data,
-        offset: inout Int
-    ) -> T {
-        readData(byteCount: byteCount, from: data, offset: &offset).reduce(T.zero) {
-            ($0 << 8) | T($1)
-        }
-    }
-
-    private static func readData(byteCount: Int, from data: Data, offset: inout Int) -> Data {
-        let start = data.index(data.startIndex, offsetBy: offset)
-        let end = data.index(start, offsetBy: byteCount)
-        offset += byteCount
-        return data[start ..< end]
     }
 }

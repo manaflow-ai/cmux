@@ -82,5 +82,33 @@ extension Dictionary {
     /// The value for `key`, or nil. A dictionary read never traps; this spelling keeps a
     /// read whose name the crash ratchet cannot type (a name declared otherwise elsewhere
     /// in the module) apart from the index subscripts it counts.
-    func value(for key: Key) -> Value? { index(forKey: key).map { values[$0] } }
+    func value(for key: Key) -> Value? { index(forKey: key).map { values[$0] } } // crash-allow: an index from index(forKey:) of this dictionary
+}
+
+extension Collection {
+    /// The elements in lower..<upper, clamped to the collection: a bound outside it or an
+    /// inverted pair gives the part that exists (maybe empty), with a fault logged once per
+    /// call site, instead of trapping on the range.
+    func slice(_ lower: Index, _ upper: Index, fileID: StaticString = #fileID, line: UInt = #line) -> SubSequence {
+        let lo = Swift.min(Swift.max(lower, startIndex), endIndex)
+        let hi = Swift.min(Swift.max(upper, lo), endIndex)
+        if lo != lower || hi != upper {
+            CrashGuard.fault("slice \(lower)..<\(upper) outside \(startIndex)..<\(endIndex)", fileID: fileID, line: line)
+        }
+        return self[lo..<hi] // crash-allow: lo and hi clamped into startIndex...endIndex, lo <= hi
+    }
+
+    /// The elements from `lower` to the end (see `slice(_:_:)`).
+    func slice(from lower: Index, fileID: StaticString = #fileID, line: UInt = #line) -> SubSequence {
+        slice(lower, endIndex, fileID: fileID, line: line)
+    }
+}
+
+extension MutableCollection {
+    /// Runs `body` on the element at `index` in place; an index outside the collection
+    /// changes nothing and logs a fault once per call site.
+    mutating func update(at index: Index, fileID: StaticString = #fileID, line: UInt = #line, _ body: (inout Element) -> Void) {
+        guard let i = checkedIndex(index, fileID: fileID, line: line) else { return }
+        body(&self[i]) // crash-allow: i checked above
+    }
 }

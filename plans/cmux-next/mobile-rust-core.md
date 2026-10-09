@@ -1,6 +1,8 @@
-# Mobile Rust core (proposal, cmuxterm-hq-39, 2026-10-09)
+# Mobile Rust core (cmuxterm-hq-39, 2026-10-09)
 
-Status: PROPOSAL for the chief. Not a decision until recorded in the spec.
+Status: ACCEPTED by the chief 2026-10-09 (MOBILE-RUST-1..5).
+
+Slice 1 waits for the iOS lane's ack: its deletion of CmuxInstallAuthCore collides with InstallHostAccount on feat-cmux-next-ios.
 
 Input: Lawrence 2026-10-09 "move as much into rust as possible; we will have swift + android app, for mobile stuff". Lawrence + Leo 2026-10-09: Swift paper cuts move to Rust; the daemon or core owns state. Existing records: OPTCHAT O1 (one Rust core, no TypeScript twin), SIDEBAR-FFI-PREBUILT (prebuilt xcframework binaryTarget), spec/computer-use.md:33 (no Swift session logic), plans/cmux-next/cloud-ios.md 3.3 (L3 first, L1 later) and R4 (two Iroh stacks), plans/feat-ios-iroh/DESIGN.md:22 (uniffi fork).
 
@@ -25,14 +27,14 @@ Input: Lawrence 2026-10-09 "move as much into rust as possible; we will have swi
 
 ## Order
 
-- Slice 0 (pipeline proof, about 1 day): cmux-mobile-ffi skeleton exposing sizing_policy.rs; both platforms run schemas/terminal-sizing/fixtures.json (Swift XCTest on the xcframework, Kotlin JUnit on the AAR in CI). No product change; it proves build, publish, async and callbacks.
+- Slice 0 (pipeline proof): the sizing reducer moves from cmux-tui-core into the serde-only crate cmux-terminal-sizing (cmux-tui-core re-exports it as `sizing_policy`; cmux-tui-core itself pulls PTY, SQLite, Ghostty and tokio, too heavy for a phone). cmux-mobile-core re-exports it; cmux-mobile-ffi binds it with uniffi 0.31.1 (remote types, an engine object, a foreign listener callback, an error). .github/workflows/cmux-mobile-ffi.yml builds the xcframework (iOS arm64, simulator arm64 + x86_64, macOS arm64 + x86_64) and the AAR (cargo-ndk arm64-v8a + x86_64) and runs schemas/terminal-sizing/fixtures.json in Rust, in Swift (`swift test` on the macOS slice, `xcodebuild test` on an iOS simulator) and in Kotlin (JUnit on the runner's JVM with the host-built library; no emulator). Artifacts only. No product change; CmuxTerminalSizing Swift stays. Publishing and async move to slice 1, where HttpTransport needs them.
 - Slice 1 (first product slice): the catalog wire client + install key requests (Signer callback) + CmuxFeedPushCore. Deletes CmuxInstallAuthCore and CmuxFeedPushCore Swift in the same change; the iOS app then calls generated ops.
 - Slice 2: Home mirror and intent log (CmuxHomeCore, CmuxSyncStore) on cmux-conversation.
 - Slice 3: terminal frames and render grid (CMUXMobileCore, CmuxTerminalStream) on cmux-terminal-client.
 - Slice 4: transport, when cloud-ios.md L1 starts: cmux-link + cmux-wg replace CmuxIrohTransport + CmuxIrxTransport (about 44k Swift lines). Until then the phone stays on irx through the Mac (L3).
 - Each slice deletes its Swift in the same change (no twin).
 
-## Decisions I propose (the chief records them)
+## Decisions (accepted by the chief 2026-10-09)
 
 - MOBILE-RUST-1: shared mobile logic is Rust (cmux-mobile-core/net/ffi); Swift and Kotlin hold UI and platform APIs only.
 - MOBILE-RUST-2: uniffi 0.31, one staticlib per platform, Iroh folded in.

@@ -280,6 +280,7 @@ import Testing
                                   options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
         // The person clicks into the window and types there: another window takes the keyboard.
         main.makeFirstResponder(later)
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: main)
         dialog.dismiss()
         #expect(Self.owner(of: main.firstResponder) === later)

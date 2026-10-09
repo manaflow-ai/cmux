@@ -14,7 +14,8 @@ pub mod backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
-pub mod cloud_conversations;
+/// The cloud conversations proxy; its own crate, re-exported at the old path.
+pub use cmux_tui_cloud_conversations as cloud_conversations;
 mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
@@ -91,6 +92,7 @@ pub mod platform;
 mod process_identity;
 pub mod process_resources;
 pub mod server;
+pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;

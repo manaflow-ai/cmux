@@ -6,6 +6,9 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 
 - 2026-10-09 e82ce2d3d2c8: ProtocolKeyInput, key/modifier wire enums, clear-history payload -> server/protocol_key.rs (339 lines). server.rs 27339 -> 27018. Gate 7 min (fmt, clippy -D warnings core+cmux-tui, Windows check, cmux-tui-core tests 2657 pass).
 - 2026-10-09 46a0b68843c8: VtStateMessage, AttachWireShape, render-state/delta/graphics JSON, RenderClientState, browser-state/frame payloads -> server/render_messages.rs (571 lines). server.rs 27018 -> 26472. Gate 7 min (same gate set, 2657 tests pass).
+- 2026-10-09 39af50031b94: JournalStreamFilter, journal regex filter, kind validation, sensitivity/class helpers -> server/journal_filter.rs (332 lines). server.rs 26472 -> 26157. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 04ab8c42a39f: PendingServer, runtime socket directory checks, SocketStartLock, serve_paused, serve -> server/listen.rs (394 lines). server.rs 26157 -> 25790. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
+- 2026-10-09 f14ea9a798c0: resource client and session selectors, snapshots, metadata, sizing, cell pixels, terminal/browser viewer resize and release -> server/resource_clients.rs (608 lines). server.rs 25790 -> 25218. Gate 8 min (fmt, clippy -D warnings core+cmux-tui, Windows check, spec inventory, cmux-tui-core tests).
 
 ## Map: cmux-tui-core/src/server.rs (lane refactor-server-rs, base 2dba648cdbde, 27,370 lines)
 
