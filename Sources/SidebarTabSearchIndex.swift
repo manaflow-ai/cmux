@@ -14,6 +14,20 @@ struct SidebarTabSearchCandidate: Sendable, Identifiable {
     enum Kind: Sendable {
         case workspace
         case tab
+
+        /// Classifies a switcher command id. Local and cloud workspaces
+        /// (`switcher.workspace.*`, `switcher.cloudWorkspace.*`) are workspaces,
+        /// `switcher.surface.*` is a tab, and any other id is not a tab-search
+        /// candidate (`nil`).
+        init?(switcherCommandID id: String) {
+            if id.hasPrefix("switcher.workspace.") || id.hasPrefix("switcher.cloudWorkspace.") {
+                self = .workspace
+            } else if id.hasPrefix("switcher.surface.") {
+                self = .tab
+            } else {
+                return nil
+            }
+        }
     }
 
     let id: String

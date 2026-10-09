@@ -27,15 +27,10 @@ extension Notification.Name {
 /// selection handlers instead of the field editor (the same reason the command
 /// palette uses a native field).
 struct SidebarTabSearchView: View {
-    /// Supplies the current switcher corpus (workspaces + surfaces) with
-    /// ready-made navigation actions. Backed by
-    /// `ContentView.commandPaletteSwitcherEntries(includeSurfaces:)`.
-    let entriesProvider: () -> [CommandPaletteCommand]
-    /// Cheap fingerprint of the switcher corpus (names/metadata hash, no fuzzy
-    /// preparation). Checked on every keystroke so the session cache rebuilds
-    /// when workspaces or surfaces change mid-search instead of serving stale
-    /// rows. Backed by `ContentView.commandPaletteSwitcherEntriesFingerprint`.
-    var fingerprintProvider: () -> Int = { 0 }
+    /// The shared Cmd-P switcher corpus and its fingerprint. The fingerprint is
+    /// checked on every keystroke so the session cache rebuilds when
+    /// workspaces or surfaces change mid-search instead of serving stale rows.
+    let source: SidebarTabSearchSource
     /// This sidebar's window, used to accept only the `searchTabs` focus request
     /// routed to this window (the notification is posted per target window).
     var focusTargetWindow: NSWindow?
@@ -61,8 +56,10 @@ struct SidebarTabSearchView: View {
     /// keystroke forces a rebuild.
     @State private var cachedFingerprint: Int?
 
+    /// Fixed height of the search-field box; the sidebar reserves a band of
+    /// this height under its titlebar strip.
+    static let fieldHeight: CGFloat = 28
     private static let resultLimit = 40
-    private static let workspaceIdPrefix = "switcher.workspace."
     /// Approximate rendered height of one result row (title + subtitle + padding).
     private static let estimatedRowHeight: CGFloat = 40
     /// Approximate rendered height of one section header.
@@ -174,7 +171,7 @@ struct SidebarTabSearchView: View {
             }
         }
         .padding(.horizontal, 8)
-        .frame(height: 28)
+        .frame(height: Self.fieldHeight)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
@@ -276,7 +273,7 @@ struct SidebarTabSearchView: View {
             return
         }
 
-        let fingerprint = fingerprintProvider()
+        let fingerprint = source.fingerprint()
         let index: SidebarTabSearchIndex
         if let cachedIndex, cachedFingerprint == fingerprint {
             index = cachedIndex
@@ -296,10 +293,13 @@ struct SidebarTabSearchView: View {
     /// Walks every window/workspace/surface to build the searchable corpus and
     /// its ranking index. Expensive relative to ranking, hence the session cache.
     private func buildCorpus() -> (index: SidebarTabSearchIndex, actions: [String: () -> Void]) {
-        let commands = entriesProvider()
+        let commands = source.entries()
         var actions: [String: () -> Void] = [:]
         actions.reserveCapacity(commands.count)
-        let candidates: [SidebarTabSearchCandidate] = commands.map { command in
+        let candidates: [SidebarTabSearchCandidate] = commands.compactMap { command in
+            // Only switcher rows are tabs; skip anything else the shared
+            // builder may return (for example the palette's current-work view).
+            guard let kind = SidebarTabSearchCandidate.Kind(switcherCommandID: command.id) else { return nil }
             actions[command.id] = command.action
             return SidebarTabSearchCandidate(
                 id: command.id,
@@ -308,9 +308,7 @@ struct SidebarTabSearchView: View {
                 subtitle: command.subtitle,
                 kindLabel: command.kindLabel,
                 keywords: command.keywords,
-                // The switcher ids are `switcher.workspace.*` / `switcher.surface.*`;
-                // anything that is not a workspace row is a tab (surface) row.
-                kind: command.id.hasPrefix(Self.workspaceIdPrefix) ? .workspace : .tab
+                kind: kind
             )
         }
         return (SidebarTabSearchIndex(candidates: candidates), actions)
@@ -348,180 +346,5 @@ struct SidebarTabSearchView: View {
         cachedIndex = nil
         cachedActions = [:]
         cachedFingerprint = nil
-    }
-}
-
-/// One dropdown row: kind icon, highlighted title, and the workspace context /
-/// kind label. Holds only value data plus its select closure, never a store.
-private struct SidebarTabSearchResultRow: View {
-    let result: SidebarTabSearchResult
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 8) {
-                Image(systemName: iconName)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(.secondary)
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    highlightedTitle
-                        .cmuxFont(size: 12)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if !result.subtitle.isEmpty {
-                        Text(result.subtitle)
-                            .cmuxFont(size: 10)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                Spacer(minLength: 4)
-                if let kindLabel = result.kindLabel, result.kind == .tab {
-                    Text(kindLabel)
-                        .cmuxFont(size: 9, weight: .medium)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
-                    .padding(.horizontal, 4)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var iconName: String {
-        result.kind == .workspace ? "rectangle.stack" : "rectangle"
-    }
-
-    /// Bolds/colors the title characters the fuzzy matcher matched, mirroring
-    /// `ContentView.commandPaletteHighlightedTitleText`.
-    private var highlightedTitle: Text {
-        guard !result.titleMatchIndices.isEmpty else {
-            return Text(result.title).foregroundColor(.primary)
-        }
-        let chars = Array(result.title)
-        var index = 0
-        var text = Text("")
-        while index < chars.count {
-            let isMatched = result.titleMatchIndices.contains(index)
-            var end = index + 1
-            while end < chars.count, result.titleMatchIndices.contains(end) == isMatched {
-                end += 1
-            }
-            let segment = String(chars[index..<end])
-            text = text + Text(segment).foregroundColor(isMatched ? .accentColor : .primary)
-            index = end
-        }
-        return text
-    }
-}
-
-/// Native single-line text field for the tab search, so ↑/↓/Return/Esc reach
-/// the dropdown selection handlers instead of the field editor. Mirrors the
-/// command palette's native-field approach.
-///
-/// Focus is driven by `focusToken`: each increment focuses the field once, so
-/// the field never steals focus on an ordinary re-render and there is no
-/// sustained focus state written back during a view update.
-private struct SidebarTabSearchTextField: NSViewRepresentable {
-    @Binding var text: String
-    let focusToken: Int
-    let placeholder: String
-    let onSubmit: () -> Void
-    let onEscape: () -> Void
-    let onMoveSelection: (Int) -> Void
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = PlainTextField()
-        field.delegate = context.coordinator
-        field.placeholderString = placeholder
-        field.stringValue = text
-        field.font = .systemFont(ofSize: 12)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        context.coordinator.lastFocusToken = focusToken
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.parent = self
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-        if placeholder != field.placeholderString {
-            field.placeholderString = placeholder
-        }
-        // Focus exactly once per new token (the shortcut increments it). AppKit
-        // focus manipulation from an AppKit bridge view is allowed; no SwiftUI
-        // state is written here.
-        if focusToken != context.coordinator.lastFocusToken {
-            context.coordinator.lastFocusToken = focusToken
-            field.window?.makeFirstResponder(field)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: SidebarTabSearchTextField
-        var lastFocusToken: Int = 0
-
-        init(_ parent: SidebarTabSearchTextField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            switch commandSelector {
-            case #selector(NSResponder.moveDown(_:)):
-                parent.onMoveSelection(1)
-                return true
-            case #selector(NSResponder.moveUp(_:)):
-                parent.onMoveSelection(-1)
-                return true
-            case #selector(NSResponder.insertNewline(_:)):
-                guard !textView.hasMarkedText() else { return false }
-                parent.onSubmit()
-                return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                guard !textView.hasMarkedText() else { return false }
-                // `onEscape` restores terminal focus, which resigns the field.
-                parent.onEscape()
-                return true
-            default:
-                return false
-            }
-        }
-    }
-
-    /// Borderless, transparent single-line field so it blends into the search
-    /// pill drawn by SwiftUI.
-    final class PlainTextField: NSTextField {
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            isBordered = false
-            isBezeled = false
-            drawsBackground = false
-            focusRingType = .none
-            usesSingleLineMode = true
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
     }
 }

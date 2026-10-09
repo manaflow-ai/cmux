@@ -79,4 +79,13 @@ final class SidebarTabSearchIndexTests: XCTestCase {
     func testNonMatchingQueryReturnsNoResults() {
         XCTAssertTrue(sampleIndex().rankedResults(matching: "zzzznomatch", limit: 40).isEmpty)
     }
+
+    func testClassifiesSwitcherCommandIDs() {
+        XCTAssertEqual(SidebarTabSearchCandidate.Kind(switcherCommandID: "switcher.workspace.abc"), .workspace)
+        XCTAssertEqual(SidebarTabSearchCandidate.Kind(switcherCommandID: "switcher.cloudWorkspace.m1.w1"), .workspace,
+                       "cloud workspaces from the shared switcher belong in the Workspaces section")
+        XCTAssertEqual(SidebarTabSearchCandidate.Kind(switcherCommandID: "switcher.surface.abc"), .tab)
+        XCTAssertNil(SidebarTabSearchCandidate.Kind(switcherCommandID: "palette.currentWork.item"),
+                     "non-switcher palette rows must not leak into the sidebar tab search")
+    }
 }
