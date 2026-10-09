@@ -2498,3 +2498,77 @@ fn with_spares_ready_a_waiting_node_does_not_wait_for_a_process_start() {
         "every node waited for a process start: {starts:?}"
     );
 }
+
+/// Idle warm sessions: a few stay after compactor work (the next turn's
+/// nodes start fast), but a Chief with no compactor work for
+/// `warm_idle` (10 minutes by default) ends them, as the acpmux prewarm
+/// pool times out. Time here is a test timer: no sleeps.
+#[test]
+fn warm_sessions_end_after_the_compactor_is_idle_for_a_while() {
+    use optchat_chief::compactor::IdleTimer;
+    type Pending = Vec<(Duration, Box<dyn FnOnce() + Send>)>;
+    #[derive(Default)]
+    struct TestTimer {
+        now: Mutex<Duration>,
+        pending: Mutex<Pending>,
+    }
+    impl IdleTimer for TestTimer {
+        fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
+            let at = *self.now.lock().unwrap() + d;
+            self.pending.lock().unwrap().push((at, f));
+        }
+        fn stop(&self) {
+            self.pending.lock().unwrap().clear();
+        }
+    }
+    impl TestTimer {
+        fn advance(&self, d: Duration) {
+            let now = {
+                let mut now = self.now.lock().unwrap();
+                *now += d;
+                *now
+            };
+            let due: Vec<_> = {
+                let mut pending = self.pending.lock().unwrap();
+                let (due, rest) = std::mem::take(&mut *pending)
+                    .into_iter()
+                    .partition(|(at, _)| *at <= now);
+                *pending = rest;
+                due
+            };
+            for (_, f) in due {
+                f();
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    let timer = Arc::new(TestTimer::default());
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()), Slots::new(2))
+        .with_warm(1)
+        .with_idle_timer(timer.clone(), Duration::from_secs(600))
+        .shared();
+    // Waits (real time, briefly) until the background warm-up started
+    // `n` sessions in all and put the last one in the pool.
+    let warmed = |n: usize| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while agents.inner.lock().unwrap().specs.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no warm session");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let ended = |id: &str| agents.inner.lock().unwrap().ended.iter().any(|e| e == id);
+    run_node(&*compactor, &request(1)).unwrap();
+    warmed(2);
+    // Work again before the idle time is up: the first node's timer finds
+    // newer work and ends nothing.
+    timer.advance(Duration::from_secs(300));
+    run_node(&*compactor, &request(2)).unwrap();
+    warmed(3);
+    timer.advance(Duration::from_secs(400));
+    assert!(!ended("s3"), "a warm session ended while work was recent");
+    // 10 minutes after the last work: the warm session ends.
+    timer.advance(Duration::from_secs(300));
+    assert!(ended("s3"), "{:?}", agents.inner.lock().unwrap().ended);
+}

@@ -204,6 +204,53 @@ pub fn compactor_sessions_from(value: Option<&str>) -> usize {
 /// acpmux nor Claude Code clears one.
 pub const WARM_SESSIONS: usize = 4;
 
+/// How long warm sessions outlive the compactor's last work: the next
+/// turn's nodes start fast, and an idle Chief does not keep about 0.8 GB of
+/// Claude Code processes. `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` sets it.
+pub const WARM_IDLE: Duration = Duration::from_secs(600);
+
+/// `WARM_IDLE`, or `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` when it is a number.
+pub fn warm_idle() -> Duration {
+    std::env::var("OPTCHAT_COMPACTOR_WARM_IDLE_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(WARM_IDLE, Duration::from_secs)
+}
+
+/// Calls a function after a delay, unless stopped first (the compactor's
+/// end). Runtime code waits on a condition variable (`ThreadTimer`); tests
+/// move time themselves. Never a sleep.
+pub trait IdleTimer: Send + Sync {
+    /// Calls `f` after `d`, unless `stop` comes first.
+    fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>);
+    /// Drops every pending call.
+    fn stop(&self);
+}
+
+/// The runtime `IdleTimer`: a thread per call, waiting on the stoppable
+/// `ProbeDelay`.
+#[derive(Default)]
+pub struct ThreadTimer {
+    delay: Arc<crate::host::ProbeDelay>,
+}
+
+impl IdleTimer for ThreadTimer {
+    fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
+        let delay = self.delay.clone();
+        let _ = std::thread::Builder::new()
+            .name("optchat-compact-idle".into())
+            .spawn(move || {
+                if crate::host::Delay::wait(&*delay, d) {
+                    f();
+                }
+            });
+    }
+
+    fn stop(&self) {
+        self.delay.stop();
+    }
+}
+
 /// The session slots of the compactor (`COMPACTOR_SESSIONS`), shared by the main
 /// and the fallback compactor. Each slot has its own working directory, so a
 /// node's Claude Code project directory holds only that node's transcript.
@@ -400,6 +447,12 @@ impl Slots {
         self.freed.notify_all();
     }
 
+    /// No node prompts or waits for a slot.
+    fn idle(&self) -> bool {
+        let st = self.lock();
+        st.active == 0 && st.waiting == 0
+    }
+
     fn put_warm(&self, warm: Warm) {
         let mut st = self.lock();
         st.warming = st.warming.saturating_sub(1);
@@ -543,6 +596,12 @@ pub struct AcpmuxCompactor {
     me: std::sync::Weak<AcpmuxCompactor>,
     log: Option<Log>,
     trace: crate::trace::Trace,
+    /// Ends the warm sessions after `warm_idle` without compactor work.
+    idle_timer: Arc<dyn IdleTimer>,
+    warm_idle: Duration,
+    /// Counts the nodes opened: an idle check that sees a newer count
+    /// leaves the warm sessions alone.
+    work: AtomicU64,
 }
 
 impl AcpmuxCompactor {
@@ -574,7 +633,51 @@ impl AcpmuxCompactor {
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
+            idle_timer: Arc::new(ThreadTimer::default()),
+            warm_idle: warm_idle(),
+            work: AtomicU64::new(0),
         }
+    }
+
+    /// Ends the warm sessions `after` the compactor's last work, on `timer`.
+    pub fn with_idle_timer(
+        mut self,
+        timer: Arc<dyn IdleTimer>,
+        after: Duration,
+    ) -> AcpmuxCompactor {
+        self.idle_timer = timer;
+        self.warm_idle = after;
+        self
+    }
+
+    /// When the compactor has no work: in `warm_idle`, unless work came
+    /// meanwhile, ends the warm sessions.
+    fn schedule_idle_reap(&self) {
+        if self.warm == 0 || !self.slots.idle() {
+            return;
+        }
+        let seen = self.work.load(Ordering::SeqCst);
+        let me = self.me.clone();
+        self.idle_timer.after(
+            self.warm_idle,
+            Box::new(move || {
+                let Some(me) = me.upgrade() else { return };
+                if me.work.load(Ordering::SeqCst) != seen || !me.slots.idle() {
+                    return;
+                }
+                let warm = me.slots.drain_warm();
+                if !warm.is_empty() {
+                    me.say(&format!(
+                        "compactor: no work for {} s, ending {} warm session(s)",
+                        me.warm_idle.as_secs(),
+                        warm.len()
+                    ));
+                }
+                for w in &warm {
+                    me.end_warm(w);
+                }
+            }),
+        );
     }
 
     /// Each node's cache TTL: the brain's current one (one TTL for turns
@@ -820,6 +923,7 @@ impl AcpmuxCompactor {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
+        self.work.fetch_add(1, Ordering::SeqCst);
         self.reap_warm();
         let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
@@ -1470,6 +1574,7 @@ impl AcpmuxCompactor {
             }
             self.slots.give(live.slot);
         }
+        self.schedule_idle_reap();
         let tokens = match live.usage {
             Some(u) => format!(
                 "uncached {} cache write {} cache read {} output {}",
@@ -1517,6 +1622,7 @@ impl Drop for AcpmuxCompactor {
     /// The warm sessions end with the compactor: no Claude Code process
     /// outlives the host idle.
     fn drop(&mut self) {
+        self.idle_timer.stop();
         for w in self.slots.drain_warm() {
             self.end_warm(&w);
         }
