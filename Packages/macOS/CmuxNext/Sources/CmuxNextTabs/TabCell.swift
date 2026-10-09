@@ -21,9 +21,9 @@ final class TabCell {
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill.
-    var isWindowMain = true
+    var isWindowMain = true { didSet { if oldValue != isWindowMain { updateColors(animated: false) } } }
     /// The selected (or lifted) tab's fill shows.
-    var fillsSelection: Bool { isSelected || isLifted }
+    var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     var showsSeparator = false { didSet { if oldValue != showsSeparator { separatorLayer.opacity = showsSeparator ? 1 : 0 } } }
@@ -206,7 +206,7 @@ final class TabCell {
     private func applyColors() {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
-            let fill: NSColor? = (isSelected || isLifted) ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
+            let fill: NSColor? = fillsSelection ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
                 // A lifted tab reads as solid so it does not show tabs sliding under it.

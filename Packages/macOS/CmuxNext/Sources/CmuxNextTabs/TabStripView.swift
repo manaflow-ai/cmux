@@ -69,6 +69,9 @@ public final class TabStripView: NSView {
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
+    /// The window is main; its cells fill the selected tab (`windowMainChanged`).
+    var windowIsMain = true
+    var windowMainObservers: [NSObjectProtocol] = []
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     var motion: [TabID: TabMotion] = [:]
@@ -230,8 +233,10 @@ public final class TabStripView: NSView {
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
+            observeWindowMain()
             sync(fromModel: true)
         } else {
+            stopObservingWindowMain()
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
