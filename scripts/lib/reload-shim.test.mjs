@@ -515,3 +515,127 @@ test("reload shim keeps an explicit --socket pinned even when the pointer target
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// version-skew.md step 1: the app writes the "last opened app" pointer at
+// launch (~/Library/Application Support/cmux/last-app-cli). A fleet build
+// opened through the Tag Opener never runs reload.sh, so the shim must read
+// the app's pointer before reload.sh's /tmp pointer.
+function writeAppPointer(home, cliPath, mode = 0o600) {
+  const dir = path.join(home, "Library", "Application Support", "cmux");
+  fs.mkdirSync(dir, { recursive: true });
+  const pointer = path.join(dir, "last-app-cli");
+  fs.writeFileSync(pointer, `${cliPath}\n`, { mode });
+  return pointer;
+}
+
+async function liveTagSocket(tag) {
+  const socketPath = `/tmp/cmux-debug-${tag}.sock`;
+  try { fs.unlinkSync(socketPath); } catch {}
+  const server = net.createServer((connection) => {
+    connection.on("data", () => connection.end());
+  });
+  server.listen(socketPath);
+  await once(server, "listening");
+  return { socketPath, server };
+}
+
+async function closeTagSocket(live) {
+  if (!live) return;
+  live.server.close();
+  await once(live.server, "close");
+  try { fs.unlinkSync(live.socketPath); } catch {}
+}
+
+test("reload shim runs the CLI of the app opened last, before reload.sh's pointer", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-"));
+  const opened = `shim-app-${crypto.randomUUID()}`;
+  const reloaded = `shim-reload-${crypto.randomUUID()}`;
+  let a;
+  let b;
+  try {
+    a = await liveTagSocket(opened);
+    b = await liveTagSocket(reloaded);
+    const pointer = path.join(root, "last-cli-path");
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    const openedCLI = makeTaggedBundle(root, opened, "opened");
+    const reloadedCLI = makeTaggedBundle(root, reloaded, "reloaded");
+    fs.writeFileSync(pointer, `${reloadedCLI}\n`, { mode: 0o600 });
+    writeAppPointer(root, openedCLI);
+    generateShim(shim, fallback, pointer);
+
+    const result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "opened");
+  } finally {
+    await closeTagSocket(a);
+    await closeTagSocket(b);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload shim runs a release app's CLI that the app pointer names", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-release-"));
+  try {
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    const nightlyCLI = makeBundle(root, "cmux NIGHTLY", "nightly");
+    writeAppPointer(root, nightlyCLI);
+    generateShim(shim, fallback, path.join(root, "no-such-pointer"));
+
+    const result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "nightly");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload shim ignores an app pointer that is a symlink, or that names no app CLI", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-bad-"));
+  try {
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    const loose = path.join(root, "loose-cmux");
+    writeExecutable(loose, "#!/bin/sh\nprintf 'loose\\n'\n");
+    generateShim(shim, fallback, path.join(root, "no-such-pointer"));
+
+    // Names a CLI that is not inside a cmux app bundle.
+    writeAppPointer(root, loose);
+    let result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.stdout.trim(), "stable", result.stderr);
+
+    // A symlink in place of the pointer file.
+    const nightlyCLI = makeBundle(root, "cmux NIGHTLY", "nightly");
+    const dir = path.join(root, "Library", "Application Support", "cmux");
+    const target = path.join(root, "elsewhere");
+    fs.writeFileSync(target, `${nightlyCLI}\n`, { mode: 0o600 });
+    fs.rmSync(path.join(dir, "last-app-cli"));
+    fs.symlinkSync(target, path.join(dir, "last-app-cli"));
+    result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.stdout.trim(), "stable", result.stderr);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload shim skips an app pointer whose dev build is no longer running", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-app-dead-"));
+  try {
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    const deadCLI = makeTaggedBundle(root, `shim-dead-${crypto.randomUUID()}`, "dead");
+    writeAppPointer(root, deadCLI);
+    generateShim(shim, fallback, path.join(root, "no-such-pointer"));
+
+    const result = runShim(shim, cleanEnvironment(root));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "stable");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
