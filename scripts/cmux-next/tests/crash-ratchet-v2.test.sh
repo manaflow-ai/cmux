@@ -21,13 +21,14 @@ ratchet() { python3 "$tmp/scripts/cmux-next/crash_ratchet.py" --repo "$tmp" 2>&1
 
 app="$tmp/Packages/macOS/CmuxNext"
 shared="$tmp/Packages/Shared/Render"
-mkdir -p "$tmp/scripts/cmux-next" "$tmp/cmux-tui/crates/x/src" "$app/Sources/M" "$shared/Sources/RenderText"
+mkdir -p "$tmp/scripts/cmux-next" "$tmp/cmux-tui/crates/x/src" "$app/Sources/M" "$shared/Sources/RenderText" "$shared/Sources/MessagesLabHome"
 cp "$here/crash_ratchet.py" "$tmp/scripts/cmux-next/"
 printf 'pub fn f() {}\n' > "$tmp/cmux-tui/crates/x/src/lib.rs"
 printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "CmuxNext", dependencies: [.package(path: "../../Shared/Render")])\n' > "$app/Package.swift"
 printf '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "Render")\n' > "$shared/Package.swift"
 printf 'let a = 1\n' > "$app/Sources/M/A.swift"
 printf 'let r = 1\n' > "$shared/Sources/RenderText/T.swift"
+printf 'let h = 1\n' > "$shared/Sources/MessagesLabHome/F.swift"
 cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
 {"banned": ["swift.as_bang", "swift.objc_selector"], "allow": []}
 JSON
@@ -103,6 +104,23 @@ if out="$(ratchet)"; then fail "IUO parameter and return types passed: $out"; fi
 printf 'print("\\(value!) ok")\n' > "$app/Sources/M/A.swift"
 if out="$(ratchet)"; then fail "an unwrap inside an interpolation passed: $out"; fi
 [[ "$out" == *"swift M: force_unwrap 0 -> 1"* ]] || fail "the interpolated unwrap is not reported: $out"
+reset
+
+# 6b. An enum case or member named unowned is not an unowned reference.
+printf 'enum O { case unowned = 0 }\nlet o: O = .unowned\nswitch o { case .unowned: break }\n' > "$app/Sources/M/A.swift"
+out="$(ratchet)" || fail "an enum case named unowned counted: $out"
+printf 'final class C { unowned let p: P }\n' > "$app/Sources/M/A.swift"
+if out="$(ratchet)"; then fail "a real unowned passed: $out"; fi
+reset
+
+# 7. render_font: in a background-render module a font made in place counts; a static let
+#    (made once per process) and the same call in another module do not (cx-qpqs).
+printf 'func f() -> NSFont { NSFont.systemFont(ofSize: 10) }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "a font made in place in a render module passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: render_font 0 -> 1"* ]] || fail "render_font is not reported: $out"
+printf 'enum F { static let f = NSFont.systemFont(ofSize: 10) }\n' > "$shared/Sources/MessagesLabHome/F.swift"
+printf 'func f() -> NSFont { .systemFont(ofSize: 10) }\n' > "$app/Sources/M/A.swift"
+out="$(ratchet)" || fail "a static let font or a font outside the render modules counted: $out"
 reset
 
 echo "crash-ratchet-v2.test.sh: ok"
