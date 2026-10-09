@@ -77,7 +77,7 @@ while IFS= read -r -d '' path; do
     case "$path" in
         webviews/*)
             case "$path" in
-                *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs|*.mts|*.cts|*.css|*.scss|*.html|*.json)
+                *.js|*.jsx|*.ts|*.tsx|*.mjs|*.cjs|*.mts|*.cts|*.css|*.scss|*.html|*.json|*.md|*.mdx)
                     STAGED_WEB_PATHS+=("${path#webviews/}")
                     ;;
             esac
@@ -110,6 +110,15 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 )); then
 fi
 
 if (( ${#STAGED_RUST_PATHS[@]} > 0 )); then
+    # rustfmt can follow `mod` declarations from a staged module and rewrite
+    # its children. Refuse that case rather than touching an unstaged Rust file.
+    if {
+        git diff --name-only --diff-filter=ACMRT -- cmux-tui
+        git ls-files --others --exclude-standard -- cmux-tui
+    } | grep -Eq '\.rs$'; then
+        echo "pre-commit: cmux-tui has unstaged Rust edits; stage or stash them before formatting." >&2
+        exit 1
+    fi
     CARGO_BIN="$(command -v cargo || true)"
     if [[ -z "$CARGO_BIN" ]]; then
         echo "pre-commit: cargo is unavailable; skipping cmux-tui formatting (CI will run cargo fmt --check)." >&2
