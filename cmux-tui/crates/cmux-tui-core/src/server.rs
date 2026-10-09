@@ -1052,8 +1052,11 @@ enum Command {
     },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
-    /// admission. Owner-only diagnostics, never journaled.
-    ServerStats,
+    /// admission. Owner-only diagnostics, never journaled. `include` names
+    /// optional sections (`resource_projection`); unknown names are ignored.
+    ServerStats {
+        include: Option<Vec<String>>,
+    },
     /// Turn terminal command history on or off for this daemon
     /// (`terminal-command-journal-v1`). Off by default and after a restart;
     /// trusted local connections only.
@@ -4264,16 +4267,6 @@ fn claim_connection(
     connections
         .try_claim(MAX_SERVER_CONNECTIONS as u64)
         .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
-}
-
-fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
-    crate::diagnostics::ServerStatsSnapshot {
-        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
-        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
-        registry_lock: mux.registry_lock_stats(),
-        journal_writer: mux.journal_writer_stats(),
-        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
-    }
 }
 
 impl BoundedOutbound {
@@ -12678,11 +12671,11 @@ fn handle_command_with_cancellation(
             mux.set_terminal_command_history(enabled);
             Ok(json!({ "enabled": enabled }))
         }
-        Command::ServerStats => {
+        Command::ServerStats { include } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
             }
-            Ok(serde_json::to_value(server_stats(mux))?)
+            Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
         }
         Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
@@ -20879,8 +20872,13 @@ mod tests {
         );
         // Any registry use records a hold at its call site.
         let _ = mux.registry_identity();
-        let stats =
-            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        let stats = handle_command(
+            &mux,
+            unix_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .unwrap();
         assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
         assert!(stats["uptime_ms"].is_u64());
         let lock = &stats["registry_lock"];
@@ -20891,8 +20889,13 @@ mod tests {
         assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
         assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
 
-        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
-            .expect_err("remote clients must not receive internal server stats");
+        let error = handle_command(
+            &mux,
+            websocket_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .expect_err("remote clients must not receive internal server stats");
         assert!(error.to_string().contains("trusted local connection"));
     }
 

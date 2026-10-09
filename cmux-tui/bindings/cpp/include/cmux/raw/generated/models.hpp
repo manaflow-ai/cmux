@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494";
+inline constexpr std::string_view kProtocolIrSha256 = "a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -140,6 +140,7 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
@@ -3964,13 +3965,31 @@ struct ServerStatsRegistryLock {
 };
 
 struct ServerStatsRequest {
+    Field<std::vector<std::string>> include{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResourceProjection {
+    ServerStatsHistogram commit_apply_us{};
+    ServerStatsHistogram commit_journal_us{};
+    ServerStatsHistogram commit_prune_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t commits{};
+    ServerStatsHistogram diff_us{};
+    ServerStatsHistogram index_us{};
+    ServerStatsHistogram journaled_changes{};
+    ServerStatsHistogram projected_changes{};
+    std::uint64_t projections{};
+    ServerStatsHistogram read_us{};
+    ServerStatsHistogram written_changes{};
+    friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
@@ -5644,6 +5663,12 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsResourceProjection> {
+    static Result<Json> encode(const ServerStatsResourceProjection& value);
+    static Result<ServerStatsResourceProjection> decode(const Json& value);
 };
 
 template <>

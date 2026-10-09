@@ -468,7 +468,10 @@ source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
-Params: none.
+Params: `{include?: array<string>|null}`. `include` names optional result
+sections. The only section is `resource_projection`; unknown names are ignored.
+An optional section is absent unless requested, because SDK decoders refuse
+unknown result fields.
 
 Result:
 
@@ -490,10 +493,27 @@ object{
     terminal_queued:uint64, durable_queued:uint64,
     phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
   }|null,
-  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64},
+  resource_projection?:object{
+    projections:uint64, read_us:histogram, index_us:histogram, diff_us:histogram,
+    projected_changes:histogram,
+    commits:uint64, commit_us:histogram, commit_prune_us:histogram,
+    commit_apply_us:histogram, commit_journal_us:histogram,
+    written_changes:histogram, journaled_changes:histogram
+  }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
+
+`resource_projection` splits the topology projection that every topology
+mutation runs under the registry lock: `read_us` reads the stored topology and
+terminal records, `index_us` rebuilds the live resource indexes, and `diff_us`
+diffs the live tree against the stored topology. `commit_us` is the whole
+registry commit of a projected patch; `commit_prune_us`, `commit_apply_us` and
+`commit_journal_us` are its unchanged-row pruning, row writes and journal
+append. `projected_changes`, `written_changes` and `journaled_changes` count
+the patch's durable changes, the changes left after pruning, and the public
+changes in the journal record.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

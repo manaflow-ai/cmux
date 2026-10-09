@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494.
+// cmux-tui mux protocol 12, IR a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2545,6 +2545,8 @@ pub type SendKeyResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServerStatsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub include: Optional<Vec<String>>,
 }
 
 #[rustfmt::skip]

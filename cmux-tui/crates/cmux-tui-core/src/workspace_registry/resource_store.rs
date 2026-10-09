@@ -4,7 +4,9 @@ use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
 mod patch_apply;
 use patch_apply::decorate_snapshot_result;
-pub(crate) use patch_apply::{apply_resource_patch, apply_resource_patch_unrecorded};
+pub(crate) use patch_apply::{
+    apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
+};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -1440,6 +1442,7 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
+        let started = std::time::Instant::now();
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1489,7 +1492,9 @@ impl WorkspaceRegistry {
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
         }
-        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let applying = std::time::Instant::now();
+        let (patch, prune) = apply_resource_patch_timed(&tx, patch, sqlite_revision)?;
+        let (apply, patch) = (applying.elapsed() - prune, &patch);
         let mut result = result.clone();
         decorate_snapshot_result(&tx, operation, &mut result)?;
         let written;
@@ -1515,6 +1520,7 @@ impl WorkspaceRegistry {
             &result_json,
             sqlite_revision,
         )?;
+        let journaling = std::time::Instant::now();
         append_resource_journal_record(
             &tx,
             revision,
@@ -1526,8 +1532,17 @@ impl WorkspaceRegistry {
             &result,
             deltas,
         )?;
+        let journal = journaling.elapsed();
         prune_resource_mutations(&tx)?;
         tx.commit()?;
+        self.resource_projection_stats().committed(crate::diagnostics::CommitSpans {
+            total: started.elapsed(),
+            prune,
+            apply,
+            journal,
+            written: patch.changes.len(),
+            journaled: deltas.as_array().map_or(0, Vec::len),
+        });
         Ok((ResourcePatchCommit { revision, result, replayed: false }, workspace_revision))
     }
 

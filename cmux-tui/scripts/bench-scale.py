@@ -513,6 +513,47 @@ class Bench:
             f'$|=1; my $n=0; while (1) {{ print "busy ", $n++, " {line}\\n"; select(undef,undef,undef,{1.0 / rate:.4f}); }}',
         ]
 
+    def raw_stats(self):
+        """server-stats with the resource projection section, or None."""
+        try:
+            c = Conn(self.sock_path, timeout=30)
+            st = c.call("server-stats", include=["resource_projection"])
+            c.close()
+            return st.get("data") if st.get("ok") else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def stats_window(pre, post):
+        """Per-window means from two cumulative server-stats reads: each
+        projection span and each registry hold site, as count and mean."""
+        if not pre or not post:
+            return None
+
+        def delta(a, b):
+            a, b = a or {}, b or {}
+            n = (b.get("count") or 0) - (a.get("count") or 0)
+            total = (b.get("count") or 0) * (b.get("mean") or 0) - (a.get("count") or 0) * (a.get("mean") or 0)
+            return {"count": n, "mean": round(total / n, 1) if n > 0 else None, "max_cumulative": b.get("max")}
+
+        out = {}
+        rp0, rp1 = pre.get("resource_projection") or {}, post.get("resource_projection") or {}
+        for key, value in rp1.items():
+            if isinstance(value, dict):
+                out[key] = delta(rp0.get(key), value)
+        sites0 = {s["site"]: s for s in (pre.get("registry_lock") or {}).get("top_sites") or []}
+        holds = []
+        for site in (post.get("registry_lock") or {}).get("top_sites") or []:
+            before = sites0.get(site["site"], {})
+            n = site.get("acquisitions", 0) - before.get("acquisitions", 0)
+            total = site.get("hold_total_us", 0) - before.get("hold_total_us", 0)
+            if n > 0:
+                holds.append({"site": site["site"], "holds": n, "hold_total_us": total, "hold_mean_us": round(total / n, 1)})
+        out["registry_holds"] = sorted(holds, key=lambda x: -x["hold_total_us"])[:8]
+        wl0 = (pre.get("registry_lock") or {}).get("wait_us")
+        out["registry_wait"] = delta(wl0, (post.get("registry_lock") or {}).get("wait_us"))
+        return out
+
     def create_terminals(self, count):
         """Create `count` terminals; returns (created, error)."""
         if count <= 0:
@@ -647,10 +688,12 @@ class Bench:
                 break
             need = target - len(self.terminals)
             log(f"step {target}: creating {need}")
+            pre = self.raw_stats()
             t0 = time.time()
             made, err = self.create_terminals(need)
             create_s = time.time() - t0
             step = {"target": target, "created": made, "create_seconds": round(create_s, 2), "create_rate_per_s": round(made / create_s, 1) if create_s > 0 else None, "terminals": len(self.terminals)}
+            step["create_window"] = self.stats_window(pre, self.raw_stats())
             if err:
                 step["error"] = err
                 log("creation stopped:", err)
@@ -689,7 +732,7 @@ class Bench:
             step["latency"] = self.echo_latency(self.args.latency_samples)
             try:
                 c = Conn(self.sock_path, timeout=30)
-                st = c.call("server-stats")
+                st = c.call("server-stats", include=["resource_projection"])
                 c.close()
                 if st.get("ok"):
                     d = st["data"]
@@ -700,6 +743,7 @@ class Bench:
                         "registry_stalls": rl.get("stalls"),
                         "registry_top_sites": sorted(rl.get("top_sites") or [], key=lambda x: -x.get("hold_total_us", 0))[:12],
                         "journal_writer": d.get("journal_writer"),
+                        "resource_projection": d.get("resource_projection"),
                     }
             except Exception as e:  # noqa: BLE001
                 step["server_stats"] = {"error": repr(e)}

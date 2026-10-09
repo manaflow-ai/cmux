@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494";
+pub const ir_sha256 = "a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1519,12 +1519,32 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsResourceProjection = struct {
+    commit_apply_us: ServerStatsHistogram,
+    commit_journal_us: ServerStatsHistogram,
+    commit_prune_us: ServerStatsHistogram,
+    commit_us: ServerStatsHistogram,
+    commits: u64,
+    diff_us: ServerStatsHistogram,
+    index_us: ServerStatsHistogram,
+    journaled_changes: ServerStatsHistogram,
+    projected_changes: ServerStatsHistogram,
+    projections: u64,
+    read_us: ServerStatsHistogram,
+    written_changes: ServerStatsHistogram,
+};
+
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "resource_projection",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -6872,7 +6892,9 @@ pub fn sendKey(client: anytype, request: SendKeyRequest) !wire.Decoded(SendKeyRe
     );
 }
 
-pub const ServerStatsRequest = struct {};
+pub const ServerStatsRequest = struct {
+    include: wire.Field([]const []const u8) = .absent,
+};
 
 pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(ServerStatsResult) {
     return client.callTyped(

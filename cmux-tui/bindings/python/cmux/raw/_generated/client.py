@@ -543,8 +543,8 @@ class GeneratedClientMixin:
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
 
-    def server_stats(self) -> ServerStatsResult:
-        return self._invoke_command('server-stats', ServerStatsRequest())
+    def server_stats(self, *, include: Union[List[str], None, MissingType] = MISSING) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest(include=include))
 
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))

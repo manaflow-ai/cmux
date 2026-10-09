@@ -7536,6 +7536,163 @@ Result<ServerStatsRegistryLock> Codec<ServerStatsRegistryLock>::decode(const Jso
     return result;
 }
 
+Result<Json> Codec<ServerStatsResourceProjection>::encode(const ServerStatsResourceProjection& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_commit_apply_us = encode_value(value.commit_apply_us);
+    if (!encoded_commit_apply_us) return std::move(encoded_commit_apply_us).error();
+    object.emplace("commit_apply_us", std::move(encoded_commit_apply_us).value());
+    auto encoded_commit_journal_us = encode_value(value.commit_journal_us);
+    if (!encoded_commit_journal_us) return std::move(encoded_commit_journal_us).error();
+    object.emplace("commit_journal_us", std::move(encoded_commit_journal_us).value());
+    auto encoded_commit_prune_us = encode_value(value.commit_prune_us);
+    if (!encoded_commit_prune_us) return std::move(encoded_commit_prune_us).error();
+    object.emplace("commit_prune_us", std::move(encoded_commit_prune_us).value());
+    auto encoded_commit_us = encode_value(value.commit_us);
+    if (!encoded_commit_us) return std::move(encoded_commit_us).error();
+    object.emplace("commit_us", std::move(encoded_commit_us).value());
+    auto encoded_commits = encode_value(value.commits);
+    if (!encoded_commits) return std::move(encoded_commits).error();
+    object.emplace("commits", std::move(encoded_commits).value());
+    auto encoded_diff_us = encode_value(value.diff_us);
+    if (!encoded_diff_us) return std::move(encoded_diff_us).error();
+    object.emplace("diff_us", std::move(encoded_diff_us).value());
+    auto encoded_index_us = encode_value(value.index_us);
+    if (!encoded_index_us) return std::move(encoded_index_us).error();
+    object.emplace("index_us", std::move(encoded_index_us).value());
+    auto encoded_journaled_changes = encode_value(value.journaled_changes);
+    if (!encoded_journaled_changes) return std::move(encoded_journaled_changes).error();
+    object.emplace("journaled_changes", std::move(encoded_journaled_changes).value());
+    auto encoded_projected_changes = encode_value(value.projected_changes);
+    if (!encoded_projected_changes) return std::move(encoded_projected_changes).error();
+    object.emplace("projected_changes", std::move(encoded_projected_changes).value());
+    auto encoded_projections = encode_value(value.projections);
+    if (!encoded_projections) return std::move(encoded_projections).error();
+    object.emplace("projections", std::move(encoded_projections).value());
+    auto encoded_read_us = encode_value(value.read_us);
+    if (!encoded_read_us) return std::move(encoded_read_us).error();
+    object.emplace("read_us", std::move(encoded_read_us).value());
+    auto encoded_written_changes = encode_value(value.written_changes);
+    if (!encoded_written_changes) return std::move(encoded_written_changes).error();
+    object.emplace("written_changes", std::move(encoded_written_changes).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsResourceProjection> Codec<ServerStatsResourceProjection>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsResourceProjection result{};
+    const Json* field_commit_apply_us = value.find("commit_apply_us");
+    if (!field_commit_apply_us) {
+        return make_error(ErrorCode::decode, "missing required field 'commit_apply_us'");
+    }
+    if (field_commit_apply_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_commit_apply_us);
+        if (!decoded) return std::move(decoded).error();
+        result.commit_apply_us = std::move(decoded).value();
+    }
+    const Json* field_commit_journal_us = value.find("commit_journal_us");
+    if (!field_commit_journal_us) {
+        return make_error(ErrorCode::decode, "missing required field 'commit_journal_us'");
+    }
+    if (field_commit_journal_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_commit_journal_us);
+        if (!decoded) return std::move(decoded).error();
+        result.commit_journal_us = std::move(decoded).value();
+    }
+    const Json* field_commit_prune_us = value.find("commit_prune_us");
+    if (!field_commit_prune_us) {
+        return make_error(ErrorCode::decode, "missing required field 'commit_prune_us'");
+    }
+    if (field_commit_prune_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_commit_prune_us);
+        if (!decoded) return std::move(decoded).error();
+        result.commit_prune_us = std::move(decoded).value();
+    }
+    const Json* field_commit_us = value.find("commit_us");
+    if (!field_commit_us) {
+        return make_error(ErrorCode::decode, "missing required field 'commit_us'");
+    }
+    if (field_commit_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_commit_us);
+        if (!decoded) return std::move(decoded).error();
+        result.commit_us = std::move(decoded).value();
+    }
+    const Json* field_commits = value.find("commits");
+    if (!field_commits) {
+        return make_error(ErrorCode::decode, "missing required field 'commits'");
+    }
+    if (field_commits) {
+        auto decoded = decode_value<std::uint64_t>(*field_commits);
+        if (!decoded) return std::move(decoded).error();
+        result.commits = std::move(decoded).value();
+    }
+    const Json* field_diff_us = value.find("diff_us");
+    if (!field_diff_us) {
+        return make_error(ErrorCode::decode, "missing required field 'diff_us'");
+    }
+    if (field_diff_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_diff_us);
+        if (!decoded) return std::move(decoded).error();
+        result.diff_us = std::move(decoded).value();
+    }
+    const Json* field_index_us = value.find("index_us");
+    if (!field_index_us) {
+        return make_error(ErrorCode::decode, "missing required field 'index_us'");
+    }
+    if (field_index_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_index_us);
+        if (!decoded) return std::move(decoded).error();
+        result.index_us = std::move(decoded).value();
+    }
+    const Json* field_journaled_changes = value.find("journaled_changes");
+    if (!field_journaled_changes) {
+        return make_error(ErrorCode::decode, "missing required field 'journaled_changes'");
+    }
+    if (field_journaled_changes) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_journaled_changes);
+        if (!decoded) return std::move(decoded).error();
+        result.journaled_changes = std::move(decoded).value();
+    }
+    const Json* field_projected_changes = value.find("projected_changes");
+    if (!field_projected_changes) {
+        return make_error(ErrorCode::decode, "missing required field 'projected_changes'");
+    }
+    if (field_projected_changes) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_projected_changes);
+        if (!decoded) return std::move(decoded).error();
+        result.projected_changes = std::move(decoded).value();
+    }
+    const Json* field_projections = value.find("projections");
+    if (!field_projections) {
+        return make_error(ErrorCode::decode, "missing required field 'projections'");
+    }
+    if (field_projections) {
+        auto decoded = decode_value<std::uint64_t>(*field_projections);
+        if (!decoded) return std::move(decoded).error();
+        result.projections = std::move(decoded).value();
+    }
+    const Json* field_read_us = value.find("read_us");
+    if (!field_read_us) {
+        return make_error(ErrorCode::decode, "missing required field 'read_us'");
+    }
+    if (field_read_us) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_read_us);
+        if (!decoded) return std::move(decoded).error();
+        result.read_us = std::move(decoded).value();
+    }
+    const Json* field_written_changes = value.find("written_changes");
+    if (!field_written_changes) {
+        return make_error(ErrorCode::decode, "missing required field 'written_changes'");
+    }
+    if (field_written_changes) {
+        auto decoded = decode_value<ServerStatsHistogram>(*field_written_changes);
+        if (!decoded) return std::move(decoded).error();
+        result.written_changes = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     (void)value;
     Json::Object object;
@@ -7552,6 +7709,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     auto encoded_registry_lock = encode_value(value.registry_lock);
     if (!encoded_registry_lock) return std::move(encoded_registry_lock).error();
     object.emplace("registry_lock", std::move(encoded_registry_lock).value());
+    if (value.resource_projection) {
+        auto encoded = encode_value(*value.resource_projection);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("resource_projection", std::move(encoded).value());
+    }
     auto encoded_schema = encode_value(value.schema);
     if (!encoded_schema) return std::move(encoded_schema).error();
     object.emplace("schema", std::move(encoded_schema).value());
@@ -7595,6 +7757,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsRegistryLock>(*field_registry_lock);
         if (!decoded) return std::move(decoded).error();
         result.registry_lock = std::move(decoded).value();
+    }
+    const Json* field_resource_projection = value.find("resource_projection");
+    if (field_resource_projection) {
+        auto decoded = decode_value<ServerStatsResourceProjection>(*field_resource_projection);
+        if (!decoded) return std::move(decoded).error();
+        result.resource_projection = std::move(decoded).value();
     }
     const Json* field_schema = value.find("schema");
     if (!field_schema) {
@@ -23642,6 +23810,11 @@ Result<SendKeyRequest> Codec<SendKeyRequest>::decode(const Json& value) {
 Result<Json> Codec<ServerStatsRequest>::encode(const ServerStatsRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.include.is_absent()) {
+        auto encoded = encode_value(value.include);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("include", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -23649,6 +23822,16 @@ Result<ServerStatsRequest> Codec<ServerStatsRequest>::decode(const Json& value) 
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsRequest result{};
+    const Json* field_include = value.find("include");
+    if (field_include) {
+        if (field_include->is_null()) {
+            result.include = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_include);
+            if (!decoded) return std::move(decoded).error();
+            result.include = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
     return result;
 }
 

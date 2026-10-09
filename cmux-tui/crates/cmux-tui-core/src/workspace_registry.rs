@@ -715,6 +715,8 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     /// The topology state the resource journal states (see `public_fold`).
     public_fold: Option<public_fold::PublicTopologyFold>,
+    /// Projection and commit spans for `server-stats`; the mux keeps a clone.
+    resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     #[cfg(test)]
@@ -2768,6 +2770,7 @@ impl WorkspaceRegistry {
             session_id,
             resource_effect_pepper,
             public_fold: None,
+            resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
             #[cfg(test)]
@@ -2917,6 +2920,12 @@ impl WorkspaceRegistry {
 
     pub fn machine_id(&self) -> &MachinePublicId {
         &self.machine_id
+    }
+
+    pub(crate) fn resource_projection_stats(
+        &self,
+    ) -> &std::sync::Arc<crate::diagnostics::ResourceProjectionStats> {
+        &self.resource_projection_stats
     }
 
     /// The current terminal registry revision alone. Lookups that only need to

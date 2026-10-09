@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494.
+// cmux-tui mux protocol 12, IR a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1423,10 +1423,29 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsResourceProjection {
+    pub commit_apply_us: ServerStatsHistogram,
+    pub commit_journal_us: ServerStatsHistogram,
+    pub commit_prune_us: ServerStatsHistogram,
+    pub commit_us: ServerStatsHistogram,
+    pub commits: u64,
+    pub diff_us: ServerStatsHistogram,
+    pub index_us: ServerStatsHistogram,
+    pub journaled_changes: ServerStatsHistogram,
+    pub projected_changes: ServerStatsHistogram,
+    pub projections: u64,
+    pub read_us: ServerStatsHistogram,
+    pub written_changes: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     pub uptime_ms: u64,
 }
