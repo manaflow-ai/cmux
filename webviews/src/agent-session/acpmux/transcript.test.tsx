@@ -2461,7 +2461,7 @@ describe("acpmux turn diff", () => {
       // Escape is the page's own key, not an app shortcut, so the tooltip shows no keycap.
       expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe("Back to transcript");
       const rows = () => [
-        ...panel.querySelectorAll<HTMLElement>(
+        ...document.querySelectorAll<HTMLElement>(
           '.acpmux-file-menu-list[role="menu"][aria-label="Changes options"] [role="menuitem"]',
         ),
       ];
@@ -2622,7 +2622,7 @@ describe("acpmux turn diff", () => {
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const options = panel.querySelector<HTMLElement>('button[data-tool="options"]')!;
       const rows = () => [
-        ...panel.querySelectorAll<HTMLElement>('.acpmux-file-menu-list[role="menu"] [role="menuitem"]'),
+        ...document.querySelectorAll<HTMLElement>('.acpmux-file-menu-list[role="menu"] [role="menuitem"]'),
       ];
       const banner = () => panel.querySelector<HTMLElement>(".acpmux-changes-banner");
       const branch = () => panel.querySelector<HTMLElement>(".acpmux-branch-pill");
