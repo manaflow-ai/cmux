@@ -31,7 +31,36 @@ extension AppDelegate {
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
-        false
+        guard canMergeWorkspace(sourceId, into: targetId),
+              let source = mergeWorkspace(id: sourceId),
+              let target = mergeWorkspace(id: targetId),
+              let targetManager = tabManagerFor(tabId: targetId) else { return false }
+        let panelIds = source.sidebarOrderedPanelIds()
+        guard let lead = panelIds.first else { return false }
+        let leadMoved: Bool
+        switch destination {
+        case .insert(let pane, let index):
+            leadMoved = moveSurface(panelId: lead, toWorkspace: targetId, targetPane: pane, targetIndex: index,
+                                    focus: false, focusWindow: false)
+        case .split(let pane, let orientation, let insertFirst):
+            leadMoved = moveSurface(panelId: lead, toWorkspace: targetId, targetPane: pane,
+                                    splitTarget: (orientation, insertFirst), focus: false, focusWindow: false)
+        }
+        guard leadMoved, let landedPane = target.paneId(forPanelId: lead) else { return false }
+        // The rest follow the lead, in order, into the pane it landed in.
+        var nextIndex = target.indexInPane(forPanelId: lead).map { $0 + 1 }
+        for panelId in panelIds.dropFirst() {
+            guard moveSurface(panelId: panelId, toWorkspace: targetId, targetPane: landedPane, targetIndex: nextIndex,
+                              focus: false, focusWindow: false) else { break }
+            nextIndex = nextIndex.map { $0 + 1 }
+        }
+        if focus {
+            if focusWindow, let windowId = windowId(for: targetManager) {
+                _ = focusMainWindow(windowId: windowId)
+            }
+            targetManager.focusTab(targetId, surfaceId: lead, suppressFlash: true)
+        }
+        return true
     }
 
     private func mergeWorkspace(id: UUID) -> Workspace? {
