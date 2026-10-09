@@ -55,7 +55,7 @@ declare namespace Cmux {
   type ConversationEventItem = unknown
   type ConversationId = string
   type ConversationKind = "chief" | "dm" | "group"
-  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
+  type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; answers?: Array<string>; answers_pending?: Array<string>; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
   type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
   type ConversationOrigin = { kind: "remote"; install: string }
   type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }

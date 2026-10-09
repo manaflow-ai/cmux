@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c.
+// cmux-tui mux protocol 12, IR 85fd2191d6978d343c855584f60af644d93b2e9e66b037babc2796cc1668ddf8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -362,6 +362,10 @@ pub struct ConversationImportMessage {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMessage {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers_pending: Option<Vec<String>>,
     pub author: String,
     pub client_msg_id: String,
     pub conversation: String,

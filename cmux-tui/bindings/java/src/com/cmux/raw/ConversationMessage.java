@@ -11,6 +11,8 @@ import java.util.Objects;
 
 
 public final class ConversationMessage implements WireValue {
+    private final Field<List<String>> answers;
+    private final Field<List<String>> answersPending;
     private final String author;
     private final String clientMsgId;
     private final String conversation;
@@ -24,6 +26,8 @@ public final class ConversationMessage implements WireValue {
     private final UInt64 seq;
 
     private ConversationMessage(Builder builder) {
+        this.answers = builder.answers.map(value -> List.copyOf(value));
+        this.answersPending = builder.answersPending.map(value -> List.copyOf(value));
         if (!builder.authorSet) throw new IllegalArgumentException("author is required");
         this.author = Wire.nonNull(builder.author, "author");
         if (!builder.clientMsgIdSet) throw new IllegalArgumentException("client_msg_id is required");
@@ -47,6 +51,8 @@ public final class ConversationMessage implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<List<String>> answers() { return answers; }
+    public Field<List<String>> answersPending() { return answersPending; }
     public String author() { return author; }
     public String clientMsgId() { return clientMsgId; }
     public String conversation() { return conversation; }
@@ -62,6 +68,14 @@ public final class ConversationMessage implements WireValue {
     public static ConversationMessage fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationMessage");
         Builder builder = builder();
+        Object rawAnswers = Wire.optional(object, "answers");
+        if (!Wire.isMissing(rawAnswers)) {
+            builder.answers(Wire.array(rawAnswers, "ConversationMessage.answers", item -> Wire.string(item, "ConversationMessage.answers item")));
+        }
+        Object rawAnswersPending = Wire.optional(object, "answers_pending");
+        if (!Wire.isMissing(rawAnswersPending)) {
+            builder.answersPending(Wire.array(rawAnswersPending, "ConversationMessage.answers_pending", item -> Wire.string(item, "ConversationMessage.answers_pending item")));
+        }
         Object rawAuthor = Wire.required(object, "author");
         builder.author(Wire.string(rawAuthor, "ConversationMessage.author"));
         Object rawClientMsgId = Wire.required(object, "client_msg_id");
@@ -96,6 +110,8 @@ public final class ConversationMessage implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "answers", answers);
+        Wire.put(object, "answers_pending", answersPending);
         Wire.put(object, "author", author);
         Wire.put(object, "client_msg_id", clientMsgId);
         Wire.put(object, "conversation", conversation);
@@ -113,16 +129,18 @@ public final class ConversationMessage implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationMessage that)) return false;
-        return Objects.equals(author, that.author) && Objects.equals(clientMsgId, that.clientMsgId) && Objects.equals(conversation, that.conversation) && Objects.equals(createdAt, that.createdAt) && Objects.equals(editedAt, that.editedAt) && Objects.equals(id, that.id) && Objects.equals(parts, that.parts) && Objects.equals(reactions, that.reactions) && Objects.equals(replyTo, that.replyTo) && Objects.equals(retractedAt, that.retractedAt) && Objects.equals(seq, that.seq);
+        return Objects.equals(answers, that.answers) && Objects.equals(answersPending, that.answersPending) && Objects.equals(author, that.author) && Objects.equals(clientMsgId, that.clientMsgId) && Objects.equals(conversation, that.conversation) && Objects.equals(createdAt, that.createdAt) && Objects.equals(editedAt, that.editedAt) && Objects.equals(id, that.id) && Objects.equals(parts, that.parts) && Objects.equals(reactions, that.reactions) && Objects.equals(replyTo, that.replyTo) && Objects.equals(retractedAt, that.retractedAt) && Objects.equals(seq, that.seq);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(author, clientMsgId, conversation, createdAt, editedAt, id, parts, reactions, replyTo, retractedAt, seq); }
+    public int hashCode() { return Objects.hash(answers, answersPending, author, clientMsgId, conversation, createdAt, editedAt, id, parts, reactions, replyTo, retractedAt, seq); }
 
     @Override
     public String toString() { return "ConversationMessage" + toWire(); }
 
     public static final class Builder {
+        private Field<List<String>> answers = Field.omitted();
+        private Field<List<String>> answersPending = Field.omitted();
         private String author;
         private boolean authorSet;
         private String clientMsgId;
@@ -143,6 +161,14 @@ public final class ConversationMessage implements WireValue {
         private UInt64 seq;
         private boolean seqSet;
 
+        public Builder answers(List<String> value) {
+            this.answers = Field.of(value);
+            return this;
+        }
+        public Builder answersPending(List<String> value) {
+            this.answersPending = Field.of(value);
+            return this;
+        }
         public Builder author(String value) {
             this.author = value;
             this.authorSet = true;

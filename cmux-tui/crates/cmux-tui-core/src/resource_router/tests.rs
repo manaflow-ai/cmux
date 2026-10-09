@@ -399,11 +399,11 @@ fn a_conversation_message_with_answers_meets_the_catalog() {
         "answers_pending": ["msg_01J0000000000000000000000A"],
         "created_at": "2026-10-09T16:00:00.000Z", "reactions": []
     });
-    super::catalog_validation::validate_catalog_value(
+    validate_catalog_value(
         &message,
         &json!({"kind": "ref", "name": "ConversationMessage"}),
         "message",
-        &std::collections::HashMap::new(),
+        &HashMap::new(),
     )
     .unwrap();
 }

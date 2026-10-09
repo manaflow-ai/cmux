@@ -7008,6 +7008,28 @@
      "presence": "optional",
      "nullable": false
     },
+    "answers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "answers_pending": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "created_at": {
      "type": {
       "kind": "scalar",

@@ -535,6 +535,8 @@ class ConversationMessage:
     parts: List[ConversationPart]
     reactions: List[ConversationReaction]
     seq: int
+    answers: Union[List[str], MissingType] = field(default=MISSING)
+    answers_pending: Union[List[str], MissingType] = field(default=MISSING)
     edited_at: Union[str, MissingType] = field(default=MISSING)
     reply_to: Union[ConversationPartRef, MissingType] = field(default=MISSING)
     retracted_at: Union[str, MissingType] = field(default=MISSING)

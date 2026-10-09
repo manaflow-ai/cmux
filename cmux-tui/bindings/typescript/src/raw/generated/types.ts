@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c. */
+/* cmux-tui mux protocol 12, IR 85fd2191d6978d343c855584f60af644d93b2e9e66b037babc2796cc1668ddf8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -222,6 +222,8 @@ export type ConversationImportMessage = {
 };
 
 export type ConversationMessage = {
+  "answers"?: Array<string>;
+  "answers_pending"?: Array<string>;
   "author": string;
   "client_msg_id": string;
   "conversation": string;
