@@ -492,8 +492,21 @@ fn a_host_stopped_mid_turn_folds_what_its_session_did_since() {
             ("tool", "Bash {\"command\":\"git push\"}"),
             ("echo", "pushed main"),
             ("talk", "Pushed."),
+            // The cut turn then resumes once (E23) and answers.
+            (
+                "user",
+                "The server restarted, cutting the turn; nothing was lost: go on."
+            ),
+            ("talk", "Checking."),
+            ("tool", "Bash {\"command\":\"ls\"}"),
+            ("echo", "a.txt"),
+            ("talk", "answer 0"),
         ],
         "the push's result and the reply reach the log"
     );
-    assert_eq!(h.agents.inner.lock().unwrap().ended, vec!["s7"]);
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert_eq!(sends[0].1, "answer 0", "{sends:?}");
+    // The orphan, then the resume turn's own session.
+    assert_eq!(h.agents.inner.lock().unwrap().ended, vec!["s7", "s1"]);
 }
