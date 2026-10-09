@@ -318,6 +318,9 @@ final class SidebarBridge {
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
+        case .tab(_, let tab):
+            // The tab's own menu, as on its strip; the row is not selected by the right-click.
+            return PaneController.tabMenu(tab.rawValue, tab: services.locateTab(tab.rawValue)?.0, registry: registry)
         case .workspaces(let ids):
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
             guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder || CloudCreationRows.isRow($0, services) }) else { return nil }
