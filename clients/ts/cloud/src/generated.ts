@@ -2691,10 +2691,11 @@ export interface CloudOps {
       readonly epoch: number
     }
   }
-  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited. */
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.retired.delete": {
     readonly params: {
       readonly vm: string
+      readonly files_copied: true
     }
     readonly result: {
       readonly vm: string
