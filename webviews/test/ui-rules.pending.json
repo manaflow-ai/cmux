@@ -15,7 +15,6 @@
   "agent-session/acpmux/conversation/PreviewCard.tsx": 1,
   "agent-session/acpmux/dictation.ts": 1,
   "agent-session/acpmux/DiffPanel.tsx": 2,
-  "agent-session/acpmux/EffortPicker.tsx": 1,
   "agent-session/acpmux/EffortTrack.tsx": 1,
   "agent-session/acpmux/FileSearch.tsx": 5,
   "agent-session/acpmux/Inspector.tsx": 2,
