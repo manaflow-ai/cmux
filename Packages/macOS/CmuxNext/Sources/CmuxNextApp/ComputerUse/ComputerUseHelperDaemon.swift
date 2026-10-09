@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextSettings
 import Darwin
 import Foundation
+import Observation
 import os
 import Synchronization
 
@@ -56,7 +57,9 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
 /// starts, and the helper is stopped when Computer Use turns off and when the app quits.
+/// `state` is observable: Computer Use Setup follows it.
 @MainActor
+@Observable
 final class ComputerUseHelperDaemon {
     enum State: Equatable {
         case off
@@ -69,18 +72,18 @@ final class ComputerUseHelperDaemon {
     static let shared = ComputerUseHelperDaemon()
 
     private(set) var state: State = .off
-    let socketPath: String
-    let stateDirectory: URL
-    private let identity: CuaHelperIdentity
-    private let candidates: @Sendable () -> [URL]
-    private let launcher: any ComputerUseHelperLaunching
-    private let manifestReader: CuaHelperManifestReader
-    private let ownerPID: pid_t
-    private let published = Mutex<[String: String]>([:])
-    private var agentToken: String?
-    private var hostToken: String?
-    private var generation = 0
-    private var observation: Task<Void, Never>?
+    @ObservationIgnored let socketPath: String
+    @ObservationIgnored let stateDirectory: URL
+    @ObservationIgnored private let identity: CuaHelperIdentity
+    @ObservationIgnored private let candidates: @Sendable () -> [URL]
+    @ObservationIgnored private let launcher: any ComputerUseHelperLaunching
+    @ObservationIgnored private let manifestReader: CuaHelperManifestReader
+    @ObservationIgnored private let ownerPID: pid_t
+    @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    @ObservationIgnored private var agentToken: String?
+    @ObservationIgnored private var hostToken: String?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var observation: Task<Void, Never>?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },

@@ -112,6 +112,8 @@ pub struct Owner {
     /// Every op the brain sent, in order: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
     pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
@@ -344,6 +346,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
+        Ok(())
+    }
+
     fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
         self.0
             .lock()
@@ -420,6 +435,9 @@ pub struct Agents {
     /// The next prompt fails with this JSON-RPC error message, used once
     /// (acpmux answers a refused or failed Claude turn this way).
     pub answer_error: Option<String>,
+    /// The next prompt never answers and sends no more events (a hung
+    /// harness); taken by that prompt.
+    pub answer_never: bool,
     /// Names looked up with `find`, in order.
     pub finds: Vec<String>,
     /// The next this many `cancel` calls are recorded but change nothing
@@ -428,6 +446,11 @@ pub struct Agents {
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
+    /// `new_session` of a session whose name contains the text takes this
+    /// long (a Claude Code process that starts slowly).
+    pub slow_session: Option<(String, Duration)>,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -436,8 +459,26 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every folder the host trusted (`acp.trust.set`, level trusted).
+    pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
+    pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
+    /// The sessions steer (deliver between tool calls); else a steer fails.
+    pub steering: bool,
+    /// Every steer delivered: (session, blocks).
+    pub steers: Vec<(String, Vec<Value>)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
+    /// Steers are answered only when the turn ends (codex-acp).
+    pub steer_at_end: bool,
+    /// Turns whose prompt was answered.
+    pub answered_turns: usize,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -516,10 +557,26 @@ impl FakeAgents {
     /// Adds events to a running turn and tells its runner, as acpmux's
     /// notifications do.
     pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
         self.append_events(session, events);
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
+        }
+    }
+
+    /// Waits until `n` steers were delivered.
+    pub fn wait_steers(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.steers.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no steer {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
         }
     }
 
@@ -548,7 +605,27 @@ impl FakeAgents {
 }
 
 impl AgentPort for FakeAgents {
+    fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
+        self.inner.lock().unwrap().trusted.push(cwd.to_owned());
+        Ok(())
+    }
+
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
+        let slow = self.inner.lock().unwrap().slow_session.clone();
+        if let Some((part, delay)) = slow
+            && spec.name.contains(&part)
+        {
+            std::thread::sleep(delay);
+        }
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+            ));
+        }
         let mut inner = self.inner.lock().unwrap();
         let system = spec
             .preset
@@ -584,6 +661,9 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
+            if std::mem::take(&mut me.inner.lock().unwrap().answer_never) {
+                return;
+            }
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
@@ -597,6 +677,8 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
+            me.inner.lock().unwrap().answered_turns += 1;
+            me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else if let Some(error) = error {
@@ -691,8 +773,71 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
+        drop(inner);
+        self.changed.notify_all();
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().prewarms.push((
+            harness.to_owned(),
+            preset.map(str::to_owned),
+            cwd.to_owned(),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
@@ -732,6 +877,7 @@ pub fn settings(dir: &Path) -> Settings {
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
+        turn_idle_limit: None,
         engine: Engine::Acpmux,
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),
@@ -741,6 +887,8 @@ pub fn settings(dir: &Path) -> Settings {
         codex_preset: None,
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
+        shared_ttl: Default::default(),
     }
 }
 
@@ -910,6 +1058,15 @@ impl Harness {
         while !self.brain.is_idle() {
             let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
             self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
         }
     }
 

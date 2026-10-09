@@ -47,8 +47,8 @@
     },
     {
       "path": "AgentSessionSource.java",
-      "sha256": "44b120230e12830916a2c9cde78b0adf3c4d19223f21e37f6f8bfcb64d54984e",
-      "size": 4188
+      "sha256": "2da59b2dc3f90b8301fbfd97da007969f2cb541d9aea6d187c156f2193ba3ceb",
+      "size": 4275
     },
     {
       "path": "AgentSource.java",
@@ -1022,8 +1022,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "dba0cfb9c8a4951d8d464284e64ec2ef5ae8817a1186eb3159914ec736400eb4",
-      "size": 55711
+      "sha256": "5b71d6604d4066716dd05bbcefc3136904b07fe0f5880ec2f3774e2b0bce10c1",
+      "size": 55745
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1632,7 +1632,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "be9c6e65d5bdc68af5c22c04933f2718084b7299a88a308379580e6f67506c22",
+      "sha256": "08de4797e5ea3db4016bfc24b09a07d0adcf7e6229d99be342f0d5b8ab86c928",
       "size": 5901
     },
     {
@@ -2017,13 +2017,18 @@
     },
     {
       "path": "ServerStatsRequest.java",
-      "sha256": "d437b90c85aeba283d417e9bdb1f21c0c20e2042dc6a3c2d74fb0686310a0403",
-      "size": 1354
+      "sha256": "bce0f505b81b6cb95b2a3f92d794077345676f15727edd02a1113b3a5061b76b",
+      "size": 2112
+    },
+    {
+      "path": "ServerStatsResourceProjection.java",
+      "sha256": "a0694b5ac874ae124f0f82f81c90103732f21c5125395b4d5313d8f47a0cdb95",
+      "size": 15819
     },
     {
       "path": "ServerStatsResult.java",
-      "sha256": "839d8104c2f902e202165ae46692500ad4af75fdf7c05675318754b6a3c96c08",
-      "size": 5232
+      "sha256": "64fe1b53c7e0858df64b3df378253be657cf7e5f697b41f87d6217be665bb82f",
+      "size": 6135
     },
     {
       "path": "ServerStatsWriterPhase.java",
@@ -2807,7 +2812,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494",
+  "ir_sha256": "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

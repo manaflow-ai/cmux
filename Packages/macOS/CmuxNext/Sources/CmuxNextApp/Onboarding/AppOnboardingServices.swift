@@ -44,11 +44,12 @@ final class AppOnboardingServices: OnboardingServices {
         await Task.detached { ThemeChoice.loadCurated(resourcesDirectory: GhosttyRuntime.resourcesDirectory()) }.value
     }
 
-    /// The last write `applyAppearance` started; each waits for the one
-    /// before, so a revert never lands ahead of the try it undoes.
-    private var lastWrite: Task<Void, Never>?
+    /// The last cmux.json write onboarding started (`applyAppearance`,
+    /// `applyTabKeys`); each waits for the one before, so a revert never
+    /// lands ahead of the try it undoes.
+    var lastWrite: Task<Void, Never>?
 
-    /// Waits for every write `applyAppearance` started (tests).
+    /// Waits for every cmux.json write onboarding started (tests).
     func flush() async {
         await lastWrite?.value
     }
@@ -98,16 +99,17 @@ final class AppOnboardingServices: OnboardingServices {
     /// the sidebar keeps the list's order; any macOS privacy prompts for
     /// Desktop or Documents come now, together, as the step said.
     func openProjects(_ folders: [URL]) {
-        guard let windows = services.windows else { return }
+        let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         // Every folder counts as opening now, so chats picked meanwhile wait for it.
         let spawns = folders.map { ($0, folderSpawn($0)) }
-        Task {
+        let logger = services.daemon.logger
+        Task { [weak self] in
             for (folder, spawn) in spawns {
                 do {
                     _ = try await windows.createWorkspace(spawn, into: target)
                 } catch {
-                    folderFailed(folder, error)
+                    self?.folderFailed(folder, error, logger: logger)
                 }
             }
         }
@@ -121,7 +123,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
-        let cache = services.cache!
+        let cache = services.cache
         let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
             cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
         }
@@ -139,13 +141,15 @@ final class AppOnboardingServices: OnboardingServices {
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        return try await importer.run(plan, into: destination) { step in
+        let summary = try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
+        owner.cookiePrompt.importFinished(summary)
+        return summary
     }
 
     func canImportPasswords() async -> Bool {
-        await services.cache?.cef.canImportPasswords() ?? false
+        await services.cache.cef.canImportPasswords()
     }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
@@ -167,33 +171,29 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.open(url)
     }
 
-    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
-    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
-    /// grants `debug.onboarding grant` flips instead.
+    /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
+    /// palette action and Settings show). The step shows whenever Computer
+    /// Use may run: off, it says so and Allow turns it on. A DEBUG launch
+    /// with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets grants
+    /// `debug.onboarding grant` flips instead.
     var computerUsePermissions: (any ComputerUsePermissionSource)? {
         // Turned off by policy (DisabledFeatures): no step and no prompts.
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    /// Resolved on each read until a helper answers, then kept: a helper
-    /// that comes up after the first read still gets the step. The check is
-    /// one non-blocking local connect, never a wait or a poll.
     private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
-    private var computerUseSource: (any ComputerUsePermissionSource)? {
+    private var computerUseSource: any ComputerUsePermissionSource {
         if let resolvedComputerUseSource { return resolvedComputerUseSource }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            resolvedComputerUseSource = MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
-            return resolvedComputerUseSource
+            let mock = MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
+            resolvedComputerUseSource = mock
+            return mock
         }
         #endif
-        if ComputerUseHelperDaemon.shared.state == .unavailable {
-            // Computer Use is on, but no Developer ID signed helper is
-            // installed: the step shows, and Allow says it is unavailable.
-            return AppComputerUsePermissionSource(configuration: owner.computerUseConfiguration)
-        }
-        resolvedComputerUseSource = AppComputerUsePermissionSource.local(owner.computerUseConfiguration)
-        return resolvedComputerUseSource
+        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+        resolvedComputerUseSource = source
+        return source
     }
 
     var hasAccountsStep: Bool { true }
@@ -225,7 +225,7 @@ final class AppOnboardingServices: OnboardingServices {
         owner.recordProgress(step, interacted: interacted)
     }
 
-    func onboardingDidLeave(notNow: Bool) {
-        if notNow { owner.recordNotNow() }
-    }
+    // `onboardingDidLeave` keeps the protocol's default (nothing): a launch
+    // that showed the first run was counted at the show
+    // (`OnboardingStateFile.takeLaunchShow`), closed or quit.
 }

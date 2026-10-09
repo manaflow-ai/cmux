@@ -2,7 +2,7 @@
 //! per node with a deny-all policy and its own required preset, in a slot
 //! working directory outside the home, the size loop in the same session,
 //! the session killed and its transcript deleted when the node is done or
-//! failed, at most JOBS sessions across the main and fallback compactors,
+//! failed, at most COMPACTOR_SESSIONS sessions across the main and fallback compactors,
 //! refusals as acpmux really sends them, and the route chosen by the endpoint.
 
 mod common;
@@ -13,6 +13,7 @@ use std::time::Duration;
 use common::*;
 use optchat_chief::acpmux::Family;
 use optchat_chief::brain::Input;
+use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_chief::compactor::{
     AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots,
     cached_prompt, compact_route, compactor_presets, compactor_settings, compactor_spec,
@@ -20,7 +21,6 @@ use optchat_chief::compactor::{
     slot_preset, strip_preamble,
 };
 use optchat_chief::paths::Paths;
-use optchat_core::JOBS;
 use optchat_host::{
     CompactModel, CompactRequest, Config, DEFAULT_BASE_URL, Kind, NodeId, OptChat, PROBE_NODE,
     SUBROUTER_KEY, SystemClock, probe, run_node,
@@ -57,11 +57,13 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         effort: None,
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
+        user_env: Default::default(),
+        fast: false,
     }
 }
 
 fn compactor(agents: &Arc<FakeAgents>, dir: &std::path::Path) -> AcpmuxCompactor {
-    AcpmuxCompactor::new(agents.clone(), spec(dir), Slots::new(JOBS))
+    AcpmuxCompactor::new(agents.clone(), spec(dir), Slots::new(COMPACTOR_SESSIONS))
 }
 
 fn request(i: u64) -> CompactRequest {
@@ -142,31 +144,6 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
 }
 
 #[test]
-fn the_size_loop_continues_in_the_same_session() {
-    let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|turn, _| {
-        if turn == 0 {
-            answer(&"long".repeat(175))
-        } else {
-            answer("user: short now")
-        }
-    }));
-    let compactor = compactor(&agents, dir.path());
-    assert_eq!(
-        run_node(&compactor, &request(3)).unwrap(),
-        "user: short now"
-    );
-    let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), 1, "one session for the node");
-    assert_eq!(inner.prompts.len(), 2);
-    let retry = texts(&inner.prompts[1]);
-    assert_eq!(retry.len(), 1, "a retry sends only the size message");
-    assert!(retry[0].starts_with("Too long: your line is 700 bytes"), "{retry:?}");
-    assert_eq!(inner.ended, vec!["s1"]);
-    assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1]);
-}
-
-#[test]
 fn a_failed_node_kills_its_session_and_a_refusal_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("")));
@@ -189,17 +166,17 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
     agents.hold(true);
     let compactor = Arc::new(compactor(&agents, dir.path()));
     let extra = 3;
-    let workers: Vec<_> = (0..(JOBS + extra) as u64)
+    let workers: Vec<_> = (0..(COMPACTOR_SESSIONS + extra) as u64)
         .map(|i| {
             let c = compactor.clone();
             std::thread::spawn(move || run_node(&*c, &request(i)))
         })
         .collect();
-    agents.wait_prompts(JOBS);
+    agents.wait_prompts(COMPACTOR_SESSIONS);
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(
         agents.inner.lock().unwrap().specs.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "the others wait for a free session slot"
     );
     agents.hold(false);
@@ -208,8 +185,8 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
         assert!(w.join().unwrap().is_ok());
     }
     let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), JOBS + extra);
-    assert_eq!(inner.ended.len(), JOBS + extra);
+    assert_eq!(inner.specs.len(), COMPACTOR_SESSIONS + extra);
+    assert_eq!(inner.ended.len(), COMPACTOR_SESSIONS + extra);
 }
 
 #[test]
@@ -337,7 +314,7 @@ fn a_refused_node_is_built_by_the_fallback_compactor() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: built by the fallback")));
     agents.inner.lock().unwrap().answer_error = Some(REFUSAL.into());
-    let slots = Slots::new(JOBS);
+    let slots = Slots::new(COMPACTOR_SESSIONS);
     let main = Arc::new(AcpmuxCompactor::new(
         agents.clone(),
         spec(dir.path()),
@@ -465,7 +442,7 @@ fn main_and_fallback_compactors_share_jobs_slots() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
     agents.hold(true);
-    let slots = Slots::new(JOBS);
+    let slots = Slots::new(COMPACTOR_SESSIONS);
     let a = Arc::new(AcpmuxCompactor::new(
         agents.clone(),
         spec(dir.path()),
@@ -476,15 +453,15 @@ fn main_and_fallback_compactors_share_jobs_slots() {
         spec(dir.path()),
         slots,
     ));
-    let workers: Vec<_> = (0..(JOBS + 4) as u64)
+    let workers: Vec<_> = (0..(COMPACTOR_SESSIONS + 4) as u64)
         .map(|i| {
             let c = if i % 2 == 0 { a.clone() } else { b.clone() };
             std::thread::spawn(move || run_node(&*c, &request(i)))
         })
         .collect();
-    agents.wait_prompts(JOBS);
+    agents.wait_prompts(COMPACTOR_SESSIONS);
     std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(agents.inner.lock().unwrap().specs.len(), JOBS);
+    assert_eq!(agents.inner.lock().unwrap().specs.len(), COMPACTOR_SESSIONS);
     let cwds: std::collections::BTreeSet<_> = agents
         .inner
         .lock()
@@ -495,7 +472,7 @@ fn main_and_fallback_compactors_share_jobs_slots() {
         .collect();
     assert_eq!(
         cwds.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "each live session has its own slot directory"
     );
     agents.hold(false);
@@ -616,11 +593,16 @@ fn the_compactor_has_its_own_isolated_configuration() {
             .name
             .ends_with(&format!("{}-slot-0", optchat_chief::paths::home_id(&home)))
     );
-    assert_eq!(
-        preset.env["CLAUDE_CONFIG_DIR"],
-        paths.compactor_config.display().to_string()
+    // cx-1hpt: no configuration directory of its own. A plain `claude`
+    // compactor signs in with the user's login, which lives with the user's
+    // Claude home (an empty `CLAUDE_CONFIG_DIR` has none: "Could not resolve
+    // authentication method"). The slot's project settings, the env below
+    // and the preset's flags keep it isolated.
+    assert!(
+        !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+        "{:?}",
+        preset.env
     );
-    assert_ne!(paths.compactor_config, paths.claude_config);
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
     // Every slot on one sticky subrouter account (nodes share cached context).
@@ -736,21 +718,21 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
 
 #[test]
 fn the_marker_sits_on_the_last_whole_four_line_block() {
-    // 9 lines: two whole blocks, the marker on the second.
+    // 9 lines: the header, two whole blocks, the marker on the second.
     let r = CompactRequest {
         context: chat_of(9),
         ..request(0)
     };
     let p = cached_prompt(&r, true);
-    assert_eq!(markers(&p.blocks), vec![1]);
-    assert_eq!(texts(&p.blocks).len(), 4);
-    // Fewer than 4 lines: no whole block, no marker.
+    assert_eq!(markers(&p.blocks), vec![2]);
+    assert_eq!(texts(&p.blocks).len(), 5);
+    // Fewer than 4 lines: the header block takes the marker.
     let p = cached_prompt(&request(0), true);
     assert_eq!(p.system, "SYS");
-    assert!(markers(&p.blocks).is_empty());
+    assert_eq!(markers(&p.blocks), vec![0]);
     assert_eq!(
         texts(&p.blocks),
-        vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]
+        vec!["<chat>\n", "user: hi\n</chat>", "STEP 0"]
     );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
@@ -842,21 +824,25 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
     assert_eq!(
         presets.len(),
-        JOBS,
+        COMPACTOR_SESSIONS,
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
-        // acpmux's allowlist: no tools, no MCP servers, no transcript; the
-        // system prompt is the preset's text, never a path in the cwd.
+        // acpmux's allowlist: no tools, no MCP servers, no transcript, no
+        // user settings, no skills; the system prompt is the preset's text,
+        // never a path in the cwd.
         assert_eq!(
             p.args,
             vec![
                 "--tools",
                 "",
                 "--strict-mcp-config",
-                "--no-session-persistence"
+                "--no-session-persistence",
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands"
             ]
         );
         assert!(p.system_prompt.is_some(), "installed with a system prompt");
@@ -864,7 +850,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     assert_eq!(presets[0].args, COMPACTOR_ARGS);
     // Claude Code flags and system prompts mean nothing to another harness.
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(codex.len(), JOBS);
+    assert_eq!(codex.len(), COMPACTOR_SESSIONS);
     assert!(
         codex
             .iter()
@@ -887,7 +873,11 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
         ..spec(dir.path())
     };
     // Two nodes at once, so they hold two slots.
-    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)));
+    let compactor = Arc::new(AcpmuxCompactor::new(
+        agents.clone(),
+        spec,
+        Slots::new(COMPACTOR_SESSIONS),
+    ));
     agents.hold(true);
     let r = |i: u64| CompactRequest {
         context: chat_of(1_100),
@@ -940,9 +930,10 @@ fn a_codex_node_logs_its_cached_tokens() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)).with_log(
-        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
-    );
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
     run_node(&compactor, &request(4)).unwrap();
     let lines = lines.lock().unwrap();
     let line = lines
@@ -970,7 +961,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let paths = Paths::new(&home);
     let id = optchat_chief::paths::home_id(&home);
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(presets.len(), JOBS);
+    assert_eq!(presets.len(), COMPACTOR_SESSIONS);
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
@@ -990,7 +981,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
         assert!(p.args.is_empty() && p.system_prompt.is_none());
         homes.insert(p.env["CODEX_HOME"].clone());
     }
-    assert_eq!(homes.len(), JOBS, "one CODEX_HOME per slot");
+    assert_eq!(homes.len(), COMPACTOR_SESSIONS, "one CODEX_HOME per slot");
 }
 
 /// A slot's codex config.toml keeps where requests go and the model, and
@@ -1093,7 +1084,7 @@ base_url = "http://router:31415/v1"
     std::fs::write(user_home.join("AGENTS.md"), "user instructions").unwrap();
     std::fs::write(user_home.join("auth.json"), "{}").unwrap();
     prepare_codex_homes(&paths, &user_home).unwrap();
-    for k in 0..JOBS {
+    for k in 0..COMPACTOR_SESSIONS {
         let slot = paths.compactor_codex.join(format!("slot-{k}"));
         let mut names: Vec<String> = std::fs::read_dir(&slot)
             .unwrap()
@@ -1126,7 +1117,7 @@ base_url = "http://router:31415/v1"
     // ids read 0 of a 31.5k-token prefix the other wrote, with one shared id
     // 30,464. Every slot carries the same id, a UUID codex accepts, and a
     // host restart keeps it.
-    let ids: Vec<String> = (0..JOBS)
+    let ids: Vec<String> = (0..COMPACTOR_SESSIONS)
         .map(|k| {
             std::fs::read_to_string(
                 paths
@@ -1168,7 +1159,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     prepare_codex_homes(&paths, &user_home).unwrap();
     let base = paths.compactor_codex.clone();
     // A crash's leftover in every slot.
-    for k in 0..JOBS {
+    for k in 0..COMPACTOR_SESSIONS {
         let slot = base.join(format!("slot-{k}"));
         std::fs::create_dir_all(slot.join("sessions/2026/10/04")).unwrap();
         std::fs::write(slot.join("sessions/2026/10/04/rollout-old.jsonl"), "old").unwrap();
@@ -1179,7 +1170,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
     // The fake harness writes as codex does, into every slot (it does not
     // know which one the node holds).
     let agents = FakeAgents::new(Box::new(move |_, _| {
-        for k in 0..JOBS {
+        for k in 0..COMPACTOR_SESSIONS {
             let slot = writes.join(format!("slot-{k}"));
             seen.lock()
                 .unwrap()
@@ -1199,7 +1190,7 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS));
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
     run_node(&compactor, &request(1)).unwrap();
     // The node held slot 0: its leftover was gone before the session started.
     assert!(!seen_leftover.lock().unwrap()[0]);
@@ -1246,7 +1237,10 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
             model: None,
             ..spec(dir.path())
         };
-        probe(&AcpmuxCompactor::new(agents, spec, Slots::new(JOBS)), "SYS")
+        probe(
+            &AcpmuxCompactor::new(agents, spec, Slots::new(COMPACTOR_SESSIONS)),
+            "SYS",
+        )
     };
     let builtin = json!([{"name": "compact", "description": "Summarize"}, {"name": "status"}]);
     assert_eq!(with(builtin), Ok("user: ping".into()));
@@ -1256,12 +1250,15 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
     assert!(error.message.contains("$imagegen"), "{error:?}");
 }
 
-/// Section 4.2: the reference compactor runs Claude Sonnet at medium effort
-/// ("at low effort it overshot the size limit much more"). acpmux maps
-/// `effort` onto Claude Code's `--effort` and codex's `reasoning_effort`;
-/// a harness of another family keeps its own default.
+/// hq-6d (measured 2026-10-09, 33 node inputs on a subscription, Claude
+/// Code 2.1.287): Haiku 5.5 at medium effort costs 20% less per node and
+/// takes 36% less time (p50 4.2 s vs 6.6 s) than at high, with lines of
+/// the same quality; at low, 3 of 12 lines carried leaked reasoning and 2
+/// stayed over the size limit. acpmux maps `effort` onto Claude Code's
+/// `--effort` and codex's `reasoning_effort`; a harness of another family
+/// keeps its own. `OPTCHAT_COMPACTOR_EFFORT` picks another.
 #[test]
-fn the_compactor_runs_at_medium_effort_like_the_spec() {
+fn a_claude_compactor_runs_haiku_at_medium_effort() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let paths = Paths::new(&home);
@@ -1273,4 +1270,876 @@ fn the_compactor_runs_at_medium_effort_like_the_spec() {
         let spec = compactor_spec(&paths, &home, harness, family, None);
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+    assert_eq!(Config::default().effort.as_deref(), Some("medium"));
+}
+
+/// What Claude Code answers when the account cannot use the model.
+const NO_MODEL: &str = "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it. Run /model to pick a different model.";
+
+/// hq-6d: when the subscription route has no Haiku, the compactor builds
+/// with the turn model from then on, and says so once.
+#[test]
+fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().answer_error = Some(NO_MODEL.into());
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let spec = CompactorSpec {
+        model: Some("claude-haiku-5-5".into()),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+        .with_model_fallback(Some("claude-opus-5-5".into()))
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(
+        run_node(&compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert_eq!(
+        run_node(&compactor, &request(2)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    let models: Vec<Option<String>> = agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|s| s.model.clone())
+        .collect();
+    assert_eq!(
+        models,
+        vec![
+            Some("claude-haiku-5-5".to_owned()),
+            Some("claude-opus-5-5".to_owned()),
+            Some("claude-opus-5-5".to_owned()),
+        ]
+    );
+    let said = lines
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains("is not available"))
+        .count();
+    assert_eq!(said, 1, "{:?}", lines.lock().unwrap());
+}
+
+/// Single-flight (hq-6d gap 3a): the next node with the same marked prefix
+/// prompts as soon as the writing node's harness streams its first output
+/// (its cache entry exists then), not when the writer's turn ends.
+#[test]
+fn the_next_node_prompts_at_the_writers_first_streamed_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.hold(true);
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    let chat = OptChat::open_with(
+        dir.path().join("chat"),
+        config,
+        Arc::new(compactor(&agents, dir.path())),
+        Arc::new(SystemClock),
+    )
+    .unwrap();
+    // Two long messages on an empty chat: both nodes mark the same prefix.
+    chat.append(Kind::User, &"deploy step; ".repeat(100))
+        .unwrap();
+    chat.append(Kind::User, &"build step; ".repeat(100))
+        .unwrap();
+    agents.wait_prompts(1);
+    // The writer's harness streams its first chunk: acpmux says Changed.
+    let writer = agents
+        .inner
+        .lock()
+        .unwrap()
+        .signals
+        .values()
+        .next()
+        .cloned()
+        .unwrap();
+    writer
+        .send(optchat_chief::acpmux::TurnSignal::Changed)
+        .unwrap();
+    agents.wait_prompts(2);
+    agents.release();
+    agents.release();
+    assert!(
+        chat.settle(None, Some(WAIT)),
+        "{:?}",
+        chat.status().failures
+    );
+}
+
+/// hq-6d gap 3b: a node does not wait for a Claude Code process to start.
+/// When a node ends, a warm session starts in its slot with the same system
+/// prompt, and the next node prompts it at once (a fresh conversation per
+/// node, as the spec needs; a session is never reused across nodes).
+#[test]
+fn the_next_node_takes_a_warm_session_started_when_the_last_one_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path()).with_warm(2);
+    for i in 1..=2 {
+        assert_eq!(
+            run_node(&compactor, &request(i)).unwrap(),
+            "user: pasted a deploy log"
+        );
+    }
+    let inner = agents.inner.lock().unwrap();
+    let names: Vec<&str> = inner.specs.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "optchat-compact-test-1+1",
+            "optchat-compact-test-warm-0",
+            "optchat-compact-test-warm-0"
+        ]
+    );
+    // Each warm session started with the nodes' system prompt.
+    let system = cached_prompt(&request(1), true).system;
+    for k in 1..=2 {
+        assert_eq!(inner.systems[k].as_deref(), Some(system.as_str()));
+    }
+    // Node 2 prompted the first warm session and ended it; the second waits.
+    assert_eq!(inner.prompts.len(), 2);
+    assert_eq!(inner.ended, ["s1", "s2"]);
+}
+
+/// cx-1hpt: the compactor's failure notice is posted once, also across host
+/// restarts (each start probes again), and a later good probe retracts it.
+#[test]
+fn the_compactor_notice_is_posted_once_across_restarts_and_retracted_when_it_works() {
+    let text = "The memory compactor cannot build summaries (acpmux route: no login).";
+    let down = || Input::CompactorStatus(Err(text.into()));
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.brain.step(down());
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    h.brain.step(down());
+    let notices: Vec<(String, String)> = h
+        .owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .filter(|(_, t)| t == text)
+        .collect();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    h.brain.step(Input::CompactorStatus(Ok(())));
+    let owner = h.owner.lock().unwrap();
+    let posted = owner
+        .messages
+        .iter()
+        .find(|m| matches!(&m.parts[0], cmux_conversation::Part::Text { text: t, .. } if t == text))
+        .map(|m| m.id.clone())
+        .unwrap();
+    assert!(
+        owner.ops.iter().any(|(_, op)| matches!(
+            op,
+            cmux_conversation::Op::MessageRetract { message_id } if *message_id == posted
+        )),
+        "{:?}",
+        owner.ops
+    );
+}
+
+/// Codex reads user skills from `$HOME/.agents/skills` whatever CODEX_HOME
+/// and the slot config say (codex ext/skills host_roots.rs), so a slot on a
+/// host with user skills offered them and the isolation check refused every
+/// node (cmux-lawrence 2026-10-08: "it offers skills [$aside-browser, …]").
+/// Each codex slot runs with HOME at a private empty directory.
+#[test]
+fn codex_compactor_sessions_run_with_a_private_home_without_user_skills() {
+    use optchat_chief::compactor::prepare_codex_homes;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
+    let user_home = dir.path().join("user-codex");
+    std::fs::create_dir_all(&user_home).unwrap();
+    prepare_codex_homes(&paths, &user_home).unwrap();
+    for p in compactor_presets(&paths, &home, "codex", Family::Codex) {
+        let private = std::path::PathBuf::from(
+            p.env
+                .get("HOME")
+                .unwrap_or_else(|| panic!("{} sets no HOME", p.name)),
+        );
+        assert!(
+            private.starts_with(&paths.compactor_codex),
+            "{}",
+            private.display()
+        );
+        let meta = std::fs::metadata(&private).expect("the private home exists");
+        assert!(meta.is_dir());
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+        assert!(
+            !private.join(".agents").exists(),
+            "no user skills under the private home"
+        );
+    }
+    // Claude slots keep the user's HOME (their login lives there).
+    for p in compactor_presets(&paths, &home, "claude-sr", Family::Claude) {
+        assert!(!p.env.contains_key("HOME"), "{}", p.name);
+    }
+}
+
+/// One TTL drives turns and compactions on a route (coordinator decision
+/// 2026-10-08): each node takes the brain's current TTL for its mark, and
+/// its slot's Claude Code settings pin Claude Code's own marks to it
+/// (FORCE_PROMPT_CACHING_5M at 5 minutes, since a subscription login marks
+/// 1 hour otherwise).
+#[test]
+fn each_node_takes_the_shared_cache_ttl_for_its_mark_and_its_slot_settings() {
+    use optchat_chief::prompt::{CacheTtl, SharedTtl};
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let ttl = SharedTtl::new(CacheTtl::FiveMinutes);
+    let compactor = compactor(&agents, dir.path()).with_cache_ttl(ttl.clone());
+    let slot_settings = |agents: &FakeAgents, k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let mark = |agents: &FakeAgents, k: usize| -> Value {
+        let inner = agents.inner.lock().unwrap();
+        let blocks = &inner.prompts[k];
+        blocks[markers(blocks)[0]]["cache_control"].clone()
+    };
+    let r = |i| CompactRequest {
+        context: chat_of(150),
+        ..request(i)
+    };
+    run_node(&compactor, &r(0)).unwrap();
+    assert_eq!(mark(&agents, 0), json!({"type": "ephemeral"}));
+    let s = slot_settings(&agents, 0);
+    assert_eq!(s["promptCacheTtl"], "5m");
+    assert_eq!(s["env"]["FORCE_PROMPT_CACHING_5M"], "1");
+    ttl.set(CacheTtl::OneHour);
+    run_node(&compactor, &r(1)).unwrap();
+    assert_eq!(mark(&agents, 1), json!({"type": "ephemeral", "ttl": "1h"}));
+    let s = slot_settings(&agents, 1);
+    assert_eq!(s["promptCacheTtl"], "1h");
+    assert!(s["env"].get("FORCE_PROMPT_CACHING_5M").is_none(), "{s}");
+}
+
+#[test]
+fn compactor_presets_force_no_ttl_the_slot_settings_pick_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    for preset in compactor_presets(&paths, dir.path(), "claude", Family::Claude) {
+        assert!(
+            !preset.env.contains_key("FORCE_PROMPT_CACHING_5M"),
+            "{}: a preset is installed once; the TTL can change per node",
+            preset.name
+        );
+    }
+}
+
+/// A refused mark (Claude Code already used the API's four) is not refused
+/// for good: after 10 nodes without it the compactor tries it again.
+#[test]
+fn a_refused_marker_comes_back_after_ten_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    {
+        let mut inner = agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    let compactor = compactor(&agents, dir.path());
+    let r = |i| CompactRequest {
+        context: chat_of(150),
+        ..request(i)
+    };
+    // Node 0: refused, then again without the marker.
+    assert_eq!(run_node(&compactor, &r(0)).unwrap(), "user: a line");
+    for i in 1..=10 {
+        assert_eq!(run_node(&compactor, &r(i)).unwrap(), "user: a line");
+    }
+    assert_eq!(run_node(&compactor, &r(11)).unwrap(), "user: a line");
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 13);
+    for k in 1..=11 {
+        assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
+    }
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "the 12th node tries the mark again"
+    );
+}
+
+/// Claude Code's "[claude-code:unrecognized_model]" is a warning (2.1.287
+/// prints it and runs claude-haiku-5-5): it never switches the compactor
+/// to the turn model; only a real refusal or API error does.
+#[test]
+fn the_unrecognized_model_warning_keeps_the_model() {
+    assert!(!optchat_chief::compactor::is_model_unavailable(
+        r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it."
+    ));
+    assert!(!optchat_chief::compactor::is_model_unavailable(
+        "API Error: 529 overloaded"
+    ));
+}
+
+/// An acpmux older than the isolation args refuses them: the preset is
+/// installed with the args it knows (`--tools ""` and the rest) kept.
+#[test]
+fn an_older_acpmux_keeps_the_args_it_knows() {
+    use optchat_chief::acpmux::without_isolation_args;
+    let args: Vec<Value> = optchat_chief::compactor::COMPACTOR_ARGS
+        .iter()
+        .map(|a| json!(a))
+        .collect();
+    assert_eq!(
+        without_isolation_args(&args).unwrap(),
+        vec![
+            json!("--tools"),
+            json!(""),
+            json!("--strict-mcp-config"),
+            json!("--no-session-persistence")
+        ]
+    );
+    assert_eq!(without_isolation_args(&[json!("--tools"), json!("")]), None);
+    // A turn's built-in list goes too (its denied tools still apply).
+    let turn: Vec<Value> = optchat_chief::host::turn_isolation_args()
+        .into_iter()
+        .map(Value::String)
+        .collect();
+    assert_eq!(without_isolation_args(&turn), Some(Vec::new()));
+    // An acpmux that knows the setting source but not a --tools list loses
+    // only the list: the turn keeps its setting-source isolation.
+    use optchat_chief::acpmux::without_tools_list;
+    assert_eq!(
+        without_tools_list(&turn),
+        Some(vec![
+            json!("--setting-sources"),
+            json!("project"),
+            json!("--disable-slash-commands")
+        ])
+    );
+    assert_eq!(without_tools_list(&args), None, "--tools \"\" stays");
+}
+
+/// A compactor slot loads no user setting source, so its project settings
+/// carry the env of the user's Claude Code settings (the user's API route).
+#[test]
+fn a_compactor_slot_carries_the_users_settings_env() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [(
+            "ANTHROPIC_BASE_URL".to_owned(),
+            "http://router:31415".to_owned(),
+        )]
+        .into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let settings: Value = serde_json::from_slice(
+        &std::fs::read(work.join("slot-0").join(".claude").join("settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+}
+
+/// A Claude Code compactor asks for the full id `claude-haiku-5-5`: Claude
+/// Code 2.1.287 only warns that it does not list it
+/// ("[claude-code:unrecognized_model]") and runs it, while its `haiku`
+/// alias is Haiku 4.5 (measured on a subscription: 52 s and no prompt
+/// caching for one node, against 1.3 s at effort low). Another harness
+/// keeps its own default.
+#[test]
+fn the_compactor_model_resolves_per_harness() {
+    use optchat_chief::compactor::compactor_model_for;
+    assert_eq!(
+        compactor_model_for(Family::Claude).as_deref(),
+        Some("claude-haiku-5-5")
+    );
+    assert_eq!(compactor_model_for(Family::Codex), None);
+    assert_eq!(compactor_model_for(Family::Other), None);
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+}
+
+/// The slot settings may hold the user's settings env (an API token among
+/// it): the file is the user's alone (0600).
+#[test]
+fn a_compactor_slots_settings_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let file = work.join("slot-0").join(".claude").join("settings.json");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+}
+
+/// The API takes at most 4 marks per request, and Claude Code marks its two
+/// system blocks plus the last two messages of every request after a
+/// session's first (a size-loop follow-up): a node that carries our mark
+/// (every node: a small context marks its header block) runs Claude Code
+/// without its own.
+#[test]
+fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let settings = |k: usize| -> Value {
+        let cwd = agents.inner.lock().unwrap().specs[k].cwd.clone();
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap()
+    };
+    let marked = CompactRequest {
+        context: chat_of(150),
+        ..request(0)
+    };
+    run_node(&compactor, &marked).unwrap();
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[0]).len(), 1);
+    assert_eq!(settings(0)["env"]["DISABLE_PROMPT_CACHING"], "1");
+    // A small context still carries our mark (on its header block).
+    run_node(&compactor, &request(1)).unwrap();
+    assert_eq!(markers(&agents.inner.lock().unwrap().prompts[1]), vec![0]);
+    assert_eq!(settings(1)["env"]["DISABLE_PROMPT_CACHING"], "1");
+}
+
+/// hq-6d dogfood (fb211f1670ad): a node's line was stored only after its
+/// slot's warm session had started (about 2.3 s of Claude Code start), so
+/// every node, and the turn waiting for it, took that much longer. The warm
+/// session now starts after the node returns.
+#[test]
+fn a_node_returns_before_its_slots_warm_session_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    agents.inner.lock().unwrap().slow_session = Some(("warm".into(), Duration::from_secs(3)));
+    let compactor = compactor(&agents, dir.path()).with_warm(2).shared();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        run_node(&*compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the node waited for its slot's warm session: {:?}",
+        started.elapsed()
+    );
+    // The warm session still starts, after the node.
+    let deadline = std::time::Instant::now() + WAIT;
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no warm session");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Dogfood fc34083d7bfa: a marked node's size retries read nothing from
+/// the cache when they continued the session. A retry is now a fresh call
+/// with the node's first prompt (its view mark, read from the cache) and
+/// the note (no mark): every request carries one mark, within the API's 4.
+#[test]
+fn size_retries_of_a_marked_node_reread_the_view_mark() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "x".repeat(700);
+    let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    let mut context = String::from("<chat>\n");
+    for k in 0..12 {
+        context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
+    }
+    context.push_str("</chat>");
+    let request = CompactRequest {
+        node: NodeId::new(0, 12),
+        context,
+        ..request(12)
+    };
+    run_node(&compactor, &request).unwrap();
+    let prompts = agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
+    for p in &prompts {
+        let marks = p
+            .iter()
+            .filter(|b| b.get("cache_control").is_some())
+            .count();
+        assert_eq!(marks, 1, "the view mark only: {p:?}");
+    }
+    for p in &prompts[1..] {
+        assert!(
+            p.last().unwrap().get("cache_control").is_none(),
+            "the note has no mark"
+        );
+        assert_eq!(
+            &p[..prompts[0].len()],
+            &prompts[0][..],
+            "the first prompt again"
+        );
+    }
+}
+
+/// E2 (hq-6d): an exhausted compactor route (the subrouter's 503 with
+/// retry-after) fails over at once to the other route (the user's own
+/// `claude` login) and comes back when the wait ends; no node fails.
+#[test]
+fn an_exhausted_route_fails_over_and_comes_back_after_its_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 1s)"#.into(),
+    );
+    let compactor = compactor(&agents, dir.path()).with_alternate_harness(Some("claude".into()));
+    for i in 1..=2 {
+        assert_eq!(
+            run_node(&compactor, &request(i)).unwrap(),
+            "user: pasted a deploy log"
+        );
+    }
+    let harnesses = |agents: &FakeAgents| -> Vec<String> {
+        agents
+            .inner
+            .lock()
+            .unwrap()
+            .specs
+            .iter()
+            .map(|s| s.harness.clone())
+            .collect()
+    };
+    assert_eq!(
+        harnesses(&agents),
+        ["claude", "claude"],
+        "built on the other route"
+    );
+    agents.inner.lock().unwrap().session_errors.clear();
+    std::thread::sleep(Duration::from_millis(1_200));
+    run_node(&compactor, &request(3)).unwrap();
+    assert_eq!(
+        harnesses(&agents).last().map(String::as_str),
+        Some("claude-sr"),
+        "back on the first route"
+    );
+}
+
+/// E2: a pooled or routed Claude compactor's other route is the user's own
+/// `claude` login, when acpmux has it; `claude` itself and codex have none.
+#[test]
+fn the_other_compactor_route_is_derived() {
+    use optchat_chief::compactor::derived_alternate;
+    let all = [
+        "claude".to_owned(),
+        "claude-sr".to_owned(),
+        "codex".to_owned(),
+    ];
+    assert_eq!(
+        derived_alternate("claude-sr", &all).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        derived_alternate("claude-cr", &all).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(derived_alternate("claude", &all), None);
+    assert_eq!(derived_alternate("codex", &all), None);
+    assert_eq!(
+        derived_alternate("claude-sr", &["claude-sr".to_owned()]),
+        None
+    );
+}
+
+/// E2: an exhausted route never posts the "cannot build summaries" notice
+/// at start; the probe's failure is a quiet wait.
+#[test]
+fn an_exhausted_route_posts_no_probe_notice() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::probe_notice;
+    let exhausted = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, exhausted), None);
+    assert!(probe_notice(CompactRoute::Acpmux, "the compactor model: no login").is_some());
+}
+
+/// E2: a view line held only by an exhausted route (a capacity error) posts
+/// no "cannot summarize" notice: the wait is a quiet status. A request
+/// error still posts one.
+#[test]
+fn a_line_stuck_on_an_exhausted_route_posts_no_notice() {
+    use optchat_chief::brain::stuck_notice;
+    use optchat_host::{Failure, Status};
+    let node = NodeId::new(0, 3);
+    let status = |error: &str| Status {
+        messages: 4,
+        view_lines: 4,
+        view_size: 0,
+        budget: 0,
+        unbuilt: 1,
+        built: 3,
+        busy: vec![node],
+        failures: vec![Failure {
+            node,
+            error: error.to_owned(),
+        }],
+        stuck: vec![node],
+        recovered: false,
+        fatal: None,
+        closed: false,
+    };
+    let exhausted = r#"starting a compactor session: session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    assert_eq!(stuck_notice(&status(exhausted)), None);
+    let bad = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl"}}"#;
+    assert!(stuck_notice(&status(bad)).is_some());
+}
+
+/// E2: each capacity wait of the compactor is one trace event
+/// (`compactor.capacity`: the route, its retry-after, and the route it fails
+/// over to, or null), so the dogfood counts errors by class from traces.
+#[test]
+fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let exhausted = r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), exhausted.into());
+    let trace = optchat_chief::trace::Trace::open(&traces, false).unwrap();
+    let with_alt = compactor(&agents, dir.path())
+        .with_alternate_harness(Some("claude".into()))
+        .with_trace(trace.clone());
+    run_node(&with_alt, &request(1)).unwrap();
+    let without = compactor(&agents, dir.path()).with_trace(trace);
+    assert!(run_node(&without, &request(2)).is_err());
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let capacity: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "compactor.capacity")
+        .collect();
+    assert_eq!(capacity.len(), 2, "{events:?}");
+    assert_eq!(capacity[0]["route"], "claude-sr");
+    assert_eq!(capacity[0]["retry_after_s"], 3596);
+    assert_eq!(capacity[0]["failover"], "claude");
+    assert_eq!(capacity[0]["status"], 503);
+    assert_eq!(capacity[1]["failover"], Value::Null);
+}
+
+/// Engine speed: a compactor slot never inherits the user's codex
+/// service_tier (cmux-lawrence-2's config says "fast"): the slot sets its
+/// own, fast for compactor_speed fast, none (the default) otherwise.
+#[test]
+fn a_codex_compactor_slot_sets_its_own_service_tier() {
+    use optchat_chief::compactor::codex_compactor_config_at;
+    let user = "model = \"gpt-6-astra\"\nservice_tier = \"fast\"\n";
+    let off: toml::Table = codex_compactor_config_at(Some(user), false)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(off.get("service_tier").is_none(), "{off:?}");
+    let on: toml::Table = codex_compactor_config_at(Some(user), true)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(on["service_tier"].as_str(), Some("fast"));
+    let bare: toml::Table = codex_compactor_config_at(None, true)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(bare["service_tier"].as_str(), Some("fast"));
+}
+
+/// Engine speed: a fast compactor asks for the fast tier on each session.
+#[test]
+fn a_fast_compactor_starts_fast_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        family: Family::Codex,
+        fast: true,
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
+}
+
+/// hq-6d: a size retry is a fresh call, as the reference client makes it:
+/// a new session with the node's first prompt and the retry note, so the
+/// model does not see (and anchor on) its long line; the first prompt's
+/// cached prefix is read again.
+#[test]
+fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&"long".repeat(175))
+        } else {
+            answer("user: short now")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path());
+    assert_eq!(
+        run_node(&compactor, &request(3)).unwrap(),
+        "user: short now"
+    );
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.specs.len(), 2, "a new session for the retry");
+    let (first, retry) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(&retry[..first.len()], &first[..], "the first prompt again");
+    assert_eq!(retry.len(), first.len() + 1);
+    assert!(
+        retry[first.len()].starts_with("Too long: your last line"),
+        "{retry:?}"
+    );
+    assert_eq!(inner.ended, vec!["s1", "s2"]);
+}
+
+/// Hard test (build 7bf60bcf938a): the network was cut while the start-up
+/// probe ran, and the probe posted "cannot build summaries" for Claude
+/// Code's "Network error. Please check your internet connection.". A
+/// transient error (the network, a lost connection, a timeout) posts no
+/// notice: the probe tries again after a backoff (1 s doubled, at most
+/// 120 s), as node retries do; a capacity wait waits its retry-after.
+#[test]
+fn a_transient_probe_error_posts_no_notice_and_is_retried() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::{probe_notice, probe_retry_wait};
+    use std::time::Duration;
+    let network = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude: Network error. Please check your internet connection."#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, network), None);
+    assert_eq!(probe_retry_wait(network, 0), Some(Duration::from_secs(1)));
+    assert_eq!(probe_retry_wait(network, 3), Some(Duration::from_secs(8)));
+    assert_eq!(
+        probe_retry_wait(network, 20),
+        Some(Duration::from_secs(120))
+    );
+    let exhausted = "API error: 503 no non-exhausted claude accounts available (retry after 300s)";
+    assert_eq!(
+        probe_retry_wait(exhausted, 0),
+        Some(Duration::from_secs(120))
+    );
+    let lost = "the acpmux connection was lost during a compactor call";
+    assert!(probe_retry_wait(lost, 0).is_some());
+    let login =
+        "the compactor model: Unable to validate model: Could not resolve authentication method";
+    assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
+    assert_eq!(probe_retry_wait(login, 0), None);
+}
+
+/// CLI dogfood at 64d57f35a20f: host.log said "compactor node
+/// 0+9223372036854775808": the start-up probe's id (level 63, a span of
+/// 2^63 messages no chat reaches), never stored, named as a node. The probe
+/// and image descriptions are named for what they are in the log and the
+/// trace, and the probe stores nothing.
+#[test]
+fn the_probe_is_named_probe_not_a_node_span() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap())
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+    let lines = lines.lock().unwrap();
+    assert!(
+        lines.iter().all(|l| !l.contains("9223372036854775808")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("compactor probe (")),
+        "{lines:?}"
+    );
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let node = events.iter().find(|e| e["ev"] == "node").unwrap();
+    assert_eq!(node["node"], "probe");
+}
+
+/// The probe's retry delay waits through an injected `Delay` that the host
+/// stops (no sleep in runtime code): transient failures wait 1 s, 2 s, ...
+/// and the probe then succeeds; a stopped delay ends the probe at once.
+#[test]
+fn the_probe_retries_through_a_stoppable_delay() {
+    use optchat_chief::host::{Delay, ProbeDelay, probe_until_ready};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Recording(Mutex<Vec<Duration>>, bool);
+    impl Delay for Recording {
+        fn wait(&self, d: Duration) -> bool {
+            self.0.lock().unwrap().push(d);
+            self.1
+        }
+    }
+    let tries = AtomicUsize::new(0);
+    let probe = || match tries.fetch_add(1, Ordering::SeqCst) {
+        0 | 1 => Err("claude: Network error. Please check your internet connection.".to_owned()),
+        _ => Ok("user: ping".to_owned()),
+    };
+    let delay = Recording(Mutex::new(Vec::new()), true);
+    let result = probe_until_ready(&probe, &delay, &|_| {});
+    assert_eq!(result, Some(Ok("user: ping".to_owned())));
+    assert_eq!(
+        *delay.0.lock().unwrap(),
+        [Duration::from_secs(1), Duration::from_secs(2)]
+    );
+    tries.store(0, Ordering::SeqCst);
+    let stopped = Recording(Mutex::new(Vec::new()), false);
+    assert_eq!(probe_until_ready(&probe, &stopped, &|_| {}), None);
+    // The real delay: stop wakes a wait at once.
+    let real = Arc::new(ProbeDelay::default());
+    let waiter = {
+        let real = real.clone();
+        std::thread::spawn(move || real.wait(Duration::from_secs(60)))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let started = std::time::Instant::now();
+    real.stop();
+    assert!(!waiter.join().unwrap());
+    assert!(started.elapsed() < Duration::from_secs(5));
 }

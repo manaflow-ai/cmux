@@ -27,9 +27,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
 
     /// Renames the group `member` belongs to (drag to group).
     func beginGroup(of member: WorkspaceID) {
-        guard let group = group(containing: member) else { return }
-        begin(.group(group))
-        if session != nil { groupMember = member }
+        list.map { SidebarGroupEditing(list: $0).open(containing: member) }
     }
 
     /// After a reload: moves a rename whose group the store replaced to
@@ -52,6 +50,8 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
 
     func begin(_ key: SidebarRowKey) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
+        // A group's name is edited in the group editor (cx-rcby).
+        if case let .group(id) = key { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
         let original: String
         switch key {

@@ -106,6 +106,34 @@ import Testing
         #expect((siblings.firstIndex(of: page) ?? -1) > (siblings.firstIndex(of: list) ?? Int.max))
     }
 
+    /// cx-gq1k (nxdog74-v1): at the first event of a swipe the next space's
+    /// page drew at 0, over the live list (its group header inside the
+    /// hovered row's card), until the next event moved it: AppKit's geometry
+    /// pass for the newly inserted page reset its layer transform. The page
+    /// sits beside the list from the first event, through any later pass.
+    @Test func theNeighborPageSitsBesideTheListFromTheFirstEvent() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        paging.scroll(.began, deltaX: -12, time: 1.0)
+        let page = try #require(paging.neighbor?.view)
+        let width = view.scrollView.frame.width
+        // The passes a live window runs after the event: layout, display, a commit.
+        view.needsLayout = true
+        page.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        #expect(abs(Self.shownX(view.scrollView) + 12) < 0.5, "the list follows the fingers: \(Self.shownX(view.scrollView))")
+        #expect(abs(Self.shownX(page) - (width - 12)) < 0.5, "the next space's page is beside the list, not over it: \(Self.shownX(page))")
+    }
+
+    /// Where a page draws: its layer's on-screen translation.
+    static func shownX(_ view: NSView) -> CGFloat {
+        let layer = view.layer?.presentation() ?? view.layer
+        return (layer?.value(forKeyPath: "transform.translation.x") as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+    }
+
     /// Live run (sbr99-v1): the kept page of a slide drew no text (an image
     /// of layer-backed rows). It is now a page of the old space's real rows.
     @Test func aSlideKeepsTheOldSpacesRealRows() throws {

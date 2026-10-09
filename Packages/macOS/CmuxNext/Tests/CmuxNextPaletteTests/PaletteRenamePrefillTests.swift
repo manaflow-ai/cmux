@@ -7,7 +7,7 @@ import Testing
 /// report (00d5c8a974): renaming a workspace from the sidebar opened an
 /// empty prompt.
 @MainActor
-@Suite struct PaletteRenamePrefillTests {
+@Suite(.paletteRanker) struct PaletteRenamePrefillTests {
     /// Every rename that asks through the palette, with the kind it renames.
     nonisolated static let renames: [(ActionID, ActionTargetKind)] = [
         ("renameWorkspace", .workspace), ("renameTab", .tab), ("workspaceGroup.rename", .workspaceGroup),

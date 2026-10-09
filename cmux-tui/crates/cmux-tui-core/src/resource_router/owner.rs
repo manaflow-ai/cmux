@@ -172,6 +172,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::PaletteUsageGet
+        | ResourceOperation::PaletteUsageRecord
+        | ResourceOperation::PaletteUsageImport
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
@@ -212,6 +215,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
         | ResourceOperation::StreamCancel
+        | ResourceOperation::ChiefEngineGet
+        | ResourceOperation::ChiefEngineSet
+        | ResourceOperation::ChiefStop
+        | ResourceOperation::ConversationList
+        | ResourceOperation::ConversationGet
+        | ResourceOperation::ConversationHistory
+        | ResourceOperation::ConversationSearch
+        | ResourceOperation::ConversationSend
+        | ResourceOperation::ConversationTyping
+        | ResourceOperation::ConversationDraft
+        | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
     }
 }

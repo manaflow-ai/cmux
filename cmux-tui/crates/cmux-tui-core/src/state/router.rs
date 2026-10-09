@@ -18,8 +18,8 @@ use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_query, personal_state_store, screen_state_store, sidebar_layout_store,
-    tab_state_store, window_record_store,
+    closed_history_query, palette_usage_store, personal_state_store, screen_state_store,
+    sidebar_layout_store, tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -77,6 +77,9 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordDelete
             | Op::SidebarLayoutGet
             | Op::SidebarLayoutUpdate
+            | Op::PaletteUsageGet
+            | Op::PaletteUsageRecord
+            | Op::PaletteUsageImport
             | Op::WorkspaceEnsureHome
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
@@ -526,6 +529,51 @@ pub(crate) fn dispatch(
             let op = fields.get("op").cloned().unwrap_or_default();
             let commit =
                 mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // Palette usage history (personal, palette-usage-v1): the daemon is
+        // its one writer; uses are stamped with the daemon's clock.
+        Op::PaletteUsageGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, palette_usage_store::snapshot)
+        }
+        Op::PaletteUsageRecord => {
+            ensure_session(mux, selectors)?;
+            let key = string(fields, "key").unwrap_or_default();
+            let query = string(fields, "query").unwrap_or_default();
+            let commit = mux
+                .state_palette_usage_record(&mutation(&request)?, &key, &query)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::PaletteUsageImport => {
+            ensure_session(mux, selectors)?;
+            let source = string(fields, "source").unwrap_or_default();
+            let entries = fields
+                .get("entries")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some((
+                                row.get("key")?.as_str()?.to_string(),
+                                crate::state::palette_usage::Entry {
+                                    score: row.get("score")?.as_f64()?,
+                                    // A decimal string (catalog `decimal`).
+                                    last_used_ms: row
+                                        .get("last_used_ms")?
+                                        .as_str()?
+                                        .parse()
+                                        .ok()?,
+                                },
+                            ))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let commit = mux
+                .state_palette_usage_import(&mutation(&request)?, &source, &entries)
+                .map_err(state_error)?;
             state_result(mux, commit)
         }
         // workspace-kind-v1: the one home workspace, created by the store.

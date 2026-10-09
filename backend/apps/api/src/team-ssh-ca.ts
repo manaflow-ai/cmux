@@ -9,6 +9,7 @@ import { keyFingerprint, sshPurpose, type PresenceProof, type SshPresence } from
 import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64, type UserKey } from "./team-ssh-wire.ts"
 import type { RowReader } from "@cmux/ownership"
 import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
+import { certTaintGate, recordHolder, type VmTaint } from "./team-ssh-taint.ts"
 
 /**
  * The team SSH CA in TeamDO (plans/cmux-next/team-vm-plan.md S3). The Ed25519 CA key is made in
@@ -52,6 +53,8 @@ export interface SshCaDeps {
    * a stored request without a reply that is not here crashed. Required: without it there is no duplicate guard.
    */
   readonly running: Set<string>
+  /** TeamVmDO's taint of the team VM (cx-q4f3, team-ssh-taint.ts); absent means no team VM check. */
+  readonly vmTaint?: () => Promise<VmTaint | null>
 }
 
 export const ensureSshTables = (sql: SqlStorage) => {
@@ -158,7 +161,8 @@ type ChallengeParams = { public_key: string; validity_minutes?: number; presence
 /**
  * Which class this caller may have. A person's signed-in session: either, but `human` only with a
  * fresh presence proof (decision SSH-1). An install token: only `agent` (force-command), with
- * mutate-own, because a token does not show whether a person or an agent holds it (D28). An agent
+ * mutate-own, because a token does not show whether a person or an agent holds it (D28); sshExternal
+ * has already required execute or cloud-link (cx-wb5.66). An agent
  * principal: `agent` only. A team server: nothing (server.md: servers never get SSH access).
  */
 const classFor = (s: TeamState, p: Principal, params: CertParams, rows?: RowReader): "human" | "agent" => {
@@ -283,10 +287,19 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
   const key = await parseUserKey(params.public_key)
   if (!key) throw new Refusal("team_vm.ssh_key_invalid", "public_key must be one ssh-ed25519 or ecdsa-sha2-nistp256 authorized_keys line")
   const bound = { hash, fingerprint: await keyFingerprint(key) }
+  // A team VM tainted by a member removal: an owner's or admin's own (non-agent) certificates only, each audited (cx-q4f3).
+  // Checked before a crash resume too, so a certificate prepared before the taint is not signed after it.
+  const taint = await certTaintGate(deps.vmTaint, !p.agent && isAdmin(deps.state(), user, deps.rows))
+  if (taint.refuse && taint.unreachable) throw new Refusal("owner.unreachable", "the team VM record did not answer; try again", true)
+  if (taint.refuse) throw new Refusal("team_vm.tainted", "the team VM is tainted by a member removal; an owner or admin must accept the risk or rebuild it")
+  const audited = <T extends { serial: number }>(v: T): T => {
+    if (taint.audit) committed(deps.submitSystem("team_vm.taint_audit", { action: "cert_issued_while_tainted", by: user, epoch: taint.audit.epoch, tainted_by: taint.audit.users, serial: v.serial }, `taint-cert:${v.serial}`))
+    return v
+  }
   const row = deps.sql.exec<{ body: string }>(`SELECT body FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, idem).toArray()[0]
   if (row) {
     const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared, bound)
-    if (again) return again
+    if (again) return audited(again)
   }
   const cls = classFor(deps.state(), p, params, deps.rows)
   const since = deps.now() - RATE_WINDOW_MS
@@ -346,6 +359,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
       prep.valid_before
     )
     deps.sql.exec(`INSERT OR REPLACE INTO ssh_prepared (identity, idem, serial, generation, body, at) VALUES (?, ?, ?, ?, ?, ?)`, p.identity, idem, serial, ca.generation, JSON.stringify(prep), now)
+    recordHolder(deps.sql, user, prep.valid_before)
     let value: Awaited<ReturnType<typeof signPrepared>>
     try {
       value = await signPrepared(deps, deps.team, key, prep)
@@ -353,7 +367,7 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
       forget(deps.sql, p.identity, idem, serial)
       throw e
     }
-    if (value) return value
+    if (value) return audited(value)
     // The CA rotated during signing: this certificate would be one of the old CA; sign again with the new one.
     forget(deps.sql, p.identity, idem, serial)
   }
@@ -424,7 +438,10 @@ export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: st
   const defs = { "team_vm.ssh_cert": TeamVmSshCert, "team_vm.ssh_cert.challenge": TeamVmSshCertChallenge, "team_vm.ssh_cert.revoke": TeamVmSshCertRevoke, "team_vm.ssh_ca.rotate": TeamVmSshCaRotate } as const
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
-  if (p.kind === "install" && !p.grant_classes?.includes(def.risk) && frame.op !== "team_vm.ssh_cert") return fail("auth.forbidden", `grant does not cover ${def.risk}`)
+  // No exemption (cx-wb5.66): an install token's certificate request needs execute (the op's risk) or the
+  // explicit cloud-link class (the iPhone and Mac defaults); the certificate it gets is force-command restricted.
+  const covered = p.grant_classes?.includes(def.risk) || (frame.op === "team_vm.ssh_cert" && p.grant_classes?.includes("cloud-link"))
+  if (p.kind === "install" && !covered) return fail("auth.forbidden", frame.op === "team_vm.ssh_cert" ? "grant does not cover execute or cloud-link" : `grant does not cover ${def.risk}`)
   const d = decodeParams<Record<string, unknown>>(def, frame.params)
   if (!d.ok) return fail(d.code, d.message)
   ensureSshTables(deps.sql)

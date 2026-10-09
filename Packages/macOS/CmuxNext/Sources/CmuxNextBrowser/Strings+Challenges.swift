@@ -28,6 +28,22 @@ extension Strings {
     static var certificateWarningChromium: String {
         String(localized: "browser.certificate.chromium", defaultValue: "Chromium shows its own certificate warning page. Use its buttons, or Back.", bundle: .module)
     }
+    static var authRemember: String { String(localized: "browser.auth.remember", defaultValue: "Remember password", bundle: .module) }
+    static var certificateBackToSafety: String {
+        String(localized: "browser.certificate.backToSafety", defaultValue: "Back to Safety", bundle: .module)
+    }
+    static var certificateShowDetails: String {
+        String(localized: "browser.certificate.showDetails", defaultValue: "Show Details", bundle: .module)
+    }
+    static var certificateHideDetails: String {
+        String(localized: "browser.certificate.hideDetails", defaultValue: "Hide Details", bundle: .module)
+    }
+    /// The interstitial's details: the host and the system's error text.
+    static func certificateDetails(host: String, reason: String) -> String {
+        String(localized: "browser.certificate.details",
+               defaultValue: "cmux could not confirm that this server is \(host). \(reason) Proceed only if you know this server, for example a test server on your own network.",
+               bundle: .module)
+    }
     static var certificateBack: String { String(localized: "browser.certificate.back", defaultValue: "Go Back", bundle: .module) }
     static func certificateProceed(host: String) -> String {
         String(localized: "browser.certificate.proceed", defaultValue: "Proceed to \(host) (Unsafe)", bundle: .module)

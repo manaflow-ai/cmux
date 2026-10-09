@@ -25,23 +25,39 @@ import Testing
         return region
     }
 
-    static func entered(_ view: NSView) -> NSEvent {
-        NSEvent.enterExitEvent(with: .mouseEntered, location: NSPoint(x: view.bounds.midX, y: view.bounds.midY), modifierFlags: [],
-                               timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+    /// Hosts `view`'s region in a window and rests the injected pointer on
+    /// `view` (`PointerHover`, cx-3wu5). The caller closes the window.
+    static func hover(_ view: NSView) throws -> NSWindow {
+        var root = view
+        while let parent = root.superview { root = parent }
+        // A region sizes only its rows; give it room so the rows are visible.
+        if root.frame.height < 1 { root.frame = NSRect(x: 0, y: 0, width: 240, height: 400) }
+        let window = SidebarHoverOwnerTests.window()
+        window.contentView!.addSubview(root)
+        do {
+            try SidebarHoverOwnerTests.rest(on: view, at: SidebarHoverOwnerTests.center(view))
+        } catch {
+            PointerHover.clearDebugPointer(in: window)
+            window.close()
+            throw error
+        }
+        return window
     }
 
     @Test(arguments: [SectionArrangement(layout: .inline, align: .fill), SectionArrangement(layout: .inline, align: .leading)])
     func theAccountHasNoFillUntilHoverInAnInlineLine(_ arrangement: SectionArrangement) throws {
         let view = try #require(Self.region(arrangement).itemView(Self.account))
         #expect(view.fill == nil, "no background at rest")
-        view.mouseEntered(with: Self.entered(view))
+        let window = try Self.hover(view)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         #expect(view.fill != nil, "hover shows the background")
     }
 
     @Test func aGridTileHasNoFillUntilHover() throws {
         let view = try #require(Self.region(SectionArrangement(layout: .grid, align: .fill, columns: 8)).itemView(Self.account))
         #expect(view.fill == nil)
-        view.mouseEntered(with: Self.entered(view))
+        let window = try Self.hover(view)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         #expect(view.fill != nil)
     }
 
@@ -85,7 +101,8 @@ import Testing
         #expect(account.fill == nil, "no background at rest")
         account.updateLayer()
         #expect(account.glyphTint == account.performWithTheme { Palette.textSecondary })
-        account.mouseEntered(with: Self.entered(account))
+        let window = try Self.hover(account)
+        defer { PointerHover.clearDebugPointer(in: window); window.close() }
         account.updateLayer()
         #expect(account.fill != nil, "hover shows the background")
         #expect(account.glyphTint == account.performWithTheme { Palette.textPrimary }, "full strength on hover")

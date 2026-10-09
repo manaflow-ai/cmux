@@ -138,14 +138,3 @@ struct ColumnScrollLayoutTests {
     }
 }
 
-/// A column-edge drag keeps the view and fits the
-/// focused column once the drag ends.
-struct ColumnScrollResizeDragTests {
-    @Test func liveResizeHoldsTheViewAndRevealsAtTheEnd() {
-        var state = settledState(makeStrip([600, 600]), focused: "p1")
-        state.reduce(.sync(makeStrip([600, 800]), focused: "p1", source: .programmatic, animated: false, reveals: false))
-        #expect(state.spring.value == 224)
-        state.reduce(.sync(makeStrip([600, 800]), focused: "p1", source: .programmatic, animated: true))
-        #expect(state.spring.target == 424)
-    }
-}

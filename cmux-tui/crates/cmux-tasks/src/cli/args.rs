@@ -138,11 +138,12 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
             };
             let value = convert(param, &raw)?;
             if param.repeated {
-                out.entry(param.name)
-                    .or_insert_with(|| json!([]))
-                    .as_array_mut()
-                    .expect("array")
-                    .push(value);
+                // The positional word stores one value, not an array: a
+                // flag for the same param after it is a second value.
+                match out.entry(param.name).or_insert_with(|| json!([])) {
+                    Value::Array(values) => values.push(value),
+                    _ => return Err(format!("--{name} given twice")),
+                }
             } else if out.insert(param.name.to_owned(), value).is_some() {
                 return Err(format!("--{name} given twice"));
             }
@@ -202,4 +203,46 @@ pub fn usage(entry: &Entry) -> String {
         out.push_str(&format!("  --{}{value}  {}{many}{req}\n", flag_name(p), p.doc));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cmux_tasks_core::catalog::{Class, Expose, Risk};
+
+    const LABELS: &[Param] = &[Param {
+        name: "labels",
+        ty: Ty::Str,
+        required: false,
+        positional: true,
+        repeated: true,
+        doc: "",
+    }];
+
+    fn labels_entry() -> Entry {
+        Entry {
+            name: "test.labels",
+            class: Class::Mutation,
+            risk: Risk::MutateOwn,
+            cli: "test labels",
+            mcp: Expose::Never,
+            palette: None,
+            docs: "",
+            params: LABELS,
+        }
+    }
+
+    /// A repeated param that took the positional word holds one value, not
+    /// an array: its flag after that word is a second value and is refused.
+    #[test]
+    fn a_repeated_flag_after_its_positional_value_is_refused() {
+        let words = ["a".to_owned(), "--labels".to_owned(), "b".to_owned()];
+        assert_eq!(params(&labels_entry(), &words), Err("--labels given twice".to_owned()));
+    }
+
+    #[test]
+    fn a_repeated_flag_collects_every_value() {
+        let words = ["--labels".to_owned(), "a".to_owned(), "--labels=b".to_owned()];
+        assert_eq!(params(&labels_entry(), &words), Ok(json!({"labels": ["a", "b"]})));
+    }
 }

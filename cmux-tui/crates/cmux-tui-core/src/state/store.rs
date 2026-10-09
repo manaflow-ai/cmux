@@ -81,9 +81,13 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
     super::closed_history_store::create_closed_history_schema(transaction)?;
+    // Archives of closed terminals (ARCHIVE-1): after closed_groups, whose
+    // triggers drop an archive with its group.
+    crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
+    super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
     super::conversation_tabs_store::create_conversation_tabs_schema(transaction)?;

@@ -33,6 +33,15 @@ import Testing
         #expect(ran == ["splitRight@/tmp/repo", "palette.toggleTabPin@"])
     }
 
+    @Test func theMenuOpensTheChatInANewWindow() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var ran: [String] = []
+        model.header = AgentPaneHeaderHooks(run: { id, _ in ran.append(id) }, tabState: { [:] })
+        let reply = await model.respond(to: .paneAction("tab.moveToNewWindow"))
+        #expect(reply["ok"] as? Bool == true)
+        #expect(ran == ["tab.moveToNewWindow"])
+    }
+
     @Test func theTabStateComesFromTheApp() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var reply = await model.respond(to: .tabState)

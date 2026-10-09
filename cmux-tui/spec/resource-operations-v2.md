@@ -6,15 +6,15 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 196 operations for exactly one local mux
+`cmux.protocol/2` transports 210 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 60 | Reads state and forbids an idempotency key |
-| `mutation` | 118 | Requires an idempotency key and returns a mutation result |
-| `stream_open` | 5 | Opens a connection-owned typed stream |
+| `read` | 65 | Reads state and forbids an idempotency key |
+| `mutation` | 123 | Requires an idempotency key and returns a mutation result |
+| `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
 The 40 mutations with an external effect may return the non-retryable
@@ -30,13 +30,16 @@ correlation, and idempotency metadata.
 | --- | ---: | --- |
 | `agent` | 2 | `agent.list`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
+| `chief` | 3 | `chief.engine.get`, `chief.engine.set`, `chief.stop` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
 | `closed` | 2 | `closed.list`, `closed.reopen` |
+| `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `git` | 9 | `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.diff`, `git.files.search`, `git.status` |
 | `machine` | 2 | `machine.get`, `machine.list` |
 | `notification` | 4 | `notification.ack`, `notification.clear`, `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
+| `palette_usage` | 3 | `palette_usage.get`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |

@@ -83,10 +83,36 @@ pub struct HostState {
     /// next connect reads them from the owner again and describes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undescribed: Vec<crate::brain::images::ImageRef>,
+    /// Turns a host stop cut after their human messages were logged: each
+    /// runs again as one resume turn (E23, the reference client's `resume`),
+    /// cleared when its note is logged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resumes: Vec<Resume>,
+    /// The view up to and including the last turn's marked block, by size
+    /// and hash (`optchat_core::mark_piece`): saved with that turn's
+    /// messages, so the first turn after a restart still marks within the
+    /// API's lookback of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_mark: Option<MarkRecord>,
     /// G9: the floor of each side conversation (not the main one) the
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub side: BTreeMap<String, SideFloor>,
+    /// The compactor's failure notice now in the conversation (cx-1hpt):
+    /// a host start whose probe fails again posts none, and a good probe
+    /// retracts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_notice: Option<PostedNotice>,
+}
+
+/// A notice the host posted and may take back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostedNotice {
+    /// Its idempotency key and client_msg_id.
+    pub key: String,
+    /// Its message id, once the owner confirmed it (what a retract names).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// A side conversation's floor is dropped after this many days without a
@@ -125,11 +151,11 @@ impl SideFloor {
     }
 }
 
-/// One `spawn(tasks)` call (section 9): its subagents report together.
+/// One `spawn(tasks)` call (section 9): each subagent reports as it finishes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpawnRecord {
     pub subs: Vec<SubRecord>,
-    /// The combined report is in the log; later reports come one by one.
+    /// A report of this spawn is in the log.
     #[serde(default)]
     pub delivered: bool,
     /// When the spawn was made (ms since the epoch).
@@ -146,6 +172,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
+    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
     /// It ended a turn; `report` holds its last reply, not logged yet.
@@ -169,6 +197,9 @@ pub struct SubRecord {
     /// The report waiting for the log.
     #[serde(default)]
     pub report: Option<String>,
+    /// The waiting report is of a run the user stopped: it starts no turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     /// The session's event seq at its last read turn end.
     #[serde(default)]
     pub floor: u64,
@@ -278,6 +309,24 @@ pub struct Item {
     /// The human message's id (a side floor's crash dedupe).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// A paired device sent the message (or the resume note of such a turn).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote: bool,
+    /// The resume note of a cut turn: a cut resume turn resumes again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resume: bool,
+}
+
+/// A cut turn to run again (`HostState::resumes`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resume {
+    /// The side conversation (None: the main one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    /// The cut turn had a paired device's message: the resume turn asks for
+    /// every local effect, as that turn did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,6 +334,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The user stopped the subagent: its report is logged with the next
+    /// turn and starts none (the reference client's stopped report).
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl HostState {
@@ -298,6 +351,7 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.stopped = false;
                     sub.floor = *floor;
                 }
             }
@@ -622,5 +676,27 @@ mod tests {
         assert_eq!(file.load(), state);
         std::fs::write(dir.path().join("host.json"), b"{torn").unwrap();
         assert_eq!(file.load(), HostState::default());
+    }
+}
+
+/// A turn's marked view prefix: its byte length and `trace::hash`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MarkRecord {
+    pub bytes: usize,
+    pub hash: String,
+}
+
+impl MarkRecord {
+    pub fn of(prefix: &str) -> MarkRecord {
+        MarkRecord {
+            bytes: prefix.len(),
+            hash: crate::trace::hash(prefix),
+        }
+    }
+
+    /// The same prefix of `view`, when `view` still starts with it.
+    pub fn prefix_of<'a>(&self, view: &'a str) -> Option<&'a str> {
+        let prefix = view.get(..self.bytes)?;
+        (crate::trace::hash(prefix) == self.hash).then_some(prefix)
     }
 }

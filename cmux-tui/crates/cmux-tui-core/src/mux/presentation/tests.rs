@@ -47,7 +47,7 @@ fn move_to_group(mux: &Mux, key: &str, group: Option<&str>, index: Option<usize>
         index,
         None,
         None,
-        &WorkspaceMutation::local("presentation-test"),
+        &WorkspaceMutation::daemon_local("presentation-test"),
     )
     .unwrap();
 }
@@ -99,7 +99,7 @@ fn cmux_next_workspace_groups_survive_restart_with_order_membership_and_collapse
             None,
             None,
             None,
-            &WorkspaceMutation::local("presentation-test"),
+            &WorkspaceMutation::daemon_local("presentation-test"),
         )
         .is_err()
     );
@@ -155,7 +155,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
             update.clone(),
             None,
             None,
-            &WorkspaceMutation::new("meta-1", "presentation-test").unwrap(),
+            &WorkspaceMutation::daemon("meta-1", "presentation-test").unwrap(),
         )
         .unwrap();
     assert!(result.changed);
@@ -180,7 +180,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
         WorkspacePresentationUpdate { title: Some(None), ..Default::default() },
         None,
         None,
-        &WorkspaceMutation::local("presentation-test"),
+        &WorkspaceMutation::daemon_local("presentation-test"),
     )
     .unwrap();
     for bad in [
@@ -195,7 +195,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
                 bad,
                 None,
                 None,
-                &WorkspaceMutation::local("presentation-test"),
+                &WorkspaceMutation::daemon_local("presentation-test"),
             )
             .is_err()
         );
@@ -217,7 +217,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
             update,
             None,
             None,
-            &WorkspaceMutation::new("meta-1", "presentation-test").unwrap(),
+            &WorkspaceMutation::daemon("meta-1", "presentation-test").unwrap(),
         )
         .unwrap();
     assert!(replay.replayed);
@@ -458,7 +458,7 @@ fn cmux_next_workspace_group_move_replays_by_mutation_id() {
     let a = mux.create_empty_workspace(None, None, None).unwrap().key;
     mux.create_empty_workspace(None, None, None).unwrap();
     mux.create_workspace_group(Some("g".into()), "G".into(), None, false, None).unwrap();
-    let mutation = WorkspaceMutation::new("group-move-1", "presentation-test").unwrap();
+    let mutation = WorkspaceMutation::daemon("group-move-1", "presentation-test").unwrap();
     let first = mux
         .move_workspace_to_group(None, Some(&a), Some("g".into()), None, None, None, &mutation)
         .unwrap();

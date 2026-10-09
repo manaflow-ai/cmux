@@ -101,6 +101,28 @@ function AnchorFixtureRun() {
   );
 }
 
+function InitialAnchorStyleFixture({ capture }: { capture(style: { position: string; visibility: string }): void }) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const overlay = useRef<HTMLDivElement>(null);
+  const style = useUiAnchor(anchor, overlay, true, { side: "above", align: "start" });
+  return createElement(
+    "div",
+    null,
+    createElement("button", { ref: anchor }, "trigger"),
+    createElement(
+      "div",
+      {
+        ref: (node: HTMLDivElement | null) => {
+          if (node) capture({ position: node.style.position, visibility: node.style.visibility });
+          overlay.current = node;
+        },
+        style,
+      },
+      "menu",
+    ),
+  );
+}
+
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   const names = [
@@ -206,5 +228,19 @@ describe("anchored overlay placement", () => {
         expect(overlay.getBoundingClientRect().height).toBeLessThanOrEqual(360);
       }
     }
+  });
+
+  test("starts an open overlay out of document flow while its position is measured", async () => {
+    let initial: { position: string; visibility: string } | undefined;
+    await act(async () =>
+      root.render(
+        createElement(InitialAnchorStyleFixture, {
+          capture: (style) => {
+            initial ??= style;
+          },
+        }),
+      ),
+    );
+    expect(initial).toEqual({ position: "absolute", visibility: "hidden" });
   });
 });

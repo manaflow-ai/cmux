@@ -776,7 +776,7 @@ mod tests {
         let terminal = terminal_id(1);
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("seed-terminal", "test").unwrap(),
+                &WorkspaceMutation::daemon("seed-terminal", "test").unwrap(),
                 "workspace.create",
                 &json!({"fixture":"live-terminal"}),
                 None,
@@ -991,7 +991,7 @@ mod tests {
         let projection = projection_id(1);
         registry
             .put_frontend_projection(
-                &WorkspaceMutation::new("projection-one", "test").unwrap(),
+                &WorkspaceMutation::daemon("projection-one", "test").unwrap(),
                 "resource-api",
                 "session",
                 projection.as_str(),
@@ -1114,7 +1114,7 @@ mod tests {
 
         registry
             .commit_resource_patch(
-                &WorkspaceMutation::new("tombstone-terminal", "test").unwrap(),
+                &WorkspaceMutation::daemon("tombstone-terminal", "test").unwrap(),
                 "terminal.close",
                 &json!({"terminal_id":terminal}),
                 None,

@@ -20,6 +20,11 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// (WORKING-AND-LOADING-INDICATORS). No loading style draws it, so
         /// agent work never looks like a page or a command loading.
         case dots
+        /// Three short bars side by side, waving like `dots` (a status icon
+        /// set's working mark).
+        case bars
+        /// A status icon set's drawn mark (`StatusMark`, `StatusIconSet`).
+        case mark(StatusMark)
     }
 
     public enum Animation: Hashable, Sendable {
@@ -64,8 +69,11 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     /// is off screen or occluded, and under Reduce Motion or loops off
     /// (`Motion.animatesLoops`): then nothing animates and the static glyph
     /// stays, so an indicator never costs a frame it cannot be seen in.
-    public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool) -> StatusIndicatorPlan {
-        var plan = staticPlan(state, style: style)
+    /// `set` restyles the attention and working marks (`StatusIconSet`);
+    /// the default `current` is the drawing above, unchanged.
+    public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
+                            set: StatusIconSet = .current) -> StatusIndicatorPlan {
+        var plan = set.plan(for: state) ?? staticPlan(state, style: style)
         if !animates { plan.animation = nil }
         return plan
     }

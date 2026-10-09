@@ -86,7 +86,7 @@ extension LayoutDesignMetricsTests {
         view.frame = NSRect(x: 0, y: 0, width: 7, height: 200)
         view.showsIdleLine = false
         view.showsActiveLine = false
-        view.setForwardedHover(true)
+        view.setHovered(true)
         #expect((view.lineColor?.alpha ?? 0) == 0)
         view.showsActiveLine = true
         #expect((view.lineColor?.alpha ?? 0) > 0)

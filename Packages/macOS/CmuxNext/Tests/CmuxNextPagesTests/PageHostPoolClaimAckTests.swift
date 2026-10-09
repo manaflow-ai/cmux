@@ -16,6 +16,10 @@ struct PageHostPoolClaimAckTests {
         let pool = Self.pool(window)
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         let spare = try #require(await Self.settledSpare(pool))
+        // The off-window page can miss the 50 ms wall-clock budget under shared-WebKit load, and a
+        // timeout reloads the document. A manual clock leaves the acknowledgement as the only way the
+        // claim ends.
+        spare.claimState.clock = ClaimTestClock()
         // A marker on the spare's document: a reload or a new load drops it.
         _ = try await spare.webKitView.callAsyncJavaScript("window.__claimProbe = 'spare'; return true;", contentWorld: .page)
 
@@ -91,9 +95,16 @@ struct PageHostPoolClaimAckTests {
         let pool = Self.pool(window)
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         let spare = try #require(await Self.settledSpare(pool))
+        // The first claim must be acknowledged, not timed out: a timeout reloads the document, and a
+        // host released mid-reload is parked unloaded, so the second claim takes the plain-load path.
+        // The off-window page can miss the 50 ms wall-clock budget on a loaded runner; a manual clock
+        // leaves the acknowledgement as the only way the first claim ends.
+        spare.claimState.clock = ClaimTestClock()
         let first = PageHostPoolSettingsClaimTests.RecordingProvider()
         let page = try #require(pool.claim(.settings, routes: [PageRoute(prefix: "cmux.settings.", provider: first)],
                                            window: window, focus: false))
+        await page.waitUntilLoaded()
+        #expect(page.lastClaim?.path == .acknowledged)
         #expect(await Self.readAndListened(first) == true)
         // Released untouched: parked again with the document that already ran.
         pool.dropSpare()
@@ -135,15 +146,24 @@ struct PageHostPoolClaimAckTests {
         return pool
     }
 
-    /// The ready spare after its document had time to run (in the app it stays parked for seconds).
+    /// The ready spare once its document runs: its page client installed the
+    /// receiver the claim calls (`__cmuxPageReceive`, pageClient.ts), so a
+    /// test's own receiver is not replaced later. In the app the spare stays
+    /// parked for seconds; a fixed 1 s sleep stood in for that here.
     static func settledSpare(_ pool: PageHostPool) async -> PageWebView? {
         if !pool.isSpareReady {
             _ = await PageTestWait.value("page host spare ready") { (done: @escaping (Bool) -> Void) in
                 pool.onSpareReady = { _ in done(true) }
             }
         }
-        try? await Task.sleep(for: .seconds(1))
-        return pool.spareHost
+        guard let spare = pool.spareHost else { return nil }
+        let running = try? await spare.webKitView.callAsyncJavaScript("""
+            for (let i = 0; i < 2000 && typeof window.__cmuxPageReceive !== 'function'; i++) {
+              await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            return typeof window.__cmuxPageReceive === 'function';
+            """, contentWorld: .page) as? Bool
+        return running == true ? spare : nil
     }
 
     static func show(_ page: PageWebView, in window: NSWindow) {

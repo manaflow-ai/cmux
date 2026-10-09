@@ -37,11 +37,11 @@ struct RefusalLocalizationTests {
     @Test func formattedRefusalsSubstituteArguments() {
         #expect(RefusalStrings.noTab("t42") == "no tab t42")
         #expect(RefusalStrings.screenCount(3) == "the workspace has 3 screens")
-        #expect(RefusalStrings.needsDaemonCapability("tab-groups-v1") == "needs daemon capability tab-groups-v1")
-        #expect(RefusalStrings.moveColumnUnsupported("move-column", 2)
-            == "needs daemon capability move-column (the column has 2 panes; swap-pane moves one)")
+        #expect(RefusalStrings.needsDaemonCapability("tab-groups-v1") == RefusalStrings.restartToUpdateDaemon)
+        #expect(RefusalStrings.moveColumnUnsupported(2)
+            == "Moving a whole column is not available yet. This column has 2 panes; move them one at a time.")
         #expect(RefusalStrings.noPaneInDirection(RefusalStrings.direction(.left)) == "no pane left of the focused pane")
-        #expect(ActionFailure.needsAppCapability("updates").message == "needs app capability updates")
+        #expect(ActionFailure.needsAppCapability("updates").message == "Not available in this version of cmux yet.")
     }
 
     /// Format specifiers, ignoring positional prefixes (`%1$@` == `%@`).

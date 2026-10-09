@@ -53,6 +53,8 @@ public final class CmuxToastCenter {
         host.show(view, in: window, slot: 0) { [weak self] in self?.windowClosed(key) }
         relayout(key)
         startTimer(serial)
+        // A toast that appears under a still pointer holds at once.
+        if view.isHovered { setHovered(true, handle) }
         NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
             .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
@@ -122,6 +124,10 @@ public final class CmuxToastCenter {
         for (index, serial) in serials.reversed().enumerated() {
             if let view = entries[serial]?.view { host.move(view, to: index) }
         }
+        // The toasts moved under a possibly still pointer: a hovered toast
+        // that moved away loses its hold and its timer starts again (cx-3wu5).
+        // Window-wide: the toasts' buttons moved too.
+        PointerHover.refresh(in: serials.lazy.compactMap { self.entries[$0]?.view.window }.first)
     }
 
     private func startTimer(_ serial: Int) {

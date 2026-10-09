@@ -28,6 +28,8 @@ struct NewTabPageHandler {
     var editShortcut: (AgentPaneTabKind) -> Void
     /// The page's "default: X" toggle wrote `tabs.newTabKind`.
     var setDefaultKind: (String) -> Void
+    /// The page's template dots picked a template, saved as `tabs.newTabTemplate`.
+    var setTemplate: (String) -> Void = { _ in }
     /// The page started a chat in place (Agent, Ask, or a recent session).
     var becameChat: () -> Void = {}
     /// The project picker fallback, resolved only when the user chooses Browse….
@@ -38,6 +40,14 @@ struct NewTabPageHandler {
     var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
+
+    /// The page's setting writes (`AgentPaneModel.onNewTabSetting`).
+    func write(_ setting: AgentPaneNewTabSetting) {
+        switch setting {
+        case .defaultKind(let kind): setDefaultKind(kind)
+        case .template(let template): setTemplate(template)
+        }
+    }
 }
 
 enum NewTabPage {
@@ -153,7 +163,8 @@ enum NewTabPage {
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id)
+            home: NSHomeDirectory(), tools: tools(services, targetID: selected?.id),
+            template: services.settings?.snapshot.newTabTemplate?.rawValue
         )
     }
 
@@ -163,7 +174,7 @@ enum NewTabPage {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
-            tools: tools(services)
+            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue
         )
     }
 
@@ -183,6 +194,7 @@ enum NewTabPage {
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
+            setTemplate: { [weak services] template in if let services { setTemplate(template, services: services) } },
             becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
                 guard let services else { return nil }
@@ -227,6 +239,19 @@ enum NewTabPage {
         }
     }
 
+    /// The template dots: through the schema, as the Settings window writes it; an unknown
+    /// value from the page is ignored.
+    static func setTemplate(_ value: String, services: AppServices) {
+        guard let template = NewTabTemplate(rawValue: value), let settings = services.settings,
+              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
+        Task {
+            do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                    .error("new tab template write failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     static func editShortcut(_ kind: AgentPaneTabKind, services: AppServices) {
         guard let id = newActions[kind] else { return }
         services.palette.show(.keyboardShortcuts)
@@ -240,15 +265,16 @@ extension PaneController {
     /// (``NewTabPage/open(in:seed:)``).
     func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
 
-    /// Focus Location Bar: a browser tab's address bar; the field of a new tab
-    /// page already showing; anywhere else a new tab page, whose field takes
-    /// the keyboard. ⌃L stays the terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
+    /// page already showing (cx-e2aa; its field when it shows none); anywhere
+    /// else a new tab page, whose field takes the keyboard. ⌃L stays the
+    /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
         if case .browser = currentContent {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
         } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
+            if let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
         } else {
             newTabPage()
         }
@@ -343,10 +369,10 @@ extension NewTabPage {
             let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search
                 ? resolver.searchEngine.searchURL(for: text)
-                : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
+                : ChromiumInternalURL(typed: text)?.url ?? resolver.commitTypoFix(for: text) ?? resolver.destination(for: request.text)?.url
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
-            if services.cache.browserTabs?.isAvailable() == true {
+            if services.cache.browserTabs.isAvailable(in: pane.pane) {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.

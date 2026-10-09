@@ -200,7 +200,8 @@ public final class TabModel: Identifiable {
             path = URL(string: value)?.path
         } else if value.hasPrefix("kitty-shell-cwd://") {
             let rest = value.dropFirst("kitty-shell-cwd://".count)
-            path = rest.firstIndex(of: "/").map { String(rest[$0...]) }
+            let fromSlash = rest.drop { $0 != "/" }
+            path = fromSlash.isEmpty ? nil : String(fromSlash)
         }
         // Only an absolute local path; a relative or `~` report says nothing usable.
         return path?.hasPrefix("/") == true ? path : nil

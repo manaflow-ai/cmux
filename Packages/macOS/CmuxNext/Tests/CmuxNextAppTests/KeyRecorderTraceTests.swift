@@ -26,7 +26,7 @@ struct KeyRecorderTraceTests {
 @MainActor
 struct UndoToastTraceTests {
     @Test func commandZOnAnUndoToastIsTracedAsTheToasts() throws {
-        let router = KeyOwnershipMatrixTests.services().keyRouter!
+        let router = KeyOwnershipMatrixTests.services().keyRouter
         let toasts = CmuxToastCenter(clock: ManualClock(), host: CmuxToastHeadlessHost())
         router.undoToasts = toasts
         let window = ToastUndoKeyTests.window()

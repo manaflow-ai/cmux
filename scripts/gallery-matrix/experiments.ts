@@ -14,7 +14,16 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { PNG } from "pngjs";
 
-type StepStats = { durationMs: number; frames: number; p50: number; p95: number; max: number; over16: number; planMs: number };
+type StepStats = {
+  durationMs: number;
+  frames: number;
+  p50: number;
+  p95: number;
+  max: number;
+  over16: number;
+  planMs: number;
+  interactionMs?: number[];
+};
 type Result = {
   id: string;
   engine: "chromium" | "webkit";
@@ -31,8 +40,32 @@ export type ArmMeasurement = {
   max: number;
   over16: number;
   planMs?: number;
+  settleCount?: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
   strip?: string;
 };
+
+type SettleStats = {
+  settleCount: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
+};
+
+function settleStats(samples: readonly number[]): SettleStats {
+  if (!samples.length) return { settleCount: 0 };
+  const sorted = [...samples].sort((a, b) => a - b);
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    settleCount: sorted.length,
+    settleP50: round(at(0.5)),
+    settleP95: round(at(0.95)),
+    settleMax: round(sorted[sorted.length - 1]!),
+  };
+}
 
 /** Frames of one arm's strip: `freeze=<step>:<ms>` cases, by step then time. */
 export function stripCells(results: Result[], entry: string, arm: string, engine: string) {
@@ -85,6 +118,8 @@ export function buildExperimentReport(outputDir: string, run: string) {
       writeFileSync(join(outputDir, strip), PNG.sync.write(composeGrid(rows)));
     }
     const total = result.experiment!.total;
+    const settled = result.experiment!.steps.flatMap((step) => step.stats.interactionMs ?? []);
+    const settle = settleStats(settled);
     (report[entry] ??= {})[arm] = {
       run,
       engine: result.engine,
@@ -94,13 +129,17 @@ export function buildExperimentReport(outputDir: string, run: string) {
       max: total.max,
       over16: total.over16,
       planMs: total.planMs,
+      ...settle,
       strip,
     };
     const stepRows = result.experiment!.steps
-      .map((step) => `<tr><td>${step.name}</td><td>${step.stats.durationMs}</td><td>${step.stats.frames}</td><td>${step.stats.p50}</td><td>${step.stats.p95}</td><td>${step.stats.max}</td><td>${step.stats.over16}</td><td>${step.stats.planMs}</td><td>${step.problems.join("; ")}</td></tr>`)
+      .map((step) => {
+        const stepSettle = settleStats(step.stats.interactionMs ?? []);
+        return `<tr><td>${step.name}</td><td>${step.stats.durationMs}</td><td>${step.stats.frames}</td><td>${step.stats.p50}</td><td>${step.stats.p95}</td><td>${step.stats.max}</td><td>${step.stats.over16}</td><td>${step.stats.planMs}</td><td>${stepSettle.settleCount ? `${stepSettle.settleP50} / ${stepSettle.settleP95} / ${stepSettle.settleMax} (${stepSettle.settleCount})` : "—"}</td><td>${step.problems.join("; ")}</td></tr>`;
+      })
       .join("");
     sections.push(
-      `<section><h2>${entry} · arm ${arm} · ${result.engine}</h2><table><tr><th>step</th><th>ms</th><th>frames</th><th>p50</th><th>p95</th><th>max</th><th>&gt;16.7</th><th>plan ms</th><th>problems</th></tr>${stepRows}</table>` +
+      `<section><h2>${entry} · arm ${arm} · ${result.engine}</h2><p>Action-to-settled p50 / p95 / max (count): ${settle.settleCount ? `${settle.settleP50} / ${settle.settleP95} / ${settle.settleMax} ms (${settle.settleCount})` : "no click, key or press-drag samples"}.</p><table><tr><th>step</th><th>ms</th><th>frames</th><th>p50</th><th>p95</th><th>max</th><th>&gt;16.7</th><th>plan ms</th><th>settle p50 / p95 / max (count)</th><th>problems</th></tr>${stepRows}</table>` +
         (strip ? `<p>Columns: ${times.join(", ")} ms after the input; rows: steps ${steps.join(", ")}.</p><img src="${strip}" style="max-width:100%">` : "") +
         `</section>`,
     );

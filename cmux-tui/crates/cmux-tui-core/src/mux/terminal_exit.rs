@@ -52,6 +52,27 @@ impl Mux {
         self.session_shutdown.begin();
     }
 
+    /// Log that this owner got termination signal `signal` from `sender_pid`
+    /// (cx-0tgl LA): `"event":"daemon_signal"` in `terminal-losses.jsonl`,
+    /// with the sender's name and parent. Best effort.
+    #[cfg(unix)]
+    pub fn record_daemon_signal(&self, signal: i32, sender_pid: i32, sender_uid: Option<u32>) {
+        let root = self
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone();
+        if let Some(root) = root {
+            crate::terminal_loss_log::record_daemon_signal(
+                &root,
+                signal,
+                (sender_pid, sender_uid),
+                self.started_at.elapsed().as_millis(),
+            );
+        }
+    }
+
     /// Called by a surface's reader thread when its child exits. Hosted
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
@@ -306,13 +327,19 @@ impl Mux {
             // A host loss is logged once, with the signals its host recorded
             // (cx-6so.49); best effort, after the exit latch.
             #[cfg(unix)]
-            if let Some(root) = self.surface_options.lock().unwrap().terminal_host_root.clone() {
-                crate::terminal_loss_log::record_host_loss(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                );
+            {
+                let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+                if let Some(root) = root
+                    && let Some(cause) = crate::terminal_loss_log::record_host_loss(
+                        &root.join(format!("{terminal_id}.json")),
+                        terminal_id,
+                        incarnation,
+                        end,
+                    )
+                    && let Some(public_id) = public_terminal_id.as_ref()
+                {
+                    self.record_terminal_loss_cause(public_id.as_str(), cause);
+                }
             }
             // cx-6so.49 L2: a placed terminal whose shell was lost with its
             // host gets a new shell under the same id (it decides and marks
@@ -340,10 +367,22 @@ impl Mux {
     /// Reconcile a lifecycle row that was committed before topology detach was
     /// introduced, or whose daemon stopped between those two older commits.
     /// The durable terminal receipt remains queryable after every view leaves.
+    ///
+    /// Every path that reconciles an exited terminal also records its typed
+    /// end (R41): a tab the detach keeps (a host loss) has no runtime surface
+    /// after a restart, so its end and loss cause come only from that record
+    /// (cx-ayt2: a restart path that skipped it showed "Process exited").
     pub(super) fn detach_exited_terminal_topology(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<bool> {
+        let detached = self.detach_exited_terminal_topology_only(terminal_id);
+        #[cfg(unix)]
+        self.record_terminal_end(terminal_id);
+        detached
+    }
+
+    fn detach_exited_terminal_topology_only(&self, terminal_id: &str) -> anyhow::Result<bool> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
@@ -426,7 +465,7 @@ impl Mux {
         else {
             return Ok(false);
         };
-        let mutation = WorkspaceMutation::local("cmux-tui-runtime");
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
         let fingerprint = json!({
             "operation":"terminal.exit.detach",
             "terminal_id":terminal_id,

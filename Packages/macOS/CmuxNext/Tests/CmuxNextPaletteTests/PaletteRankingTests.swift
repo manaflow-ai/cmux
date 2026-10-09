@@ -3,7 +3,7 @@ import CmuxNextPalette
 import Foundation
 import Testing
 
-@Suite struct PaletteRankingTests {
+@Suite(.paletteRanker) struct PaletteRankingTests {
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
     /// Items plus their index, so ranked entry indices map back to item IDs.

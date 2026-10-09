@@ -25,7 +25,7 @@ enum RemoteBrowserPages {
             #if DEBUG
             let address = invocation["address"]?.stringValue ?? ""
             guard let pane = context.paneController(invocation) else { return }
-            try open(address: address, url: invocation["url"]?.stringValue, in: pane)
+            try open(address: address, url: invocation["url"]?.stringValue, secretFile: invocation["secretFile"]?.stringValue, in: pane)
             #endif
         })
         registry.bind("remote.openLocalBrowserTab", run: { invocation in
@@ -90,24 +90,50 @@ enum RemoteBrowserPages {
         }
     }
 
-    /// The one open path: refuses anything but a loopback host port.
+    /// The one open path: refuses anything but a loopback host port, and a
+    /// `secretFile` that is not a private file with a secret (the host
+    /// serves only a viewer with its per-launch secret). The record keeps
+    /// the file's path; the secret is read when the tab connects.
     @MainActor
-    static func open(address: String, url: String?, in pane: PaneController) throws {
+    static func open(address: String, url: String?, secretFile: String? = nil, in pane: PaneController) throws {
         let first = url.flatMap(URL.init(string:))
-        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first) else {
+        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first, secretFile: secretFile) else {
             throw ActionFailure(message: RemoteBrowserStrings.addressNotRecognized(address))
         }
+        if let path = record.secretFile {
+            do {
+                _ = try RemoteBrowserSecretFile(path: path).read()
+            } catch {
+                throw ActionFailure(message: RemoteBrowserStrings.secretFile(error, path: path))
+            }
+        }
         pane.newBrowserTab(url: record.url)
+    }
+
+    /// The hello token of a tab: the secret of the host this app started on
+    /// that port, else the record's secret file; a file that cannot be used
+    /// is the tab's failure (it then does not connect).
+    @MainActor
+    private static func hostToken(for record: RemoteBrowserTabRecord) -> Result<String?, RemoteBrowserFailure> {
+        if let secret = localHosts[record.endpoint.port]?.secret { return .success(secret) }
+        guard let path = record.secretFile else { return .success(nil) }
+        do {
+            return .success(try RemoteBrowserSecretFile(path: path).read())
+        } catch {
+            return .failure(.secretFile(error, path: path))
+        }
     }
 
     /// The native page of a `cmux://remote-browser` record (nil for a bad
     /// address: the history fallback is not used for these records).
     @MainActor
     static func makePage(url: URL, key: String, profile: BrowserProfileID, services: AppServices) -> (any BrowserTab)? {
-        // A host this app started serves only the viewer with its secret.
-        guard let record = RemoteBrowserTabRecord(url: url),
-              let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
-                                                     viewer: "cmux-next", token: localHosts[record.endpoint.port]?.secret),
+        // A host serves only the viewer with its secret: a host this app
+        // started gives it, else the record's secret file.
+        guard let record = RemoteBrowserTabRecord(url: url) else { return nil }
+        let credential = hostToken(for: record)
+        guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
+                                                     viewer: "cmux-next", token: try? credential.get()),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
         let localHost = localHosts[record.endpoint.port]
         session.openTab = { [weak services] target, disposition, answer in
@@ -123,7 +149,7 @@ enum RemoteBrowserPages {
                 }
                 return
             }
-            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target)
+            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target, secretFile: record.secretFile)
             holder.newBrowserTab(url: child.url, background: background) { surface in
                 answer(String(describing: surface))
             }
@@ -138,7 +164,11 @@ enum RemoteBrowserPages {
         }
         sessions = sessions.filter { $0.value.value != nil }
         sessions[key] = WeakSession(value: session)
-        session.start()
+        if case let .failure(failure) = credential {
+            session.fail(failure)
+        } else {
+            session.start()
+        }
         return tab
     }
 
@@ -152,7 +182,7 @@ enum RemoteBrowserPages {
         return nil
     }
 
-    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `pane`?)
+    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `secret_file`?, `pane`?)
     /// runs the shared open path in that pane or the focused one; `open_local`
     /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
@@ -180,7 +210,8 @@ enum RemoteBrowserPages {
                     try openLocal(url: params["url"]?.stringValue.flatMap(URL.init(string:)), in: pane)
                     return ["starting": true]
                 }
-                try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue, in: pane)
+                try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue,
+                         secretFile: params["secret_file"]?.stringValue, in: pane)
                 return ["opened": true]
             } catch {
                 return ["error": .string(String(describing: error))]
@@ -194,8 +225,16 @@ enum RemoteBrowserPages {
                     "menu": session.nativeUI.openMenuTitles.map { .array($0.map(JSONValue.string)) } ?? .null,
                     "dialog": session.nativeUI.openDialogToken.map { .number(Double($0)) } ?? .null,
                     "note": session.lastNote.map(JSONValue.string) ?? .null,
+                    "failure": session.tab?.pane.view.failureMessage.map(JSONValue.string) ?? .null,
                     "cursor": session.nativeUI.cursorKind.map(JSONValue.string) ?? .null,
                     "surfaces": .array(session.surfaces.surfaceIDs.map { .number(Double($0)) }),
+                    "surface_info": .array(session.surfaces.surfaceIDs.map { id in
+                        let frame = session.surfaces.view(of: id)?.frame ?? .zero
+                        return .object([
+                            "id": .number(Double(id)), "kind": session.surfaces.kind(of: id).map(JSONValue.string) ?? .null,
+                            "frame": .string("\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"),
+                        ])
+                    }),
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
@@ -240,6 +279,41 @@ enum RemoteBrowserPages {
                 tab.handlePointer(event)
             }
             return ["clicked": true]
+        case "surface_click":
+            // A left click at `x`,`y` (the surface's CSS pixels from its top
+            // left) on open popup surface `surface`, through the surface
+            // view's own pointer path.
+            guard let target, let id = params["surface"]?.intValue,
+                  let view = target.surfaces.view(of: UInt32(clamping: id)) else { return ["error": "no such surface"] }
+            guard let window = view.window else { return ["error": "the surface is not in a window"] }
+            let point = view.convert(NSPoint(x: params["x"]?.doubleValue ?? 10, y: params["y"]?.doubleValue ?? 10), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                view.eventTarget?.handlePointer(event)
+            }
+            return ["clicked": true]
+        case "type":
+            // Types `text` (lowercase a-z) on the page's key path, a key down
+            // and up per letter, as the keyboard would.
+            guard let tab = target?.tab, let window = tab.pane.view.window else { return ["error": "no session"] }
+            let codes: [Character: UInt16] = [
+                "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
+                "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+            ]
+            let text = params["text"]?.stringValue ?? ""
+            guard text.allSatisfy({ codes[$0] != nil }) else { return ["error": "text is lowercase a-z"] }
+            for character in text {
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    guard let event = NSEvent.keyEvent(
+                        with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil, characters: String(character),
+                        charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: codes[character] ?? 0) else { continue }
+                    tab.handleKey(event)
+                }
+            }
+            return ["typed": .number(Double(text.count))]
         case "history":
             // `op`: `back`, `forward`, `reload` or `stop`, as the toolbar does.
             guard let tab = target?.tab else { return ["error": "no session"] }

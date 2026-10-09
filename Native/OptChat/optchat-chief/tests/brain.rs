@@ -34,10 +34,11 @@ fn a_human_message_runs_one_fresh_turn_and_posts_one_reply() {
     let agents = h.agents.inner.lock().unwrap();
     assert_eq!(agents.prompts.len(), 1);
     assert_eq!(
-        agents.prompts[0][0]["text"], "<chat>\n</chat>",
-        "the view of an empty chat"
+        agents.prompts[0][0]["text"], "<chat>\n",
+        "the view of an empty chat: its header block"
     );
-    assert_eq!(agents.prompts[0][1]["text"], "hello");
+    assert_eq!(agents.prompts[0][1]["text"], "</chat>");
+    assert_eq!(agents.prompts[0][2]["text"], "hello");
     assert_eq!(agents.prompt_ids, vec!["optchat:0"]);
     let spec = &agents.specs[0];
     assert_eq!(spec.name, format!("{TURN_PREFIX}-0"));
@@ -196,15 +197,11 @@ fn a_restart_catches_up_from_the_cursor_and_logs_each_message_once() {
     assert_eq!(keys, vec!["turn:optchat:0", "turn:optchat:5"]);
 }
 
-#[test]
-fn a_host_stopped_mid_turn_leaves_the_message_unanswered_and_says_so_once() {
-    let mut h = Harness::new(default_script());
-    h.agents.hold(true);
-    h.connect();
-    h.say("user_local", "hello");
-    h.step();
-    h.agents.wait_prompts(1);
-    assert!(h.brain.state().turn.is_some());
+/// The host stops (kill -9) while a turn runs; the restart resumes the cut
+/// turn, as the reference client's Server.ts `resume` does: a note says the
+/// turn was cut and nothing was lost, one turn runs on it, the message is
+/// never logged twice and is answered exactly once (E23).
+fn stop_mid_turn(h: Harness, hold: bool) -> Harness {
     let Harness {
         dir,
         chat,
@@ -215,18 +212,76 @@ fn a_host_stopped_mid_turn_leaves_the_message_unanswered_and_says_so_once() {
     drop(brain);
     chat.shutdown();
     drop(chat);
-    let mut h = Harness::in_dir(dir, default_script(), owner);
+    let h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.hold(hold);
+    h
+}
+
+const RESUMED: &str = "The server restarted, cutting the turn; nothing was lost: go on.";
+
+#[test]
+fn a_host_stopped_mid_turn_resumes_the_turn_and_answers_the_message_once() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "hello");
+    h.step();
+    h.agents.wait_prompts(1);
+    assert!(h.brain.state().turn.is_some());
+    let mut h = stop_mid_turn(h, false);
     h.connect();
     h.settle();
-    assert!(
-        h.agents.inner.lock().unwrap().prompts.is_empty(),
-        "the message is not answered again"
+    let prompts = h.agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), 1, "one resume turn runs");
+    assert_eq!(prompts[0].last().unwrap()["text"], RESUMED);
+    let log = h.log();
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == RESUMED).count(),
+        1,
+        "{log:?}"
     );
     let sends = h.owner.lock().unwrap().sends();
-    assert_eq!(sends.len(), 1);
-    assert_eq!(turn_of(&sends[0].0), "turn:optchat:0");
-    assert!(sends[0].1.starts_with("(interrupted"));
-    assert_eq!(pairs(&h.log()), vec![("user", "hello")]);
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert_eq!(sends[0].1, "answer 0", "{sends:?}");
+    assert!(h.brain.state().turn.is_none());
+    // A later restart has nothing to resume.
+    let mut h = stop_mid_turn(h, false);
+    h.connect();
+    h.settle();
+    assert!(h.agents.inner.lock().unwrap().prompts.is_empty());
+    assert_eq!(h.owner.lock().unwrap().sends().len(), 1);
+}
+
+#[test]
+fn a_resume_turn_that_is_cut_again_resumes_again_and_answers_once() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "hello");
+    h.step();
+    h.agents.wait_prompts(1);
+    // The resume turn is cut too.
+    let mut h = stop_mid_turn(h, true);
+    h.connect();
+    h.step();
+    h.agents.wait_prompts(1);
+    let mut h = stop_mid_turn(h, false);
+    h.connect();
+    h.settle();
+    let log = h.log();
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert_eq!(sends[0].1, "answer 0", "{sends:?}");
 }
 
 fn timer(h: &mut Harness) {
@@ -352,7 +407,7 @@ fn a_child_report_becomes_one_user_entry_and_a_new_turn() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts[0][1]["text"], "[worker] fixed the bug");
+    assert_eq!(prompts[0].last().unwrap()["text"], "[worker] fixed the bug");
     assert_eq!(
         h.log()[0],
         ("user".to_string(), "[worker] fixed the bug".to_string())
@@ -405,7 +460,7 @@ fn a_child_that_finished_while_the_host_was_away_reports_on_reconnect() {
     )])));
     h.settle();
     assert_eq!(
-        h.agents.inner.lock().unwrap().prompts[0][1]["text"],
+        h.agents.inner.lock().unwrap().prompts[0].last().unwrap()["text"],
         "[worker] done"
     );
 }

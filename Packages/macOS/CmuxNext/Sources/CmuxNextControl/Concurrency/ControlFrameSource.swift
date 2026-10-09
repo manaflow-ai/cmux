@@ -30,7 +30,7 @@ public struct MainRunLoopHop: Sendable {
     public func perform(_ work: @escaping @MainActor @Sendable () -> Void) {
         let main = CFRunLoopGetMain()
         CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-            // crash-allow: CFRunLoopGetMain blocks run on the main thread
+            // main-proof: a CFRunLoopGetMain() block runs on the main thread
             MainActor.assumeIsolated { work() }
         }
         CFRunLoopWakeUp(main)

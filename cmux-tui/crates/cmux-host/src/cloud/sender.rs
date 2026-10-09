@@ -173,6 +173,13 @@ impl Reporter {
             // after the send and before `now` (the answer): count from the answer, so
             // the next report never lands inside the server's window and is held.
             self.last_sent_at = Some(now);
+            // Held: the server applies it at the end of its window, up to one window
+            // after this answer, and its window restarts then. Count from there.
+            let held =
+                matches!(answer, Answer::Http { body, .. } if body["value"]["applied"] == false);
+            if held {
+                self.last_sent_at = Some(now + self.min_interval_ms);
+            }
             self.heartbeat_at = Some(now + self.heartbeat_ms);
         } else {
             for r in reasons {

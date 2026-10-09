@@ -193,3 +193,30 @@ test("Quick Chat has no tab to split, and its menu waits disabled until it has r
   expect(container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!.disabled).toBe(true);
   await act(async () => root.unmount());
 });
+
+test("the menu opens the chat in a new window through the app's own action", () => {
+  expect(HEADER_ACTIONS.newWindow).toBe("tab.moveToNewWindow");
+});
+
+// Lawrence 2026-10-09 ("continue in jank"): Continue in drew Codex and Claude Code over the parent
+// menu's rows with no surface. A submenu is its own popup: portaled beside the parent, never inside
+// the parent's scrolling popup, with the parent's surface class and its own positioner.
+test("Continue in opens its own popup outside the parent menu, on the same surface", async () => {
+  const ran: string[] = [];
+  const { container, unmount } = await render({}, ran);
+  const more = container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!;
+  await act(async () => more.click());
+  const trigger = rows()[1]!;
+  await act(async () => {
+    trigger.focus();
+    trigger.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  const popups = [...doc.querySelectorAll<HTMLElement>(".ui-popup.acpmux-chat-menu-popover")];
+  const parent = popups.find((popup) => popup.contains(trigger))!;
+  const sub = popups.find((popup) => popup !== parent && popup.textContent?.includes("Codex"));
+  expect(sub).toBeDefined();
+  expect(parent.contains(sub!)).toBe(false);
+  expect(sub!.closest(".ui-positioner")).not.toBe(parent.closest(".ui-positioner"));
+  await unmount();
+});

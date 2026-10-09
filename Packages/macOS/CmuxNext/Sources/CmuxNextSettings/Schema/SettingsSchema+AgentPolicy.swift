@@ -29,6 +29,7 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
+        .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
@@ -46,8 +47,9 @@ extension SettingsSchema {
         "sidebar.minimalMode",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
-        "sidebar.spacesPosition",
+        "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
+        "tabs.newTabTemplate",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "palette.scopes.tabs.prefix",
@@ -114,7 +116,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips",
+        "sidebar.cards.tips", "sidebar.showProjects",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -172,6 +174,7 @@ extension SettingsSchema {
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
+        "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,

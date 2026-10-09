@@ -76,15 +76,13 @@ impl AnthropicModel {
             })
             .collect();
         content.push(json!({"type": "text", "text": request.step}));
-        let mut messages = vec![json!({"role": "user", "content": content})];
-        for f in followups {
-            let content = match &f.reply.content {
-                Value::Null => json!(f.reply.text),
-                raw => raw.clone(),
-            };
-            messages.push(json!({"role": "assistant", "content": content}));
-            messages.push(json!({"role": "user", "content": f.retry}));
+        // A size retry is a fresh call (the reference client's way): the
+        // same content, which reads the cache, and the last retry note; the
+        // model does not see its own long line.
+        if let Some(f) = followups.last() {
+            content.push(json!({"type": "text", "text": f.retry}));
         }
+        let messages = vec![json!({"role": "user", "content": content})];
         let mut body = json!({
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -129,8 +127,17 @@ impl CompactModel for AnthropicModel {
                 .into_json()
                 .map_err(|e| ModelError::new(format!("bad response body: {e}")))?,
             Err(ureq::Error::Status(code, r)) => {
+                let wait = r
+                    .header("retry-after")
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .filter(|s| s.is_finite() && *s >= 0.0)
+                    .map(std::time::Duration::from_secs_f64);
                 let text = r.into_string().unwrap_or_default();
-                return Err(ModelError::new(format!("HTTP {code}: {}", clip(&text))));
+                let error = ModelError::new(format!("HTTP {code}: {}", clip(&text)));
+                return Err(match wait {
+                    Some(wait) => error.with_retry_after(wait),
+                    None => error,
+                });
             }
             Err(e) => return Err(ModelError::new(e.to_string())),
         };
@@ -188,30 +195,22 @@ mod tests {
     }
 
     #[test]
-    fn body_puts_cached_context_first_and_replays_the_size_loop() {
+    fn body_puts_cached_context_first() {
         let model = AnthropicModel::new(&Config::default());
-        let followups = vec![Followup {
-            reply: Reply {
-                text: "long".into(),
-                content: json!([{"type": "text", "text": "long"}]),
-            },
-            retry: "That line is 600 bytes".into(),
-        }];
-        let body = model.body(&request(), &followups);
+        let body = model.body(&request(), &[]);
         assert_eq!(body["system"][0]["text"], "SYS");
         assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["cache_control"]["type"], "ephemeral");
-        assert_eq!(body["model"], "claude-sonnet-5-5");
+        assert_eq!(body["model"], "claude-haiku-5-5");
         assert_eq!(body["output_config"]["effort"], "medium");
         assert!(body.get("tools").is_none());
         let m = body["messages"].as_array().unwrap();
-        assert_eq!(m.len(), 3);
-        // An empty view has no whole block: no mark in it.
-        assert!(m[0]["content"][0].get("cache_control").is_none());
-        assert_eq!(m[0]["content"][1]["text"], "STEP");
-        assert_eq!(m[1]["role"], "assistant");
-        assert_eq!(m[1]["content"][0]["text"], "long");
-        assert_eq!(m[2]["content"], "That line is 600 bytes");
+        assert_eq!(m.len(), 1);
+        // An empty view has no whole block: its header block takes the mark.
+        assert_eq!(m[0]["content"][0]["text"], "<chat>\n");
+        assert_eq!(m[0]["content"][0]["cache_control"]["type"], "ephemeral");
+        assert!(m[0]["content"][1].get("cache_control").is_none());
+        assert_eq!(m[0]["content"][2]["text"], "STEP");
     }
 
     /// Spec 3.3 (gist 3c190e0): the view in blocks of 4 lines, one mark on
@@ -236,9 +235,9 @@ mod tests {
         assert_eq!(body["tools"], json!([{"name": "zoom"}]));
         assert_eq!(body["tool_choice"]["type"], "none");
         let blocks = body["messages"][0]["content"].as_array().unwrap().clone();
-        // 7 whole blocks of 4 lines, the rest, the task.
-        assert_eq!(blocks.len(), 9);
-        let joined: String = blocks[..8]
+        // The header, 7 whole blocks of 4 lines, the rest, the task.
+        assert_eq!(blocks.len(), 10);
+        let joined: String = blocks[..9]
             .iter()
             .map(|b| b["text"].as_str().unwrap())
             .collect();
@@ -246,8 +245,30 @@ mod tests {
         let marked: Vec<usize> = (0..blocks.len())
             .filter(|k| blocks[*k].get("cache_control").is_some())
             .collect();
-        assert_eq!(marked, vec![6]);
-        assert_eq!(blocks[8]["text"], "STEP");
+        assert_eq!(marked, vec![7]);
+        assert_eq!(blocks[9]["text"], "STEP");
+    }
+
+    /// hq-6d: a size retry is a fresh call: the first request's content and
+    /// the retry note, no earlier reply (the reference client's way).
+    #[test]
+    fn a_size_retry_body_is_the_first_request_and_the_note() {
+        let model = AnthropicModel::new(&Config::default());
+        let followups = vec![Followup {
+            reply: Reply::text("long"),
+            retry: "Too long: your last line for this <input> was 600 bytes".into(),
+        }];
+        let first = model.body(&request(), &[]);
+        let body = model.body(&request(), &followups);
+        let m = body["messages"].as_array().unwrap();
+        assert_eq!(m.len(), 1, "{m:?}");
+        let content = m[0]["content"].as_array().unwrap();
+        let before = first["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(&content[..before.len()], &before[..]);
+        assert_eq!(
+            content[before.len()]["text"],
+            "Too long: your last line for this <input> was 600 bytes"
+        );
     }
 
     /// Audit round 2: the key was the constant "subrouter", so any other
