@@ -193,6 +193,15 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
+            // Leo (2026-10-09): the sidebar's and a workspace row's menus
+            // check Show Tabs Under Workspaces (`sidebar.showWorkspaceTabs`;
+            // scripts set that).
+            ActionDescriptor(
+                id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
+                keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120), p(.workspaceRow, .view, 100)])
+            ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),
                 keywords: ["sidebar", "section", "reset", "default", "layout"], category: .sidebar, symbol: "arrow.counterclockwise",

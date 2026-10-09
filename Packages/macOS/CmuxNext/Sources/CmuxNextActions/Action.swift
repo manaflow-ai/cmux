@@ -82,6 +82,9 @@ public struct Action: Identifiable {
     /// The title for this invocation's target in a context menu (Pin Tab
     /// or Unpin Tab for a toggle), or nil for the catalog title.
     public var targetTitle: (@MainActor (ActionInvocation) -> String?)?
+    /// Whether a toggle is on for this invocation's target (a context menu
+    /// checks its row), or nil for a plain row.
+    public var targetState: (@MainActor (ActionInvocation) -> Bool?)?
     /// Whether this invocation's target leaves the row out of a context
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
