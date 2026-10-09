@@ -107,6 +107,24 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
+    /// Live check (ffcob-v3, a Cloud machine whose cmux-tui lacks
+    /// frontend-browser-tabs-v1): Cmd-Shift-L only showed a refusal. A
+    /// connected machine without daemon browser tabs gets this Mac's
+    /// session-local tab instead (no refusal), and that tab's page says it
+    /// runs on this Mac.
+    @Test func aSessionLocalTabCarriesTheNoticeByItsKey() throws {
+        let f = try Self.fixture()
+        let browserTabs = f.services.cache.browserTabs
+        browserTabs.setNotice("runs here", forKey: "local-browser-1")
+        #expect(browserTabs.takeNotice(forKey: "local-browser-1") == "runs here")
+        #expect(browserTabs.takeNotice(forKey: "local-browser-1") == nil, "once")
+        #expect(PaneBrowserTabOpener.machineRoute(isLocal: false, connected: true, servesTabs: false) == .sessionLocal)
+        #expect(PaneBrowserTabOpener.machineRoute(isLocal: false, connected: false, servesTabs: false) == .refuseNotConnected)
+        #expect(PaneBrowserTabOpener.machineRoute(isLocal: false, connected: true, servesTabs: true) == .daemon)
+        #expect(PaneBrowserTabOpener.machineRoute(isLocal: true, connected: false, servesTabs: false) == .sessionLocal)
+        withExtendedLifetime(f.services) {}
+    }
+
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))
