@@ -38976,6 +38976,7 @@ export default {
             // input. The Claude-specific path applies the same rule above.
             let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
                 && summary.status == .needsInput
+                && (def.name == "grok" || def.name == "claude")
                 && (mapped?.agentLifecycle == .idle || mapped?.agentLifecycle == .running)
             let idleReminderForCompletedSession = idleReminderForSettledSession
                 && mapped?.agentLifecycle == .idle
