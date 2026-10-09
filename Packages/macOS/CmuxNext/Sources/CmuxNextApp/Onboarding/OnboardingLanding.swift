@@ -23,4 +23,9 @@ enum OnboardingLanding: Equatable {
         guard firstRun, !hasOpenWindow || shown == .home else { return .stay }
         return fresh.map { .select(workspaceID: $0) } ?? .newWorkspace
     }
+
+    /// Whether the main window comes back when onboarding ends.
+    nonisolated static func restoresMainWindow(minimized: Bool) -> Bool {
+        false
+    }
 }
