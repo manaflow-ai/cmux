@@ -154,3 +154,56 @@ fn cmux_app_daemon_socket_wins_over_the_daemon_socket() {
         Some("/T/cmux-chief-owner.sock")
     );
 }
+
+/// E17: the turn env is the shared rule's (schemas/chief-cmux-target): the
+/// app's control socket and daemon links, and the Chief's owner daemon,
+/// which the `cmux` CLI uses while the app's sockets do not exist (a Chief
+/// that `cmux chief` started without the app).
+#[test]
+fn the_turn_env_is_the_shared_vectors_turn_env() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../schemas/chief-cmux-target/vectors.json"
+    ))
+    .unwrap();
+    let host = &vectors["host"];
+    let bin = bundle();
+    let env = session_env(
+        Path::new("/h"),
+        host["daemon_socket"].as_str().unwrap(),
+        Path::new("/a/acpmux.sock"),
+        &bin.join("optchat-chief"),
+        &|key: &str| {
+            host["environment"][key]
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| (key == "PATH").then(|| "/usr/bin:/bin".to_owned()))
+        },
+    );
+    for (key, want) in vectors["turn_env"].as_object().unwrap() {
+        assert_eq!(
+            env.get(key).map(String::as_str),
+            want.as_str(),
+            "{key} in {env:?}"
+        );
+    }
+}
+
+/// E17: a login shell puts ~/.local/bin and Homebrew ahead of the bundled
+/// CLI again (a dev or Homebrew `cmux` shim then ran an older CLI: "Socket
+/// not found"). The shims, as the app's own terminals, run the CLI that
+/// CMUX_BUNDLED_CLI_PATH names.
+#[test]
+fn the_turn_env_names_the_bundled_cli_for_shims() {
+    let bin = bundle();
+    let env = session_env(
+        Path::new("/h"),
+        DAEMON,
+        Path::new("/a/acpmux.sock"),
+        &bin.join("optchat-chief"),
+        &inherited,
+    );
+    assert_eq!(
+        env.get("CMUX_BUNDLED_CLI_PATH").map(String::as_str),
+        Some(bin.join("cmux").to_str().unwrap())
+    );
+}
