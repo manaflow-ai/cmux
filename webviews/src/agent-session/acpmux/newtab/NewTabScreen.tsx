@@ -392,36 +392,98 @@ function ToolsSection({
   onRunAction?: (id: string) => void;
 }) {
   const t = useT();
+  const [openTool, setOpenTool] = React.useState<string | null>(null);
+  const openMenu = React.useRef<HTMLDivElement>(null);
+  const triggers = React.useRef(new Map<string, HTMLButtonElement>());
+
+  React.useEffect(() => {
+    if (!openTool) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && openMenu.current?.contains(target)) return;
+      setOpenTool(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [openTool]);
+
+  const closeMenu = (toolId: string, restoreFocus = false) => {
+    setOpenTool(null);
+    if (restoreFocus) triggers.current.get(toolId)?.focus();
+  };
   if (!tools.length) return null;
+
   return (
     <section className="nt-tools" aria-labelledby="nt-tools-heading">
       <h2 id="nt-tools-heading">{t("newTabPage.tools")}</h2>
       <div className="nt-tools-grid">
-        {tools.map((tool) => (
-          <div className="nt-tool-card" key={tool.id}>
-            <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
-              <span className="nt-tool-icon" aria-hidden="true">
-                {toolIcon(tool.symbol)}
-              </span>
-              <span>{toolTitle(t, tool)}</span>
-              {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
-            </button>
-            {tool.menu.length > 0 && (
-              <div className="nt-tool-menu">
-                <button type="button" aria-label={t("newTabPage.moreOptions")}>
-                  …
-                </button>
-                <div className="nt-tool-menu-popover">
-                  {tool.menu.map((id) => (
-                    <button type="button" key={id} onClick={() => onRunAction?.(id)}>
-                      {toolMenuTitle(t, id)}
-                    </button>
-                  ))}
+        {tools.map((tool, index) => {
+          const menuId = `nt-tool-menu-${index}`;
+          const menuOpen = openTool === tool.id;
+          return (
+            <div className="nt-tool-card" key={tool.id}>
+              <button type="button" className="nt-tool-main" onClick={() => onRunAction?.(tool.id)}>
+                <span className="nt-tool-icon" aria-hidden="true">
+                  {toolIcon(tool.symbol)}
+                </span>
+                <span>{toolTitle(t, tool)}</span>
+                {tool.shortcut && <kbd>{tool.shortcut}</kbd>}
+              </button>
+              {tool.menu.length > 0 && (
+                <div className="nt-tool-menu" ref={menuOpen ? openMenu : undefined} data-open={menuOpen || undefined}>
+                  <button
+                    ref={(node) => {
+                      if (node) triggers.current.set(tool.id, node);
+                      else triggers.current.delete(tool.id);
+                    }}
+                    type="button"
+                    aria-label={t("newTabPage.moreOptions")}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    aria-controls={menuId}
+                    onClick={() => setOpenTool((current) => (current === tool.id ? null : tool.id))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape" && menuOpen) {
+                        event.preventDefault();
+                        closeMenu(tool.id, true);
+                      }
+                    }}
+                  >
+                    …
+                  </button>
+                  <div
+                    className="nt-tool-menu-popover"
+                    id={menuId}
+                    role="menu"
+                    tabIndex={-1}
+                    aria-label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
+                    hidden={!menuOpen}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeMenu(tool.id, true);
+                      }
+                    }}
+                  >
+                    {tool.menu.map((id) => (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        key={id}
+                        onClick={() => {
+                          closeMenu(tool.id);
+                          onRunAction?.(id);
+                        }}
+                      >
+                        {toolMenuTitle(t, id)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
