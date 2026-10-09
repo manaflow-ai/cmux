@@ -63,6 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // loginwindow reopens it at the next login (without the agent's
         // environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
+        // A `cmux` shim outside this app runs the CLI of the app opened last
+        // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
+        if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
+           let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
+            Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
+        }
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())

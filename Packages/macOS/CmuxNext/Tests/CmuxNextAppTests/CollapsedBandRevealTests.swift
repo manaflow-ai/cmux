@@ -73,6 +73,8 @@ import Testing
             root.layoutSubtreeIfNeeded()
             #expect(root.collapsedBand.isOpen, "a pointer that just left keeps the band open (no flicker)")
             #expect(rig.band.frame.width == TitlebarToolbarBand.width)
+            #expect(rig.band.sidebarToggle.alphaValue == 1 && rig.band.forwardButton.alphaValue == 1,
+                    "the buttons stay shown for the whole delay, not faded in an open band")
 
             await rig.clock.sleepers(atLeast: 1)
             rig.clock.advance(by: CollapsedBandReveal.closeDelay - .milliseconds(1))
@@ -84,6 +86,8 @@ import Testing
             root.layoutSubtreeIfNeeded()
             #expect(rig.band.frame.width == 0, "the band collapses again")
             #expect(rig.band.alphaValue == 0)
+            #expect(rig.band.sidebarToggle.alphaValue == 0, "the band's hold on the row reveal ends with it")
+            #expect(root.titlebarReveal.state.holds == 0)
         }
     }
 
