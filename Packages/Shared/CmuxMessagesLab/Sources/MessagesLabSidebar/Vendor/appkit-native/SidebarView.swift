@@ -101,6 +101,20 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     var rowLayerCount: Int { rowLayers.count }
     var visibleRowRange: Range<Int> { lastVisible }
 
+    /// Visible row layers whose text column overlaps their avatar (tests: none, after any
+    /// reconfigure; cmux-next found the text at x 0 after a reselect).
+    func rowsWithTextOverAvatar() -> [Int] {
+        guard !metrics.compact else { return [] }
+        return rowLayers.filter { !$0.value.isHidden && $0.value.content.frame.intersects($0.value.avatar.frame) }.map(\.key).sorted()
+    }
+    /// A pinned tile's laid-out parts in tile coordinates (tests): the unread dot (nil: hidden),
+    /// the bubble without its tail (nil: none shown), the avatar and the tile's bounds.
+    func tileGeometry(_ t: Int) -> (dot: CGRect?, bubble: CGRect?, avatar: CGRect, bounds: CGRect) {
+        let l = tileLayers[t]
+        let b = l.time.isHidden ? nil : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
+        return (l.dot.isHidden ? nil : l.dot.frame, b, l.avatar.frame, l.bounds)
+    }
+
     enum Hit: Equatable { case tile(Int), row(Int) }
 
     /// Visible rows that show no bitmap or one of another width (tests: 0 in every frame).
@@ -456,8 +470,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let selected = c.id == highlightID
         let k = key(.row, item: i, emphasized: emphasized(i))
         l.frame = frame
-        // cmux: the text column, not the row's bounds: a row whose bitmap is unchanged returns
-        // before `show` sets it, and its name and preview drew over the avatar at x 0.
+        // The text column (show() sets the same frame; it is skipped when the bitmap is unchanged).
         l.content.frame = CGRect(x: SidebarMetrics.textX, y: 0, width: metrics.textWidth, height: SidebarMetrics.rowHeight)
         l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
         l.selection.cornerRadius = SidebarMetrics.selectionRadius
@@ -630,11 +643,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
             l.avatarSpec = c.avatar; l.avatarGeneration = generation
         }
-        // cmux: the unread dot on the tile's leading edge, below the unread bubble when one is
-        // shown, so a wide bubble never covers it (SidebarDraw.tileUnreadDot).
         l.dot.isHidden = !c.unread
-        let shownBubble = c.unread && !c.typing ? SidebarDraw.tileBubble(c, metrics: metrics)?.rect : nil
-        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: shownBubble)
         l.dot.cornerRadius = 6
         l.dot.backgroundColor = palette.unread
         if c.typing {
@@ -668,6 +677,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 l.time.isHidden = true
             }
         }
+        // The unread dot on the tile's leading edge, below the bubble when one shows, so a wide
+        // bubble never covers it (SidebarDraw.tileUnreadDot; the bubble rect without its tail).
+        let bubble = l.time.isHidden || metrics.compact ? nil
+            : CGRect(x: l.time.frame.minX + 1, y: l.time.frame.minY, width: l.time.frame.width - 1, height: l.time.frame.height - 5)
+        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: bubble)
         // Configured for this width (the stale check compares it).
         l.shownKey = SidebarBitmapKey(kind: .tile, id: c.id, version: c.version, width: metrics.tileWidth, emphasized: false, generation: generation)
         l.contentsScaleAll(s)
