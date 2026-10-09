@@ -459,14 +459,14 @@ mod unix {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-    use std::sync::mpsc::{Receiver, channel as mpsc_channel, sync_channel};
+    use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
     use std::sync::{Arc, Condvar, Mutex, TryLockError};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
     use cmux_pty::{ChildKiller, MasterPty, PtyCommand};
-    use ghostty_vt::{Callbacks, Terminal};
+    use ghostty_vt::Terminal;
 
     use super::shared::codec::*;
     use super::shared::host_shared::HostShared;
@@ -574,14 +574,11 @@ mod unix {
 
     mod adopt_launch;
     mod adopted_child;
-    mod exited_drain;
     mod host_accept;
     mod host_crash;
-    mod host_parser;
     mod host_scope;
     mod host_signals;
     mod host_start;
-    mod metric_commits;
     mod pty_custody;
     mod pty_lock;
     mod standby;
@@ -592,8 +589,9 @@ mod unix {
     pub(crate) use super::shared::control_responses::{
         ControlResponses, DeferredCellPixelResolution,
     };
+    use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
+    use super::shared::{exited_drain, host_parser};
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
-    use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use host_start::HostChild;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_custody::{live_successor_record, record_owner_token};
@@ -1757,9 +1755,10 @@ mod unix {
         use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
+        use ghostty_vt::Callbacks;
         use ghostty_vt::CursorShape;
         use host_fixture::{test_host_shared, test_host_shared_with};
-        use std::sync::mpsc::{RecvTimeoutError, Sender, SyncSender};
+        use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender};
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {

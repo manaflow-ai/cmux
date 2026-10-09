@@ -247,6 +247,15 @@ pub fn claude_settings() -> Value {
     json!({"autoMemoryEnabled": false, "hooks": {}, "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS})
 }
 
+/// Env every Chief Claude session's preset carries (turn, compactor,
+/// subagent; isolated or not): no background plugin auto-update. Claude Code refreshes
+/// plugin marketplaces with `git` in ~/.claude/plugins/marketplaces, outside
+/// the Chief home, and skips it when the auto-updater is disabled (2.1.295;
+/// `DISABLE_AUTOUPDATER`, narrower than CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+/// which also turns off feature flags). Only these sessions: the user's
+/// ~/.claude config is never changed.
+pub const QUIET_ENV: [(&str, &str); 1] = [("DISABLE_AUTOUPDATER", "1")];
+
 /// The env of the turn and subagent sessions' acpmux presets: no
 /// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the
 /// user's login through the user's Claude home, and a plain `claude`

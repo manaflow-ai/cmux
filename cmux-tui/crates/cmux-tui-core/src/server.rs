@@ -57,9 +57,6 @@ use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::browser::{BrowserMouseDispatch, BrowserPointerOwner};
-use crate::browser_provider::{
-    BrowserProviderAuthentication, BrowserProviderRegistration, BrowserProviderSnapshot,
-};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State, Workspace};
@@ -70,7 +67,7 @@ use crate::platform::{self, transport};
 use crate::resource::BrowserPublicId;
 use crate::resource::{
     ContentPublicId, RequestId as ResourceRequestId, ResourceError, ResourceOperation,
-    StreamPublicId, TabPublicId, TerminalPublicId,
+    StreamPublicId, TerminalPublicId,
 };
 use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
@@ -149,7 +146,11 @@ mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod cmd_attach;
+mod cmd_browser;
+#[cfg(test)]
+use cmd_browser::browser_provider_registration;
 mod cmd_panes;
+mod cmd_profiles;
 mod cmd_screens;
 mod cmd_sizing;
 mod cmd_tabs;
@@ -4671,127 +4672,6 @@ fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
-fn browser_provider_registration(
-    provider_id: String,
-    endpoint: String,
-    authentication: String,
-    bearer_token: Option<String>,
-    targets: Vec<BrowserProviderTargetRequest>,
-) -> anyhow::Result<BrowserProviderRegistration> {
-    anyhow::ensure!(
-        !provider_id.is_empty()
-            && provider_id.len() <= 128
-            && provider_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"-._:".contains(&byte)),
-        "browser provider id must contain 1..128 ASCII identifier characters"
-    );
-    anyhow::ensure!(endpoint.len() <= 2_048, "browser provider endpoint is too long");
-    let parsed = url::Url::parse(&endpoint).context("invalid browser provider endpoint")?;
-    anyhow::ensure!(parsed.scheme() == "ws", "browser provider endpoint must use ws://");
-    anyhow::ensure!(
-        parsed.username().is_empty() && parsed.password().is_none(),
-        "browser provider endpoint must not contain URL credentials"
-    );
-    anyhow::ensure!(parsed.port().is_some(), "browser provider endpoint must include a port");
-    anyhow::ensure!(
-        parsed.fragment().is_none(),
-        "browser provider endpoint must not have a fragment"
-    );
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("browser provider endpoint must include a host"))?;
-    let loopback = host.eq_ignore_ascii_case("localhost")
-        || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
-    anyhow::ensure!(
-        loopback,
-        "browser provider endpoint must be loopback; use an authenticated local gateway"
-    );
-
-    let authentication = match authentication.as_str() {
-        "none" => {
-            anyhow::ensure!(
-                bearer_token.is_none(),
-                "bearer_token is only valid with bearer authentication"
-            );
-            BrowserProviderAuthentication::None
-        }
-        "bearer" => {
-            let token = bearer_token
-                .filter(|token| !token.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("bearer authentication requires bearer_token"))?;
-            anyhow::ensure!(
-                token.len() <= 4_096 && token.bytes().all(|byte| byte.is_ascii_graphic()),
-                "browser provider bearer token must contain 1..4096 visible ASCII characters"
-            );
-            BrowserProviderAuthentication::Bearer(token)
-        }
-        other => anyhow::bail!("unsupported browser provider authentication {other:?}"),
-    };
-
-    anyhow::ensure!(targets.len() <= 16_384, "too many browser provider targets");
-    let mut parsed_targets = BTreeMap::new();
-    for target in targets {
-        let tab_id =
-            TabPublicId::parse(target.tab_id).context("invalid browser provider tab_id")?;
-        anyhow::ensure!(
-            !target.target_id.is_empty()
-                && target.target_id.len() <= 512
-                && !target.target_id.chars().any(char::is_control),
-            "browser provider target_id must contain 1..512 non-control characters"
-        );
-        anyhow::ensure!(
-            parsed_targets.insert(tab_id, target.target_id).is_none(),
-            "duplicate browser provider tab_id"
-        );
-    }
-    Ok(BrowserProviderRegistration {
-        provider_id,
-        endpoint: parsed.to_string(),
-        authentication,
-        targets: parsed_targets,
-    })
-}
-
-fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
-    let Some(snapshot) = snapshot else {
-        return json!({"available":false,"revision":0,"targets":[]});
-    };
-    let targets = snapshot
-        .targets
-        .into_iter()
-        .map(|(tab_id, target_id)| json!({"tab_id":tab_id,"target_id":target_id}))
-        .collect::<Vec<_>>();
-    json!({
-        "available":true,
-        "provider_id":snapshot.provider_id,
-        "endpoint":snapshot.endpoint,
-        "authentication":snapshot.authentication.name(),
-        "revision":snapshot.revision,
-        "clients":snapshot.clients,
-        "targets":targets,
-    })
-}
-
-fn handle_browser_frame_presented(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    frame_seq: u64,
-) -> anyhow::Result<Value> {
-    if !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
-        anyhow::bail!(
-            "browser frame presentation requires client capability \
-             {GUARDED_BROWSER_POINTER_CAPABILITY}"
-        );
-    }
-    let surface = get_surface(mux, surface)?;
-    require_browser(mux, &surface)?;
-    let owner = mux.control_clients.browser_pointer_owner(client)?;
-    let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
-    Ok(json!({ "accepted": accepted }))
-}
-
 fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     match level {
         "info" => Ok(NotificationLevel::Info),
@@ -5313,7 +5193,7 @@ fn handle_command_with_cancellation(
             }
             Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
         }
-        Command::BrowserHostProvider => browser_host_command::run(mux, client),
+        Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -5408,32 +5288,17 @@ fn handle_command_with_cancellation(
             authentication,
             bearer_token,
             targets,
-        } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider registration requires a trusted local connection");
-            }
-            let registration = browser_provider_registration(
-                provider_id,
-                endpoint,
-                authentication,
-                bearer_token,
-                targets,
-            )?;
-            let snapshot = mux.register_browser_provider(client, registration)?;
-            Ok(browser_provider_json(Some(snapshot)))
-        }
-        Command::GetBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider discovery requires a trusted local connection");
-            }
-            Ok(browser_provider_json(mux.browser_provider_snapshot()))
-        }
-        Command::UnregisterBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider registration requires a trusted local connection");
-            }
-            Ok(json!({"removed":mux.unregister_browser_provider(client)}))
-        }
+        } => cmd_browser::register_browser_provider(
+            mux,
+            client,
+            provider_id,
+            endpoint,
+            authentication,
+            bearer_token,
+            targets,
+        ),
+        Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
+        Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
         Command::ListTerminals => cmd_terminals::list_terminals(mux),
         Command::TerminalEvents { after_revision } => {
             cmd_terminals::terminal_events(mux, after_revision)
@@ -5671,7 +5536,7 @@ fn handle_command_with_cancellation(
             cmd_sizing::set_cell_pixels(mux, width_px, height_px)
         }
         Command::BrowserFramePresented { surface, frame_seq } => {
-            handle_browser_frame_presented(mux, client, surface, frame_seq)
+            cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }
         cmd @ (Command::BrowserMouse { .. }
         | Command::BrowserMouseGuarded { .. }
@@ -5681,35 +5546,12 @@ fn handle_command_with_cancellation(
         | Command::BrowserKeyPress { .. }
         | Command::BrowserInsertText { .. }) => browser_input::handle(mux, client, cmd),
         Command::BrowserNavigate { surface, url } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            mux.navigate_browser_surface(&surface, &url)?;
-            Ok(json!({}))
+            cmd_browser::browser_navigate(mux, surface, url)
         }
-        Command::BrowserBack { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_back()?;
-            Ok(json!({}))
-        }
-        Command::BrowserForward { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_forward()?;
-            Ok(json!({}))
-        }
-        Command::BrowserReload { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_reload()?;
-            Ok(json!({}))
-        }
-        Command::BrowserActivate { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_activate()?;
-            Ok(json!({}))
-        }
+        Command::BrowserBack { surface } => cmd_browser::browser_back(mux, surface),
+        Command::BrowserForward { surface } => cmd_browser::browser_forward(mux, surface),
+        Command::BrowserReload { surface } => cmd_browser::browser_reload(mux, surface),
+        Command::BrowserActivate { surface } => cmd_browser::browser_activate(mux, surface),
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
@@ -5985,7 +5827,7 @@ fn handle_command_with_cancellation(
             marked_unread,
             mutation,
         ),
-        Command::ListPersonal => personal::list(mux),
+        Command::ListPersonal => cmd_profiles::list_personal(mux),
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
@@ -6041,20 +5883,18 @@ fn handle_command_with_cancellation(
             default_session_id,
             defaults,
             follows,
-        } => personal::create_profile(
+        } => cmd_profiles::create_profile(
             mux,
-            crate::workspace_registry::ProfileInput {
-                id: profile,
-                name,
-                color,
-                icon,
-                theme,
-                index,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-                follows,
-            },
+            name,
+            profile,
+            color,
+            icon,
+            theme,
+            index,
+            browser_profile_id,
+            default_session_id,
+            defaults,
+            follows,
         ),
         Command::UpdateProfile {
             profile,
@@ -6065,25 +5905,23 @@ fn handle_command_with_cancellation(
             browser_profile_id,
             default_session_id,
             defaults,
-        } => personal::update_profile(
+        } => cmd_profiles::update_profile(
             mux,
-            &profile,
-            crate::workspace_registry::ProfileUpdate {
-                name,
-                color,
-                icon,
-                theme,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-            },
+            profile,
+            name,
+            color,
+            icon,
+            theme,
+            browser_profile_id,
+            default_session_id,
+            defaults,
         ),
-        Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
+        Command::MoveProfile { profile, index } => cmd_profiles::move_profile(mux, profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, client, &profile, move_to.as_deref())
+            cmd_profiles::delete_profile(mux, client, profile, move_to)
         }
         Command::SetProfileFollows { profile, session_ids } => {
-            personal::set_profile_follows(mux, &profile, &session_ids)
+            cmd_profiles::set_profile_follows(mux, profile, session_ids)
         }
         Command::PinWorkspace { session_id, workspace_key, profile } => {
             cmd_workspaces::pin_workspace(mux, session_id, workspace_key, profile)
@@ -6098,44 +5936,33 @@ fn handle_command_with_cancellation(
             transport,
             capabilities,
             follow_with,
-        } => personal::put_session(
+        } => cmd_profiles::put_session(
             mux,
-            &session_id,
-            machine_name.as_deref(),
-            session_name.as_deref(),
-            &transport,
-            capabilities.as_ref(),
-            follow_with.as_deref(),
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            capabilities,
+            follow_with,
         ),
         Command::ForgetSession { session_id, force } => {
-            personal::forget_session(mux, &session_id, force)
+            cmd_profiles::forget_session(mux, session_id, force)
         }
         Command::ImportSessionOrganization { session_id, groups, workspaces } => {
-            personal::import_session_organization(mux, &session_id, groups, workspaces)
+            cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
         }
         Command::CreatePersonalGroup { name, group, profile, color, collapsed, index } => {
-            personal::create_group(
-                mux,
-                group,
-                profile.as_deref(),
-                &name,
-                color.as_deref(),
-                collapsed,
-                index,
-            )
+            cmd_profiles::create_personal_group(mux, name, group, profile, color, collapsed, index)
         }
         Command::UpdatePersonalGroup { group, name, color, collapsed, profile } => {
-            personal::update_group(
-                mux,
-                &group,
-                name.as_deref(),
-                color,
-                collapsed,
-                profile.as_deref(),
-            )
+            cmd_profiles::update_personal_group(mux, group, name, color, collapsed, profile)
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
-        Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
+        Command::DeletePersonalGroup { group } => {
+            cmd_profiles::delete_personal_group(mux, client, group)
+        }
+        Command::MovePersonalGroup { group, index } => {
+            cmd_profiles::move_personal_group(mux, group, index)
+        }
         Command::SetPersonalWorkspace {
             session_id,
             workspace_key,
@@ -6143,19 +5970,17 @@ fn handle_command_with_cancellation(
             group,
             browser_profile_id,
             theme,
-        } => personal::set_workspace(
+        } => cmd_profiles::set_personal_workspace(
             mux,
-            &session_id,
-            &workspace_key,
-            crate::workspace_registry::PersonalWorkspaceUpdate {
-                index,
-                group,
-                browser_profile_id,
-                theme,
-            },
+            session_id,
+            workspace_key,
+            index,
+            group,
+            browser_profile_id,
+            theme,
         ),
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
-            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+            cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
         }
         Command::ListWorkspaceGroups => cmd_workspaces::list_workspace_groups(mux),
         Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
