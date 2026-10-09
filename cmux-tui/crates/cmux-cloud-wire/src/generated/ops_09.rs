@@ -5,6 +5,44 @@
 use super::*;
 
 wire_op! {
+    /// Rename a group conversation (not a dm or chief thread).
+    TitleSetOp {
+        name: "title.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TitleSetParams,
+        result: HomeConversationCommit,
+        error: TitleSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TitleSetParams {
+    pub conversation: ConversationId,
+    pub title: String,
+}
+
+wire_errors! {
+    /// The error codes title.set declares.
+    TitleSetError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidTitle = "invalid_title",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Attach an owned WireGuard tunnel to an owned private network.
     TunnelAttachOp {
         name: "tunnel.attach",

@@ -5,6 +5,50 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<TeamMembersListParamsRole>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListResult {
+    pub team: TeamId,
+    pub members: Vec<TeamMember>,
+    pub member_count: WireNumber,
+    pub next_cursor: Option<String>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.members.list declares.
+    TeamMembersListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys.
+    TeamPolicyGetOp {
+        name: "team.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamPolicyGetParams,
+        result: TeamPolicyGetResult,
+        error: TeamPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyGetParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
@@ -851,44 +895,6 @@ wire_errors! {
         TeamVmRetiredFull = "team_vm.retired_full",
         TeamVmStaleEpoch = "team_vm.stale_epoch",
         TeamVmStaleTaint = "team_vm.stale_taint",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Rename a group conversation (not a dm or chief thread).
-    TitleSetOp {
-        name: "title.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TitleSetParams,
-        result: HomeConversationCommit,
-        error: TitleSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TitleSetParams {
-    pub conversation: ConversationId,
-    pub title: String,
-}
-
-wire_errors! {
-    /// The error codes title.set declares.
-    TitleSetError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidTitle = "invalid_title",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
 }
