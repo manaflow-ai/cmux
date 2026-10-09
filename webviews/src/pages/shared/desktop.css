@@ -57,8 +57,8 @@ select {
   box-shadow: 0 4px 14px color-mix(in srgb, black 30%, transparent);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
