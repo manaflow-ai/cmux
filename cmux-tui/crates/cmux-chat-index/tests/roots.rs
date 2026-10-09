@@ -1,6 +1,5 @@
 mod common;
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +13,7 @@ fn mkdir(path: &Path) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn defaults_env_and_subrouter_homes_merge_by_real_path() {
+    use std::collections::HashMap;
     use std::os::unix::fs::symlink;
     let dir = tempfile::tempdir().unwrap();
     let home = fs::canonicalize(dir.path()).unwrap();
@@ -114,13 +114,47 @@ fn recorded_roots_persist_through_the_file() {
 
 #[test]
 fn transcript_paths_name_their_store_root() {
-    let claude = Path::new("/u/.claude/projects/-work-app/abc.jsonl");
-    let spec = RootSpec::from_transcript(AdapterKind::ClaudeCode, claude).unwrap();
-    assert_eq!(spec.path, Path::new("/u/.claude/projects"));
-    let codex = Path::new("/u/.codex/sessions/2026/10/01/rollout-2026-10-01T10-00-00-x.jsonl");
+    // An absolute base on every platform (`/u` is not absolute on Windows).
+    let dir = tempfile::tempdir().unwrap();
+    let u = dir.path().join("u");
+    let claude = u.join(".claude/projects/-work-app/abc.jsonl");
+    let spec = RootSpec::from_transcript(AdapterKind::ClaudeCode, &claude).unwrap();
+    assert_eq!(spec.path, u.join(".claude/projects"));
+    let codex = u.join(".codex/sessions/2026/10/01/rollout-2026-10-01T10-00-00-x.jsonl");
     assert_eq!(
-        RootSpec::from_transcript(AdapterKind::Codex, codex).unwrap().path,
-        Path::new("/u/.codex")
+        RootSpec::from_transcript(AdapterKind::Codex, &codex).unwrap().path,
+        u.join(".codex")
     );
-    assert_eq!(RootSpec::from_transcript(AdapterKind::Amp, codex), None);
+    assert_eq!(RootSpec::from_transcript(AdapterKind::Amp, &codex), None);
+    assert_eq!(
+        RootSpec::from_transcript(AdapterKind::ClaudeCode, Path::new("rel/p/a.jsonl")),
+        None,
+        "a relative transcript path names no root"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_symlinked_into_a_guarded_folder_is_refused() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let home = fs::canonicalize(dir.path()).unwrap();
+    let guarded = mkdir(&home.join("Documents/claude-store"));
+    mkdir(&home.join(".claude"));
+    symlink(&guarded, home.join(".claude/projects")).unwrap();
+    let documents = home.join("Documents");
+    let found = discover(&DiscoveryInput {
+        home: &home,
+        env: &|_| None,
+        refuse: &|path| path.starts_with(&documents).then(|| "inside Documents".to_owned()),
+        recorded: &[],
+        user: &[],
+    });
+    assert!(
+        found.roots.iter().all(|root| root.harness != AdapterKind::ClaudeCode),
+        "{:?}",
+        found.roots
+    );
+    assert_eq!(found.refused.len(), 1);
+    assert_eq!(found.refused[0].path, home.join(".claude/projects"));
 }
