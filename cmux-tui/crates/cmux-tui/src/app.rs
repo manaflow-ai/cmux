@@ -84,6 +84,16 @@ mod menu_build;
 mod scroll_browser;
 mod scrollbar_resize;
 
+mod action_policy;
+mod browser_keys;
+mod clear_history;
+mod client_view;
+mod focus_history;
+mod host_modes;
+mod presentation_snapshot;
+mod rail_selection;
+mod render_pacing;
+
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -97,24 +107,33 @@ use cmux_tui_core::GuardedMouseEncode;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::sizing_policy::TerminalSizingMode;
 use cmux_tui_core::{
-    BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure, FrontendFocusTarget, GraphicsStatus,
-    MachineUsage, Mux, MuxEvent, PairingChallenge, PaneId, Rect, ScreenId, SurfaceId, SurfaceKind,
-    VirtualRect, WorkspaceId,
+    GraphicsStatus, MachineUsage, Mux, MuxEvent, PairingChallenge, PaneId, Rect, ScreenId,
+    SurfaceId, VirtualRect, WorkspaceId,
 };
 use crossbeam_channel::Sender as SyncSender;
-use crossterm::event::{
-    DisableMouseCapture, EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyCode,
-    KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
-use ghostty_vt::{
-    CursorShape, KeyEncoder, KittyGraphicsSnapshot, RenderState, TerminalPointerSemanticSnapshot,
-};
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ghostty_vt::{KeyEncoder, KittyGraphicsSnapshot, RenderState, TerminalPointerSemanticSnapshot};
 
+use self::action_policy::{
+    action_available_in_mode, action_creates_destination, action_for_binding,
+    action_is_frontend_local, action_prepares_pty_release, binding_matches, browser_only_action,
+    deferred_paste_bytes, menu_action_prepares_pty_release, modeless_action_for_binding,
+    provider_action_error_message, publishes_global_cell_metrics,
+};
+use self::browser_keys::{
+    BrowserMouseDispatch, browser_hover_forward_allowed, browser_key_mapping, browser_modifiers,
+};
+use self::clear_history::{
+    adjust_active_tab_after_removal, classify_clear_history_failure,
+    localized_clear_history_failure, should_claim_clear_history_shortcut,
+};
+use self::client_view::{client_focus_identity, preserve_client_view};
 use self::events::{
     AppEvent, OwnerReloadWorker, SessionEventSender, SessionEventWorker, SessionTrySendError,
 };
 #[cfg(test)]
 use self::events::{EventCancellation, send_bounded_cancelable};
+use self::focus_history::PaneFocusHistory;
 #[cfg(test)]
 use self::frame_geometry::{
     SidebarWidthOverrides, browser_content_size_for_rect, clamp_split_ratio_for_tab_bars,
@@ -131,6 +150,12 @@ use self::host_input::{
     read_crossterm_event_with_clock,
 };
 use self::host_input::{HostInputRuntime, KeyboardIngress, TerminalInput};
+#[cfg(test)]
+use self::host_modes::outer_cursor_escape;
+use self::host_modes::{
+    canonical_terminal_content, host_mouse_capture_escape_if_changed, host_startup_input_modes,
+    initial_applied_outer_cursor, initial_host_mouse_capture, outer_cursor_escape_if_changed,
+};
 use self::layout::SidebarLayout;
 pub(crate) use self::layout::{
     FocusTarget, Hit, OmnibarHit, PaneArea, PaneEdge, RailKind, SidebarActionTarget,
@@ -186,11 +211,23 @@ use self::pointer::{Drag, TerminalPointerAdmissionResult};
 use self::pointer::{
     PaneResizeDragTarget, PtyMousePressResult, TerminalPointerAdmission, TerminalPointerEncoding,
 };
+use self::presentation_snapshot::{
+    FrontendFocusSnapshot, FrontendPresentationSnapshot, FrontendResizeSnapshot,
+    FrontendViewportSnapshot, frontend_journal_event_id,
+};
+pub(crate) use self::rail_selection::WorkspaceRailSelection;
+use self::rail_selection::{
+    MachineRailCommand, WorkspaceRailTarget, rail_navigation_index, rail_page_size,
+    workspace_creation_selection,
+};
 #[cfg(test)]
 use self::remote_attach::{REMOTE_ATTACH_WORKER_LIMIT, remote_attach_background_limit};
 use self::remote_attach::{
     RemoteSurfaceAttachAdmission, RemoteSurfaceAttachExecutor, RemoteSurfaceAttachJob,
 };
+#[cfg(test)]
+use self::render_pacing::TERMINAL_PAINT_CADENCE;
+use self::render_pacing::{RenderAction, TerminalPaintPacer};
 #[cfg(test)]
 use self::run::report_after_unwind;
 pub(crate) use self::run::{RunOutcome, RunRequest, run_with_machine_updates};
@@ -227,22 +264,21 @@ use self::viewport::ViewportMotion;
 use self::viewport::{
     VIEWPORT_ANIMATION_DURATION, pane_area_projection_work, reset_pane_area_projection_work,
 };
+use crate::browser_input::BrowserInputDispatcher;
 #[cfg(test)]
 use crate::browser_input::BrowserResizeFailure;
-use crate::browser_input::{BrowserInputDispatcher, BrowserKey};
 use crate::config::{Action, ChromeTheme, Config, SidebarView};
 use crate::localization;
 #[cfg(test)]
 use crate::machine::MachineConnectRoute;
 use crate::machine::{
     DurableNoticeDelivery, DurableProviderNotice, MachineKey, MachineRequest, MachineUiState,
-    MachineUpdate, ProviderActionInputError, WorkspaceCreationMode,
+    MachineUpdate,
 };
-use crate::pty_input::{PtyInputDispatcher, mark_operation_known_not_delivered};
+use crate::pty_input::PtyInputDispatcher;
 #[cfg(test)]
 use crate::session::Session;
-use crate::session::tree::PaneView;
-use crate::session::{CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, TreeView};
+use crate::session::{ClientInfo, TreeView};
 use crate::sidebar_files::FileBrowser;
 use crate::sidebar_projection::{AgentOrderCache, ProjectionRailState};
 use crate::ui::ReusableRowBuffer;
@@ -271,174 +307,6 @@ const DURABLE_NOTICE_RECENT_CAPACITY: usize = 64;
 const DURABLE_NOTICE_QUEUE_CAPACITY: usize = 64;
 const DURABLE_NOTICE_DISPLAY_DURATION: Duration = Duration::from_secs(4);
 const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RenderAction {
-    None,
-    Graphics,
-    Paint,
-    Draw,
-}
-
-const TERMINAL_PAINT_CADENCE: Duration = Duration::from_millis(16);
-
-/// Keep terminal parsing lossless while collapsing presentation-only wakes to
-/// the host's frame cadence. Structural draws remain immediate.
-struct TerminalPaintPacer {
-    next_paint_at: Instant,
-    pending: bool,
-}
-
-impl TerminalPaintPacer {
-    fn after_paint(now: Instant) -> Self {
-        Self { next_paint_at: now + TERMINAL_PAINT_CADENCE, pending: false }
-    }
-
-    fn wait_timeout(&self, timeout: Duration, now: Instant) -> Duration {
-        if self.pending {
-            timeout.min(self.next_paint_at.saturating_duration_since(now))
-        } else {
-            timeout
-        }
-    }
-
-    fn schedule(&mut self, action: RenderAction, now: Instant) -> RenderAction {
-        let action = if self.pending && now >= self.next_paint_at {
-            action.merge(RenderAction::Paint)
-        } else {
-            action
-        };
-        match action {
-            RenderAction::Paint if now < self.next_paint_at => {
-                self.pending = true;
-                RenderAction::None
-            }
-            RenderAction::Paint | RenderAction::Draw => {
-                self.pending = false;
-                self.next_paint_at = now + TERMINAL_PAINT_CADENCE;
-                action
-            }
-            RenderAction::None | RenderAction::Graphics => action,
-        }
-    }
-
-    fn render_immediately(&mut self, action: RenderAction, now: Instant) -> RenderAction {
-        let action = if self.pending { action.merge(RenderAction::Paint) } else { action };
-        if matches!(action, RenderAction::Paint | RenderAction::Draw) {
-            self.pending = false;
-            self.next_paint_at = now + TERMINAL_PAINT_CADENCE;
-        }
-        action
-    }
-}
-
-impl RenderAction {
-    fn rebuilds_pointer_route(self) -> bool {
-        matches!(self, Self::Paint | Self::Draw)
-    }
-}
-
-enum MachineRailCommand {
-    Activate(MachineKey),
-    Rename(MachineKey),
-    Delete(MachineKey),
-    Purge(MachineKey),
-    Create,
-    Connect,
-    ProviderMenu,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum WorkspaceRailSelection {
-    #[default]
-    Workspace,
-    Recoverable,
-    Action(SidebarActionTarget),
-}
-
-impl WorkspaceRailSelection {
-    pub(crate) fn matches_action(self, target: SidebarActionTarget) -> bool {
-        self == Self::Action(target)
-    }
-}
-
-fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> WorkspaceRailSelection {
-    WorkspaceRailSelection::Action(SidebarActionTarget::CreateWorkspace(mode))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum WorkspaceRailTarget {
-    Workspace(WorkspaceId),
-    Recoverable(String),
-    Action(SidebarActionTarget),
-}
-
-fn rail_page_size(area: Option<Rect>) -> usize {
-    area.map_or(1, |area| usize::from(area.height.saturating_sub(1)).saturating_div(3).max(1))
-}
-
-fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize) -> Option<usize> {
-    if len == 0 {
-        return None;
-    }
-    match key.code {
-        KeyCode::Up | KeyCode::Char('k') => Some(current.saturating_sub(1)),
-        KeyCode::Down | KeyCode::Char('j') => Some((current + 1).min(len - 1)),
-        KeyCode::Home => Some(0),
-        KeyCode::End => Some(len - 1),
-        KeyCode::PageUp => Some(current.saturating_sub(page)),
-        KeyCode::PageDown => Some(current.saturating_add(page).min(len - 1)),
-        _ => None,
-    }
-}
-
-impl RenderAction {
-    fn merge(self, other: Self) -> Self {
-        match (self, other) {
-            (RenderAction::Draw, _) | (_, RenderAction::Draw) => RenderAction::Draw,
-            (RenderAction::Paint, _) | (_, RenderAction::Paint) => RenderAction::Paint,
-            (RenderAction::Graphics, _) | (_, RenderAction::Graphics) => RenderAction::Graphics,
-            (RenderAction::None, RenderAction::None) => RenderAction::None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FrontendFocusSnapshot {
-    target: FrontendFocusTarget,
-    workspace_id: Option<cmux_tui_core::resource::WorkspacePublicId>,
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
-    pane_id: Option<cmux_tui_core::resource::PanePublicId>,
-    tab_id: Option<cmux_tui_core::resource::TabPublicId>,
-    content_id: Option<cmux_tui_core::resource::ContentPublicId>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FrontendResizeSnapshot {
-    cols: u16,
-    rows: u16,
-    cell_width: u16,
-    cell_height: u16,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FrontendViewportSnapshot {
-    screen_id: Option<cmux_tui_core::resource::ScreenPublicId>,
-    offset: u64,
-    target: u64,
-    settled: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FrontendPresentationSnapshot {
-    focus: FrontendFocusSnapshot,
-    resize: FrontendResizeSnapshot,
-    viewport: FrontendViewportSnapshot,
-}
-
-fn frontend_journal_event_id() -> String {
-    format!("event_frontend_{}", uuid::Uuid::new_v4().simple())
-}
 
 /// A context-menu entry: what activating it does (the label is derived).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -664,23 +532,6 @@ fn keyboard_action_for_menu(action: MenuAction) -> Option<Action> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BrowserMouseDispatch {
-    event_type: &'static str,
-    button: Option<&'static str>,
-    click_count: Option<u32>,
-}
-
-impl BrowserMouseDispatch {
-    const fn new(
-        event_type: &'static str,
-        button: Option<&'static str>,
-        click_count: Option<u32>,
-    ) -> Self {
-        Self { event_type, button, click_count }
-    }
-}
-
 impl Prompt {
     fn new(label: impl Into<String>, buffer: String, target: PromptTarget) -> Self {
         Prompt {
@@ -692,60 +543,6 @@ impl Prompt {
             clear: Rect::default(),
             ok: Rect::default(),
             cancel: Rect::default(),
-        }
-    }
-}
-
-#[derive(Default)]
-struct PaneFocusHistory {
-    next_sequence: u64,
-    recency: HashMap<PaneId, u64>,
-    baseline: HashMap<PaneId, u64>,
-    membership_revision: Option<u64>,
-    membership_initialized: bool,
-}
-
-impl PaneFocusHistory {
-    fn record(&mut self, pane: PaneId) {
-        self.next_sequence = self.next_sequence.saturating_add(1);
-        self.recency.insert(pane, self.next_sequence);
-    }
-
-    fn recency(&self, pane: PaneId) -> (bool, u64) {
-        self.recency
-            .get(&pane)
-            .copied()
-            .map(|sequence| (true, sequence))
-            .unwrap_or_else(|| (false, self.baseline.get(&pane).copied().unwrap_or_default()))
-    }
-
-    fn reconcile_membership(&mut self, tree: &TreeView) {
-        let live = tree
-            .workspaces()
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-            .map(|pane| pane.id)
-            .collect::<HashSet<_>>();
-        self.recency.retain(|pane, _| live.contains(pane));
-        self.baseline.retain(|pane, _| live.contains(pane));
-        for pane in tree
-            .workspaces()
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .flat_map(|screen| screen.panes.iter())
-        {
-            self.baseline.entry(pane.id).or_insert(pane.focused_at);
-        }
-        self.membership_revision = tree.pane_revision;
-        self.membership_initialized = true;
-    }
-
-    fn sync_membership(&mut self, tree: &TreeView) {
-        if !self.membership_initialized
-            || tree.pane_revision.is_some() && self.membership_revision != tree.pane_revision
-        {
-            self.reconcile_membership(tree);
         }
     }
 }
@@ -1011,210 +808,6 @@ pub struct App {
 struct QueuedDurableNotice {
     notice: DurableProviderNotice,
     painted_at: Option<Instant>,
-}
-
-/// A durable random id naming this client install for per-client focus
-/// memory on the mux (client-focus-v1). Stored next to the TUI config;
-/// created on first use.
-fn client_focus_identity() -> Option<String> {
-    let path = crate::config::config_path().ok()?.parent()?.join("client-id");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let existing = existing.trim();
-        if !existing.is_empty()
-            && existing.len() <= 128
-            && existing.bytes().all(|byte| byte.is_ascii_graphic())
-        {
-            return Some(existing.to_string());
-        }
-    }
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).ok()?;
-    let mut id = String::with_capacity(39);
-    id.push_str("client-");
-    use std::fmt::Write as _;
-    for byte in bytes {
-        write!(&mut id, "{byte:02x}").ok()?;
-    }
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    std::fs::write(&path, format!("{id}\n")).ok()?;
-    Some(id)
-}
-
-fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
-    let workspace_indices = next
-        .workspaces()
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| (workspace.id, index))
-        .collect::<HashMap<_, _>>();
-    if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
-        && let Some(index) = workspace_indices.get(&active).copied()
-    {
-        next.active_workspace = index;
-    }
-
-    let mut screen_updates = Vec::new();
-    let mut pane_updates = Vec::new();
-    let mut tab_updates = Vec::new();
-    for previous_workspace in previous.workspaces() {
-        let Some(next_workspace_index) = workspace_indices.get(&previous_workspace.id).copied()
-        else {
-            continue;
-        };
-        let Some(screen_indices) = next.workspaces().get(next_workspace_index).map(|workspace| {
-            workspace
-                .screens
-                .iter()
-                .enumerate()
-                .map(|(index, screen)| (screen.id, index))
-                .collect::<HashMap<_, _>>()
-        }) else {
-            continue;
-        };
-        if let Some(active) =
-            previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
-            && let Some(index) = screen_indices.get(&active).copied()
-        {
-            screen_updates.push((next_workspace_index, index));
-        }
-
-        for previous_screen in &previous_workspace.screens {
-            let Some(next_screen_index) = screen_indices.get(&previous_screen.id).copied() else {
-                continue;
-            };
-            let Some((zoomed_pane, pane_indices)) = next
-                .workspaces()
-                .get(next_workspace_index)
-                .and_then(|workspace| workspace.screens.get(next_screen_index))
-                .map(|screen| {
-                    (
-                        screen.zoomed_pane,
-                        screen
-                            .panes
-                            .iter()
-                            .enumerate()
-                            .map(|(index, pane)| (pane.id, index))
-                            .collect::<HashMap<_, _>>(),
-                    )
-                })
-            else {
-                continue;
-            };
-            if let Some(zoomed_pane) =
-                zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
-            {
-                pane_updates.push((next_workspace_index, next_screen_index, zoomed_pane));
-            } else if zoomed_pane.is_none()
-                && pane_indices.contains_key(&previous_screen.active_pane)
-            {
-                pane_updates.push((
-                    next_workspace_index,
-                    next_screen_index,
-                    previous_screen.active_pane,
-                ));
-            }
-
-            for previous_pane in &previous_screen.panes {
-                let Some(next_pane_index) = pane_indices.get(&previous_pane.id).copied() else {
-                    continue;
-                };
-                let Some((pane_id, tab_indices)) = next
-                    .workspaces()
-                    .get(next_workspace_index)
-                    .and_then(|workspace| workspace.screens.get(next_screen_index))
-                    .and_then(|screen| screen.panes.get(next_pane_index))
-                    .map(|pane| {
-                        (
-                            pane.id,
-                            pane.tabs
-                                .iter()
-                                .enumerate()
-                                .map(|(index, tab)| (tab.surface, index))
-                                .collect::<HashMap<_, _>>(),
-                        )
-                    })
-                else {
-                    continue;
-                };
-                if let Some(active) = previous_pane.active_surface()
-                    && let Some(index) = tab_indices.get(&active).copied()
-                {
-                    tab_updates.push((next_workspace_index, next_screen_index, pane_id, index));
-                }
-            }
-        }
-    }
-    for (workspace_index, screen_index) in screen_updates {
-        next.set_active_screen(workspace_index, screen_index);
-    }
-    for (workspace_index, screen_index, pane_id) in pane_updates {
-        next.set_active_pane(workspace_index, screen_index, pane_id);
-    }
-    for (workspace_index, screen_index, pane_id, tab_index) in tab_updates {
-        next.set_active_tab(workspace_index, screen_index, pane_id, tab_index);
-    }
-}
-
-fn localized_clear_history_failure(error: &str) -> &'static str {
-    let messages = &localization::catalog().terminal;
-    match error {
-        CLEAR_HISTORY_UNSUPPORTED_ERROR => messages.clear_history_unsupported,
-        cmux_tui_core::CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR => {
-            messages.clear_history_fallback_unrepresentable
-        }
-        cmux_tui_core::CLEAR_HISTORY_PRESERVATION_ERROR => {
-            messages.clear_history_preservation_impossible
-        }
-        cmux_tui_core::CLEAR_HISTORY_STREAM_TIMEOUT_ERROR => messages.clear_history_stream_timeout,
-        cmux_tui_core::CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR => {
-            messages.clear_history_fallback_write_timeout
-        }
-        "terminal host does not support clear-history" => messages.clear_history_host_unsupported,
-        "terminal host has exited" => messages.clear_history_host_exited,
-        "terminal host failed to apply clear-history" => messages.clear_history_host_failed,
-        "terminal host returned a malformed clear-history response" => {
-            messages.clear_history_host_malformed_response
-        }
-        "remote session did not respond" => messages.clear_history_remote_no_response,
-        "remote response wait canceled for shutdown" => messages.clear_history_remote_disconnected,
-        _ if error.starts_with("terminal host did not acknowledge ClearHistory:") => {
-            messages.clear_history_host_no_response
-        }
-        _ if error.starts_with("remote transport write failed:") => {
-            messages.clear_history_remote_disconnected
-        }
-        _ if error.starts_with("remote command rejected:") => {
-            messages.clear_history_remote_rejected
-        }
-        _ => messages.clear_history_unexpected,
-    }
-}
-
-fn classify_clear_history_failure(failure: ClearHistoryFailure) -> anyhow::Error {
-    let delivery = failure.delivery();
-    let error = failure.into_error();
-    if delivery == ClearHistoryDelivery::KnownNotDelivered {
-        mark_operation_known_not_delivered(error)
-    } else {
-        error
-    }
-}
-
-fn should_claim_clear_history_shortcut(
-    surface_kind: SurfaceKind,
-    supports_atomic_fallback: bool,
-) -> bool {
-    surface_kind == SurfaceKind::Pty && supports_atomic_fallback
-}
-
-fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
-    if pane.active_tab > removed_tab_index {
-        pane.active_tab -= 1;
-    } else if pane.active_tab >= pane.tabs.len() {
-        pane.active_tab = pane.tabs.len().saturating_sub(1);
-    }
 }
 
 impl App {
@@ -2262,288 +1855,6 @@ impl App {
     }
 }
 
-fn canonical_terminal_content(content: Rect, rendered_size: Option<(u16, u16)>) -> Rect {
-    let (cols, rows) = rendered_size.unwrap_or((content.width, content.height));
-    Rect {
-        x: content.x,
-        y: content.y,
-        width: content.width.min(cols),
-        height: content.height.min(rows),
-    }
-}
-
-fn outer_cursor_escape_if_changed(
-    applied: Option<OuterCursorSpec>,
-    desired: OuterCursorSpec,
-) -> Option<String> {
-    (applied != Some(desired)).then(|| outer_cursor_escape(desired))
-}
-
-/// Host input modes asserted at client startup, before any inner-terminal
-/// state is known. A scoped single-terminal attach (`attach --terminal`) is a
-/// transparent passthrough: it must not assert mouse capture or the
-/// shift-bypass report on the host, because the host terminal owns clicks and
-/// selection until the inner application requests mouse tracking. Focus
-/// reporting and bracketed paste stay enabled in both modes: the client
-/// consumes those events itself and re-encodes paste for the inner terminal
-/// according to the mode the inner application actually requested, so they
-/// are transparent to the user.
-fn host_startup_input_modes(surface_only: bool) -> String {
-    let mut out = String::new();
-    if !surface_only {
-        out.push_str(&host_mouse_capture_sequence(true));
-    }
-    let _ = crossterm::Command::write_ansi(&EnableFocusChange, &mut out);
-    let _ = crossterm::Command::write_ansi(&EnableBracketedPaste, &mut out);
-    out
-}
-
-fn host_mouse_capture_sequence(enable: bool) -> String {
-    let mut out = String::new();
-    if enable {
-        let _ = crossterm::Command::write_ansi(&EnableMouseCapture, &mut out);
-        // Ask the host terminal to report Shift-modified mouse events so
-        // Shift remains cmux's selection/context-menu escape while the inner
-        // application owns ordinary mouse input.
-        out.push_str("\x1b[>1s");
-    } else {
-        // Restore the conventional behavior where Shift bypasses capture.
-        out.push_str("\x1b[>0s");
-        let _ = crossterm::Command::write_ansi(&DisableMouseCapture, &mut out);
-    }
-    out
-}
-
-fn host_mouse_capture_escape_if_changed(applied: Option<bool>, desired: bool) -> Option<String> {
-    (applied != Some(desired)).then(|| host_mouse_capture_sequence(desired))
-}
-
-/// Initial host-cursor bookkeeping. A full TUI starts with unknown applied
-/// state, so its first frame restores host cursor globals to defaults. A
-/// scoped attach starts from an applied Reset so it emits no cursor escapes
-/// until the inner application authors a cursor style.
-fn initial_applied_outer_cursor(surface_only: bool) -> Option<OuterCursorSpec> {
-    surface_only.then_some(OuterCursorSpec::Reset)
-}
-
-/// Startup already asserted capture for full-TUI clients and asserted
-/// nothing for scoped attach clients.
-fn initial_host_mouse_capture(surface_only: bool) -> Option<bool> {
-    Some(!surface_only)
-}
-
-fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
-    match spec {
-        OuterCursorSpec::Reset => "\x1b]112\x07\x1b[0 q".to_string(),
-        OuterCursorSpec::Terminal { color, shape, blinking } => {
-            let style = match (shape, blinking) {
-                (CursorShape::Block, true) => 1,
-                (CursorShape::Block, false) => 2,
-                (CursorShape::Underline, true) => 3,
-                (CursorShape::Underline, false) => 4,
-                (CursorShape::Bar, true) => 5,
-                (CursorShape::Bar, false) => 6,
-                // DECSCUSR has no hollow-block form. A steady block preserves
-                // shape and avoids inventing blink behavior.
-                (CursorShape::BlockHollow, _) => 2,
-            };
-            format!("\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q", color.r, color.g, color.b)
-        }
-    }
-}
-
-fn browser_modifiers(modifiers: KeyModifiers) -> Option<u32> {
-    if modifiers.contains(KeyModifiers::HYPER) {
-        return None;
-    }
-    let mut out = 0;
-    if modifiers.contains(KeyModifiers::ALT) {
-        out |= 1;
-    }
-    if modifiers.contains(KeyModifiers::CONTROL) {
-        out |= 2;
-    }
-    if modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::META) {
-        out |= 4;
-    }
-    if modifiers.contains(KeyModifiers::SHIFT) {
-        out |= 8;
-    }
-    Some(out)
-}
-
-fn browser_only_action(action: Action) -> bool {
-    matches!(
-        action,
-        Action::BrowserBack
-            | Action::BrowserForward
-            | Action::BrowserReload
-            | Action::BrowserEditUrl
-    )
-}
-
-fn action_is_frontend_local(action: Action) -> bool {
-    matches!(
-        action,
-        Action::NextTab
-            | Action::PrevTab
-            | Action::SelectTab(_)
-            | Action::PrevScreen
-            | Action::NextScreen
-            | Action::SelectScreen(_)
-            | Action::PrevWorkspace
-            | Action::NextWorkspace
-            | Action::ToggleSidebar
-            | Action::ToggleSidebarCompact
-            | Action::ToggleSidebarView
-            | Action::FocusSidebar
-            | Action::ProviderMenu
-            | Action::FocusLeft
-            | Action::FocusRight
-            | Action::FocusUp
-            | Action::FocusDown
-            | Action::FocusNextPane
-            | Action::ScrollUp
-            | Action::ScrollDown
-            | Action::BrowserEditUrl
-            | Action::ShowShortcuts
-    )
-}
-
-fn action_creates_destination(action: Action) -> bool {
-    matches!(
-        action,
-        Action::NewTab
-            | Action::NewBrowserTab
-            | Action::NewPaneSmart
-            | Action::SplitRight
-            | Action::SplitDown
-            | Action::NewScreen
-            | Action::NewWorkspace
-            | Action::NewPaneRight
-    )
-}
-
-fn publishes_global_cell_metrics(surface_only: Option<SurfaceId>) -> bool {
-    surface_only.is_none()
-}
-
-fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
-    !surface_only
-        || matches!(
-            action,
-            Action::SendPrefix
-                | Action::CloseTab
-                | Action::RenameTab
-                | Action::ScrollUp
-                | Action::ScrollDown
-                | Action::ClearHistory
-                | Action::ShowShortcuts
-                | Action::Detach
-        )
-}
-
-fn action_prepares_pty_release(action: Action) -> bool {
-    !matches!(
-        action,
-        Action::SendPrefix
-            | Action::RenameTab
-            | Action::RenameScreen
-            | Action::RenameWorkspace
-            | Action::NewWorkspace
-            | Action::NewPaneRight
-            | Action::ScrollUp
-            | Action::ScrollDown
-            | Action::BrowserEditUrl
-            | Action::ShowShortcuts
-    )
-}
-
-fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
-    !matches!(
-        action,
-        MenuAction::RenameClientMachine(_)
-            | MenuAction::RenameManagedMachine(_)
-            | MenuAction::DeleteManagedMachine(_)
-            | MenuAction::RestoreManagedMachine(_)
-            | MenuAction::PurgeManagedMachine(_)
-            | MenuAction::RenameWorkspace(_)
-            | MenuAction::RenameManagedWorkspace(_)
-            | MenuAction::DeleteManagedWorkspace(_)
-            | MenuAction::RestoreManagedWorkspace(_)
-            | MenuAction::PurgeManagedWorkspace(_)
-            | MenuAction::CopyWorkspaceId(_)
-            | MenuAction::RenameScreen(_)
-            | MenuAction::BrowserEditUrl(_)
-            | MenuAction::BrowserCopyUrl(_)
-            | MenuAction::RenameTab(_)
-            | MenuAction::RenameSurface(_)
-            | MenuAction::CopyTabId(_)
-            | MenuAction::CopyPaneId(_)
-            | MenuAction::CopyStatusMessage
-            | MenuAction::SelectProviderScope(_)
-            | MenuAction::InvokeProviderAction(_)
-            | MenuAction::ConnectMachineTarget(_)
-            | MenuAction::ConnectOtherMachine
-            | MenuAction::ActivateSidebarProfile(_)
-            | MenuAction::SetSidebarViewVisible { .. }
-    )
-}
-
-fn provider_action_error_message(error: ProviderActionInputError) -> &'static str {
-    let messages = &localization::catalog().sidebar;
-    match error {
-        ProviderActionInputError::Required => messages.action_required,
-        ProviderActionInputError::TooLong => messages.action_too_long,
-        ProviderActionInputError::InvalidEmail => messages.action_invalid_email,
-        ProviderActionInputError::InvalidInteger => messages.action_invalid_integer,
-        ProviderActionInputError::BelowMinimum => messages.action_below_minimum,
-        ProviderActionInputError::AboveMaximum => messages.action_above_maximum,
-        ProviderActionInputError::MissingSelectedMachine => {
-            messages.action_missing_selected_machine
-        }
-        ProviderActionInputError::MissingSelectedWorkspace => {
-            messages.action_missing_selected_workspace
-        }
-        ProviderActionInputError::UnsupportedFieldCount => {
-            messages.action_multiple_fields_unsupported
-        }
-    }
-}
-
-fn deferred_paste_bytes(text: &str) -> usize {
-    text.len().saturating_add(BRACKETED_PASTE_MARKER_BYTES)
-}
-
-fn binding_matches(
-    chord: &crate::config::Chord,
-    key: &KeyEvent,
-    fallback: Option<&KeyEvent>,
-) -> bool {
-    chord.matches(key) || fallback.is_some_and(|fallback| chord.matches(fallback))
-}
-
-fn action_for_binding(
-    keys: &crate::config::Keys,
-    key: &KeyEvent,
-    fallback: Option<&KeyEvent>,
-) -> Option<Action> {
-    keys.action_for(key).or_else(|| fallback.and_then(|fallback| keys.action_for(fallback)))
-}
-
-fn modeless_action_for_binding(
-    keys: &crate::config::Keys,
-    key: &KeyEvent,
-    fallback: Option<&KeyEvent>,
-) -> Option<Action> {
-    keys.modeless_action_for(key)
-        .or_else(|| fallback.and_then(|fallback| keys.modeless_action_for(fallback)))
-}
-
-fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pane: bool) -> bool {
-    !editing_same_pane && matches!(status, Some(BrowserStatus::Live))
-}
-
 fn clear_omnibar_selection(state: &mut OmnibarState) {
     if state.select_all {
         state.input.clear();
@@ -2557,68 +1868,6 @@ fn rects_intersect(a: Rect, b: Rect) -> bool {
     let bx2 = b.x.saturating_add(b.width);
     let by2 = b.y.saturating_add(b.height);
     a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
-}
-
-fn browser_key_mapping(
-    code: KeyCode,
-    base_layout_key: Option<char>,
-) -> Option<(BrowserKey, &'static str, u32, Option<&'static str>)> {
-    match code {
-        KeyCode::Char(character) => {
-            // Preserve the logical key without claiming a physical DOM code
-            // when the host did not report an authoritative base-layout key.
-            let (code, vk) = base_layout_key.map(browser_character_code).unwrap_or(("", 0));
-            Some((BrowserKey::Character(character), code, vk, None))
-        }
-        KeyCode::Enter => Some((BrowserKey::Named("Enter"), "Enter", 13, Some("\r"))),
-        KeyCode::Backspace => Some((BrowserKey::Named("Backspace"), "Backspace", 8, None)),
-        KeyCode::Tab | KeyCode::BackTab => Some((BrowserKey::Named("Tab"), "Tab", 9, None)),
-        KeyCode::Esc => Some((BrowserKey::Named("Escape"), "Escape", 27, None)),
-        KeyCode::Left => Some((BrowserKey::Named("ArrowLeft"), "ArrowLeft", 37, None)),
-        KeyCode::Up => Some((BrowserKey::Named("ArrowUp"), "ArrowUp", 38, None)),
-        KeyCode::Right => Some((BrowserKey::Named("ArrowRight"), "ArrowRight", 39, None)),
-        KeyCode::Down => Some((BrowserKey::Named("ArrowDown"), "ArrowDown", 40, None)),
-        KeyCode::Home => Some((BrowserKey::Named("Home"), "Home", 36, None)),
-        KeyCode::End => Some((BrowserKey::Named("End"), "End", 35, None)),
-        KeyCode::PageUp => Some((BrowserKey::Named("PageUp"), "PageUp", 33, None)),
-        KeyCode::PageDown => Some((BrowserKey::Named("PageDown"), "PageDown", 34, None)),
-        KeyCode::Delete => Some((BrowserKey::Named("Delete"), "Delete", 46, None)),
-        _ => None,
-    }
-}
-
-const BROWSER_LETTER_CODES: [&str; 26] = [
-    "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
-    "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
-    "KeyY", "KeyZ",
-];
-
-const BROWSER_DIGIT_CODES: [&str; 10] = [
-    "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
-    "Digit9",
-];
-
-fn browser_character_code(character: char) -> (&'static str, u32) {
-    match character {
-        'a'..='z' | 'A'..='Z' => {
-            let upper = character.to_ascii_uppercase();
-            (BROWSER_LETTER_CODES[(upper as u8 - b'A') as usize], upper as u32)
-        }
-        '0'..='9' => (BROWSER_DIGIT_CODES[(character as u8 - b'0') as usize], character as u32),
-        ' ' => ("Space", 32),
-        ';' => ("Semicolon", 186),
-        '=' => ("Equal", 187),
-        ',' => ("Comma", 188),
-        '-' => ("Minus", 189),
-        '.' => ("Period", 190),
-        '/' => ("Slash", 191),
-        '`' => ("Backquote", 192),
-        '[' => ("BracketLeft", 219),
-        '\\' => ("Backslash", 220),
-        ']' => ("BracketRight", 221),
-        '\'' => ("Quote", 222),
-        _ => ("", 0),
-    }
 }
 
 #[cfg(test)]

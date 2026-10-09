@@ -8,7 +8,7 @@ Usage (on a Mac with a GUI session, never on a laptop someone is using):
 
 Two detectors run together:
 1. Read audit (default): the app runs under `sandbox-exec` with a profile that allows everything
-   except reading data inside the protected folders (the list of acpmux's protected_folders.rs).
+   except reading data inside the protected folders (cmux-tui/crates/acpmux/data/protected-folders.json).
    Children inherit the profile. Every denied read is in the kernel log with the process name and
    path; the script maps it to the app's process tree and prints the chain (`rg <- cursor-agent acp
    <- acpmux daemon run`). This works on any Mac, also where TCC would not prompt (no iCloud Drive,
@@ -33,12 +33,18 @@ from tag_teardown import TagTeardown  # noqa: E402
 
 FILE_SERVICES = ("kTCCServiceSystemPolicy", "kTCCServiceFileProvider")
 MSG = re.compile(r"msgID=([0-9.]+)")
-# The locations macOS guards with a privacy prompt; the same list as
-# cmux-tui/crates/acpmux/src/protected_folders.rs (GUARDED_IN_HOME, GUARDED_ROOTS).
-GUARDED_IN_HOME = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Movies", "Library/Mobile Documents",
-                   "Library/CloudStorage", "Library/Containers", "Library/Group Containers", "Library/Mail",
-                   "Library/Messages", "Library/Safari", "Library/Calendars"]
-GUARDED_ROOTS = ["/Volumes", "/Network"]
+# The one protected-folder list (also read by acpmux; Swift and TypeScript get generated copies).
+PROTECTED_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                              "cmux-tui", "crates", "acpmux", "data", "protected-folders.json")
+
+
+def load_protected(path):
+    with open(path) as handle:
+        data = json.load(handle)
+    return [entry["path"] for entry in data["inHome"]], [entry["path"] for entry in data["roots"]]
+
+
+GUARDED_IN_HOME, GUARDED_ROOTS = [], []
 DENY = re.compile(r"Sandbox: (.+?)\((\d+)\) deny\(\d+\) (file-read[\w-]*) (.+)$")
 
 
@@ -97,6 +103,8 @@ def parse_args():
     p.add_argument("--launches", type=int, default=2, help="1 = fresh launch only; 2 = also a relaunch")
     p.add_argument("--no-sandbox-audit", action="store_true",
                    help="launch without the read audit (sandbox-exec deny + report on protected folders)")
+    p.add_argument("--protected-json", default=PROTECTED_JSON,
+                   help="the protected-folder list (default: the checkout's cmux-tui/crates/acpmux/data/protected-folders.json)")
     p.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="tcc-smoke-"))
     return p.parse_args()
 
@@ -270,6 +278,7 @@ def launch_once(app, tag, seconds, out, index, marker):
 
 def main():
     args = parse_args()
+    GUARDED_IN_HOME[:], GUARDED_ROOTS[:] = load_protected(args.protected_json)
     app = os.path.realpath(args.app).rstrip("/")
     info = plistlib.load(open(os.path.join(app, "Contents/Info.plist"), "rb"))
     bundle_id = info["CFBundleIdentifier"]
