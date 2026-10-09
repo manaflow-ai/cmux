@@ -8,7 +8,9 @@ use crate::resource::ResourceError;
 use serde_json::json;
 
 mod creation_record;
+mod input_receipts;
 use creation_record::read_creation_record;
+use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
@@ -988,6 +990,10 @@ impl WorkspaceRegistry {
     /// the effect. A transaction failure leaves that receipt executing, so a
     /// restart converts it to `indeterminate` and never repeats the effect
     /// under the same key.
+    /// Commit a projected patch and its effect receipt. Public `deltas` that
+    /// the journal already states are dropped first; `restates_all` says
+    /// they restate every live resource, so they may seed the public fold.
+    #[allow(clippy::too_many_arguments)]
     pub fn commit_resource_effect_patch(
         &mut self,
         idempotency_key: &str,
@@ -996,6 +1002,7 @@ impl WorkspaceRegistry {
         patch: &ResourcePatch,
         result: &Value,
         deltas: &Value,
+        restates_all: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
@@ -1012,6 +1019,7 @@ impl WorkspaceRegistry {
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
+        let deltas = &self.prune_stated_topology_deltas(deltas)?;
         let tx = self.connection.transaction()?;
         let commit = commit_resource_effect_patch_in_transaction(
             &tx,
@@ -1028,6 +1036,12 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
+        self.record_public_fold(
+            commit.revision.saturating_sub(1),
+            commit.revision,
+            deltas,
+            restates_all,
+        );
         Ok(commit)
     }
 
@@ -1389,58 +1403,6 @@ fn require_effect_identity(
             "idempotency.conflict: key {idempotency_key} committed_operation {stored_operation} was reused with different input"
         );
     }
-    Ok(())
-}
-
-fn is_transient_input_operation(operation: &str) -> bool {
-    operation.starts_with("terminal.input.")
-        || operation.starts_with("browser.input.")
-        || operation == "sidebar_view.input"
-        || operation == "terminal.viewport.scroll"
-}
-
-fn record_resource_input_receipt_completion(
-    transaction: &Transaction<'_>,
-    idempotency_key: &str,
-    operation: &str,
-) -> anyhow::Result<()> {
-    if !is_transient_input_operation(operation) {
-        return Ok(());
-    }
-    transaction.execute(
-        "INSERT INTO resource_input_receipt_completions(idempotency_key) VALUES(?1)",
-        [idempotency_key],
-    )?;
-    let sequence = u64::try_from(transaction.last_insert_rowid())
-        .context("resource input receipt completion sequence is negative")?;
-    if sequence % u64::try_from(RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL)? == 0 {
-        prune_resource_input_receipts(transaction)?;
-    }
-    Ok(())
-}
-
-fn prune_resource_input_receipts(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute(
-        &format!(
-            "DELETE FROM resource_effect_receipts
-             WHERE idempotency_key IN (
-               SELECT completion.idempotency_key
-               FROM resource_input_receipt_completions AS completion
-               JOIN resource_effect_receipts AS effect
-                 ON effect.idempotency_key = completion.idempotency_key
-               WHERE effect.state = 'committed'
-                 AND {TRANSIENT_INPUT_EFFECT_SQL}
-                 AND NOT EXISTS (
-                   SELECT 1
-                   FROM resource_creation_receipts AS creation
-                   WHERE creation.idempotency_key = effect.idempotency_key
-                 )
-               ORDER BY completion.sequence DESC
-               LIMIT -1 OFFSET ?1
-             )"
-        ),
-        [i64::try_from(RESOURCE_INPUT_RECEIPT_CAPACITY)?],
-    )?;
     Ok(())
 }
 
