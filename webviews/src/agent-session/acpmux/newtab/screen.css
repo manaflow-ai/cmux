@@ -63,3 +63,110 @@
   font-size: 15px;
   caret-color: var(--agent-ansi-5, #d670d6);
 }
+/* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
+   type. The theme's own tones only; no accent color. */
+.nt-prompt-glyph {
+  flex: none;
+  font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--agent-soft);
+}
+.nt-screen[data-template="console"] .nt-box {
+  border-radius: 10px;
+}
+.nt-screen[data-template="console"],
+.nt-screen[data-template="console"] .nt-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.nt-screen[data-template="console"] .nt-field {
+  font-size: 15px;
+}
+.nt-screen[data-template="composer"] {
+  justify-content: center;
+  padding-top: 32px;
+}
+.nt-screen[data-template="composer"] .nt-box {
+  height: 120px;
+  align-items: flex-start;
+  padding-top: 20px;
+  border-radius: 24px;
+}
+.nt-screen[data-template="composer"] .nt-field {
+  height: auto;
+  font-size: 18px;
+}
+.nt-cards[data-variant="list"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.nt-cards[data-variant="list"] .nt-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: none;
+  box-shadow: none;
+}
+.nt-cards[data-variant="list"] .nt-card:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.nt-cards[data-variant="list"] .nt-card-title {
+  flex: none;
+  max-width: 45%;
+}
+.nt-cards[data-variant="list"] .nt-card-message {
+  flex: 1;
+  min-width: 0;
+  -webkit-line-clamp: 1;
+}
+.nt-cards[data-variant="list"] .nt-card-meta {
+  order: 3;
+}
+.nt-screen[data-template="console"] .nt-card-title,
+.nt-screen[data-template="console"] .nt-card-message {
+  font-family: inherit;
+  font-weight: 400;
+}
+/* The template dots, centered at the bottom of every template. */
+.nt-templates {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+}
+.nt-template-dot {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+.nt-template-dot::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: auto;
+  border-radius: 50%;
+  background: var(--agent-text);
+  opacity: 0.25;
+}
+.nt-template-dot:hover::before {
+  opacity: 0.55;
+}
+.nt-template-dot[aria-pressed="true"]::before {
+  opacity: 0.9;
+}
+.nt-template-dot:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 0;
+  border-radius: 50%;
+}
+.nt-screen {
+  padding-bottom: 48px;
+}

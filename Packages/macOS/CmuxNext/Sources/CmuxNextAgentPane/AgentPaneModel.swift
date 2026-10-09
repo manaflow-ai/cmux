@@ -299,8 +299,9 @@ public final class AgentPaneModel {
             onSetDefaultKind(kind)
             return AgentPaneReply.success()
         case .setNewTabTemplate(let template):
-            _ = template
-            return Self.unsupported("newTab.setTemplate") // red: not wired yet
+            guard newTab != nil, let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }
+            onSetNewTabTemplate(template)
+            return AgentPaneReply.success()
         case .chooseFolder:
             return await chooseFolder()
         case .browseProject:

@@ -139,6 +139,25 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
 
+## `tabs.newTabTemplate`
+
+The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+
+```json
+{
+  "tabs": { "newTabTemplate": "terminal" }
+}
+```
+
+- `default`: one field with agent rows, recent chats as cards, and Tools.
+- `composer`: one large prompt field, with nothing else.
+- `threads`: the field and the recent chats as a list.
+- `console`: a monospace field with a `>` prompt and the recent chats as lines.
+- `classic`: the Terminal, Browser and Agent switch.
+- `terminal`: no page. Cmd-T and the + button open a terminal. New Tab Page (`newTab.page`) and Focus Location Bar (Cmd-L) still show the page, so you can pick another template.
+
+The template applies when `tabs.newTabKind` is `page` (the default). Change it in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.

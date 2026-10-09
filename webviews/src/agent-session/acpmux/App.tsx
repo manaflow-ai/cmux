@@ -30,6 +30,8 @@ import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabP
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
+import { TemplateDots } from "./newtab/TemplateDots";
+import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft } from "./composerDraft";
@@ -2395,9 +2397,22 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.layout === "b" ? (
+          {showNewTab && (
+            <TemplateDots
+              current={shownTemplate(newTab)}
+              onPick={(template) =>
+                pickNewTabTemplate(template, {
+                  callNative,
+                  cwd: newTab.cwd,
+                  show: (next) => setNewTab((current) => current && { ...current, template: next }),
+                })
+              }
+            />
+          )}
+          {showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

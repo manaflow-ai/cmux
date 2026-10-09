@@ -28,8 +28,7 @@ nonisolated enum NewTabKind: Equatable, Sendable {
     static func resolve(_ setting: NewTabDefaultKind, template: NewTabTemplate? = nil, sameKind: NewTabKind,
                         recent: NewTabKind?) -> NewTabKind {
         let kind = resolveKind(setting, sameKind: sameKind, recent: recent)
-        _ = template
-        return kind // red: the template is not applied yet
+        return kind == .page && template == .terminal ? .terminal : kind
     }
 
     private static func resolveKind(_ setting: NewTabDefaultKind, sameKind: NewTabKind, recent: NewTabKind?) -> NewTabKind {

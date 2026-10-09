@@ -110,7 +110,8 @@ enum TabLifecycle {
         var kind = sameKind
         if user {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
-            kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
+            kind = NewTabKind.resolve(setting, template: ctx.services.settings?.snapshot.newTabTemplate,
+                                      sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
         // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
         // a terminal. A build without the agent page has no new tab page either.
