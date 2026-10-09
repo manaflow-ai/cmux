@@ -762,7 +762,10 @@ fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
     // The same view blocks up to the mark in every first message.
     let upto = |k: usize| {
         let p = &agents.prompts[k];
-        let m = p.iter().position(|b| b.get("cache_control").is_some()).unwrap();
+        let m = p
+            .iter()
+            .position(|b| b.get("cache_control").is_some())
+            .unwrap();
         p[..=m].to_vec()
     };
     assert_eq!(upto(subs[0]), upto(subs[1]));
@@ -774,7 +777,9 @@ fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
         .collect();
     for spec in &sub_specs {
         assert_eq!(
-            spec.env.get("CLAUDE_CODE_PROMPT_CACHE_TTL").map(String::as_str),
+            spec.env
+                .get("CLAUDE_CODE_PROMPT_CACHE_TTL")
+                .map(String::as_str),
             Some("1h"),
             "Claude Code marks with the same TTL"
         );
@@ -797,9 +802,13 @@ fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
         s.h.say("user_local", &format!("line {k}"));
         s.h.settle();
     }
+    // The first subagent's turn stays open without output (its answer is held).
+    s.h.agents.hold(true);
     let began = std::time::Instant::now();
     spawn(&mut s, &["silent", "two"]).unwrap();
     assert!(began.elapsed() >= std::time::Duration::from_millis(300));
+    s.h.agents.hold(false);
+    s.h.agents.release();
     assert_eq!(sub_names(&s).len(), 2, "the second still starts");
     let warm = trace_events(&s.traces)
         .into_iter()
