@@ -1679,3 +1679,7 @@ lane = "linux-guard"
 path = "tests/test_surface_task_local_reservations.py"
 lane = "manual"
 reason = "Runs in .github/workflows/cloud-task-local-tests.yml on the pinned macOS 26 Xcode, whose back-deployed TaskLocal fallback it exercises; newer toolchains no longer emit that path."
+
+[[test]]
+path = "tests/test_ci_signing_secrets_need_release_environment.py"
+lane = "linux-guard"
