@@ -277,12 +277,14 @@ describe("acpmux composer pickers", () => {
     } as AcpmuxSnapshot["summary"],
   });
   const menuGroups = () =>
-    [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=group]")].map((group) => ({
-      title: group.querySelector(".acpmux-menu-header")?.textContent,
-      rows: [...group.querySelectorAll("[role=menuitemradio]")].map(
-        (row) => row.querySelector(".acpmux-menu-label")?.textContent,
-      ),
-    }));
+    [...doc.querySelectorAll<HTMLElement>("[role=menu] [role=group]")]
+      .filter((group) => group.querySelector(":scope > .ui-menu-group-label"))
+      .map((group) => ({
+        title: group.querySelector(".ui-menu-group-label")?.textContent,
+        rows: [...group.querySelectorAll("[role=menuitemradio]")].map(
+          (row) => row.querySelector(".acpmux-menu-label")?.textContent,
+        ),
+      }));
 
   test("Claude's reasoning menu has every level and a Fast Mode section", async () => {
     await render(claudeSnapshot());
@@ -413,7 +415,14 @@ describe("acpmux composer pickers", () => {
                 installed: true,
                 pickable: true,
                 models: [
-                  { id: "opus", name: "Opus 5.5", shortName: "Opus", efforts: ["low", "medium", "high"], fast: false, searchText: "" },
+                  {
+                    id: "opus",
+                    name: "Opus 5.5",
+                    shortName: "Opus",
+                    efforts: ["low", "medium", "high"],
+                    fast: false,
+                    searchText: "",
+                  },
                 ],
               },
             ],
