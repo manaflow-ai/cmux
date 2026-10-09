@@ -210,30 +210,46 @@ struct GoToFileResultsView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 44)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                            Button { onRun(result.path) } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "doc")
-                                        .frame(width: 16)
-                                        .foregroundStyle(.secondary)
-                                    Text(result.path)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer(minLength: 0)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                                Button { onRun(result.path) } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "doc")
+                                            .frame(width: 16)
+                                            .foregroundStyle(.secondary)
+                                        Text(result.path)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 26)
+                                    .background(index == selectedIndex ? Color.accentColor.opacity(0.14) : .clear)
+                                    .contentShape(Rectangle())
                                 }
-                                .padding(.horizontal, 10)
-                                .frame(height: 26)
-                                .background(index == selectedIndex ? Color.accentColor.opacity(0.14) : .clear)
-                                .contentShape(Rectangle())
+                                .buttonStyle(.plain)
+                                .id(result.id)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .frame(maxHeight: 450)
+                    .onAppear { scrollGoToFileSelection(using: proxy) }
+                    .onChange(of: selectedIndex) { _, _ in
+                        scrollGoToFileSelection(using: proxy)
+                    }
                 }
-                .frame(maxHeight: 450)
             }
+        }
+    }
+
+    private func scrollGoToFileSelection(using proxy: ScrollViewProxy) {
+        guard results.indices.contains(selectedIndex) else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            proxy.scrollTo(results[selectedIndex].id, anchor: .center)
         }
     }
 }

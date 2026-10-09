@@ -40,9 +40,10 @@ struct GoToFileSearchService: Sendable {
         if git.status == 0 {
             return parseNullSeparated(git.output)
         }
+        guard let rgExecutable = RipgrepExecutableResolver.resolve() else { return [] }
         let rg = run(
-            executable: "/usr/bin/env",
-            arguments: ["rg", "--files", "--hidden", "--glob", "!.git", rootPath]
+            executable: rgExecutable.url.path,
+            arguments: rgExecutable.prefixArguments + ["--files", "--hidden", "--glob", "!.git", rootPath]
         )
         guard rg.status == 0 else { return [] }
         return rg.output.split(whereSeparator: { $0 == 10 || $0 == 13 }).compactMap {
@@ -81,11 +82,14 @@ struct GoToFileSearchService: Sendable {
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = pipe
         do {
             try process.run()
+            // Drain while the child is alive. Waiting first can deadlock when
+            // a large workspace fills the pipe buffer.
+            let output = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            return (pipe.fileHandleForReading.readDataToEndOfFile(), process.terminationStatus)
+            return (output, process.terminationStatus)
         } catch {
             return (Data(), -1)
         }

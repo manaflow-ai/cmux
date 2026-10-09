@@ -511,7 +511,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) { app.windows.count >= 1 },
+            "Expected the main window to be visible"
+        )
         openCommandPaletteCommands(app: app)
         let searchField = app.textFields["CommandPaletteSearchField"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 3.0))
