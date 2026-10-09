@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @Suite
@@ -41,6 +42,49 @@ struct CLIRemotesArgumentValidationTests {
             #expect(error == expected)
         } catch {
             Issue.record("Unexpected error: \(error)")
+        }
+    }
+}
+
+@Suite("VPN CLI argument validation", .serialized)
+struct CLIVPNArgumentValidationTests {
+    @Test func rejectsTrailingArgumentsBeforeTunnelRequest() throws {
+        let cases = [
+            ["vpn", "up", "--typo"],
+            ["vpn", "on", "extra"],
+            ["vpn", "down", "--typo"],
+            ["vpn", "off", "extra"],
+            ["vpn", "status", "--jsonn"],
+            ["vpn", "revoke", "--typo"],
+        ]
+
+        for arguments in cases {
+            let fixture = try CodexTeamsSocketFixture()
+            defer { fixture.stop() }
+
+            let result = CLIHookProcessRunner.run(
+                executablePath: try BundledCLITestSupport.bundledCLIPath(),
+                arguments: arguments,
+                environment: [
+                    "CMUX_SOCKET_PATH": fixture.path,
+                    "CMUX_SOCKET_PASSWORD": "",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                    "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+                ],
+                timeout: 10
+            )
+
+            #expect(!result.timedOut)
+            #expect(result.status != 0)
+            let tunnelMethods = fixture.requestsSnapshot().compactMap { request in
+                (request["method"] as? String).flatMap { method in
+                    method.hasPrefix("vm.tunnel_") ? method : nil
+                }
+            }
+            #expect(
+                tunnelMethods.isEmpty,
+                "Invalid VPN arguments must be rejected before contacting the tunnel service"
+            )
         }
     }
 }
