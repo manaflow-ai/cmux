@@ -168,7 +168,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
 
-            for (index, entry) in nodes.enumerated() {
+            // One node at its model index (drops resolve by it, whatever the drawn order).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
@@ -200,7 +201,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
                     ))
                     y += m.groupHeaderHeight + m.rowSpacing
-                    guard !groupCollapsed else { continue }
+                    guard !groupCollapsed else { return }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
                         let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
@@ -228,6 +229,39 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
                     y += m.groupBottomPadding
                 }
+            }
+            func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
+                if case .group = entry.node { true } else { false }
+            }
+
+            let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
+            guard byFolder else {
+                for (index, entry) in nodes.enumerated() { emit(index, entry) }
+                openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
+                continue
+            }
+            // Group by Folder: groups as they were, then a header per folder
+            // over its loose rows, folders in first-seen order, "no folder" last.
+            for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
+            var folders: [String] = []
+            var members: [String: [Int]] = [:]
+            for (index, entry) in nodes.enumerated() {
+                guard case let .workspace(ws) = entry.node else { continue }
+                let folder = ws.folder ?? ""
+                if members[folder] == nil { folders.append(folder) }
+                members[folder, default: []].append(index)
+            }
+            if let none = folders.firstIndex(of: ""), none != folders.count - 1 { folders.append(folders.remove(at: none)) }
+            for folder in folders {
+                let indices = members[folder] ?? []
+                rows.append(SidebarRow(
+                    key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: indices.count, groupColor: nil
+                ))
+                y += m.groupHeaderHeight + m.rowSpacing
+                for index in indices { emit(index, nodes[index]) }
+                y += m.groupBottomPadding
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }

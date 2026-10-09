@@ -496,14 +496,16 @@ impl OptChat {
     /// that repeats on every try) does not hold the turn: the turn reads it
     /// unbuilt (`PLACEHOLDER`, which `zoom` opens) rather than wait forever.
     pub fn settle(&self, cancel: Option<&Cancel>, timeout: Option<Duration>) -> bool {
-        self.wait(cancel, timeout, |st| {
-            st.memory.turn_ready()
-                || st.memory.view().iter().all(|p| {
-                    st.memory.is_built(*p)
-                        || st.stuck.contains(p)
-                        || st.memory.is_imported(p.end() - 1)
-                })
-        })
+        self.wait(cancel, timeout, State::turn_ready)
+    }
+
+    /// Whether a turn may start now: what `settle` waits for (every view
+    /// line built, stuck, or imported).
+    pub fn turn_ready(&self) -> bool {
+        let st = self.shared.lock();
+        let ready = st.turn_ready();
+        self.shared.unlock(st);
+        ready
     }
 
     /// Blocks until the compactor has nothing running or waiting to retry and

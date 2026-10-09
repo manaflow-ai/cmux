@@ -260,7 +260,6 @@ final class AgentTabStore {
             newTab: local ? newTabPages[key]?.page : nil,
             allowsTabConversion: local
         )
-        model.sessionMustExist = linkedSessions.contains(key) || !local
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
         if !local {
@@ -356,6 +355,7 @@ final class AgentTabStore {
         view.shortcuts = shortcuts
         pageSettings.apply(to: NewTabOmnibar.installed(on: view))
         view.deviceChats = pageChats.chats
+        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
         customization.start()
         return view
     }
