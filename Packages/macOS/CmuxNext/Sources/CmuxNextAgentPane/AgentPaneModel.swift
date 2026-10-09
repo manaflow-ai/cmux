@@ -61,7 +61,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
-    /// Runs a composer menu edit in the web view; ``AgentPageProvider`` calls it on a gesture.
     @ObservationIgnored public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
@@ -74,6 +73,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -316,7 +318,6 @@ public final class AgentPaneModel {
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
             onEditShortcut(kind)
             return AgentPaneReply.success()
-        // Only the page provider runs an edit, on the user's gesture.
         case .edit: return Self.unsupported("pane.edit")
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
@@ -340,6 +341,15 @@ public final class AgentPaneModel {
                 onSessionChange?(session)
             }
             onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
@@ -376,11 +386,9 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
-        case .reply(let reply):
-            return await respond(to: reply)
+        case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
-        case .unsupported(let method):
-            return Self.unsupported(method)
+        case .unsupported(let method): return Self.unsupported(method)
         }
     }
 

@@ -150,7 +150,13 @@ class VerifyPublishedManifestTests(TestCase):
     def test_artifact_workflow_verifies_unix_machine_manifest_before_latest(self) -> None:
         document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
         build = document["jobs"]["build"]["with"]
-        self.assertIs(build["include_windows"], False)
+        # The Windows daemon is built for GPUI's Windows daemon mode, but is
+        # published only under cmux-tui-windows/<sha>/ and the tree: never in
+        # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows
+        # installer reads (asserted below with --forbid-artifact).
+        self.assertIs(build["include_windows"], True)
+        # A Windows failure must not block the macOS and Linux tree.
+        self.assertIs(build["windows_optional"], True)
         self.assertIs(build["package_npm"], False)
         self.assertIs(build["package_pypi"], False)
 
@@ -199,6 +205,13 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertIn("--machine-manifest", before_latest_run)
         self.assertIn("--machine-manifest", after_publish_run)
         self.assertIn("0.0.0-r2.sha-${GITHUB_SHA}", ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
+
+        rolling_run = steps[rolling]["run"]
+        self.assertNotIn("cmux-tui-windows", rolling_run)
+        self.assertIn('publish_prefix assets/cmux-tui-windows "cmux-tui-windows/$GITHUB_SHA"', upload_run)
+        self.assertIn("--require-artifact cmux-tui-x86_64-pc-windows-gnu.exe", before_upload_run)
+        self.assertIn("--forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe", before_latest_run)
+        self.assertIn("--forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe", after_publish_run)
 
         attestation = steps[names.index("Attest raw binary subjects")]
         self.assertEqual(attestation["with"]["push-to-registry"], False)
