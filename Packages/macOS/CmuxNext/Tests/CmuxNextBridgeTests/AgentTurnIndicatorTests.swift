@@ -28,7 +28,8 @@ struct AgentTurnStatesTests {
     @Test func aDisconnectLooksIdleUnlessTheLastTurnFailed() {
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected")) == nil)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "unreachable")) == nil)
-        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "completed")) == nil)
+        // A completed turn is an outcome to show until the user looks (client seen state).
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "completed")) == .done(turn: "t-1"))
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "cancelled")) == nil)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "failed")) == .failed)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "ready", lastTurn: "failed")) == .failed)

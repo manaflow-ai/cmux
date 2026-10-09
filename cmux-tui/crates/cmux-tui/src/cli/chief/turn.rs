@@ -21,6 +21,10 @@ pub(super) struct TurnWatch {
     /// The Chief started typing after `read`.
     pub working: bool,
     pub done: bool,
+    /// The turn's typing went off before any reply was posted: the reply
+    /// may still come (the brain posts it when the owner's agent rate
+    /// limit allows), and ends the turn when it does.
+    pub ended: bool,
     /// The Chief's messages after `seq`, in order.
     pub replies: Vec<Value>,
 }
@@ -46,7 +50,8 @@ impl TurnWatch {
                 if *on && self.read {
                     self.working = true;
                 } else if !*on && self.working {
-                    self.done = true;
+                    self.ended = true;
+                    self.done = !self.replies.is_empty();
                 }
                 None
             }
@@ -82,6 +87,9 @@ impl TurnWatch {
             return None;
         }
         self.replies.push(message.clone());
+        if self.ended {
+            self.done = true;
+        }
         Some(message.clone())
     }
 }

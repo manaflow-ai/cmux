@@ -13,7 +13,7 @@ use crate::registry::{self, Launch, Registry};
 
 /// The cached registry, fetched (and saved) first when `refresh` is set or
 /// no copy is saved yet.
-async fn registry(refresh: bool) -> Result<Registry> {
+pub(crate) async fn registry(refresh: bool) -> Result<Registry> {
     let home = home();
     if !refresh && let Some(cached) = registry::load_cached(&home) {
         return Ok(cached);
