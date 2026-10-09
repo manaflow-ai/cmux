@@ -243,7 +243,8 @@ final class WorkspaceRowView: SidebarRowView {
             tabCount.textColor = Palette.textTertiary
             mutedMark.contentTintColor = Palette.textTertiary
             prBadge.textColor = Palette.textSecondary
-            agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
+            let waits = if case .waiting = activityState { true } else { false }
+            agentMark.contentTintColor = waits ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill

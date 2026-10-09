@@ -49,6 +49,14 @@ public struct StatusMapping {
         turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
     }
 
+    /// What the tab's strongest blocked OSC 7501 record waits for
+    /// (permission, question, auth), for the tab's needs-input badge; nil
+    /// when nothing blocks or the program named no kind.
+    public func blockedKind(_ tab: TabModel) -> StatusBlockedKind? {
+        guard let record = ProgramStatusRecord.strongest(tab.programStatus), record.state == .blocked else { return nil }
+        return record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) }
+    }
+
     /// An unseen OSC 7501 outcome for the tab's badge: `error` is a failure,
     /// `done` a success, until the user looks at the terminal. Nil while a
     /// stronger record (blocked, working) is live or nothing is unseen.
@@ -106,7 +114,7 @@ public struct StatusMapping {
     func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
         switch record.state {
         case .working: .working(progress: record.progress.map { Double($0) / 100 })
-        case .blocked: .waiting
+        case .blocked: .waiting(kind: record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) })
         case .error: .error
         case .done: .success
         case .idle: nil
