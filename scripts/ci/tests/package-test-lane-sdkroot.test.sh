@@ -87,6 +87,9 @@ for verb in build test; do
     echo "FAIL: suite mode ran swift $verb without --sanitize=thread and its scratch path:" >&2; cat "$tmp/seen" >&2; fails=$((fails + 1))
   fi
 done
+if ! grep -E "^swift build .*-Xlinker -no_compact_unwind" "$tmp/seen" >/dev/null; then
+  echo "FAIL: the sanitizer build does not drop compact unwind (ld refuses four personality routines):" >&2; cat "$tmp/seen" >&2; fails=$((fails + 1))
+fi
 if [[ "$LANE_OUT" != *"sanitize=thread"* ]]; then
   echo "FAIL: the build group line does not name the sanitizer: $LANE_OUT" >&2; fails=$((fails + 1))
 fi

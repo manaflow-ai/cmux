@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxNextSidebar
 
 @MainActor @Suite struct SidebarChatsViewTests {
-    @Test func theSectionIsNamedChats() {
-        #expect(SidebarChatsView.title == "Chats")
+    @Test func theSectionIsNamedAllChats() {
+        #expect(SidebarChatsView.title == "All chats")
     }
 }

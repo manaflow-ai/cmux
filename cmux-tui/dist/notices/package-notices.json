@@ -8,8 +8,8 @@
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "3339f2adaf7d920a7717d1c1b19d7f63b92d0834",
-    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598 (3320bd06e; 2199dc93e changes only src/renderer/Thread.zig and 3339f2ada only src/terminal (OSC 7501), CI files and NEXT.md, so LICENSE, build.zig.zon, pkg/ and vendor/ are identical)",
+    "commit": "673a6369c4ba43cddcc94ff67361872824ffa528",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598 (3320bd06e; 2199dc93e changes only src/renderer/Thread.zig 3339f2ada only src/terminal (OSC 7501), CI files and NEXT.md, and 673a6369c only src/build (libSystem override), src/terminal and src/terminfo (Pst), so LICENSE, build.zig.zon, pkg/ and vendor/ are identical)",
     "owners": {
       "ghostty-next": {
         "name": "Ghostty",
@@ -17,7 +17,7 @@
           {
             "file": "texts/ghostty-next/LICENSE",
             "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
-            "source": "https://github.com/manaflow-ai/ghostty-next/blob/3339f2adaf7d920a7717d1c1b19d7f63b92d0834/LICENSE"
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/673a6369c4ba43cddcc94ff67361872824ffa528/LICENSE"
           }
         ]
       },

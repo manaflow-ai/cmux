@@ -744,6 +744,11 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
+        method::MUX_HARNESS_ADD
+        | method::MUX_HARNESS_REMOVE
+        | method::MUX_HARNESS_RESTORE
+        | method::MUX_HARNESS_DOCTOR
+        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             super::trust_gate::answer(hub, m, &params).await
         }

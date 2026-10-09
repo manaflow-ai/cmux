@@ -322,9 +322,19 @@ impl Brain {
         let (cached, plain_preset) = self.session_presets(family);
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view, held within the
-        // API's lookback of the last turn's mark (optchat_core::mark_piece),
-        // which is saved with the messages so a restart keeps it.
+        // Our one mark: the last whole block of the view (the header while
+        // there is none), held within the API's lookback of the last turn's
+        // mark (optchat_core::mark_piece), which is saved with the messages
+        // so a restart keeps it. A marked turn runs Claude Code without its
+        // own marks (the API takes 4), so each tool step's tail after the
+        // view goes uncached. Measured 2026-10-08 on a 30 KB view: this wins
+        // 11x on a one-request turn and 20% at 12 steps with tiny outputs;
+        // Claude Code's own rolling marks win only past about 400 output
+        // tokens per step at 12 steps (32% at about 1k tokens). Claude Code
+        // reads the setting at process start, so a turn cannot switch after
+        // its first step; 11 of 13 real turns made 1-2 requests, and
+        // tool-heavy work belongs in subagents, which keep Claude Code's
+        // marks (decision 2026-10-08).
         let mark = cached
             .as_ref()
             .filter(|_| marker)
@@ -662,15 +672,29 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
-        // A pending approval holds the tool call: a newer message denies it,
-        // so the turn can stop and the next one answers.
-        self.deny_pending("a newer message");
+        // Decision 2026-10-09: a subagent report never stops the turn. It
+        // is steered in when the turn can take it, else it waits for the
+        // next turn. Only a human message stops a turn it cannot reach.
+        let side = self.turn_side();
+        let human = self
+            .queue
+            .iter()
+            .filter(|q| q.conversation == side)
+            .any(|q| matches!(q.source, Source::Message { .. }));
+        if human {
+            // A pending approval holds the tool call: a newer message denies
+            // it, so the turn can take the message or stop.
+            self.deny_pending("a newer message");
+        }
         if matches!(self.settings.engine, Engine::Acpmux) {
             // Parity item 7: between tool calls, when the session steers.
-            if self.try_steer() {
+            if self.try_steer() || !human {
                 return;
             }
             self.stop_wanted = true;
+        } else if !human {
+            // The native engine takes reports at its next tool boundary.
+            return;
         }
         self.interrupt.request();
     }

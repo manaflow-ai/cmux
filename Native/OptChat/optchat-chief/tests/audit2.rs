@@ -387,6 +387,10 @@ fn a_lost_binding_on_a_cursor_write_reconnects() {
     assert_eq!(h.owner.lock().unwrap().reconnects, 1);
 }
 
+/// The 2026-10-04 rule, for a turn that cannot be steered (this fake
+/// session does not steer): a HUMAN message stops it. A subagent report
+/// never does (decision 2026-10-09; subagents.rs,
+/// a_report_during_a_turn_that_cannot_steer_queues_without_a_cancel).
 #[test]
 fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
     let mut h = Harness::new(talk_only());
@@ -413,7 +417,10 @@ fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
     assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
     assert_eq!(new_messages(&h), vec!["edit repo A", "stop, wrong repo"]);
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
-    let view = prompts[1][0]["text"].as_str().unwrap();
+    let view: String = prompts[1][..prompts[1].len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
     assert!(
         view.contains("Let me check."),
         "the stopped turn's steps are in the view: {view}"
