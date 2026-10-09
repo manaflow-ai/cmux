@@ -1,20 +1,3 @@
-/* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
-.acpmux-header-tool,.acpmux-header-changes{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-header-tool{width:26px}
-.acpmux-header-changes{width:26px;margin-inline-end:4px;box-shadow:inset 0 0 0 .5px var(--agent-border)}
-.acpmux-header-changes:disabled,.acpmux-header-tool:disabled{color:var(--agent-muted)}
-.acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open],.acpmux-header-changes:not(:disabled):hover,.acpmux-header-changes[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
-.acpmux-header-tool:not(:disabled):active,.acpmux-header-changes:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.acpmux-header-tool:focus-visible,.acpmux-header-changes:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
-.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
-.ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
-.ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
-.acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:var(--text-detail);line-height:18px}
-.ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
    transcript (cx-lzld: the folder menu drew under the card). The chat menu also carries the submenu chevron. */
@@ -29,10 +12,14 @@
   .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
 
-/* Keep status text out of sizing: long translations and error details never move the tools. */
-.acpmux-header-status-slot{position:relative;flex:1 1 0;min-width:0;height:26px}
-.acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden}
-.acpmux-status>svg{flex:none}
-.acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Header chrome uses Tailwind tokens; only container adaptation and shared primitive hooks live here.
+   Hide the word, never the counts, in a narrow pane (including 400px Quick Chat). */
+.acpmux-header-changes-label{display:none}
+@container (min-width:480px){.acpmux-header-changes-label{display:inline}}
+@container (max-width:479px){.acpmux-header-changes{width:76px}}
 .acpmux-handoff-header-tools{flex:none}
-@media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+/* The shared summary has its own styles; match the 28px tools without changing its popover. */
+.acpmux-header-tools .acpmux-summary-button{width:28px;height:28px;color:var(--agent-muted);transition:none}
+.acpmux-header-tools .acpmux-summary-button:has([data-icon="status.complete"]){color:var(--agent-text)}
+/* The pane bundles popupSurface.css but not ui.css; keep the status detail a real opaque tooltip. */
+.ui-tooltip{box-sizing:border-box;max-width:min(320px,calc(100vw - 24px));padding:8px 10px;border:1px solid var(--acpmux-composer-edge);border-radius:10px;background:var(--acpmux-menu-bg);color:var(--agent-text);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere;white-space:pre-wrap;box-shadow:var(--ui-popup-shadow);pointer-events:none}

@@ -1,6 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
-// The pane header (ChatHeaderStatus.tsx): no title and no change counts; a status shows only
-// for a connection problem, with the failure detail as its tooltip.
+// A quiet connected header; connection failures expose details on hover and keyboard focus.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -18,7 +17,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/header/ChatHeaderStatus.tsx#ChatHeaderStatus"],
   variants: {
     quiet: {
-      note: "Connected after a turn: no title, no status, the Changes button is icon-only.",
+      note: "Connected after a turn: no title or status; the summary carries its completion mark.",
       snapshot: chat(finished),
     },
     disconnected: {
@@ -33,7 +32,14 @@ export default agentPaneEntry({
       note: "A long failure detail must not move the header tools.",
       snapshot: chat(finished, {
         connection:
-          "error: the agent process exited with status 1 before it answered the initialize request; see the agent log",
+          "error: Gateway returned 502 before initialize completed. https://gateway.example.com/agents/connections/retry/01J9K8BXSQ7M4TN6WV2F0EPD3A?source=local-daemon&attempt=12 — check the agent log for the full request trace.",
+      }),
+    },
+    "failure-detail": {
+      note: "Keyboard focus reveals the complete, wrapping failure in its own opaque layer.",
+      snapshot: chat(finished, {
+        connection:
+          "error: Gateway returned 502. https://gateway.example.com/agents/connections/retry/01J9K8BXSQ7M4TN6WV2F0EPD3A?source=local-daemon&attempt=12",
       }),
     },
   },

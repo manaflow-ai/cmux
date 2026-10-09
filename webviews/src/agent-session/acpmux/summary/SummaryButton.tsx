@@ -53,6 +53,16 @@ export function SummaryButton({
   }, [open]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("summary.open");
+  // Only the current turn may mark the button complete. A new prompt clears the mark.
+  let lastTurn: (typeof rows)[number] | undefined;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row?.kind === "user" || row?.kind === "turnSummary") {
+      lastTurn = row;
+      break;
+    }
+  }
+  const completed = lastTurn?.kind === "turnSummary" && lastTurn.status === "completed";
   useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
   return (
     <span className="acpmux-summary">
@@ -61,12 +71,12 @@ export function SummaryButton({
         type="button"
         className="acpmux-summary-button"
         aria-label={label}
-        title={label}
+        title={completed ? `${label} · ${t("header.completed")}` : label}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <Icon name="view.list" size={15} />
+        <Icon name={completed ? "status.complete" : "view.list"} size={15} />
       </button>
       {summary ? (
         <Popover

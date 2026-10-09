@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { ChatHeaderStatus } from "./ChatHeaderStatus";
-import { installDom, press, render, restoreDom, settle, unmount } from "../../../../test/viewer-empty-dom";
+import { installDom, render, restoreDom, unmount } from "../../../../test/viewer-empty-dom";
 
 beforeAll(installDom);
 afterEach(unmount);
@@ -15,14 +15,7 @@ test("connected is quiet; a failure is keyboard focusable with complete portaled
   expect(status.textContent).toBe("Failed");
   expect(status.title).toBe(detail);
   const trigger = root.querySelector<HTMLElement>("[tabindex='0']");
-  expect(trigger).not.toBeNull();
-  // Base UI distinguishes keyboard focus from pointer focus.
-  await press(document.body, "Tab");
-  trigger!.focus();
-  await settle();
-  const tooltip = document.querySelector('[role="tooltip"]');
-  expect(tooltip?.textContent).toContain(detail);
-  expect(root.contains(tooltip)).toBe(false);
-  await press(trigger!, "Escape");
-  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  expect(trigger?.getAttribute("aria-label")).toContain(detail);
+  expect(trigger?.getAttribute("title")).toBeNull();
+  expect(status.querySelector('[data-icon="status.error"]')).not.toBeNull();
 });

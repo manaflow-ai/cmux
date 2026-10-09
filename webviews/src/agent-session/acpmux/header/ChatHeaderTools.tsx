@@ -1,13 +1,18 @@
-// The chat header's top right, after the Codex app's: Changes with the last turn's counts, which
-// opens the changes view beside the transcript; Terminal and Browser, which split the pane in the
-// chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
-// size; data fills in place.
+// Stable header chrome: edits first, split tools second, then summary and the tab action menu.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+
+const toolClass =
+  "acpmux-header-tool flex! h-7! w-7 shrink-0 items-center justify-center rounded-md! border-0! bg-transparent! p-0! text-muted! enabled:hover:bg-hover! enabled:hover:text-fg! data-[popup-open]:bg-hover! data-[popup-open]:text-fg! disabled:text-dim! focus-visible:outline focus-visible:outline-fg! focus-visible:outline-offset-2";
+const popupClass =
+  "acpmux-chat-menu-popover box-border w-[264px] max-w-[calc(100vw-16px)] max-h-[min(540px,70vh)] overflow-auto rounded-xl! border-0! bg-menu! p-1.5! text-control text-fg! shadow-menu! outline-none select-none animate-none! [&>.ui-separator]:mx-2.5 [&>.ui-separator]:my-1.5 [&>.ui-separator]:h-px [&>.ui-separator]:bg-edge";
+const rowClass =
+  "acpmux-chat-menu-item box-border flex min-h-8 h-auto! w-full items-center gap-2.5! rounded-md! px-2.5! py-1.5! text-fg! outline-none data-[highlighted]:bg-hover! data-[popup-open]:bg-hover! data-[disabled]:text-dim! [&>svg]:shrink-0 [&>svg]:text-muted";
+const labelClass = "acpmux-chat-menu-label min-w-0 flex-1 whitespace-normal wrap-anywhere";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
@@ -71,10 +76,10 @@ export function ChatHeaderTools({
     ? `${t("header.changes")}: +${changes.additions} -${changes.deletions}`
     : t("header.changes");
   return (
-    <div className="acpmux-header-tools">
+    <div className="acpmux-header-tools flex shrink-0 items-center gap-0.5 text-fg">
       <button
         type="button"
-        className="acpmux-header-changes"
+        className="acpmux-header-changes me-1.5 inline-flex h-7 w-[132px] shrink-0 items-center justify-center gap-1.5 rounded-md border border-solid border-edge bg-transparent px-2 text-detail text-fg enabled:hover:bg-hover aria-pressed:bg-hover disabled:text-dim focus-visible:outline focus-visible:outline-fg focus-visible:outline-offset-2"
         aria-pressed={changesOpen}
         aria-label={changesLabel}
         title={t("header.changes")}
@@ -82,12 +87,17 @@ export function ChatHeaderTools({
         onClick={onChanges}
       >
         <Icon name="diff.file" size={15} />
+        <span className="acpmux-header-changes-label font-medium">{t("header.changes")}</span>
+        <span aria-hidden="true" className="inline-flex gap-1.5 font-medium tabular-nums" dir="ltr">
+          <span className="min-w-[3ch] text-end text-(--acpmux-add)">{changes ? `+${changes.additions}` : ""}</span>
+          <span className="min-w-[2ch] text-end text-(--acpmux-del)">{changes ? `-${changes.deletions}` : ""}</span>
+        </span>
       </button>
       {tabTools && (
         <>
           <button
             type="button"
-            className="acpmux-header-tool"
+            className={toolClass}
             aria-label={t("header.terminal")}
             title={withShortcut(t("header.terminal"), terminalKey)}
             onClick={onTerminal}
@@ -96,7 +106,7 @@ export function ChatHeaderTools({
           </button>
           <button
             type="button"
-            className="acpmux-header-tool"
+            className={toolClass}
             aria-label={t("header.browser")}
             title={withShortcut(t("header.browser"), browserKey)}
             onClick={onBrowser}
@@ -105,6 +115,7 @@ export function ChatHeaderTools({
           </button>
         </>
       )}
+      <span aria-hidden="true" className="mx-1 h-3.5 w-px shrink-0 bg-edge" />
       {summary}
       <ChatMenu
         items={menu}
@@ -169,14 +180,14 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
+      <MenuButton className={toolClass} label={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
-      <MenuPopup className="acpmux-chat-menu-popover" align="end">
+      <MenuPopup className={popupClass} align="end">
         {children
           ? children.map((child) => (
-              <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                <span className="acpmux-chat-menu-label">{child.label}</span>
+              <MenuItem key={child.key} className={rowClass} onSelect={child.onSelect}>
+                <span className={labelClass}>{child.label}</span>
               </MenuItem>
             ))
           : rows.map((row, index) =>
@@ -186,19 +197,19 @@ function ChatMenu({
               ) : row.children ? (
                 <Submenu
                   key={row.key}
-                  className="acpmux-chat-menu-item"
-                  popupClassName="acpmux-chat-menu-popover"
+                  className={rowClass}
+                  popupClassName={popupClass}
                   disabled={row.disabled}
                   label={
                     <>
                       <Icon name={row.icon} size={15} />
-                      <span className="acpmux-chat-menu-label">{row.label}</span>
+                      <span className={labelClass}>{row.label}</span>
                     </>
                   }
                 >
                   {row.children.map((child) => (
-                    <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
-                      <span className="acpmux-chat-menu-label">{child.label}</span>
+                    <MenuItem key={child.key} className={rowClass} onSelect={child.onSelect}>
+                      <span className={labelClass}>{child.label}</span>
                     </MenuItem>
                   ))}
                 </Submenu>
@@ -214,10 +225,10 @@ function ChatMenu({
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = useShortcut(item.shortcutAction ?? "");
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
+    <MenuItem className={rowClass} disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
-      <span className="acpmux-chat-menu-label">{item.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      <span className={labelClass}>{item.label}</span>
+      {shortcut && <kbd className="acpmux-chat-menu-key shrink-0 font-sans text-detail text-muted">{shortcut}</kbd>}
     </MenuItem>
   );
 }

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import { assistant, summary as turnSummary, user } from "../../../gallery/fixtures/acpmux";
 
 type HeaderToolsProps = {
   changes?: { additions: number; deletions: number };
@@ -47,11 +48,11 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-const summary = createElement(
-  "button",
-  { type: "button", className: "acpmux-summary-button", "aria-label": "Turn summary" },
-  "Completed",
-);
+const finished = [
+  user("Add retry support", 3),
+  assistant("Added retries.", 2),
+  turnSummary(1, { status: "completed" }),
+];
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -93,7 +94,7 @@ const base: HeaderToolsProps = {
   onChanges: () => undefined,
   onTerminal: () => undefined,
   onBrowser: () => undefined,
-  summary,
+  summary: null,
   menu: menuRows,
   onMenuOpen: async () => undefined,
 };
@@ -103,14 +104,32 @@ export default componentEntry<HeaderToolsProps>({
   title: "Chat header tools",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 390, normal: 560, wide: 860 },
+  widths: { narrow: 400, normal: 560, wide: 860 },
   anchors: [{ selector: ".acpmux-header-tools" }],
   covers: ["agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools"],
-  load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
+  load: async () => {
+    const [{ ChatHeaderTools }, { SummaryButton }] = await Promise.all([
+      import("./ChatHeaderTools"),
+      import("../summary/SummaryButton"),
+    ]);
+    return function HeaderToolsFixture(props: HeaderToolsProps) {
+      return createElement(
+        "div",
+        { className: "acpmux-shell acpmux-stage box-border w-full items-start justify-end p-2" },
+        createElement(ChatHeaderTools, { ...props, summary: createElement(SummaryButton, { rows: finished }) }),
+      );
+    };
+  },
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
   // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
-  styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
+  styles: () =>
+    Promise.all([
+      import("../styles.css"),
+      import("../../../ui/popupSurface.css"),
+      import("../summary/summary.css"),
+      import("./header.css"),
+    ]),
   checks: {
     popupLayer: {
       value: true,
@@ -152,6 +171,14 @@ export default componentEntry<HeaderToolsProps>({
     "quick-chat": {
       note: "Quick Chat has no tab to split, so only Changes, summary, and chat actions remain.",
       props: { ...base, tabTools: false },
+    },
+    "quick-chat-changes": {
+      note: "At 400px the Changes word collapses; both counts and completion stay visible.",
+      props: { ...base, tabTools: false, changes: { additions: 42, deletions: 9 } },
+    },
+    "large-counts": {
+      note: "Large edit totals stay readable without truncating either count.",
+      props: { ...base, changes: { additions: 12480, deletions: 1024 } },
     },
   },
 });
