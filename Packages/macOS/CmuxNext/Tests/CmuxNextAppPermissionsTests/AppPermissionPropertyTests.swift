@@ -6,8 +6,8 @@ import Testing
 /// Seeded property tests for the invariants of first-party-apps.md
 /// section 5: each seed builds a reachable record (install draft plus
 /// random user changes) and probes every op in the scope table.
-@Suite struct AppPermissionPropertyTests {
-    nonisolated static let seeds: [UInt64] = Array(0..<300)
+@Suite nonisolated struct AppPermissionPropertyTests {
+    static let seeds: [UInt64] = Array(0..<300)
 
     @Test(arguments: seeds)
     func completeSandboxAllowsOnlyHandPickedScopesAndNeverNetworkOrFiles(seed: UInt64) {
