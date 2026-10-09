@@ -2191,6 +2191,9 @@ fn run_server(
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
     claude_wrapper::configure_pane_path(&mut surface_options);
+    // The app's bundled `cmux` (the app starts the daemon with it) stays
+    // first after the shim on a caller PATH (`terminal_spawn_options`).
+    surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
 
     let state_root = if args.ephemeral {
         None

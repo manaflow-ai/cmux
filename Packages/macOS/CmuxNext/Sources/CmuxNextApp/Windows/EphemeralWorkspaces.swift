@@ -26,7 +26,7 @@ enum EphemeralWorkspaces {
     /// the workspace (reconcile gives it the first ephemeral orphan).
     static func newIncognitoWorkspace(_ manager: WindowManager, window windowID: String, address: String, choice: BrowserEngineChoice) {
         let daemon = manager.services.daemon
-        let browserTabs = manager.services.cache.browserTabs!
+        let browserTabs = manager.services.cache.browserTabs
         manager.pendingEphemeralWindows.append(windowID)
         Task { @MainActor in
             defer {

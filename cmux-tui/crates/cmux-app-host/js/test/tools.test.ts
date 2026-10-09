@@ -116,6 +116,8 @@ describe("generator", () => {
     expect(scopeFor("terminal.close", { class: "mutation" })).toBeNull()
     expect(scopeFor("install.revoke", { class: "mutation", risk: "destructive" })).toBeNull()
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
+    // A read of the whole team's files from a retired team VM: a person's session only (cx-lyvg).
+    expect(scopeFor("team_vm.retired.export", { class: "mutation", risk: "read" })).toBeNull()
   })
   test("first-party app catalog ops get scopes and typed clients", () => {
     const files = generate()

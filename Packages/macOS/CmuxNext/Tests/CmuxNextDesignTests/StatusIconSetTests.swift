@@ -17,8 +17,10 @@ import Testing
         states.map { StatusIndicatorPlan.make($0, style: .arc, animates: true, set: set) }
     }
 
-    @Test func theDefaultSetIsTodaysDrawing() {
-        #expect(StatusIconSet.tunable.defaultValue == .current)
+    /// Lawrence picked Symbols as the default (2026-10-09); `current` stays
+    /// the original drawing, byte for byte, and a plain config value keeps it.
+    @Test func symbolsIsTheDefaultAndCurrentIsTodaysDrawing() {
+        #expect(StatusIconSet.tunable.defaultValue == .symbols)
         #expect(StatusIndicatorConfig().iconSet == .current)
         let all: [StatusIndicatorState] = Self.states + [.busy, .busy(progress: 0.3), .paused(progress: nil), .paused(progress: 0.5),
                                                          .working(progress: 0.4)]
