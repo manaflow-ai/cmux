@@ -37,6 +37,14 @@ final class SidebarRegionView: NSView {
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
     private(set) var appViews: [LayoutSectionID: NSView] = [:]
+    /// The sidebar's hover reveal, passed to app views whose chrome fades with
+    /// it (`SidebarHoverRevealing`: the All chats header).
+    var chromeRevealed = false {
+        didSet {
+            guard oldValue != chromeRevealed else { return }
+            for view in appViews.values { (view as? SidebarHoverRevealing)?.setHoverRevealed(chromeRevealed) }
+        }
+    }
 
     private(set) var layoutResult = SidebarRegionLayout.empty
     private(set) var content: Content?
@@ -163,7 +171,10 @@ final class SidebarRegionView: NSView {
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
                 liveApps.insert(id)
-                if view.superview !== self { addSubview(view) }
+                if view.superview !== self {
+                    addSubview(view)
+                    (view as? SidebarHoverRevealing)?.setHoverRevealed(chromeRevealed)
+                }
                 appViews[id] = view
                 place(view, row.frame)
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
