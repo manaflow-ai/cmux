@@ -18,6 +18,15 @@ struct AgentChatScreen: View {
     @State private var pinned = true
     @State private var userScrolling = false
     @State private var viewportHeight: CGFloat = 0
+    /// The tallest viewport seen: the reserve below the last prompt. Transient
+    /// bars (approval card, keyboard) must not shrink content, or the scroll
+    /// offset would be clamped in one frame.
+    @State private var reserveHeight: CGFloat = 0
+    /// Set on send until the scroll reaches the new prompt; while set, growth
+    /// does not unpin.
+    @State private var followingSend = false
+    /// Latest scroll metrics, unobserved (written every scroll frame).
+    @State private var latest = LatestMetrics()
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var renaming = false
     @State private var renameText = ""
@@ -85,6 +94,7 @@ struct AgentChatScreen: View {
 
     private var rows: [ChatRow] {
         var shaper = TranscriptShaper(expanded: model.expanded, live: model.isLive, sendStates: model.sendStates)
+        shaper.keepOpenTurns = model.finishedInView
         #if DEBUG
         shaper.expandAll = AgentDebug.expandAll
         #endif
@@ -99,44 +109,75 @@ struct AgentChatScreen: View {
             // jump. Very long transcripts trade that for laziness.
             if shaped.count <= 160 {
                 // Short transcripts sit at the top, as in the iOS AI apps.
-                VStack(alignment: .leading, spacing: 0) { rowViews(shaped) }
+                // The last turn reserves a full screen below its prompt, laid
+                // out in the same pass as the rows (no one-frame lag).
+                TranscriptLayout(tailMinHeight: reserveHeight) { rowViews(shaped) }
                     .padding(.top, 4)
                     .frame(minHeight: viewportHeight, alignment: .top)
             } else {
-                LazyVStack(alignment: .leading, spacing: 0) { rowViews(shaped) }.padding(.top, 4)
+                LazyVStack(alignment: .leading, spacing: 0) { rowViews(shaped) }
+                    .padding(.top, 4)
             }
         }
         .scrollPosition($position)
-        .defaultScrollAnchor(.bottom)
-        // Pinned to the bottom, new text, the keyboard and a growing composer
-        // push the transcript up; scrolled back, the reader's place stays put.
-        .defaultScrollAnchor(pinned ? .bottom : .top, for: .sizeChanges)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(.top, for: .alignment)
+        // Size changes keep the top still; a pinned reader is then eased back
+        // to the bottom (below) so the transcript moves with the keyboard and
+        // the growing composer instead of jumping ahead of them.
+        .defaultScrollAnchor(.top, for: .sizeChanges)
         .scrollDismissesKeyboard(.interactively)
         // The visible height between the bars, for top-aligning short transcripts.
         // (The proxy size already excludes the nav bar and composer insets.)
         .onGeometryChange(for: CGFloat.self) { p in p.size.height } action: { h in
             viewportHeight = max(0, h - 8)
+            reserveHeight = max(reserveHeight, viewportHeight)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { old, new in
+            // Rotation or a split resize: start over from the current viewport.
+            if abs(old - new) > 1 { reserveHeight = viewportHeight }
+        }
+        // The first measurement precedes the composer inset; re-seed once loaded.
+        .onChange(of: model.loaded) { reserveHeight = viewportHeight }
         .onScrollPhaseChange { _, phase in
             userScrolling = phase == .interacting || phase == .decelerating || phase == .tracking
         }
         .onScrollGeometryChange(for: ScrollMetrics.self) { g in
-            ScrollMetrics(offset: g.contentOffset.y,
-                          maxOffset: g.contentSize.height + g.contentInsets.bottom - g.containerSize.height)
-        } action: { _, m in
+            ScrollMetrics(offset: g.contentOffset.y, content: g.contentSize.height,
+                          inset: g.contentInsets.bottom, container: g.containerSize.height)
+        } action: { old, m in
+            latest.value = m
             let near = m.maxOffset - m.offset < 48
-            if userScrolling {
+            let contentGrew = abs(m.content - old.content) > 0.5
+            let framed = abs(m.inset - old.inset) > 0.5 || abs(m.container - old.container) > 0.5
+            if followingSend, m.offset >= m.maxOffset - 0.5 { followingSend = false }
+            if contentGrew || framed {
+                // Size changed (reply text, keyboard, composer, a new row).
+                guard pinned, !userScrolling else { return }
+                // A pinned reader follows growth with an eased scroll (a glide
+                // per new line, never a snap) until they scroll away.
+                if m.offset < m.maxOffset - 0.5 {
+                    // First content (opening the session) lands without motion;
+                    // a send rises on the move spring; other growth glides.
+                    // An explicit offset, because re-setting the same
+                    // `.bottom` edge position is ignored.
+                    let first = old.content < 1 || old.container < 1
+                    let animation: Animation? = reduceMotion || first ? nil : followingSend ? motion.move : .smooth(duration: 0.3)
+                    withAnimation(animation) { position.scrollTo(y: m.maxOffset) }
+                }
+            } else if userScrolling {
+                // Only the reader's own scrolling pins or unpins.
                 if pinned != near { pinned = near }
-            } else if pinned && m.offset < m.maxOffset - 0.5 {
-                // Content or insets changed under a pinned reader: stay at the bottom.
-                position.scrollTo(edge: .bottom)
-            } else if near && !pinned {
+            } else if near, !pinned {
                 pinned = true
             }
         }
         .onChange(of: model.sendTick) {
+            // The new prompt rises to the top of the screen and its reply
+            // grows into the space reserved below it. By identity, so the
+            // target resolves against the final layout.
             pinned = true
-            withAnimation(reduceMotion ? nil : motion.move) { position.scrollTo(edge: .bottom) }
+            followingSend = true
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBar
@@ -152,11 +193,14 @@ struct AgentChatScreen: View {
     }
 
     @ViewBuilder private func rowViews(_ rows: [ChatRow]) -> some View {
+        let lastUser = rows.last { if case .user = $0 { true } else { false } }?.id
         ForEach(rows) { row in
             ChatRowView(row: row, model: model)
                 .padding(.top, row.topSpacing)
                 .padding(.horizontal, 16)
                 .transition(transition(for: row))
+                .id(row.id)
+                .layoutValue(key: TurnStartKey.self, value: row.id == lastUser)
         }
         Color.clear.frame(height: 12)
     }
@@ -174,7 +218,7 @@ struct AgentChatScreen: View {
         Button {
             Haptics.select()
             pinned = true
-            withAnimation(motion.move) { position.scrollTo(edge: .bottom) }
+            withAnimation(motion.move) { position.scrollTo(y: latest.value.maxOffset) }
         } label: {
             Image(systemName: "arrow.down")
                 .font(.system(size: 15, weight: .semibold))
@@ -233,6 +277,7 @@ struct AgentChatScreen: View {
         .padding(.bottom, 8)
         .animation(reduceMotion ? nil : motion.move, value: pending?.item.id)
         .animation(motion.appear, value: slash.count)
+
         .animation(motion.move, value: model.queue.count)
     }
 
@@ -245,7 +290,13 @@ struct AgentChatScreen: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return }
         draft = ""
         attachments = []
-        withAnimation(reduceMotion ? nil : motion.appear) { model.submit(text, attachments: files) }
+        // Not in an animation transaction: the new rows and the reserve land
+        // in one layout, then the scroll eases to them (see the geometry
+        // handler). The bubble animates its own entrance.
+        model.submit(text, attachments: files)
+        // Keep typing: the composer stays focused after a send (the row
+        // insertion can otherwise take first responder away for a turn).
+        Task { @MainActor in composerFocused = true }
     }
 
     // MARK: Empty state
@@ -318,9 +369,49 @@ struct AgentChatScreen: View {
     }
 }
 
+/// Marks the row that starts the last turn.
+struct TurnStartKey: LayoutValueKey {
+    static let defaultValue = false
+}
+
+/// A leading-aligned vertical stack (no spacing; rows carry their own) whose
+/// height leaves at least `tailMinHeight` from the top of the marked row to
+/// the end: the screen reserved for the last turn's reply.
+struct TranscriptLayout: Layout {
+    var tailMinHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        var y: CGFloat = 0
+        var tailTop: CGFloat?
+        for v in subviews {
+            if v[TurnStartKey.self] { tailTop = y }
+            y += v.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+        if let tailTop { y = max(y, tailTop + tailMinHeight) }
+        return CGSize(width: width, height: y)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for v in subviews {
+            let size = v.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            v.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            y += size.height
+        }
+    }
+}
+
+final class LatestMetrics {
+    var value = ScrollMetrics(offset: 0, content: 0, inset: 0, container: 0)
+}
+
 struct ScrollMetrics: Equatable {
     var offset: CGFloat
-    var maxOffset: CGFloat
+    var content: CGFloat
+    var inset: CGFloat
+    var container: CGFloat
+    var maxOffset: CGFloat { content + inset - container }
 }
 
 #if DEBUG

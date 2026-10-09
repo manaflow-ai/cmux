@@ -31,25 +31,50 @@ struct Composer: View {
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
 
+    /// Height the field animates toward, measured from a hidden twin with the
+    /// same text and width (a vertical TextField resizes itself instantly).
+    @State private var fieldHeight: CGFloat?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var field: some View {
+        TextField(placeholder, text: $text, axis: .vertical)
+            .font(AgentType.body)
+            .lineLimit(1...5)
+            .focused(focus)
+            .onKeyPress(.return, phases: .down) { press in
+                // Hardware Return sends; Shift-Return keeps the newline.
+                guard !press.modifiers.contains(.shift) else { return .ignored }
+                if hasContent { send() }
+                return .handled
+            }
+            .accessibilityIdentifier("agent.composer.field")
+            .frame(height: fieldHeight, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(alignment: .topLeading) {
+                TextField("", text: .constant(text.isEmpty ? " " : text), axis: .vertical)
+                    .font(AgentType.body)
+                    .lineLimit(1...5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .hidden()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                        if fieldHeight.map({ abs($0 - h) > 0.5 }) ?? true { fieldHeight = h }
+                    }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+    }
+
+    private var growthAnimation: Animation? { reduceMotion ? nil : CNTheme.shared.motion.move }
+
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !attachments.isEmpty { attachmentStrip }
-            TextField(placeholder, text: $text, axis: .vertical)
-                .font(AgentType.body)
-                .lineLimit(1...5)
-                .focused(focus)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 6)
-                .onKeyPress(.return, phases: .down) { press in
-                    // Hardware Return sends; Shift-Return keeps the newline.
-                    guard !press.modifiers.contains(.shift) else { return .ignored }
-                    if hasContent { send() }
-                    return .handled
-                }
-                .accessibilityIdentifier("agent.composer.field")
+            field
             HStack(spacing: 8) {
                 plusMenu
                 modelChip
@@ -59,6 +84,7 @@ struct Composer: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
         }
+        .animation(growthAnimation, value: fieldHeight)
         .glassEffect(.regular.interactive(false), in: .rect(cornerRadius: CNTheme.shared.metrics.composerRadius, style: .continuous))
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 4, matching: .images)
         .onChange(of: photoItems) { _, items in loadPhotos(items) }

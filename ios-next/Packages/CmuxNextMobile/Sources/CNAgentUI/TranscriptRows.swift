@@ -67,6 +67,8 @@ struct UserBubble: View {
     var item: UserTranscriptItem
     var state: LocalSendState
     var retry: () -> Void
+    @State private var entered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -110,6 +112,14 @@ struct UserBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 48)
+        // A just-sent bubble rises from the composer and fades in.
+        .opacity(state == .sending && !entered ? 0 : 1)
+        .offset(y: state == .sending && !entered ? 28 : 0)
+        .scaleEffect(state == .sending && !entered ? 0.97 : 1, anchor: .bottomTrailing)
+        .onAppear {
+            guard state == .sending, !entered else { entered = true; return }
+            withAnimation(reduceMotion ? nil : CNTheme.shared.motion.appear) { entered = true }
+        }
     }
 }
 
@@ -136,9 +146,10 @@ struct ThoughtRow: View {
                         .font(AgentType.row)
                 }
                 .padding(.leading, 2)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
+        .clipped()
     }
 
     private var label: String {

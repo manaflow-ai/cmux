@@ -2,6 +2,7 @@ import CNCore
 import CNTransport
 import Foundation
 import Observation
+import SwiftUI
 
 /// Sessions and harnesses on the connected host. Kept current from
 /// `agent.session` / `agent.removed` pushes and reloaded on every reconnect.
@@ -130,6 +131,9 @@ final class AgentChatModel {
     private(set) var sendStates: [String: LocalSendState] = [:]
     /// When the running turn started, for "Working for 12s".
     private(set) var turnStartedAt: Date?
+    /// Turns (by prompt id) that ended while this screen watched them. They
+    /// stay unfolded so the transcript does not collapse under the reader.
+    private(set) var finishedInView: Set<String> = []
     /// Bumped when the user sends, so the view scrolls to the bottom.
     private(set) var sendTick = 0
 
@@ -138,6 +142,9 @@ final class AgentChatModel {
     /// keeps its identity (no re-insert animation) when the echo arrives.
     @ObservationIgnored private var aliases: [String: String] = [:]
     @ObservationIgnored private var sending = false
+    /// Local bubbles the host has not echoed yet (the echo can arrive before
+    /// or after the `agent.prompt` response).
+    @ObservationIgnored private var awaitingEcho: [String] = []
 
     init(connection: HostConnection, sessionId: String) {
         self.connection = connection
@@ -147,6 +154,7 @@ final class AgentChatModel {
     var harness: Harness? { session.flatMap { s in harnesses.first { $0.id == s.harness } } }
     var isLive: Bool { session?.status == .running || session?.status == .waiting }
     var pendingPermission: PendingPermission? { PendingPermission.find(in: items) }
+    var lastPromptId: String? { items.last { if case .user = $0 { true } else { false } }?.id }
     var hasTurns: Bool { items.contains { if case .user = $0 { true } else { false } } }
 
     var modelName: String? {
@@ -167,7 +175,10 @@ final class AgentChatModel {
             async let history = client.agentHistory(sessionId)
             async let harnesses = client.harnesses()
             let (h, list) = try await (history, harnesses)
-            let pendingLocal = items.filter { if case .user(let u) = $0 { sendStates[u.id] != nil && sendStates[u.id] != .sent } else { false } }
+            // Keep bubbles the host has not seen yet; drop ones it has echoed
+            // (history carries them under the host's ids).
+            let pendingLocal = items.filter { if case .user(let u) = $0 { sendStates[u.id] == .failed || (awaitingEcho.contains(u.id) && !h.items.contains { if case .user(let x) = $0 { x.text == u.text } else { false } }) } else { false } }
+            awaitingEcho.removeAll { id in !pendingLocal.contains { $0.id == id } }
             aliases.removeAll()
             session = h.session
             items = h.items + pendingLocal
@@ -190,7 +201,16 @@ final class AgentChatModel {
                 if isLive, !wasLive, turnStartedAt == nil { turnStartedAt = Date() }
                 if !isLive { turnStartedAt = nil; flushQueue() }
             case .agentItem(let sid, let item) where sid == sessionId:
-                upsert(item)
+                if case .turnEnd = item, !items.contains(where: { $0.id == item.id }),
+                   let prompt = items.last(where: { if case .user = $0 { true } else { false } }) {
+                    finishedInView.insert(prompt.id)
+                }
+                if items.contains(where: { $0.id == item.id }) || aliases[item.id] != nil {
+                    upsert(item)
+                } else {
+                    // New rows fade in; updates (streaming text) are not animated.
+                    withAnimation(.smooth(duration: 0.22)) { upsert(item) }
+                }
             case .agentRemoved(let sid) where sid == sessionId:
                 session?.status = .closed
             default:
@@ -205,9 +225,10 @@ final class AgentChatModel {
             if let local = aliases[u.id] {
                 u.id = local
                 item = .user(u)
-            } else if let local = items.first(where: { candidate in
-                if case .user(let c) = candidate { sendStates[c.id] == .sending && c.text == u.text } else { false }
-            })?.id {
+            } else if let local = awaitingEcho.first(where: { id in
+                items.contains { if case .user(let c) = $0 { c.id == id && c.text == u.text } else { false } }
+            }) {
+                awaitingEcho.removeAll { $0 == local }
                 aliases[u.id] = local
                 sendStates[local] = .sent
                 u.id = local
@@ -239,6 +260,7 @@ final class AgentChatModel {
         let localId = "local-\(UUID().uuidString)"
         let meta = attachments.map { PromptAttachment(name: $0.name, mimeType: $0.mimeType) }
         sendStates[localId] = .sending
+        awaitingEcho.append(localId)
         items.append(.user(UserTranscriptItem(id: localId, text: text, attachments: meta)))
         turnStartedAt = Date()
         sendTick += 1
@@ -251,6 +273,7 @@ final class AgentChatModel {
                 if sendStates[localId] == .sending { sendStates[localId] = .sent }
             } catch {
                 sendStates[localId] = .failed
+                awaitingEcho.removeAll { $0 == localId }
                 self.error = AgentDirectory.describe(error)
                 turnStartedAt = nil
             }
@@ -314,6 +337,11 @@ final class AgentChatModel {
     }
 
     func toggle(_ id: String) {
+        if id.hasPrefix("worked-"), finishedInView.remove(String(id.dropFirst("worked-".count))) != nil {
+            // Folding a turn that ended on screen returns it to the normal fold.
+            expanded.remove(id)
+            return
+        }
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 }

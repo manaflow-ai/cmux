@@ -33,7 +33,7 @@ struct StreamingMarkdown: View {
     var body: some View {
         if catchingUp {
             TimelineView(.animation(minimumInterval: nil, paused: !catchingUp)) { context in
-                MarkdownContent(text: String(text.prefix(Int(revealed.rounded(.up)))), fade: fade, secondary: secondary)
+                MarkdownContent(text: Self.balanced(String(text.prefix(Int(revealed.rounded(.up))))), fade: fade, secondary: secondary)
                     .onChange(of: context.date) { _, now in step(now) }
             }
         } else {
@@ -43,6 +43,22 @@ struct StreamingMarkdown: View {
                     lastTick = nil
                 }
         }
+    }
+
+    /// Hides an unclosed `**` or backtick at the revealing edge, so a half
+    /// received bold or code span never flashes its raw markers.
+    static func balanced(_ s: String) -> String {
+        guard let lastLine = s.split(separator: "\n", omittingEmptySubsequences: false).last,
+              !lastLine.hasPrefix("```") else { return s }
+        var out = s
+        if lastLine.components(separatedBy: "**").count % 2 == 0, let r = out.range(of: "**", options: .backwards) {
+            out.removeSubrange(r)
+        }
+        let line = out.split(separator: "\n", omittingEmptySubsequences: false).last ?? ""
+        if line.filter({ $0 == "`" }).count % 2 == 1, let r = out.range(of: "`", options: .backwards) {
+            out.removeSubrange(r)
+        }
+        return out
     }
 
     /// Tail fade: the last revealed characters ramp from transparent.

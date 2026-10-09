@@ -99,6 +99,8 @@ struct TranscriptShaper: Sendable {
     var sendStates: [String: LocalSendState] = [:]
     /// Debug/validation: open every disclosure.
     var expandAll = false
+    /// Prompt ids whose turns draw unfolded (they ended on screen).
+    var keepOpenTurns: Set<String> = []
 
     func isOpen(_ id: String) -> Bool { expandAll || expanded.contains(id) }
 
@@ -145,14 +147,22 @@ struct TranscriptShaper: Sendable {
         let after = finalIndex.map { Array(work[($0 + 1)...]) } ?? []
 
         var shaped: [ChatRow] = []
+        let keep = keepOpenTurns.contains(user.id)
         if !before.isEmpty {
             let id = "worked-\(user.id)"
-            let open = isOpen(id)
-            shaped.append(.worked(id: id, label: workedLabel(summary), open: open))
-            if open { shaped.append(contentsOf: runs(before, settled: true)) }
+            if keep {
+                // Ended while watched: the live "Working for" header becomes an
+                // open "Worked for" (same height) and the work stays as drawn.
+                shaped.append(.worked(id: id, label: workedLabel(summary), open: true))
+                shaped.append(contentsOf: before.flatMap { plain($0, settled: true) })
+            } else {
+                let open = isOpen(id)
+                shaped.append(.worked(id: id, label: workedLabel(summary), open: open))
+                if open { shaped.append(contentsOf: runs(before, settled: true)) }
+            }
         }
         if let answer { shaped.append(.assistant(answer, isFinal: true)) }
-        shaped.append(contentsOf: runs(after.filter { !isEdit($0) }, settled: true))
+        shaped.append(contentsOf: keep ? after.flatMap { plain($0, settled: true) } : runs(after.filter { !isEdit($0) }, settled: true))
         let edits = (before + after).compactMap { item -> ToolCallTranscriptItem? in
             if case .tool(let t) = item, let d = t.diff, !d.isEmpty { t } else { nil }
         }
