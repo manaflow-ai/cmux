@@ -5921,12 +5921,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             applyAbsoluteFontSize(userBaseFontSize)
         }
-        let effectiveMatchesNatural = effectiveGrid.map { grid in
-            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
-        } ?? true
-        let naturalGridChanged = reportGrid != lastReportedSize
-        let shouldReportNaturalSize = naturalGridChanged ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let viewportReportPolicy = TerminalViewportReportPolicy(
+            naturalGrid: reportGrid,
+            previousNaturalGrid: lastReportedSize,
+            shouldReassertNaturalSize: shouldReassertNaturalSize,
+            effectiveGrid: effectiveGrid.map { (columns: $0.cols, rows: $0.rows) },
+            viewportReportPending: viewportReportPending
+        )
+        let shouldReportNaturalSize = viewportReportPolicy.shouldReport
         let canPublishSettledKeyboardViewport =
             publishSettledKeyboardViewportImmediately
             && alternateScreenSizingEnabled
@@ -5940,7 +5942,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
-        if naturalGridChanged {
+        if viewportReportPolicy.naturalCapacityChanged {
             // Retry exhaustion belongs to one natural grid. Rotation, zoom
             // settle, composer-height changes, and other real capacity changes
             // get a fresh bounded recovery budget.
@@ -5970,6 +5972,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportID &+= 1
         awaitingViewportEcho = true
         noteKeyboardTransitionPresentationReportPublished(id: viewportReportID)
+        diagnosticLog?.recordTerminalViewportReport(
+            correlationID: hostSurfaceID,
+            columns: report.columns,
+            rows: report.rows,
+            reportID: viewportReportID
+        )
         MobileDebugLog.anchormux(
             "viewport.report grid=\(report.columns)x\(report.rows) id=\(viewportReportID) "
                 + "retry=\(viewportReportRetries) reason=\(reason)"
