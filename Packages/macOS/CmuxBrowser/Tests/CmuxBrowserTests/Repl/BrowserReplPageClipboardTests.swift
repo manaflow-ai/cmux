@@ -5,7 +5,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// Page scripts in a tab a REPL session created (the Clipboard API, a
     /// `ClipboardItem` whose data arrives later, `execCommand("copy")`) must
     /// never write the system clipboard, at any time: an agent's click gives
@@ -20,8 +20,8 @@ extension BrowserReplPasteboardRedirectTests {
     /// stand-in and the person's clipboard stays untouched. The real one is
     /// only read (its change count).
     ///
-    /// Nested in the redirect suite: the stand-in replaces process-wide
-    /// lookups, so these tests must not run alongside the redirect's.
+    /// Nested in the pasteboard suite: the stand-in replaces process-wide
+    /// lookups, so these tests must not run alongside the drag hook tests.
     @MainActor
     @Suite("Page scripts", .serialized)
     struct PageScripts {
@@ -34,6 +34,7 @@ extension BrowserReplPasteboardRedirectTests {
             <button id=write-item>write a late item</button>
             <button id=exec-copy>execCommand copy</button>
             <button id=exec-copy-handler>execCommand copy with a handler</button>
+            <button id=write-held>write an item whose data the page releases later</button>
             <script>
             const done = (value) => { window.__done = value; };
             const failed = (e) => done('rejected ' + (e && e.name));
@@ -43,6 +44,12 @@ extension BrowserReplPasteboardRedirectTests {
             document.getElementById('write-item').onclick = () => {
               const late = new Promise((resolve) => setTimeout(() => resolve(new Blob(['planted by a late item'], { type: 'text/plain' })), 300));
               navigator.clipboard.write([new ClipboardItem({ 'text/plain': late })]).then(() => done('ok'), failed);
+            };
+            document.getElementById('write-held').onclick = () => {
+              const held = new Promise((resolve) => {
+                window.__release = () => resolve(new Blob(['planted by a held item'], { type: 'text/plain' }));
+              });
+              navigator.clipboard.write([new ClipboardItem({ 'text/plain': held })]).then(() => done('ok'), failed);
             };
             document.getElementById('exec-copy').onclick = () => {
               const field = document.getElementById('field');
@@ -113,6 +120,43 @@ extension BrowserReplPasteboardRedirectTests {
             }
             #expect(routed.count == 1, "the tab's clipboard did not get exactly one write")
             #expect(texts == [action.text])
+        }
+
+        /// The page owns its world's built-ins: replacing the string methods
+        /// the routing script would use to read the command name must not
+        /// turn `execCommand("copy")` back into WebKit's own Copy.
+        @Test func aPageThatReplacesStringBuiltInsStillCopiesOnlyToTheTabClipboard() async throws {
+            let shim = try Self.shim()
+            let system = NSPasteboard.general
+            let systemBefore = system.changeCount
+            var routed: [[[String: Any]]] = []
+            var outcome: (done: String?, standInChanged: Bool)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                let standInBefore = standIn.changeCount
+                let webView = try await Self.load(Self.page) { webView in
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                _ = try await webView.callAsyncJavaScript(
+                    """
+                    String.prototype.toLowerCase = function () { return "not-a-command"; };
+                    String.prototype.toUpperCase = function () { return "NOT-A-COMMAND"; };
+                    Array.prototype.slice = function () { return []; };
+                    return true
+                    """,
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                try await Self.click("exec-copy", in: webView)
+                let done = try await Self.waitForDone(in: webView)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                outcome = (done, standIn.changeCount != standInBefore)
+            }
+            let result = try #require(outcome)
+            #expect(!result.standInChanged, "execCommand(\"copy\") with replaced string built-ins wrote the system pasteboard")
+            #expect(system.changeCount == systemBefore)
+            #expect(routed.count == 1, "the copy did not reach the tab's clipboard")
         }
 
         /// The guard's first half is WebKit's own switch for the asynchronous
@@ -204,6 +248,63 @@ extension BrowserReplPasteboardRedirectTests {
             }
             #expect(written == ["planted by writeText", "copied by execCommand"])
             #expect(system.changeCount == systemBefore, "the stand-in let a write reach the real system pasteboard")
+        }
+
+        /// cmux replaces a tab's web view (a restore of a page it unloaded, a
+        /// crash recovery) with one that has fresh preferences and a fresh
+        /// user content controller. A tab a session created keeps its page
+        /// clipboard guard for its whole life, also after its session left,
+        /// so the replacement gets the guard again before it loads; a tab
+        /// that never had it gets nothing.
+        @Test func aReplacedWebViewOfAGuardedTabGetsTheGuardAgain() async throws {
+            let shim = try Self.shim()
+            let system = NSPasteboard.general
+            let systemBefore = system.changeCount
+            let guarded = UUID()
+            let other = UUID()
+            var clipboard = BrowserReplPageClipboard(shim: shim)
+            var routed: [[[String: Any]]] = []
+            var outcome: (reinstalled: Bool?, standInChanged: Bool, otherReinstalled: Bool?, otherInstalled: Bool, closedReinstalled: Bool?)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                _ = try await Self.load(Self.page) { webView in
+                    clipboard.install(on: webView, tab: guarded) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                var reinstalled: Bool?
+                let replacement = try await Self.load(Self.page) { webView in
+                    reinstalled = clipboard.reinstall(on: webView, tab: guarded)
+                }
+                let standInBefore = standIn.changeCount
+                try await Self.click("write-text", in: replacement)
+                _ = try await Self.waitForDone(in: replacement)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                var otherReinstalled: Bool?
+                let unguarded = try await Self.load(Self.page) { webView in
+                    otherReinstalled = clipboard.reinstall(on: webView, tab: other)
+                }
+                clipboard.tabClosed(guarded)
+                var closedReinstalled: Bool?
+                _ = try await Self.load(Self.page) { webView in
+                    closedReinstalled = clipboard.reinstall(on: webView, tab: guarded)
+                }
+                outcome = (
+                    reinstalled,
+                    standIn.changeCount != standInBefore,
+                    otherReinstalled,
+                    BrowserReplPageClipboard.isInstalled(on: unguarded),
+                    closedReinstalled
+                )
+            }
+            let result = try #require(outcome)
+            #expect(result.reinstalled == true, "the replacement web view of a guarded tab did not get the guard")
+            #expect(!result.standInChanged, "the replaced page's writeText reached the system pasteboard")
+            #expect(routed.count == 1, "the replaced page's write did not reach the tab's clipboard")
+            #expect(system.changeCount == systemBefore)
+            #expect(result.otherReinstalled == nil, "a tab that never had the guard got it")
+            #expect(!result.otherInstalled)
+            #expect(result.closedReinstalled == nil, "a closed tab's id kept the guard")
         }
 
         // MARK: - Helpers
@@ -321,5 +422,20 @@ extension BrowserReplPasteboardRedirectTests {
             let system: NSPasteboard
             let standIn: NSPasteboard
         }
+    }
+}
+
+/// A page-clipboard message's items are judged by their length before
+/// their Base64 is decoded: the page chose the text (r24 tabs clipboard).
+@MainActor
+@Suite("Browser REPL page clipboard message limits")
+struct BrowserReplPageClipboardMessageLimitTests {
+    @Test("Items within the limits are kept; past the length limit or not Base64, the message is refused")
+    func messageItemsAreJudgedWithinTheirLimits() {
+        let kept = BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": "aGk="]]])
+        #expect(kept?.count == 1)
+        #expect(BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": "not base64!"]]]) == nil)
+        let half = String(repeating: "A", count: BrowserReplPageClipboard.maximumBase64Characters / 2 + 4)
+        #expect(BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": half], ["type": "text/html", "base64": half]]]) == nil)
     }
 }

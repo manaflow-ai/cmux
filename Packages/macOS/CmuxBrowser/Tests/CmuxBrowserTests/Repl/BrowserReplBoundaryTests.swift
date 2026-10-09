@@ -60,7 +60,8 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
             if let domains = params["secretDomains"] as? [[String: Any]] {
                 // Hosts only: enough for these tests' plain domain patterns.
                 let hosts = domains.compactMap { $0["host"] as? String }
-                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host, hosts.contains(host) else {
+                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host,
+                      hosts.contains(host) || hosts.contains("*") else {
                     let refusedAt = currentURL
                     lock.withLock { refusedSecrets.append(refusedAt) }
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \"\(params["secretName"] as? String ?? "")\" may not be typed into \(currentURL)"))
@@ -99,6 +100,20 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
     func detach() {}
 
+    private var secretCheck: (@Sendable (String, Int) -> Bool)?
+
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {
+        lock.withLock { secretCheck = isCurrent }
+    }
+
+    /// What the session's secret check, which the app's driver asks right
+    /// before it types, says of a secret `input.insertText` call; `nil`
+    /// without a check or a secret.
+    func secretIsCurrent(_ params: [String: Any]) -> Bool? {
+        guard let name = params["secretName"] as? String,
+              let check = lock.withLock({ secretCheck }) else { return nil }
+        return check(name, (params["secretRevision"] as? NSNumber)?.intValue ?? -1)
+    }
 }
 
 /// Serves canned HTTP/1.1 responses on 127.0.0.1 for fetch tests.
@@ -172,7 +187,7 @@ struct BrowserReplBoundaryTests {
     private func makeSession(_ driver: ScriptedPageDriver) throws -> BrowserReplSession {
         BrowserReplSession(
             id: "boundary-\(UUID().uuidString)",
-            cwd: FileManager.default.temporaryDirectory.path,
+            cwd: browserReplTestWorkingDirectory,
             bundle: try browserReplRepositoryBundle(),
             driver: driver
         )
@@ -193,6 +208,62 @@ struct BrowserReplBoundaryTests {
         let result = await run(session, "typeof __cmuxNative")
         #expect(result?.error == nil)
         #expect(result?.lines.map(\.text) == ["undefined"])
+    }
+
+    /// The browser loads a `file:` URL with read access to its directory, so
+    /// a navigation is the agent's way to read files: it may load only
+    /// files inside the session's working or temporary directory (not
+    /// through a symbolic link), and none of cmux's internal schemes.
+    @Test("A session navigates to local files only inside its own directories")
+    func localNavigationsStayInsideTheSessionsDirectories() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-boundary-local-\(UUID().uuidString)", isDirectory: true)
+        let cwd = base.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let outside = base.appendingPathComponent("outside.html")
+        try Data("outside".utf8).write(to: outside)
+        try Data("inside".utf8).write(to: cwd.appendingPathComponent("inside.html"))
+        try FileManager.default.createSymbolicLink(at: cwd.appendingPathComponent("link.html"), withDestinationURL: outside)
+        let inside = cwd.appendingPathComponent("inside.html").absoluteString
+        let link = cwd.appendingPathComponent("link.html").absoluteString
+
+        let driver = ScriptedPageDriver()
+        let session = BrowserReplSession(
+            id: "boundary-\(UUID().uuidString)",
+            cwd: cwd.path,
+            bundle: try browserReplRepositoryBundle(),
+            driver: driver
+        )
+        defer { session.close() }
+        let refused = [
+            outside.absoluteString,
+            "file:///etc/hosts",
+            "file://localhost/etc/hosts",
+            cwd.absoluteString + "../outside.html",
+            link,
+            "cmux-diff-viewer://session/index.html",
+            "javascript:alert(1)",
+        ]
+        let allowed = [inside, "data:text/html,hi", "about:blank", "https://example.com/"]
+        let script = """
+        const results = {};
+        for (const url of \(JSONSerialization.browserReplString(refused + allowed) ?? "[]")) {
+          try { await page._session.call("tab.navigate", { targetId: "t1", url }); results[url] = "ok"; }
+          catch (e) { results[url] = "refused"; }
+        }
+        console.log(JSON.stringify(results));
+        """
+        let result = await run(session, script)
+        let line = result?.lines.last?.text ?? "{}"
+        let outcomes = JSONSerialization.browserReplObject(line) as? [String: String] ?? [:]
+        let navigated = Set(driver.params("tab.navigate").compactMap { $0["url"] as? String })
+        for url in refused {
+            #expect(outcomes[url] == "refused", "\(url) was not refused: \(line)")
+            #expect(!navigated.contains(url), "the driver was asked to load \(url)")
+        }
+        for url in allowed {
+            #expect(outcomes[url] == "ok", "\(url) was refused: \(line)")
+        }
     }
 
     @Test("A secret's value never reaches JavaScript, even through runtime internals")
@@ -261,6 +332,128 @@ struct BrowserReplBoundaryTests {
         #expect(!navigations.contains { $0.lowercased().contains("example.org") }, "\(navigations)")
     }
 
+    /// The focused frame's origin decides where a secret is typed, but the
+    /// page that receives it can send it on. Only the domain policy's
+    /// content rules stop that, so a secret is typed only while the policy
+    /// keeps the session's tabs on the secret's domains, and the policy may
+    /// not widen past them once one was typed.
+    @Test("A secret is typed only while the domain policy keeps the tab on its domains, and the policy cannot widen after")
+    func secretNeedsAPolicyWithinItsDomains() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let typed = { driver.params("input.insertText").filter { $0["secretName"] != nil }.count }
+        let refused = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        console.log("none:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        session.allowedDomains(["example.com", "other.test"]);
+        console.log("wider:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        """)
+        let refusedOutput = refused?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(typed() == 0, "a secret was typed without a policy within its domains: \(refusedOutput)")
+        #expect(refusedOutput.contains("none: ") && !refusedOutput.contains("none: typed"), "\(refusedOutput)")
+        #expect(refusedOutput.contains("wider: ") && !refusedOutput.contains("wider: typed"), "\(refusedOutput)")
+        let allowed = await run(session, """
+        session.allowedDomains(["https://example.com"]);
+        console.log("within:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        for (const list of [["https://example.com", "evil.test"], null]) {
+          try { session.allowedDomains(list); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        }
+        """)
+        let allowedOutput = allowed?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(allowedOutput.contains("within: typed"), "\(allowedOutput)")
+        #expect(typed() == 1, "\(allowedOutput)")
+        #expect(!allowedOutput.contains("widened"), "\(allowedOutput)")
+        #expect(allowedOutput.components(separatedBy: "kept: ").count == 3, "\(allowedOutput)")
+    }
+
+    /// r16 native#1: a secret domain without a scheme is typed on https
+    /// only (http only on a loopback host), so the policy that keeps the
+    /// page from sending it on must not allow http either: a scheme-less
+    /// allowed pattern lets the page submit it over cleartext.
+    @Test("A scheme-less secret is typed only while the policy keeps the tab on https")
+    func schemelessSecretNeedsAnHTTPSPolicy() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let typed = { driver.params("input.insertText").filter { $0["secretName"] != nil }.count }
+        let result = await run(session, """
+        const fill = (name) => page.locator("#f").fill(secret(name), { timeout: 2000 }).then(() => "typed", (e) => e.message);
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        session.allowedDomains(["example.com"]);
+        console.log("either:", await fill("k"));
+        session.allowedDomains(["http://example.com"]);
+        console.log("http:", await fill("k"));
+        session.allowedDomains(["https://example.com"]);
+        console.log("https:", await fill("k"));
+        try { session.allowedDomains(["https://example.com", "http://example.com"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(output.contains("either: ") && !output.contains("either: typed"), "\(output)")
+        #expect(output.contains("http: ") && !output.contains("http: typed"), "\(output)")
+        #expect(output.contains("https: typed"), "\(output)")
+        #expect(output.contains("kept: ") && !output.contains("widened"), "\(output)")
+        #expect(typed() == 1, "\(output)")
+
+        let wildcard = ScriptedPageDriver()
+        let any = try makeSession(wildcard)
+        defer { any.close() }
+        let anyResult = await run(any, """
+        const fill = (name) => page.locator("#f").fill(secret(name), { timeout: 2000 }).then(() => "typed", (e) => e.message);
+        secrets.set("w", "\(Self.value)", { domains: ["*"] });
+        await page.goto("https://example.com/login");
+        session.allowedDomains(["*"]);
+        console.log("star:", await fill("w"));
+        session.allowedDomains(["https://*", "localhost"]);
+        console.log("secure:", await fill("w"));
+        """)
+        let anyOutput = anyResult?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(anyOutput.contains("star: ") && !anyOutput.contains("star: typed"), "\(anyOutput)")
+        #expect(anyOutput.contains("secure: typed"), "\(anyOutput)")
+    }
+
+    /// r15 whole#1, owner decision 2026-10-06: the values a user types into
+    /// the sign-in sheet go into the page, which can send them on; only the
+    /// domain policy's content rules stop that. So the sheet is asked for
+    /// only while the policy names the page's exact host and port (with
+    /// https; a wildcard over its site, or a pattern without the port, is
+    /// not enough), the driver gets that host as
+    /// the credential's domains (never the agent's), and the policy cannot
+    /// widen past it later, as for a typed secret.
+    @Test("A sign-in sheet is asked for only while the policy names the page's exact host, and the policy cannot widen after")
+    func credentialRequestNeedsAPolicyOnTheExactHost() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let result = await run(session, """
+        const ask = (origin) => page._session.driver.call("auth.request", { targetId: "t1", origin, fields: [], secretDomains: [{ raw: "*" }] }).then(() => "asked", (e) => "refused " + e.message);
+        console.log("none:", await ask("https://login.example.com"));
+        session.allowedDomains(["example.com", "other.test"]);
+        console.log("wider:", await ask("https://login.example.com"));
+        session.allowedDomains(["https://*.example.com"]);
+        console.log("wildcard:", await ask("https://login.example.com"));
+        session.allowedDomains(["https://login.example.com"]);
+        console.log("portless:", await ask("https://login.example.com"));
+        session.allowedDomains(["https://login.example.com:443"]);
+        console.log("elsewhere:", await ask("https://evil.test"));
+        console.log("within:", await ask("https://login.example.com"));
+        try { session.allowedDomains(["https://login.example.com:443", "evil.test"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        for refused in ["none: refused", "wider: refused", "wildcard: refused", "portless: refused", "elsewhere: refused", "within: asked", "kept: "] {
+            #expect(output.contains(refused), "\(refused) missing from: \(output)")
+        }
+        #expect(!output.contains("widened"), "\(output)")
+        let asked = driver.params("auth.request")
+        #expect(asked.count == 1, "\(asked)")
+        let domains = (asked.first?["secretDomains"] as? [[String: Any]])?.compactMap { $0["raw"] as? String }
+        #expect(domains == ["https://login.example.com:443"], "\(String(describing: domains))")
+        // The refusal names the exact host and port to allow.
+        #expect(output.contains("session.allowedDomains([\"https://login.example.com:443\"])"), "\(output)")
+    }
+
     @Test("A secret fill that retries after the page moved to another origin is refused")
     func secretFillRetryIsRechecked() async throws {
         let driver = ScriptedPageDriver()
@@ -269,6 +462,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["https://example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)
@@ -276,6 +470,27 @@ struct BrowserReplBoundaryTests {
         #expect(leaked.isEmpty, "\(leaked)")
         // The retry reached the driver with the secret's domains and was refused there.
         #expect(driver.refusedSecrets.contains { $0.contains("evil.test") }, "\(driver.methods())")
+    }
+
+    @Test("A secret deleted or set again after its insert was made is not typed from that call")
+    func revokedSecretIsNotTypedFromAnEarlierCall() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        _ = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["https://example.com"]);
+        await page.goto("https://example.com/login");
+        await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
+        """)
+        let call = try #require(driver.params("input.insertText").last { $0["secretName"] != nil })
+        #expect(driver.secretIsCurrent(call) == true, "the check refused the secret the session holds")
+        _ = await run(session, #"secrets.delete("k");"#)
+        #expect(driver.secretIsCurrent(call) == false, "a secret deleted after the call was made could still be typed")
+        _ = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        """)
+        #expect(driver.secretIsCurrent(call) == false, "a secret set again after the call was made passed for the earlier one")
     }
 
     @Test("Masking a capture never sends a secret's value to a page script world")

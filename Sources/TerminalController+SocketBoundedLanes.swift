@@ -17,6 +17,10 @@ enum SocketCommandTaskPolicy {
     /// ``TerminalController/withSocketCommandPolicyAsync(commandKey:isV2:params:_:)``
     /// scopes, innermost last.
     @TaskLocal static var focusAllowanceStack: [Bool] = []
+    /// The process id the socket transport reported for the connection's
+    /// peer (`LOCAL_PEERPID`), or nil for an in-process call or a peer the
+    /// transport could not identify. The caller cannot set it.
+    @TaskLocal static var peerProcessID: pid_t?
 }
 
 /// The two execution lanes a socket connection task may hop onto, each kept

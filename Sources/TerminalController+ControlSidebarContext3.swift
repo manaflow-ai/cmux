@@ -297,6 +297,9 @@ extension TerminalController {
         guard let targetSurfaceId = surfaceId else {
             return .surfaceNotFound
         }
+        if let message = browserReplTabRefusalMessage(targetSurfaceId) {
+            return .denied(message)
+        }
 
         // Don't close if it's the only surface
         if tab.panels.count <= 1 {

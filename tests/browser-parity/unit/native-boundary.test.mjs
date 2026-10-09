@@ -73,3 +73,20 @@ console.log(await page.screenshot().then(() => "taken", (e) => "refused " + e.co
     await servers.close();
   }
 });
+
+test("a wildcard over a public suffix (*.com, *.co.uk) is refused for the policy, secrets and tools; one over a site is not", () => {
+  const boundary = createBoundary(T);
+  for (const raw of ["*.com", "*.co.uk", "https://*.CO.UK.", "*.github.io:443"]) {
+    for (const key of ["allowed", "prohibited"]) {
+      assert.throws(() => boundary.policyOp("set", { [key]: [raw], title: "session.allowedDomains" }), /public suffix/, `${key} ${raw}`);
+    }
+    assert.throws(() => boundary.secretsOp("set", { name: "pw", value: "hunter22", domains: [raw] }), /public suffix/, `secret ${raw}`);
+    // The runtime's own parser (tools.register) asks the session's list.
+    assert.throws(() => T.parsePattern(raw, "tools.register", (name) => boundary.policyOp("publicSuffix", { name })), /public suffix/, `tools ${raw}`);
+  }
+  for (const raw of ["*.example.com", "*.example.co.uk", "*.ada.github.io", "com", "*.localhost"]) {
+    assert.doesNotThrow(() => boundary.policyOp("set", { allowed: [raw], title: "session.allowedDomains" }), raw);
+  }
+  assert.equal(boundary.policyOp("publicSuffix", { name: "co.uk" }), true);
+  assert.equal(boundary.policyOp("publicSuffix", { name: "example.co.uk" }), false);
+});

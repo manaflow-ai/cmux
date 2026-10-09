@@ -89,6 +89,32 @@ final class FiredTimers: @unchecked Sendable {
     }
 }
 
+/// A clock whose instants count how often they are compared, so a test can
+/// measure the scheduler's work in comparisons instead of wall time. Its
+/// time never moves; a sleep lasts until it is cancelled.
+struct BrowserReplComparisonCountingClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool {
+            BrowserReplComparisonCountingClock.comparisons.increment()
+            return lhs.offset < rhs.offset
+        }
+    }
+
+    /// Comparisons of this clock's instants; only one test uses the clock.
+    static let comparisons = BrowserReplResponseCounter()
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        try await Task.sleep(for: .seconds(86_400))
+    }
+}
+
 @Suite("Browser REPL timer scheduler")
 struct BrowserReplTimerSchedulerTests {
     @Test("Timers fire in deadline order, ties in scheduling order")
@@ -170,6 +196,49 @@ struct BrowserReplTimerSchedulerTests {
         clock.advance(by: .milliseconds(1))
 
         #expect(await fired.wait(forCount: 2) == [7, 8])
+    }
+
+    @Test("A fired timer counts toward the cap until its callback ran")
+    func firedTimersCountUntilDelivered() async {
+        let clock = BrowserReplManualClock()
+        let fired = FiredTimers()
+        let scheduler = BrowserReplTimerScheduler(clock: clock, maximumTimers: 2) { fired.record($0) }
+
+        #expect(scheduler.schedule(id: 1, after: .milliseconds(1), repeating: false))
+        #expect(scheduler.schedule(id: 2, after: .milliseconds(1), repeating: false))
+        #expect(!scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        clock.advance(by: .milliseconds(1))
+        #expect(await fired.wait(forCount: 2) == [1, 2])
+
+        // Both fired, but the busy JS thread has not run their callbacks.
+        #expect(scheduler.count == 0)
+        #expect(!scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        scheduler.delivered(id: 1)
+        #expect(scheduler.schedule(id: 3, after: .milliseconds(1), repeating: false))
+        #expect(!scheduler.schedule(id: 4, after: .milliseconds(1), repeating: false))
+    }
+
+    /// Each schedule and cancel finds the earliest deadline again; scanning
+    /// every timer for it makes 10,000 of each about 10^8 comparisons.
+    @Test("10,000 schedules and cancels take O(n log n) deadline comparisons, not O(n^2)")
+    func scheduleAndCancelScale() {
+        let clock = BrowserReplComparisonCountingClock()
+        let scheduler = BrowserReplTimerScheduler(clock: clock) { _ in }
+        defer { scheduler.invalidate() }
+        let count = 10_000
+        // Deadlines in a scrambled order (a fixed linear congruential sequence).
+        var seed: UInt64 = 12_345
+        let before = BrowserReplComparisonCountingClock.comparisons.count
+        for id in 0..<count {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            #expect(scheduler.schedule(id: id, after: .milliseconds(Int64(1 + seed >> 44)), repeating: false))
+        }
+        for id in 0..<count { scheduler.cancel(id: id) }
+        let comparisons = BrowserReplComparisonCountingClock.comparisons.count - before
+
+        #expect(scheduler.count == 0)
+        // n log2 n is about 133,000 per pass; a scan per call is about 10^8.
+        #expect(comparisons < 1_500_000, "\(comparisons) comparisons for \(count) schedules and \(count) cancels")
     }
 
     @Test("Invalidation drops pending timers and refuses new ones")

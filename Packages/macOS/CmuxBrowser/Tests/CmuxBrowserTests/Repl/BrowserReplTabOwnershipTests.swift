@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxBrowser
 
@@ -103,14 +104,19 @@ import Testing
         #expect(ownership.recipient(for: .fileChooser) == nil)
     }
 
-    @Test func aHandlerStillWinsOverTheSessionWhoseInputOpenedTheEvent() {
+    // A dialog or file chooser the page opens while it handles one
+    // session's input is that session's doing: another session's handler
+    // on the user's tab must not answer it (accept a confirm, pick files).
+    @Test func theSessionWhoseInputOpenedTheEventWinsOverAnotherSessionsHandler() {
         var ownership = BrowserReplTabOwnership()
         ownership.attach(sessionID: "agent")
         ownership.attach(sessionID: "watcher")
-        ownership.setHandledEvents([.dialog], for: "watcher")
+        ownership.setHandledEvents([.dialog, .fileChooser], for: "watcher")
         ownership.beginInput(sessionID: "agent")
-        #expect(ownership.recipient(for: .dialog) == "watcher")
+        #expect(ownership.recipient(for: .dialog) == "agent")
         #expect(ownership.recipient(for: .fileChooser) == "agent")
+        ownership.endInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "watcher", "the page's own dialog goes to the handler")
     }
 
     @Test func inputEndsWithTheSessionAndNests() {
@@ -118,10 +124,13 @@ import Testing
         ownership.attach(sessionID: "a")
         ownership.attach(sessionID: "b")
         ownership.beginInput(sessionID: "a")
-        ownership.beginInput(sessionID: "b")
-        #expect(ownership.recipient(for: .dialog) == "b", "the latest input")
-        ownership.endInput(sessionID: "b")
+        ownership.beginInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "a", "one session's nested inputs")
+        ownership.endInput(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        ownership.beginInput(sessionID: "a")
         ownership.detach(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == nil, "a session that left gets nothing")
         // Input from a session that is not attached routes nothing.
@@ -129,9 +138,717 @@ import Testing
         #expect(ownership.recipient(for: .dialog) == nil)
     }
 
+    // Two sessions' inputs in flight on one user's tab at once: WebKit does
+    // not say which input a dialog, file chooser, popup or request came
+    // from, so none of it goes to either session (the later one must not
+    // answer the earlier one's confirm or pick its files). The dialog is
+    // answered as an unhandled one, never put in front of the user.
+    @Test func overlappingInputsOfTwoSessionsRouteToNeither() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "a")
+        ownership.attach(sessionID: "b")
+        ownership.setHandledEvents([.dialog, .network], for: "b")
+        ownership.beginInput(sessionID: "a")
+        ownership.beginInput(sessionID: "b")
+        #expect(ownership.inputSessionID == nil, "no single acting session")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        #expect(ownership.recipient(for: .fileChooser) == nil)
+        // Answered as unhandled, not shown to the user.
+        #expect(ownership.route(for: .dialog) == .refused)
+        #expect(ownership.route(for: .fileChooser) == .refused)
+        // A request either input may have started reaches only the sessions
+        // that listen for network events, never the other acting session.
+        let request = ownership.networkRecipients(event: "request", requestID: "1")
+        #expect(request.map(\.sessionID) == ["b"])
+        ownership.endInput(sessionID: "b")
+        #expect(ownership.inputSessionID == "a")
+        #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "b")
+        #expect(ownership.route(for: .fileChooser) == .user)
+    }
+
+    // A download in a user's tab goes to a session only when that session's
+    // own input or navigation started it and it waits for downloads there:
+    // a file the user downloads in their tab never reaches a session that
+    // happens to listen, and a download the agent started without a
+    // listener keeps the user's download location.
+    @Test func aUsersTabGivesASessionOnlyTheDownloadsItsOwnInputStarted() {
+        let start = ContinuousClock.now
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.attach(sessionID: "listener")
+        ownership.setHandledEvents([.download], for: "agent")
+        ownership.setHandledEvents([.download], for: "listener")
+
+        // The user clicks a download link: no session's input is in flight.
+        ownership.noteNavigationAction(1, frame: "main", at: start)
+        let userStarter = ownership.takeDownloadStarter(navigation: 1, at: start)
+        #expect(userStarter == nil)
+        #expect(ownership.downloadRecipient(startedBy: userStarter) == nil, "the user's download stays the user's")
+
+        // The agent clicks one.
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(2, frame: "main", at: start)
+        ownership.endInput(sessionID: "agent")
+        // A server redirect of that navigation, after the click returned.
+        ownership.noteNavigationAction(3, frame: "main", continuing: true, at: start + .seconds(1))
+        // The response arrives after the click returned.
+        let agentStarter = ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(2))
+        #expect(agentStarter == "agent")
+        #expect(ownership.downloadRecipient(startedBy: agentStarter) == "agent", "not the other listener")
+        #expect(ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(2)) == nil, "used once")
+
+        // Without a listener the agent's download keeps the user's location.
+        ownership.setHandledEvents([], for: "agent")
+        #expect(ownership.downloadRecipient(startedBy: "agent") == nil)
+
+        // A navigation the agent started long ago does not claim a later
+        // download of the same URL the user starts.
+        ownership.beginInput(sessionID: "listener")
+        ownership.noteNavigationAction(4, frame: "main", at: start)
+        ownership.endInput(sessionID: "listener")
+        #expect(ownership.takeDownloadStarter(navigation: 4, at: start + .seconds(120)) == nil)
+    }
+
+    // The claim belongs to the navigation the session's input started, not
+    // to its URL: a later navigation of the same URL that the user or the
+    // page starts in the tab (no session input in flight) is the user's,
+    // and so is the download it becomes.
+    @Test func aLaterSameURLNavigationTheUserStartsKeepsItsDownload() {
+        let start = ContinuousClock.now
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "agent")
+        ownership.setHandledEvents([.download], for: "agent")
+        // The agent clicks a link to report.pdf (it may never become a download).
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(1, frame: "main", at: start)
+        ownership.endInput(sessionID: "agent")
+        // Seconds later the user clicks a link to the same URL, which
+        // becomes a download, as a navigation action or as its response.
+        ownership.noteNavigationAction(2, frame: "main", at: start + .seconds(5))
+        var probe = ownership
+        let fromAction = probe.takeDownloadStarter(navigation: 2, at: start + .seconds(6))
+        let starter = ownership.takeDownloadStarter(responseInFrame: "main", at: start + .seconds(6))
+        #expect(fromAction == nil && starter == nil, "the user's same-URL download was attributed to the session")
+        #expect(ownership.downloadRecipient(startedBy: starter) == nil)
+        // The session's own navigation, replaced by the user's, claims nothing either.
+        #expect(ownership.takeDownloadStarter(navigation: 1, at: start + .seconds(6)) == nil)
+        // In another frame the session's navigation still holds.
+        ownership.beginInput(sessionID: "agent")
+        ownership.noteNavigationAction(5, frame: "17", at: start + .seconds(7))
+        ownership.endInput(sessionID: "agent")
+        ownership.noteNavigationAction(6, frame: "main", at: start + .seconds(8))
+        #expect(ownership.takeDownloadStarter(navigation: 5, at: start + .seconds(9)) == "agent")
+    }
+
+    /// A redirect is the navigation that started it going on: it keeps the
+    /// starter that navigation recorded, whoever's input is in flight when
+    /// WebKit reports the redirect. The user's navigation stays the user's
+    /// while another session clicks, and a session's stays that session's.
+    @Test func aRedirectKeepsTheStarterOfItsNavigation() {
+        let start = ContinuousClock.now
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.attach(sessionID: "other")
+        users.setHandledEvents([.download], for: "agent")
+        users.setHandledEvents([.download], for: "other")
+
+        // The user clicks a link that redirects; while the redirect is on
+        // its way, another session's input is in flight.
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/get", at: start)
+        users.beginInput(sessionID: "other")
+        users.noteNavigationAction(2, frame: "main", url: "https://allowed.test/file.zip", continuing: true, at: start + .seconds(1))
+        users.endInput(sessionID: "other")
+        let userClaim = users.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(2))
+        #expect(userClaim?.sessionID == nil, "the user's redirected download went to \(String(describing: userClaim?.sessionID))")
+        #expect(users.downloadRecipient(startedBy: userClaim?.sessionID) == nil)
+
+        // A session's navigation redirects while another session's input is in flight.
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(3, frame: "main", url: "https://allowed.test/get", at: start + .seconds(3))
+        users.endInput(sessionID: "agent")
+        users.beginInput(sessionID: "other")
+        users.noteNavigationAction(4, frame: "main", url: "https://allowed.test/file.zip", continuing: true, at: start + .seconds(4))
+        users.endInput(sessionID: "other")
+        #expect(users.takeDownloadClaim(navigation: 4, at: start + .seconds(5))?.sessionID == "agent",
+                "a redirect took the starter of another session's input")
+    }
+
+    /// A download the session's input started in a user's tab reaches it
+    /// with the URL's credential values replaced (a signed or bearer URL
+    /// can be replayed); the creator of a tab gets its own as written.
+    @Test func onlyTheCreatorSeesADownloadsURLCredentials() throws {
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        let delivery = try #require(users.downloadDelivery(startedBy: "agent"))
+        #expect(delivery.sessionID == "agent")
+        #expect(!delivery.seesCredentials, "a session saw the credentials of a download in a user's tab")
+        let payload: [String: Any] = ["downloadId": "1", "url": "https://files.example/a.zip?X-Amz-Signature=s1g&token=t0k", "suggestedFilename": "a.zip"]
+        let shown = try #require(payload.redactingBrowserReplCredentials()["url"] as? String)
+        #expect(!shown.contains("s1g") && !shown.contains("t0k"))
+        #expect(users.downloadDelivery(startedBy: nil) == nil, "the user's download stays the user's")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        #expect(own.downloadDelivery(startedBy: nil) == BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true))
+    }
+
+    /// A download's bytes are a read of every place its request went, so a
+    /// session gets it only when its domain policy allows each of them (the
+    /// navigation's URL and redirects, the download's own redirects, the
+    /// response) and its local files lie inside the session's directories.
+    /// In a user's tab such a download keeps the user's location; in the
+    /// session's own tab it is cancelled.
+    @Test func aDownloadFromAPlaceTheSessionsPolicyBlocksNeverReachesIt() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try BrowserReplDomainPattern.parse("blocked.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in policy }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        let start = ContinuousClock.now
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        // The agent clicks a link to an allowed page that redirects to a
+        // blocked one, which answers with a file.
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/get", at: start)
+        users.endInput(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "main", url: "https://blocked.test/file.zip", continuing: true, at: start + .seconds(1))
+        let taken = users.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(2))
+        let claim = try #require(taken)
+        #expect(claim.sessionID == "agent")
+        #expect(claim.source.hops == ["https://allowed.test/get", "https://blocked.test/file.zip"])
+        var redirected = claim.source
+        redirected.went(to: "https://blocked.test/file.zip")
+        #expect(users.downloadRoute(startedBy: "agent", source: redirected, policy: policies, fileRoots: roots) == .user,
+                "a download through a blocked redirect reached the session")
+
+        // A download that only the download's own redirect sends to the blocked place.
+        let viaDownload = BrowserReplDownloadSource(hops: ["https://allowed.test/a", "https://blocked.test/b", "https://allowed.test/c"])
+        #expect(users.downloadRoute(startedBy: "agent", source: viaDownload, policy: policies, fileRoots: roots) == .user)
+        // A local file outside the session's directories.
+        let file = BrowserReplDownloadSource(hops: ["file:///etc/hosts"])
+        #expect(users.downloadRoute(startedBy: "agent", source: file, policy: { _ in nil }, fileRoots: roots) == .user,
+                "a local file outside the session's directories reached it as a download")
+        // A data: download a blocked document wrote.
+        let written = BrowserReplDownloadSource(
+            hops: ["data:text/plain,hi"],
+            initiator: BrowserReplFrameDocument(origin: "https://blocked.test", place: "https://blocked.test")
+        )
+        #expect(users.downloadRoute(startedBy: "agent", source: written, policy: policies, fileRoots: roots) == .user)
+        // Allowed all the way: the session's.
+        let allowed = BrowserReplDownloadSource(hops: ["https://allowed.test/get", "https://allowed.test/file.zip"])
+        #expect(users.downloadRoute(startedBy: "agent", source: allowed, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+        let inside = BrowserReplDownloadSource(hops: ["file:///private/tmp/agent-root/out.txt"])
+        #expect(users.downloadRoute(startedBy: "agent", source: inside, policy: { _ in nil }, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        guard case .refused = own.downloadRoute(startedBy: nil, source: viaDownload, policy: policies, fileRoots: roots) else {
+            Issue.record("a blocked download in the session's own tab was not refused")
+            return
+        }
+    }
+
+    /// A page cmux serves from local files (a URL of its own scheme, or of
+    /// a loopback origin it registered for the same files) streams files no
+    /// root of the session granted, so a download that went through one, or
+    /// that such a page wrote, never reaches a session: not in a user's tab
+    /// (it keeps the user's location) and not in the session's own tab
+    /// (refused), with or without a domain policy.
+    @Test func aDownloadFromAPageCmuxServesFromLocalFilesNeverReachesASession() throws {
+        let origin = try #require(URL(string: "http://127.0.0.1:47391/r37-download-token/"))
+        BrowserReplFileSandbox.registerAppServedOrigin(of: origin)
+        defer { BrowserReplFileSandbox.unregisterAppServedOrigin(of: origin) }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        let noPolicy: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        let appServed = [
+            BrowserReplDownloadSource(hops: ["cmux-diff-viewer://diff/etc/passwd"]),
+            BrowserReplDownloadSource(hops: ["https://allowed.test/get", "cmux-diff-viewer://diff/Users/someone/.ssh/id_ed25519"]),
+            BrowserReplDownloadSource(hops: ["http://127.0.0.1:47391/r37-download-token/file?path=/etc/hosts"]),
+            BrowserReplDownloadSource(hops: ["http://localhost:1234/view#cmux-diff-viewer"]),
+            BrowserReplDownloadSource(
+                hops: ["data:text/plain,secret"],
+                initiator: BrowserReplFrameDocument(origin: "cmux-diff-viewer://diff", place: "cmux-diff-viewer://diff")
+            ),
+            BrowserReplDownloadSource(
+                hops: ["blob:http://127.0.0.1:47391/7f1c2d6e-0000-4000-8000-000000000000"],
+                initiator: BrowserReplFrameDocument(origin: "http://127.0.0.1:47391", place: "http://127.0.0.1:47391")
+            ),
+        ]
+        for source in appServed {
+            #expect(users.downloadRoute(startedBy: "agent", source: source, policy: noPolicy, fileRoots: roots) == .user,
+                    "an app-served download reached the session: \(source.hops)")
+            guard case .refused = own.downloadRoute(startedBy: nil, source: source, policy: noPolicy, fileRoots: roots) else {
+                Issue.record("an app-served download in the session's own tab was not refused: \(source.hops)")
+                continue
+            }
+        }
+        // A web download the session's input started still reaches it.
+        let web = BrowserReplDownloadSource(hops: ["https://allowed.test/file.zip"])
+        #expect(users.downloadRoute(startedBy: "agent", source: web, policy: noPolicy, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+    }
+
+    /// A download no navigation claim or script message describes (WebKit
+    /// started it with no record of the document that asked for it) has no
+    /// known source document. A `data:`, `about:` or opaque `blob:` one is
+    /// that document's writing, so under a domain policy it fails closed in
+    /// the session's own tab (cancelled and reported) and keeps the user's
+    /// location in a user's tab. A web URL is still judged by its address.
+    @Test func aDownloadWhoseWritingDocumentIsUnknownFailsClosed() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = [try BrowserReplDomainPattern.parse("allowed.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in policy }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+
+        for hop in ["data:text/plain,secret", "about:blank", "blob:null/0b6d4a1c"] {
+            let unknown = BrowserReplDownloadSource.unclaimed(hops: [hop])
+            guard case .refused(let refusal) = own.downloadRoute(startedBy: nil, source: unknown, policy: policies, fileRoots: roots) else {
+                Issue.record("a \(hop) download with no known source document reached the session")
+                continue
+            }
+            #expect(refusal.rule == .domainPolicy && refusal.detail.contains("cannot tell"), "\(refusal)")
+        }
+        // A document the policy allows that asked for it: the session's.
+        var claimed = BrowserReplDownloadSource.unclaimed(hops: ["data:text/plain,ok"])
+        claimed.initiator = BrowserReplFrameDocument(origin: "https://allowed.test", place: "https://allowed.test")
+        #expect(own.downloadRoute(startedBy: nil, source: claimed, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // A web URL tells where its bytes came from.
+        let web = BrowserReplDownloadSource.unclaimed(hops: ["https://allowed.test/file.zip"])
+        #expect(own.downloadRoute(startedBy: nil, source: web, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // No policy: nothing to judge the writer by.
+        let open = BrowserReplDownloadSource.unclaimed(hops: ["data:text/plain,hi"])
+        #expect(own.downloadRoute(startedBy: nil, source: open, policy: { _ in nil }, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // A navigation the app started (no page initiator, but a claim) is not unknown.
+        let appLoad = BrowserReplDownloadSource(hops: ["data:text/plain,hi"])
+        #expect(own.downloadRoute(startedBy: nil, source: appLoad, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+    }
+
+    /// A download carries the session whose input started it from the
+    /// moment WebKit made it. When that session left the tab before WebKit
+    /// picked the download's destination (its teardown could not cancel a
+    /// download it was never told of), the download fails closed: it is
+    /// cancelled, never handed on to the user's download location.
+    @Test func aDownloadWhoseStartingSessionLeftIsCancelled() throws {
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        let roots: (String) -> [String]? = { _ in nil }
+        let source = BrowserReplDownloadSource(hops: ["https://allowed.test/file.zip"])
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        #expect(users.downloadRoute(startedBy: "agent", source: source, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+        users.detach(sessionID: "agent")
+        let left = users.downloadRoute(startedBy: "agent", source: source, policy: policies, fileRoots: roots)
+        #expect(Self.cancels(left), "a download the departed session's input started went on: \(left)")
+        // A download no session's input started keeps the user's location.
+        #expect(users.downloadRoute(startedBy: nil, source: source, policy: policies, fileRoots: roots) == .user)
+
+        // In a tab the session created, also after it left (the tab was kept).
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        own.detach(sessionID: "creator")
+        let kept = own.downloadRoute(startedBy: "creator", source: source, policy: policies, fileRoots: roots)
+        #expect(Self.cancels(kept), "a download the departed creator's input started went on: \(kept)")
+    }
+
+    /// The session leaves (reset, teardown, the tab moved away) after its
+    /// input started a navigation and before WebKit made that navigation a
+    /// download and asked for its claim. The claim still names the session,
+    /// so the download is cancelled; it never goes on to the user's
+    /// download location as one nobody started. Also when the record
+    /// outlived ``BrowserReplTabOwnership/navigationStartLifetime`` by then.
+    @Test(arguments: [false, true])
+    func aDownloadClaimedAfterItsStartingSessionLeftIsCancelled(late: Bool) throws {
+        let start = ContinuousClock.now
+        let claimedAt = start + (late ? .seconds(120) : .seconds(2))
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        let roots: (String) -> [String]? = { _ in nil }
+        for byResponse in [false, true] {
+            var users = BrowserReplTabOwnership()
+            users.attach(sessionID: "agent")
+            users.setHandledEvents([.download], for: "agent")
+            users.beginInput(sessionID: "agent")
+            users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/file.zip", at: start)
+            users.endInput(sessionID: "agent")
+            users.detach(sessionID: "agent")
+            let taken = byResponse
+                ? users.takeDownloadClaim(responseInFrame: "main", at: claimedAt)
+                : users.takeDownloadClaim(navigation: 1, at: claimedAt)
+            let claim = try #require(taken)
+            #expect(claim.sessionID == "agent", "the claim lost the session whose input started it: \(String(describing: claim.sessionID))")
+            let route = users.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: policies, fileRoots: roots)
+            #expect(Self.cancels(route), "a download the departed session's input started went on: \(route)")
+        }
+        // The user's own download in that tab still keeps the user's location.
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.detach(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "main", at: start)
+        let userTaken = users.takeDownloadClaim(navigation: 2, at: claimedAt)
+        let claim = try #require(userTaken)
+        #expect(claim.sessionID == nil)
+        #expect(users.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: policies, fileRoots: roots) == .user)
+    }
+
+    /// When the last session leaves, the tab's REPL state is dropped; what
+    /// a departed session's input started is kept
+    /// (``BrowserReplTabOwnership/departedNavigations()``), so the
+    /// download that navigation still becomes is claimed for that session
+    /// and cancelled. A later navigation in the frame (the user's) replaces
+    /// the record, and then nothing is kept.
+    @Test func theLastSessionsDepartureKeepsTheNavigationsItsInputStarted() throws {
+        let start = ContinuousClock.now
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/file.zip", at: start)
+        users.endInput(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "7", at: start)
+        users.detach(sessionID: "agent")
+        #expect(users.holdsDepartedNavigations)
+
+        var kept = users.departedNavigations()
+        #expect(kept.holdsDepartedNavigations)
+        #expect(kept.creatorSessionID == nil && !kept.isSessionOwned)
+        // Only the departed session's record is kept.
+        #expect(kept.takeDownloadClaim(responseInFrame: "7", at: start) == nil)
+        var probe = kept
+        let taken = probe.takeDownloadClaim(navigation: 1, at: start + .seconds(2))
+        let claim = try #require(taken)
+        #expect(claim.sessionID == "agent")
+        #expect(Self.cancels(probe.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: { _ in nil }, fileRoots: { _ in nil })))
+        #expect(!probe.holdsDepartedNavigations, "a used claim still kept the tab's record")
+
+        // The user navigates the frame: the record is the user's now.
+        kept.noteNavigationAction(3, frame: "main", at: start + .seconds(3))
+        #expect(!kept.holdsDepartedNavigations)
+        #expect(kept.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(4))?.sessionID == nil)
+
+        // A tab whose sessions started nothing keeps nothing.
+        var quiet = BrowserReplTabOwnership()
+        quiet.attach(sessionID: "agent")
+        quiet.noteNavigationAction(1, frame: "main", at: start)
+        quiet.detach(sessionID: "agent")
+        #expect(!quiet.holdsDepartedNavigations)
+    }
+
+    /// Whether `route` ends the download with nobody getting the file: not
+    /// the user's location, and no session.
+    private static func cancels(_ route: BrowserReplDownloadRoute) -> Bool {
+        switch route {
+        case .user, .session: false
+        default: true
+        }
+    }
+
+    @Test func aSessionTabsDownloadsStillGoToItsCreator() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.markCreated(by: "creator")
+        #expect(ownership.downloadRecipient(startedBy: nil) == "creator", "every download of its own tab")
+        ownership.setHandledEvents([.download], for: "creator")
+        #expect(ownership.downloadRecipient(startedBy: nil) == "creator")
+    }
+
+    /// A dialog (or file chooser) a frame the session's policy blocks
+    /// opened never reaches that session: it would read the blocked page's
+    /// message and answer it. What the session's own doing opened is
+    /// dismissed; a user's page dialog its handler would have taken goes to
+    /// the user.
+    @Test func aDialogFromAFrameTheSessionsPolicyBlocksNeverReachesIt() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try BrowserReplDomainPattern.parse("blocked.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { $0 == "agent" ? policy : nil }
+        let blocked = BrowserReplFrameDocument(origin: "https://blocked.test", place: "https://blocked.test")
+        let allowed = BrowserReplFrameDocument(origin: "https://allowed.test", place: "https://allowed.test")
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.dialog, .fileChooser], for: "agent")
+        #expect(users.route(for: .dialog, from: allowed, policy: policies) == .session("agent"))
+        #expect(users.route(for: .dialog, from: blocked, policy: policies) == .user,
+                "a blocked frame's dialog in a user's tab went to the session's handler")
+        #expect(users.route(for: .fileChooser, from: blocked, policy: policies) == .user)
+        users.beginInput(sessionID: "agent")
+        #expect(users.route(for: .dialog, from: blocked, policy: policies) == .refused,
+                "a blocked frame's dialog during the session's input reached it or the user")
+        users.endInput(sessionID: "agent")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        #expect(own.route(for: .dialog, from: blocked, policy: policies) == .refused,
+                "a blocked frame's dialog in the session's own tab reached it")
+        #expect(own.route(for: .dialog, from: allowed, policy: policies) == .session("agent"))
+
+        // Another session's policy does not matter.
+        var other = BrowserReplTabOwnership()
+        other.attach(sessionID: "free")
+        other.setHandledEvents([.dialog], for: "free")
+        #expect(other.route(for: .dialog, from: blocked, policy: policies) == .session("free"))
+    }
+
     @Test func eventNamesParseStrictly() {
-        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download"]) == Set(BrowserReplTabEvent.allCases))
+        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download", "network"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "popup"]) == nil)
+    }
+
+    // A tab a live session created is that session's alone: another session
+    // may not drive it (read its page, cookies, storage or clipboard, or
+    // send it input). A user's tab, or one whose creator ended, any session
+    // may drive.
+    @Test func onlyItsLiveCreatorDrivesASessionsTab() {
+        var ownership = BrowserReplTabOwnership()
+        #expect(ownership.ownerRefusing("anyone") == nil, "a user's tab")
+        ownership.markCreated(by: "creator")
+        #expect(ownership.ownerRefusing("intruder") == "creator")
+        #expect(ownership.ownerRefusing("creator") == nil)
+        ownership.detach(sessionID: "creator")
+        #expect(ownership.ownerRefusing("intruder") == nil, "a kept tab is the user's once its creator ended")
+    }
+
+    // The tab's clipboard holds what its creator copied; it is cleared when
+    // the creator leaves, so a later session never reads it.
+    @Test func detachSaysWhenTheCreatorLeft() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.markCreated(by: "creator")
+        ownership.attach(sessionID: "other")
+        let other = ownership.detach(sessionID: "other")
+        let creator = ownership.detach(sessionID: "creator")
+        let again = ownership.detach(sessionID: "creator")
+        #expect(!other)
+        #expect(creator)
+        #expect(!again, "only once")
+    }
+
+    // Network events carry request and response headers. They go to the
+    // tab's live creator, to a session with a network listener on the tab,
+    // and to the session whose input started the request; only the creator
+    // sees credential headers.
+    @Test func networkEventsGoOnlyToTheSessionsTheyBelongTo() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "bystander")
+        ownership.attach(sessionID: "listener")
+        ownership.attach(sessionID: "agent")
+        ownership.setHandledEvents([.network], for: "listener")
+        ownership.beginInput(sessionID: "agent")
+        let started = ownership.networkRecipients(event: "request", requestID: "1")
+        ownership.endInput(sessionID: "agent")
+        #expect(started == [
+            BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false),
+            BrowserReplNetworkRecipient(sessionID: "listener", seesCredentials: false),
+        ])
+        // The rest of that request follows it, after the input ended.
+        let response = ownership.networkRecipients(event: "response", requestID: "1")
+        let finished = ownership.networkRecipients(event: "requestfinished", requestID: "1")
+        #expect(response.map(\.sessionID) == ["agent", "listener"])
+        #expect(finished.map(\.sessionID) == ["agent", "listener"])
+        // A later request the agent's input did not start reaches only the listener.
+        let later = ownership.networkRecipients(event: "request", requestID: "2")
+        #expect(later.map(\.sessionID) == ["listener"])
+        ownership.setHandledEvents([], for: "listener")
+        let unheard = ownership.networkRecipients(event: "request", requestID: "3")
+        #expect(unheard.isEmpty)
+
+        var created = BrowserReplTabOwnership()
+        created.markCreated(by: "creator")
+        let own = created.networkRecipients(event: "request", requestID: "1")
+        #expect(own == [BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true)])
+    }
+
+    @Test func credentialHeadersAreRemovedForOtherSessions() {
+        let headers = [
+            "cookie": "sid=1",
+            "authorization": "Bearer t",
+            "proxy-authorization": "Basic x",
+            "set-cookie": "sid=2",
+            "x-api-key": "k",
+            "accept": "text/html",
+        ]
+        #expect(headers.removingBrowserReplCredentialHeaders() == ["accept": "text/html"])
+    }
+
+    /// Sites carry credentials in custom headers too. Network events for a
+    /// session that did not create the tab drop every header whose name says
+    /// it carries one, as `fetch` does across origins, and keep the rest.
+    @Test func customCredentialHeadersAreRemovedForOtherSessions() {
+        let headers = [
+            "x-session-token": "s",
+            "x-secret": "s",
+            "x-password": "p",
+            "x-signature": "sig",
+            "x-amz-security-token": "t",
+            "x-client-credential": "c",
+            "x-goog-authuser": "0",
+            "x-apikey": "k",
+            "www-authenticate": "Bearer",
+            "x-request-id": "r",
+            "content-type": "text/html",
+        ]
+        #expect(headers.removingBrowserReplCredentialHeaders() == ["x-request-id": "r", "content-type": "text/html"])
+    }
+    /// A request's URL can carry a credential too: an OAuth code or token
+    /// in a callback, a signed URL's signature, a reset token, a password
+    /// in the userinfo. A session that did not create the tab gets the URL
+    /// with those values replaced, by the header rule's names plus the
+    /// usual query names (`code`, `sig`, `key` and the like), also in the
+    /// URL-valued headers (`location`, `referer`).
+    @Test func credentialValuesInURLsAreRedactedForOtherSessions() throws {
+        let payload: [String: Any] = [
+            "requestId": "1",
+            "url": "https://user:hunter2@app.example/cb?code=abc123&state=xyz&access_token=t0k&X-Amz-Signature=s1g&sig=s2&page=2#id_token=jwt",
+            "method": "GET",
+            "headers": [
+                "location": "https://app.example/next?refresh_token=r3f&view=full",
+                "referer": "https://login.example/reset?reset_token=rst&lang=en",
+                "accept": "text/html",
+                "cookie": "sid=1",
+            ],
+        ]
+        let redacted = payload.redactingBrowserReplCredentials()
+        let url = try #require(redacted["url"] as? String)
+        let headers = try #require(redacted["headers"] as? [String: String])
+        for secret in ["hunter2", "abc123", "t0k", "s1g", "s2", "jwt", "r3f", "rst", "sid=1"] {
+            #expect(!url.contains(secret) && !headers.values.contains { $0.contains(secret) }, "\(secret) reached another session")
+        }
+        for kept in ["state=xyz", "page=2", "app.example/cb"] {
+            #expect(url.contains(kept), "\(kept) was lost")
+        }
+        #expect(headers["location"]?.contains("view=full") == true)
+        #expect(headers["referer"]?.contains("lang=en") == true)
+        #expect(headers["accept"] == "text/html")
+        #expect(redacted["method"] as? String == "GET")
+    }
+
+    @Test func aURLWithoutCredentialsIsUnchanged() {
+        let payload: [String: Any] = ["url": "https://app.example/search?q=tea&page=2"]
+        #expect(payload.redactingBrowserReplCredentials()["url"] as? String == "https://app.example/search?q=tea&page=2")
+    }
+
+    /// A configured external-open rule hands an activated link to the
+    /// user's system browser (NSWorkspace), outside the tab, its domain
+    /// policy and cmux. An agent's synthesized click is a link activation
+    /// to WebKit, and a page can activate a link itself (`a.click()`), so in
+    /// a tab sessions drive only a link the user activates, in a user's tab
+    /// they are working in, may leave; any other loads in the tab.
+    @Test func onlyTheUsersOwnLinkActivationsGoToTheExternalBrowser() {
+        let now = ContinuousClock.now
+        let working = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        let elsewhere = BrowserReplLinkActivation(userIsWorkingInTab: false, isUserInitiated: true)
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        #expect(users.handsLinkToExternalBrowser(working, now: now))
+        #expect(!users.handsLinkToExternalBrowser(elsewhere, now: now),
+                "a link activated in a tab sessions drive while the user works elsewhere left cmux")
+
+        users.beginInput(sessionID: "agent")
+        #expect(!users.handsLinkToExternalBrowser(working, now: now),
+                "an agent's click handed a link to the external browser")
+        users.endInput(sessionID: "agent", at: now)
+        #expect(users.handsLinkToExternalBrowser(working, now: now.advanced(by: BrowserReplTabOwnership.agentGestureLingering)))
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        #expect(!own.handsLinkToExternalBrowser(working, now: now),
+                "a link in a tab a session created left its domain policy for the external browser")
+        own.attach(sessionID: "other")
+        own.detach(sessionID: "agent")
+        #expect(own.handsLinkToExternalBrowser(working, now: now),
+                "a tab its creator left is the user's")
+    }
+
+    /// A page activates links itself (`a.click()` from its own script or
+    /// from agent-world code the session ran, which holds no input), and
+    /// WebKit reports that as a link activation too. In a tab a session
+    /// drives, only an activation WebKit marks as the user's gesture goes
+    /// to the external browser, and not while a gesture a session's input
+    /// gave the page may still be used.
+    @Test func aPagesOwnLinkActivationInADrivenTabStaysInTheTab() {
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        let start = ContinuousClock.now
+        let page = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: false)
+        let user = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        #expect(!users.handsLinkToExternalBrowser(page, now: start),
+                "a page's own link activation in a tab a session drives went to the external browser")
+        #expect(users.handsLinkToExternalBrowser(user, now: start))
+
+        // After the agent's input the page may still hold its gesture.
+        users.beginInput(sessionID: "agent")
+        users.endInput(sessionID: "agent", at: start)
+        #expect(!users.handsLinkToExternalBrowser(user, now: start.advanced(by: .seconds(5))),
+                "a link the page activated with the agent's lingering gesture went to the external browser")
+        #expect(users.handsLinkToExternalBrowser(user, now: start.advanced(by: BrowserReplTabOwnership.agentGestureLingering)))
+    }
+
+    /// Every way a navigation or window leaves the browser (the configured
+    /// external browser, the system browser rule, a signed-in cmux app link
+    /// that opens a split, another app's URL scheme) asks the one
+    /// user-gesture decision. In a tab a session drives, an agent's or the
+    /// page's activation never leaves: a web link loads in the tab under
+    /// its guards, and another app's scheme opens nothing.
+    @Test func everyExternalSideEffectAsksTheUserGestureDecision() {
+        let now = ContinuousClock.now
+        let page = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: false)
+        let user = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        for target in BrowserReplExternalTarget.allCases {
+            #expect(users.externalDecision(target, page, now: now) != .handOff,
+                    "a page's activation in a driven tab reached \(target)")
+            #expect(users.externalDecision(target, user, now: now) == .handOff,
+                    "the user's own activation did not reach \(target)")
+        }
+        #expect(users.externalDecision(.otherApp, page, now: now) == .refuse)
+        #expect(users.externalDecision(.appLink, page, now: now) == .loadInTab)
+        #expect(users.externalDecision(.systemBrowser, page, now: now) == .loadInTab)
+        #expect(users.externalDecision(.configuredBrowser, page, now: now) == .loadInTab)
+
+        users.beginInput(sessionID: "agent")
+        for target in BrowserReplExternalTarget.allCases {
+            #expect(users.externalDecision(target, user, now: now) != .handOff,
+                    "an agent's click reached \(target)")
+        }
+    }
+    /// The older `browser.*` socket methods (`cmux browser eval`, `click`,
+    /// `snapshot` and the rest) carry no session and no masking, so they are
+    /// refused every tab a session drives: one it created, and a user's tab
+    /// it drives with `tabs.use()`. A user's tab no session drives stays
+    /// theirs, also after the sessions that drove it left.
+    @Test func clientsOutsideTheReplAreRefusedEveryTabASessionDrives() {
+        var users = BrowserReplTabOwnership()
+        #expect(!users.refusesOutsideClients, "a user's tab no session drives was refused")
+        users.attach(sessionID: "agent")
+        #expect(users.refusesOutsideClients, "a user's tab a session drives was open to other clients")
+        users.detach(sessionID: "agent")
+        #expect(!users.refusesOutsideClients, "the user's tab stayed refused after the session left")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        #expect(own.refusesOutsideClients, "a session's own tab was open to other clients")
+        own.attach(sessionID: "other")
+        own.detach(sessionID: "creator")
+        #expect(own.refusesOutsideClients, "a tab another session still drives was open to other clients")
+        own.detach(sessionID: "other")
+        #expect(!own.refusesOutsideClients, "a kept tab no session drives stayed refused")
     }
 }

@@ -254,7 +254,8 @@ concurrent calls in 25 ms. Now:
   the next one, so at most one read is in flight and a burst costs at most
   two. `frames.list` reads frame names in parallel.
 - `frame.contentFrames` resolves all iframes of a frame in one call (one
-  evaluation, one tree read) instead of one call per iframe.
+  evaluation in the parent, two tree reads and one concurrent position
+  probe per child frame) instead of one call per iframe.
 - Frame trees are read concurrently, up to 256 calls in flight, and stitched
   in document order, so ref prefixes (`f1`, `f2`) do not depend on which
   frame answered first. On `iframes-300` the app takes 137 ms at 256 in
@@ -348,6 +349,63 @@ url: http://localhost:60483/stress/stress.html?kind=list&n=5000
   written as it arrives.
 - **Refs keep working.** A ref in a condensed-away region resolves like any
   other (`page.locator("e4000")`); reference B's cut children have no index.
+
+## Agent worlds
+
+Each session that drives a tab has its own agent world
+([driver-protocol.md](driver-protocol.md#agent-world)), and the page agent
+(Playwright's injected script plus `page-agent.js`, about 400 KB) runs in
+that world in every frame of every document the tab loads. Measured
+2026-10-04 on the dev Mac (M-series, macOS 27.0) with real WebKit in a
+package test: a page of a 40-item list and, in the second table, 10
+same-site iframes each holding a form and the same list; a reload's time
+(p50 of 7) and the web content process's physical footprint after the
+reloads, with 0 to 8 session worlds installed. Three runs; the ranges are
+over runs.
+
+```sh
+CMUX_BREPL_WORLD_COST=1 swift test --package-path Packages/macOS/CmuxBrowser --filter BrowserReplSessionWorldCostTests
+```
+
+One document a load:
+
+| Session worlds | Reload p50 (ms) | Footprint (MB) |
+| ---: | ---: | ---: |
+| 0 | 2.3-3.4 | 12-13 |
+| 1 | 3.2-4.3 | 21-22 |
+| 2 | 3.5-3.7 | 28-29 |
+| 4 | 4.4-7.5 | 34 |
+| 6 | 5.9-6.4 | 46-47 |
+| 8 | 6.2-8.9 | 50-62 |
+
+Eleven documents a load (10 iframes):
+
+| Session worlds | Reload p50 (ms) | Footprint (MB) |
+| ---: | ---: | ---: |
+| 0 | 12-19 | 20-22 |
+| 1 | 23-32 | 63-82 |
+| 2 | 26-37 | 93-112 |
+| 4 | 38-48 | 229-271 |
+| 6 | 44-56 | 278-391 |
+| 8 | 51-59 | 354-434 |
+
+A session world costs about 4 to 6 MB per document it is loaded in, and a
+reload grows by about 2 to 5 ms per world on the 11-document page. Time is
+not the limit; memory is: a page with 30 frames (ads, embeds) holds about
+150 MB per session world. So at most 4 sessions drive one tab
+(`BrowserReplTabSessionLimit.standard`), which keeps a 30-frame page under
+about 600 MB of agent worlds; a fifth session's call on the tab fails with
+`limit`. One agent with two helpers fits.
+
+World names are not reused (WebKit has no call that clears a world in a
+loaded document). Sessions that come and go on one tab (120 in a row, one
+attached at a time, a reload each, 11 documents) left the footprint at
+130 to 220 MB, against 93 to 103 MB when every session reused one world:
+an ended session's world is not all given back while the web content
+process lives, about 0.3 to 1 MB per ended session on that page (two runs
+held 112 to 196 MB from the 20th session on; one climbed to 219 MB by the
+100th and held). A navigation to another web content process, or the tab
+closing, ends it.
 
 ## Remaining limits
 

@@ -177,6 +177,55 @@ test("repl output: no limit (0) still spills past a hard ceiling instead of prin
   removeTestDir(workDir);
 });
 
+test("repl output: one print longer than 16,000,000 characters is cut before it is escaped, written or printed", () => {
+  const workDir = makeTestDir("cap-");
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `line-${process.pid}`,
+    print: (level, t) => {
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const gate = ns.replHost.createOutputGate(host, { maxOutput: 0 });
+  gate.print("log", "v".repeat(17_000_000));
+  gate.finish();
+  const full = /full output: (\S+)$/.exec(notes.at(-1) || "");
+  assert.ok(full, notes.join(" | "));
+  const written = fs.readFileSync(full[1], "utf8");
+  assert.ok(written.length <= 16_000_000 + 200, `the spill file holds ${written.length} characters of one print`);
+  assert.match(written, /cut after 16,000,000 characters/);
+  // Escaping cannot grow a print past the cap either.
+  const escaped = ns.replHost.printable("\u001b".repeat(5_000_000));
+  assert.ok(escaped.length <= 16_000_000 + 200, `escaped to ${escaped.length} characters`);
+  removeTestDir(workDir);
+});
+
+test("repl output: the runtime's own error reports go through the call's output gate", async () => {
+  const workDir = makeTestDir("cap-");
+  let printedChars = 0;
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `report-${process.pid}`,
+    print: (level, t) => {
+      printedChars += t.length + 1;
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const driver = { call: async () => null, on: () => () => {}, capabilities: () => [] };
+  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  // The gate is the call's from the moment evaluate() starts; an event
+  // listener's error reported meanwhile is output of that call.
+  const running = repl.evaluate("await 0", { maxOutput: 5000 });
+  repl.session.reportError("e".repeat(50000));
+  const r = await running;
+  assert.ok(r.ok, r.error);
+  assert.ok(printedChars <= 5000 + 400, `printed ${printedChars} characters past a 5,000 cap`);
+  assert.ok(notes.some((t) => /full output: \S+/.test(t)), notes.join(" | "));
+  removeTestDir(workDir);
+});
+
 test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {
   const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
   const hung = { p: "f1", _detached: false, _agent: () => new Promise(() => {}) };
@@ -186,7 +235,7 @@ test("frames: a frame that never answers is left out and marked, and the rest of
     _agent: async () => ({ nodes: [{ role: "iframe", name: "Hung", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
     _contentFrame: async (handle) => (handle === "h1" ? hung : ok),
   };
-  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
   const t = Date.now();
   const nodes = await ns.snapshot.frameNodes(page, main, null, { _frameTimeout: 200 }, true);
   assert.ok(Date.now() - t < 2000);
@@ -209,11 +258,52 @@ test("frames: a frame the domain policy blocks is left out and marked", async ()
     _agent: async () => ({ nodes: [{ role: "iframe", name: "Ad", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
     _contentFrame: async (handle) => (handle === "h1" ? blocked : ok),
   };
-  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
   const nodes = await ns.snapshot.frameNodes(page, main, null, {}, true);
   assert.deepEqual(render(shape(nodes, {}), {}), [
     '- iframe "Ad" [ref=e1] [not read: blocked by the domain policy]',
     '- iframe "Fine" [ref=e2]:',
     '  - button "Inside" [ref=f2e1]',
   ]);
+});
+
+test("frames: frames read together never pass the snapshot's node and size budget, nested frames included", async () => {
+  // Each frame reads up to its share; a frame's inner frames split what
+  // that frame left of its own share, so a slow sibling's share cannot also
+  // be spent by another sibling's inner frames. Here B answers only after
+  // A's inner frame C was asked, the order that let C take B's share.
+  const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
+  const asked = [];
+  let cAsked;
+  const cGate = new Promise((resolve) => (cAsked = resolve));
+  const full = (name) => async (method, opts) => {
+    asked.push({ name, maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+    return { nodes: [{ role: "button", name, ref: "e1", act: 1 }], max: 1, visited: opts.maxNodes, size: opts.maxSize };
+  };
+  const c = { p: "f3", _detached: false, _agent: async (method, opts) => { const r = await full("C")(method, opts); cAsked(); return r; } };
+  const a = {
+    p: "f1",
+    _detached: false,
+    _agent: async (method, opts) => {
+      asked.push({ name: "A", maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+      return { nodes: [{ role: "iframe", name: "C", ref: "e1", frame: "h3" }], max: 1, visited: 1, size: 1 };
+    },
+    _contentFrame: async () => c,
+  };
+  const b = { p: "f2", _detached: false, _agent: async (method, opts) => { await cGate; return full("B")(method, opts); } };
+  const main = {
+    p: "",
+    _agent: async (method, opts) => {
+      asked.push({ name: "main", maxNodes: opts.maxNodes, maxSize: opts.maxSize });
+      return { nodes: [{ role: "iframe", name: "A", ref: "e1", frame: "h1" }, { role: "iframe", name: "B", ref: "e2", frame: "h2" }], max: 2, visited: 10, size: 10 };
+    },
+    _contentFrame: async (handle) => (handle === "h1" ? a : b),
+  };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
+  await ns.snapshot.frameNodes(page, main, null, { _maxNodes: 100, _maxSize: 1000 }, true);
+  const spent = (key, own) => asked.reduce((sum, x) => sum + (own[x.name] !== undefined ? own[x.name] : x[key]), 0);
+  // main and A read less than their shares (10 and 1); C and B read all of theirs.
+  assert.ok(spent("maxNodes", { main: 10, A: 1 }) <= 100, `nodes read: ${JSON.stringify(asked)}`);
+  assert.ok(spent("maxSize", { main: 10, A: 1 }) <= 1000, `characters read: ${JSON.stringify(asked)}`);
+  assert.deepEqual(asked.map((x) => x.name).sort(), ["A", "B", "C", "main"]);
 });

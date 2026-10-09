@@ -670,6 +670,12 @@ extension ControlCommandCoordinator {
                 message: context.controlSurfaceCloseStrings().confirmationRequired,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .closeFailed(let id):
             return .err(
                 code: "internal_error",
