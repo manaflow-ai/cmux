@@ -111,7 +111,7 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation(requestedURL: url) { tab.startLoad(url) }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.goto")
-        return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
+        return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)].merging(Self.status(tab)) { $1 })
     }
 
     func tabHistory(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
@@ -124,7 +124,7 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation { delta < 0 ? tab.startGoBack() : tab.startGoForward() }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: delta < 0 ? "page.goBack" : "page.goForward")
-        return .object(["url": .string(tab.webView.url?.absoluteString ?? "")])
+        return .object(["url": .string(tab.webView.url?.absoluteString ?? "")].merging(Self.status(tab)) { $1 })
     }
 
     func tabReload(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
@@ -132,7 +132,14 @@ extension WebKitDriver {
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let ticket = session.waits.beginNavigation { tab.startReload() }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.reload")
-        return .object([:])
+        return .object(Self.status(tab))
+    }
+
+    /// `status`: the HTTP status of the page the tab shows, when it came over
+    /// HTTP (`page.goto()` returns a `Response` only then).
+    static func status(_ tab: WebKitTab) -> [String: DriverJSON] {
+        guard let url = tab.webView.url, let status = tab.mainFrameStatuses[url] else { return [:] }
+        return ["status": .number(Double(status))]
     }
 
     func cookiesGet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
