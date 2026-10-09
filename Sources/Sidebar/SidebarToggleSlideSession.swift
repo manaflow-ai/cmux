@@ -17,31 +17,6 @@ final class SidebarToggleSlideSession {
     private var tabRowOverlay: NSView?
     private var stillChrome: [NSView] = []
     private(set) var paneGlide: SidebarSlidePaneGlide?
-    private var tabBarDriver: SidebarSlideTabBarDriver?
-
-    /// Lays the panes' tab bars out at the slide's progress every frame
-    /// (`progress` maps a presentation time to 0 hidden ... 1 docked), at
-    /// the narrower of this frame's width and the width a few frames on.
-    /// `start` is the slide's first pose, laid out at once (the slide's
-    /// clock starts when its transaction commits, so the clock now runs
-    /// ahead, which only narrows the tabs).
-    func driveTabBars(from view: NSView, start: Double, progress: @escaping (CFTimeInterval) -> Double?) {
-        tabBarDriver?.stop()
-        guard let paneGlide, !paneGlide.tabBarWidths.isEmpty else { return }
-        func widths(at time: CFTimeInterval) -> [Double]? {
-            guard let now = progress(time) else { return nil }
-            return [now, progress(time + Self.tabBarLead) ?? now]
-        }
-        paneGlide.layOutTabBars(progress: [start] + (widths(at: CACurrentMediaTime()) ?? []))
-        tabBarDriver = SidebarSlideTabBarDriver(view: view) { [weak paneGlide] time in
-            guard let paneGlide, let value = widths(at: time) else { return }
-            paneGlide.layOutTabBars(progress: value)
-        }
-    }
-
-    /// How far ahead the tab bars look: a frame or two the main thread can
-    /// miss without tabs reaching under the lane.
-    static let tabBarLead: CFTimeInterval = 0.034
 
     /// The panes' rects in both layouts, for per-pane motion.
     struct Panes {
@@ -73,6 +48,7 @@ final class SidebarToggleSlideSession {
                 docked: panes.docked,
                 sidebarWidth: panes.sidebarWidth,
                 chrome: chrome?.bands ?? [:],
+                tabFades: chrome?.tabFades ?? [:],
                 tabRow: tabRow
             ), let layer = glide.overlay?.layer {
                 paneGlide = glide
@@ -139,53 +115,9 @@ final class SidebarToggleSlideSession {
             layer.mask = nil
         }
         glides.forEach { $0.layer.removeAnimation(forKey: animationKey) }
-        tabBarDriver?.stop()
-        tabBarDriver = nil
         paneGlide?.tearDown(animationKey: animationKey)
         tabRowOverlay?.removeFromSuperview()
         stillChrome.forEach { $0.removeFromSuperview() }
         stillOverlay?.removeFromSuperview()
-    }
-}
-
-/// A display link that hands each frame's presentation time to `tick`.
-/// The tab bars re-lay out on the main thread, once per frame, only while
-/// a slide runs.
-@MainActor
-private final class SidebarSlideTabBarDriver: NSObject {
-    private var link: CADisplayLink?
-    private let tick: (CFTimeInterval) -> Void
-
-    init(view: NSView, tick: @escaping (CFTimeInterval) -> Void) {
-        self.tick = tick
-        super.init()
-        let link = view.displayLink(target: self, selector: #selector(step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        self.link = link
-    }
-
-#if DEBUG
-    private var costs: [Double] = []
-#endif
-
-    @objc private func step(_ link: CADisplayLink) {
-#if DEBUG
-        let began = CACurrentMediaTime()
-        tick(link.targetTimestamp)
-        costs.append((CACurrentMediaTime() - began) * 1000)
-#else
-        tick(link.targetTimestamp)
-#endif
-    }
-
-    func stop() {
-        link?.invalidate()
-        link = nil
-#if DEBUG
-        if !costs.isEmpty {
-            SidebarNavigationTimings.record(String(format: "slide.tabbarCost frames=%d avgMs=%.2f maxMs=%.2f", costs.count, costs.reduce(0, +) / Double(costs.count), costs.max() ?? 0))
-        }
-#endif
     }
 }

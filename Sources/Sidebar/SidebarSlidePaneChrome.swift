@@ -32,6 +32,27 @@ struct SidebarSlidePaneChrome {
     let bands: [ObjectIdentifier: [Band]]
     /// The panes that end at the content's trailing edge.
     let trailingEdge: Set<ObjectIdentifier>
+    /// How each pane's tabs fade out before its trailing edge at rest.
+    let tabFades: [ObjectIdentifier: TabFade]
+
+    /// Bonsplit fades a pane's tabs over `fade` points ending `occlusion`
+    /// points before its trailing edge (before the action lane, partly
+    /// under it), and clears them past that.
+    struct TabFade {
+        var fade: CGFloat = 24
+        var occlusion: CGFloat = 0
+
+        /// Bonsplit's `TabBarActionLaneGeometry` for the app's backdrop
+        /// effect: without a lane only an overflowing strip's 24 pt fade;
+        /// with one, the effect's fade, ending a fraction of the lane in,
+        /// or the whole lane when its buttons overflow it.
+        static func at(lane: CGFloat, buttonCount: Int) -> Self {
+            let effect = Workspace.bonsplitSplitButtonBackdropEffect()
+            guard lane > 0, buttonCount > 0, effect.masksTabContent, effect.style != .hidden else { return Self() }
+            let overflows = laneWidth(buttonCount: buttonCount, paneWidth: .infinity) > lane + 1
+            return Self(fade: effect.contentFadeWidth, occlusion: overflows ? lane : lane * effect.contentOcclusionFraction)
+        }
+    }
 
     /// `covered` are the portal-hosted views' rects (terminals, browsers):
     /// rows they span are their own business.
@@ -112,14 +133,12 @@ struct SidebarSlidePaneChrome {
                 }
 #endif
                 let isTabBar = tabRows[id].map { abs($0.lowerBound - rows.lowerBound) < 1 && abs($0.upperBound - rows.upperBound) < 1 } ?? false
-                // The tabs lay themselves out live at the pane's moving
-                // width (SidebarSlidePaneGlide.tabBarWidths) with Bonsplit's
-                // own lane hidden; the lane, whose width Bonsplit reports,
-                // rides the trailing edge as a picture.
+                // The tabs hold still (SidebarSlidePaneGlide.holdTabBars)
+                // with Bonsplit's own lane hidden; the lane, whose width
+                // Bonsplit reports, rides the trailing edge as a picture of
+                // the lane alone.
                 if isTabBar {
-                    let lane = Int(((lanes[id] ?? 0) * scale).rounded())
-                    if lane > 0, lane < paneRep.pixelsWide,
-                       let band = picture(paneRep, rect: paneRect, rows: 0..<paneRep.pixelsHigh, columns: (paneRep.pixelsWide - lane)..<paneRep.pixelsWide) {
+                    if let view = layout.view(id), let band = lanePicture(of: view, lane: lanes[id] ?? 0, reference: reference) {
                         bands[id, default: []].append(band)
                     }
                     continue
@@ -138,10 +157,113 @@ struct SidebarSlidePaneChrome {
             }
         }
         bands = bands.filter { !$0.value.isEmpty }
+        let tabFades = lanes.mapValues { TabFade.at(lane: $0, buttonCount: buttonCount) }
 #if DEBUG
         SidebarNavigationTimings.record("slide.chrome buttons=\(buttonCount) panes=\(layout.panes.count) bands=\(bands.values.map { $0.map { "\(Int($0.rect.minY))+\(Int($0.rect.height)):\(Int($0.rect.width))" } })")
 #endif
-        return bands.isEmpty ? nil : Self(bands: bands, trailingEdge: trailingEdge)
+        return bands.isEmpty ? nil : Self(bands: bands, trailingEdge: trailingEdge, tabFades: tabFades)
+    }
+
+    /// The selected tab's indicator line at the top of a tab bar (Bonsplit's
+    /// `activeIndicatorHeight`, 1.5 pt), with room for antialiasing.
+    static let indicatorHeight: CGFloat = 2
+
+    /// A pane's tab row views that draw up to its trailing edge: the tabs'
+    /// scroll view, the selection chrome (the selected tab's indicator and
+    /// the bar's bottom line), and other scroll views (the action lane's
+    /// buttons among them).
+    static func tabRowViews(in pane: NSView) -> (scrollViews: [NSView], selectionChromes: [NSView], otherScrollViews: [NSView]) {
+        var scrollViews: [NSView] = [], selectionChromes: [NSView] = [], otherScrollViews: [NSView] = []
+        func holdsTab(_ view: NSView) -> Bool {
+            SidebarSlideTabRowCapture.isTabItemRegion(view) || view.subviews.contains(where: holdsTab)
+        }
+        func visit(_ view: NSView) {
+            if NSStringFromClass(type(of: view)).contains("TabBarSelectionChromeView") {
+                selectionChromes.append(view)
+            } else if view is NSScrollView {
+                if holdsTab(view) { scrollViews.append(view) } else { otherScrollViews.append(view) }
+            } else {
+                view.subviews.forEach(visit)
+            }
+        }
+        visit(pane)
+        return (scrollViews, selectionChromes, otherScrollViews)
+    }
+
+    /// A tab bar's action lane alone, on clear: its buttons, and the bar's
+    /// bottom line under it, as Bonsplit draws them at rest. Nothing else
+    /// of the bar is in it (tab content under the lane, the ground behind
+    /// the bar), so the live tabs fade out under it untouched.
+    static func lanePicture(of pane: NSView, lane: CGFloat, reference: NSView) -> Band? {
+        let views = tabRowViews(in: pane)
+        guard lane > 0, let chrome = views.selectionChromes.first else { return nil }
+        let bar = pane.convert(chrome.bounds, from: chrome)
+        let rect = NSRect(x: bar.maxX - lane, y: bar.minY, width: lane, height: bar.height)
+        let buttons = views.otherScrollViews.filter { view in
+            let frame = pane.convert(view.bounds, from: view)
+            return frame.maxX > rect.minX + 1 && frame.minY < bar.maxY && frame.maxY > bar.minY
+        }
+        let scale = pane.window?.backingScaleFactor ?? 2
+        let width = Int((rect.width * scale).rounded()), height = Int((rect.height * scale).rounded())
+        guard !buttons.isEmpty, width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        func draw(_ view: NSView, below: CGFloat?) {
+            let local = view.convert(rect, from: pane)
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: local) else { return }
+            view.cacheDisplay(in: local, to: rep)
+            guard let image = rep.cgImage else { return }
+            context.saveGState()
+            // Only rows below the top `below` points (the bottom line, not
+            // the selected tab's indicator: the live one is faded instead).
+            if let below { context.clip(to: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height) - below * scale)) }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.restoreGState()
+        }
+        draw(chrome, below: indicatorHeight)
+        buttons.forEach { draw($0, below: nil) }
+        guard let image = context.makeImage() else { return nil }
+        return Band(image: image, rect: reference.convert(rect, from: pane))
+    }
+
+    /// A mask for a layer of a pane's tab row that fades its drawing out
+    /// before `edge` (the pane's trailing edge, in the layer's coordinates)
+    /// the way Bonsplit fades tabs at rest: kept up to `fade + occlusion`
+    /// before the edge, faded over `fade`, cleared past. The rows `keep`
+    /// (the bar's bottom line) are kept up to their own edge instead. The
+    /// slide rides it on the pane's moving trailing edge.
+    static func trailingFadeMask(for layer: CALayer, edge: CGFloat, fade: CGFloat, occlusion: CGFloat, keep: (rows: ClosedRange<CGFloat>, edge: CGFloat)?) -> CALayer {
+        let bleed: CGFloat = 10_000
+        let mask = CALayer()
+        mask.anchorPoint = .zero
+        mask.bounds = layer.bounds
+        mask.position = layer.bounds.origin
+        let fadeStart = edge - occlusion - fade
+        func solid(_ x1: CGFloat, _ y0: CGFloat, _ y1: CGFloat) {
+            let part = CALayer()
+            part.backgroundColor = NSColor.black.cgColor
+            part.frame = CGRect(x: -bleed, y: y0, width: x1 + bleed, height: y1 - y0)
+            mask.addSublayer(part)
+        }
+        func band(_ y0: CGFloat, _ y1: CGFloat) {
+            guard y1 > y0 else { return }
+            solid(fadeStart, y0, y1)
+            guard fade > 0 else { return }
+            let gradient = CAGradientLayer()
+            gradient.colors = [NSColor.black.cgColor, NSColor.black.withAlphaComponent(0).cgColor]
+            gradient.startPoint = CGPoint(x: 0, y: 0.5)
+            gradient.endPoint = CGPoint(x: 1, y: 0.5)
+            gradient.frame = CGRect(x: fadeStart, y: y0, width: fade, height: y1 - y0)
+            mask.addSublayer(gradient)
+        }
+        let top = layer.bounds.minY - bleed, bottom = layer.bounds.maxY + bleed
+        if let keep {
+            band(top, keep.rows.lowerBound)
+            band(keep.rows.upperBound, bottom)
+            solid(keep.edge, keep.rows.lowerBound, keep.rows.upperBound)
+        } else {
+            band(top, bottom)
+        }
+        return mask
     }
 
     /// Bonsplit's action lane: 6 pt leading and 8 pt trailing padding, 22 pt

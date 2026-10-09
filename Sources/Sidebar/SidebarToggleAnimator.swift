@@ -269,9 +269,7 @@ final class SidebarToggleAnimator: ObservableObject {
         }
         let distance = slide.to - slide.from
         let velocity = distance == 0 ? 0 : slide.velocity / distance
-        if let view = window.contentView {
-            session.driveTabBars(from: view, start: min(1, max(0, slide.from / Double(layout?.width ?? 1)))) { [weak self] time in self?.progress(at: time) }
-        }
+        session.paneGlide?.holdTabBars()
         for (index, layer) in session.movingLayers.enumerated() {
             let animation = slideSpring(from: slide.from, to: slide.to, velocity: velocity, duration: slide.duration)
             if index == 0 {
@@ -323,14 +321,6 @@ final class SidebarToggleAnimator: ObservableObject {
         guard let layer = session?.movingLayers.first, let animation = layer.animation(forKey: Self.animationKey),
               animation.beginTime > 0 else { return CACurrentMediaTime() }
         return layer.convertTime(animation.beginTime, to: nil)
-    }
-
-    /// How far the slide shows at a presentation time: 0 hidden, 1 docked.
-    private func progress(at time: CFTimeInterval) -> Double? {
-        guard let slide = machine.slide, let width = layout?.width, width > 0 else { return nil }
-        let elapsed = (time - slide.begin) * Double(Self.speed)
-        let offset = machine.spring.position(from: slide.from, to: slide.to, velocity: slide.velocity, at: max(0, elapsed))
-        return min(1, max(0, offset / Double(width)))
     }
 
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {

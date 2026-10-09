@@ -15,11 +15,8 @@ import QuartzCore
 @MainActor
 final class SidebarSlidePaneGlide {
     private(set) var animations: [SidebarSlideGlide.Layer] = []
-    /// Each pane's tab bar with its width in the hidden and the docked
-    /// layout: the animator sets the width in between every frame, so tabs
-    /// truncate and the action lane sits at the pane's moving trailing edge
-    /// exactly as Bonsplit lays them out at that width.
-    private(set) var tabBarWidths: [(tabBar: BonsplitTabBarSlideWidthControlling, pane: NSView, hidden: CGFloat, docked: CGFloat)] = []
+    /// Each pane's tab bar with the width it is held at for the slide.
+    private(set) var tabBarWidths: [(tabBar: BonsplitTabBarSlideWidthControlling, pane: NSView, held: CGFloat)] = []
     private(set) var overlay: NSView?
     private var masked: [CALayer] = []
     private var pictures: [CALayer] = []
@@ -52,6 +49,7 @@ final class SidebarSlidePaneGlide {
         docked: SidebarSlidePaneLayout,
         sidebarWidth: CGFloat,
         chrome: [ObjectIdentifier: [SidebarSlidePaneChrome.Band]],
+        tabFades: [ObjectIdentifier: SidebarSlidePaneChrome.TabFade],
         tabRow: SidebarSlideTabRowCapture?
     ) {
         guard sidebarWidth > 0, !hidden.isEmpty else { return nil }
@@ -99,14 +97,17 @@ final class SidebarSlidePaneGlide {
         }
         for (id, hiddenRect) in hidden.panes {
             guard let dockedRect = docked.panes[id], let pane = hidden.view(id) else { continue }
-            func find(_ view: NSView) {
-                if let tabBar = view as? BonsplitTabBarSlideWidthControlling {
-                    tabBarWidths.append((tabBar, pane, hiddenRect.width, dockedRect.width))
-                    return
-                }
-                view.subviews.forEach(find)
+            func find(_ view: NSView) -> BonsplitTabBarSlideWidthControlling? {
+                if let tabBar = view as? BonsplitTabBarSlideWidthControlling { return tabBar }
+                return view.subviews.lazy.compactMap(find).first
             }
-            find(pane)
+            guard let tabBar = find(pane) else { continue }
+            let fade = tabFades[id] ?? SidebarSlidePaneChrome.TabFade()
+            // At the pane's own (hidden, the wider) width: the tabs and their
+            // scroll offset stay exactly as laid out, and nothing in them
+            // reaches the pane's moving edge unfaded.
+            tabBarWidths.append((tabBar, pane, hiddenRect.width))
+            fadeTabRow(of: pane, tabBar: tabBar, fade: fade, trailing: Double(dockedRect.width - hiddenRect.width) / width)
         }
         // The portals' views (terminals, browser pages) follow the pane
         // their anchor sits in, by its absolute motion; neither portal is
@@ -186,6 +187,30 @@ final class SidebarSlidePaneGlide {
         // are hidden for the slide.
         for view in Self.paneWideOverlays(in: container, portalViews: portalViews) {
             if let layer = view.layer { hide(layer) }
+        }
+    }
+
+    /// The tabs hold still for the slide (laid out once at the pane's own
+    /// width, `holdTabBars`), and are faded out before the pane's moving
+    /// trailing edge as Bonsplit fades them at rest, by masks riding that
+    /// edge on the slide's spring: no main-thread layout can lag it. The
+    /// selected tab's indicator is faded the same way; the bar's bottom
+    /// line ends at the lane, whose picture carries it on.
+    private func fadeTabRow(of pane: NSView, tabBar: BonsplitTabBarSlideWidthControlling, fade: SidebarSlidePaneChrome.TabFade, trailing: Double) {
+        let lane = tabBar.slideActionLaneWidth
+        let views = SidebarSlidePaneChrome.tabRowViews(in: pane)
+        for (view, isSelectionChrome) in views.scrollViews.map({ ($0, false) }) + views.selectionChromes.map({ ($0, true) }) {
+            guard let layer = view.layer, layer.mask == nil else { continue }
+            let edge = view.convertToLayer(view.convert(NSPoint(x: pane.bounds.maxX, y: 0), from: pane)).x
+            var keep: (rows: ClosedRange<CGFloat>, edge: CGFloat)?
+            if isSelectionChrome {
+                let line = view.convertToLayer(NSRect(x: view.bounds.minX, y: view.isFlipped ? view.bounds.maxY - 1 : view.bounds.minY, width: view.bounds.width, height: 1))
+                keep = (line.minY...line.maxY, edge - lane)
+            }
+            let mask = SidebarSlidePaneChrome.trailingFadeMask(for: layer, edge: edge, fade: fade.fade, occlusion: fade.occlusion, keep: keep)
+            layer.mask = mask
+            masked.append(layer)
+            animations.append(.init(layer: mask, keyPath: "transform.translation.x", factor: trailing))
         }
     }
 
@@ -333,22 +358,15 @@ final class SidebarSlidePaneGlide {
         return false
     }
 
-    /// Lays every tab bar's tabs out at the narrowest of its widths for
-    /// `progress` (0 hidden, 1 docked; this frame's and a little later's),
-    /// or back to its pane's own width with nil. A frame the main thread
-    /// misses then shows a little bar surface before the lane picture,
-    /// never tabs under it.
-    func layOutTabBars(progress: [Double]?) {
+    /// Holds every tab bar still for the slide at its held width (its lane
+    /// hidden; the lane's picture rides the edge), or back at its pane's
+    /// own width when done.
+    func holdTabBars(_ hold: Bool = true) {
         for entry in tabBarWidths {
-            guard let progress, !progress.isEmpty else {
-                entry.tabBar.slideTabBarWidth = nil
-                continue
-            }
-            let width = progress.map { entry.hidden + (entry.docked - entry.hidden) * CGFloat($0) }.min() ?? entry.hidden
-            entry.tabBar.slideTabBarWidth = (width * 2).rounded(.down) / 2
+            entry.tabBar.slideTabBarWidth = hold ? entry.held : nil
         }
-        // Apply now, inside this frame's transaction, not on a later pass:
-        // SwiftUI marks the hosting view for layout on its own schedule.
+        // Apply now, inside this transaction, not on a later pass: SwiftUI
+        // marks the hosting view for layout on its own schedule.
         for entry in tabBarWidths {
             entry.pane.needsLayout = true
             entry.pane.layoutSubtreeIfNeeded()
@@ -356,7 +374,7 @@ final class SidebarSlidePaneGlide {
     }
 
     func tearDown(animationKey: String) {
-        layOutTabBars(progress: nil)
+        holdTabBars(false)
         animations.forEach { $0.layer.removeAnimation(forKey: animationKey) }
         masked.forEach { $0.mask = nil }
         hidden.forEach { $0.layer.mask = $0.mask }
