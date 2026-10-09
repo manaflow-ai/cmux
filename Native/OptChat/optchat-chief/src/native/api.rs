@@ -25,6 +25,8 @@ pub struct CallError {
     pub retry: bool,
     /// The caller's `stop` said so: the stream was dropped mid-response.
     pub interrupted: bool,
+    /// How long the server asked to wait before the next try (`retry-after`).
+    pub retry_after: Option<Duration>,
 }
 
 impl CallError {
@@ -33,6 +35,7 @@ impl CallError {
             message: message.into(),
             retry,
             interrupted: false,
+            retry_after: None,
         }
     }
 
@@ -41,7 +44,14 @@ impl CallError {
             message: "interrupted for a newer message".into(),
             retry: false,
             interrupted: true,
+            retry_after: None,
         }
+    }
+
+    /// The same error with the server's `retry-after`.
+    pub fn with_retry_after(mut self, wait: Duration) -> CallError {
+        self.retry_after = Some(wait);
+        self
     }
 }
 
