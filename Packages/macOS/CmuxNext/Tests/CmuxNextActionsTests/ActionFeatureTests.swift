@@ -15,7 +15,7 @@ import Testing
     @Test func featuresMapTheirActions() {
         #expect(Self.ids(.computerUse) == ["palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
                                            "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"])
-        #expect(Self.ids(.apps) == ["appStore.show", "appStore.showInstalled", "app.hide", "app.unhide", "app.open", "app.command.run"])
+        #expect(Self.ids(.apps) == ["appStore.show", "appStore.showInstalled", "app.hide", "app.unhide", "app.open", "app.command.run", "app.shareCmux"])
         #expect(Self.ids(.remoteHosts).isSuperset(of: ["remote.connect", "remote.newWorkspace", "disconnectRemoteTab"]))
         let cloud = Self.ids(.cloud)
         #expect(cloud.contains("newCloudMachine") && cloud.contains("palette.openCloudPane") && cloud.contains("switchRightSidebarToMachines"))
