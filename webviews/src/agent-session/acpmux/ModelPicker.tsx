@@ -159,7 +159,7 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -533,6 +533,22 @@ export function ModelPicker(props: ModelPickerProps) {
               aria-selected={starredView}
               selected={starredView}
               active={starredView}
+              keyboard={(event) => {
+                if (!harnesses.length) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  showTab(harnesses[activeHarness]?.id, activeHarness);
+                  menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[activeHarness]?.focus();
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const next = (activeHarness - 1 + harnesses.length) % harnesses.length;
+                  showTab(harnesses[next]?.id, next);
+                  menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[next]?.focus();
+                } else if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  search.current?.focus();
+                }
+              }}
               onPointerEnter={() => showTab(STARRED, -1)}
               onClick={() => showTab(STARRED, -1, true)}
             >
@@ -558,6 +574,11 @@ export function ModelPicker(props: ModelPickerProps) {
                 keyboard={(event) => {
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
+                    if (event.key === "ArrowUp" && index === 0) {
+                      showTab(STARRED, -1);
+                      menu.current?.querySelector<HTMLButtonElement>(".acpmux-mp-rail")?.focus();
+                      return;
+                    }
                     const step = event.key === "ArrowDown" ? 1 : -1;
                     const next = (index + step + harnesses.length) % harnesses.length;
                     showTab(harnesses[next]?.id, next);

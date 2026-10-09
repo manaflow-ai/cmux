@@ -175,8 +175,8 @@ describe("T3 model picker", () => {
     await key(harnessRails()[0]!, "ArrowDown");
     expect(doc.activeElement).toBe(harnessRails()[1]);
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
 
     await key(harnessRails()[1]!, "ArrowRight");
@@ -225,7 +225,8 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    await key(input, "ArrowUp");
+    await key(input, "ArrowDown");
+    await key(input, "ArrowDown");
     await key(input, "Enter");
     expect(calls).toEqual(["model claude-opus-4-1"]);
     expect(menu()).toBeNull();
