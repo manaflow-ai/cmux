@@ -2107,7 +2107,7 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     install_daemon_build();
-    owner_start::prepare(args.ephemeral, args.state.is_some())?;
+    owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;

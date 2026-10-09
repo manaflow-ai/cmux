@@ -449,13 +449,11 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
-    use std::collections::{HashMap, HashSet};
-    use std::ffi::CString;
+    use std::collections::HashMap;
     use std::fs::{self, File, OpenOptions};
     use std::io as std_io;
     use std::io::{Read, Write};
     use std::os::fd::{AsRawFd, RawFd};
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::os::unix::process::CommandExt;
@@ -472,10 +470,12 @@ mod unix {
 
     use super::shared::codec::*;
     use super::shared::host_state::*;
-    use super::sys::connect_with_retry;
+    use super::shared::records::*;
+    use super::sys::{
+        HostLivenessLease, acquire_terminal_host_publication_lock, connect_with_retry,
+        prepare_endpoint_dir, prepare_private_dir, reserve_terminal_host_publication,
+    };
     use super::*;
-
-    static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
     /// Own a PTY child until the host's reaper thread has taken responsibility
     /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
@@ -571,7 +571,6 @@ mod unix {
 
     mod adopt_launch;
     mod adopted_child;
-    mod barrier_sync;
     mod clipboard_read;
     mod exited_drain;
     mod host_accept;
@@ -596,7 +595,7 @@ mod unix {
     use host_start::HostChild;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_custody::{live_successor_record, record_owner_token};
-    pub(crate) use pty_lock::sweep_released_pty_locks;
+    pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
     pub(crate) use standby::{
         StandbyTerminalHost, launch_terminal_host_from, launch_terminal_host_seeded,
     };
@@ -752,603 +751,8 @@ mod unix {
         Ok(attachment)
     }
 
-    /// Validate a discovery record without trusting paths or alternate
-    /// identity spellings supplied by its JSON payload.
-    pub fn validate_terminal_host_record(
-        record_path: &Path,
-        record: &TerminalHostRecord,
-    ) -> anyhow::Result<TerminalHostIdentity> {
-        if !matches!(record.record_version, 1 | 2 | 3 | HOST_RECORD_VERSION) {
-            anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
-        }
-        let terminal_id = TerminalId::from_hex(&record.terminal_id)
-            .ok_or_else(|| anyhow::anyhow!("terminal-host id is not a canonical UUIDv4"))?;
-        let incarnation = HostIncarnation::from_hex(&record.incarnation).ok_or_else(|| {
-            anyhow::anyhow!("terminal-host incarnation is not a canonical UUIDv4")
-        })?;
-        let owner = decode_lower_hex_array::<{ crate::terminal_host::CAPABILITY_TOKEN_LEN }>(
-            &record.owner_token,
-            "owner token",
-        )?;
-        if owner.iter().all(|byte| *byte == 0) {
-            anyhow::bail!("terminal-host owner token is zero");
-        }
-        if record.record_version == 1 {
-            if record.host_pid != 0
-                || !record.host_start_nonce.is_empty()
-                || record.supports_set_defaults
-                || record.supports_clear_history
-                || record.supports_terminate_ack
-                || record.supports_input_ack
-                || record.supports_terminal_metadata
-                || record.supports_clipboard_read
-                || record.supports_viewer_size_priority
-                || record.supports_pty_custody
-            {
-                anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
-            }
-        } else {
-            if record.record_version < HOST_RECORD_VERSION && record.supports_terminal_metadata {
-                anyhow::bail!(
-                    "legacy terminal-host record advertises terminal metadata without support"
-                );
-            }
-            if record.record_version < HOST_RECORD_VERSION && record.supports_viewer_size_priority {
-                anyhow::bail!("pre-v4 terminal-host record advertises viewer-size priority");
-            }
-            if record.record_version == 2 && record.supports_terminate_ack {
-                anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
-            }
-            if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
-                anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
-            }
-            if record.record_version < HOST_RECORD_VERSION
-                && (record.supports_clipboard_read || record.supports_pty_custody)
-            {
-                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
-            }
-            let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
-                &record.host_start_nonce,
-                "process-start nonce",
-            )?;
-            if nonce.iter().all(|byte| *byte == 0) {
-                anyhow::bail!("terminal-host process-start nonce is zero");
-            }
-            if record.host_pid == 0 {
-                anyhow::bail!("terminal-host PID is zero");
-            }
-        }
-        if record.workspace_key.len() > MAX_STRING || record.workspace_key.contains('\0') {
-            anyhow::bail!("terminal-host workspace hint is invalid");
-        }
-
-        let parent = record_path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("terminal-host record has no parent directory"))?;
-        let expected_record = parent.join(format!("{}.json", record.terminal_id));
-        if record_path != expected_record {
-            anyhow::bail!("terminal-host record filename is not canonical");
-        }
-        let uid = fs::metadata(parent)?.uid();
-        let expected_endpoint = PathBuf::from("/tmp")
-            .join(format!("cmux-th-{uid}"))
-            .join(format!("{}.sock", record.terminal_id));
-        if Path::new(&record.endpoint) != expected_endpoint {
-            anyhow::bail!("terminal-host endpoint is not canonical");
-        }
-        if let Ok(metadata) = fs::symlink_metadata(record_path)
-            && (!metadata.file_type().is_file()
-                || metadata.uid() != uid
-                || metadata.mode() & 0o077 != 0)
-        {
-            anyhow::bail!("terminal-host record permissions or ownership are unsafe");
-        }
-        let _ = (terminal_id, incarnation);
-        Ok(TerminalHostIdentity {
-            terminal_id: record.terminal_id.clone(),
-            incarnation: record.incarnation.clone(),
-        })
-    }
-
-    fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
-        record_path
-            .with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
-    }
-
-    /// Probe the process-lifetime nonce lock. `Dead` is positive evidence
-    /// tied to this exact incarnation even if `host_pid` has since been
-    /// assigned to another process.
-    pub fn terminal_host_record_liveness(
-        record_path: &Path,
-        record: &TerminalHostRecord,
-    ) -> anyhow::Result<TerminalHostLiveness> {
-        validate_terminal_host_record(record_path, record)?;
-        if record.record_version == 1 {
-            // v1 predates process-bound liveness proof. Preserve and adopt a
-            // reachable legacy host, but never infer death from PID/socket
-            // observations that are vulnerable to reuse and startup races.
-            // A normal legacy Exit remains authoritative and removes its own
-            // record; an unclean v1 crash intentionally requires manual or
-            // version-aware migration rather than unsafe reaping.
-            return Ok(if !record_path.exists() && !Path::new(&record.endpoint).exists() {
-                TerminalHostLiveness::Dead
-            } else {
-                TerminalHostLiveness::Indeterminate
-            });
-        }
-        let path = liveness_path(record_path, record);
-        let file = match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let host_cleanup_complete = !record_path.exists()
-                    && !Path::new(&record.endpoint).exists()
-                    && !path.exists();
-                return Ok(
-                    if host_cleanup_complete || process_definitely_absent(record.host_pid) {
-                        TerminalHostLiveness::Dead
-                    } else {
-                        TerminalHostLiveness::Indeterminate
-                    },
-                );
-            }
-            Err(_) => return Ok(TerminalHostLiveness::Indeterminate),
-        };
-        let metadata = file.metadata()?;
-        let expected_uid = fs::metadata(record_path.parent().unwrap())?.uid();
-        if !metadata.file_type().is_file()
-            || metadata.uid() != expected_uid
-            || metadata.nlink() != 1
-            || metadata.mode() & 0o077 != 0
-        {
-            return Ok(TerminalHostLiveness::Indeterminate);
-        }
-        loop {
-            // SAFETY: flock only observes/changes the advisory lock associated
-            // with this valid, owned file descriptor.
-            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-            if result == 0 {
-                // SAFETY: same valid descriptor as above. Unlock before the
-                // temporary probe descriptor is closed.
-                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-                return Ok(TerminalHostLiveness::Dead);
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Ok(
-                if error
-                    .raw_os_error()
-                    .is_some_and(|code| code == libc::EWOULDBLOCK || code == libc::EAGAIN)
-                {
-                    TerminalHostLiveness::Live
-                } else {
-                    TerminalHostLiveness::Indeterminate
-                },
-            );
-        }
-    }
-
-    /// Remove a discovery record only after the process-lifetime proof says
-    /// the exact recorded host is dead. A live or ambiguous record is always
-    /// retained for a later adoption attempt.
-    pub fn remove_stale_terminal_host_record(
-        record_path: &Path,
-        expected: &TerminalHostRecord,
-    ) -> anyhow::Result<bool> {
-        if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
-            return Ok(false);
-        }
-        let current: TerminalHostRecord = serde_json::from_slice(&fs::read(record_path)?)?;
-        validate_terminal_host_record(record_path, &current)?;
-        if current.terminal_id != expected.terminal_id
-            || current.incarnation != expected.incarnation
-            || current.host_start_nonce != expected.host_start_nonce
-        {
-            return Ok(false);
-        }
-        let proof = liveness_path(record_path, &current);
-        let endpoint = PathBuf::from(&current.endpoint);
-        fs::remove_file(record_path)?;
-        let _ = fs::remove_file(proof);
-        crate::terminal_loss_log::remove_signals(record_path);
-        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
-        if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
-            let _ = fs::remove_file(endpoint);
-        }
-        Ok(true)
-    }
-
-    pub fn load_terminal_host_records(
-        root: &Path,
-    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
-        load_terminal_host_records_with_policy(root, false)
-    }
-
     pub mod unadoptable;
-    use unadoptable::process_definitely_absent;
-
-    pub(crate) fn load_terminal_host_records_for_reset(
-        root: &Path,
-    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
-        load_terminal_host_records_with_policy(root, true)
-    }
-
-    fn load_terminal_host_records_with_policy(
-        root: &Path,
-        fail_closed: bool,
-    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
-        let mut records = Vec::new();
-        let mut identities = HashSet::new();
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
-            Err(error) => return Err(error.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) if !fail_closed => continue,
-                Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("read terminal-host record {}", path.display()));
-                }
-            };
-            let record = match serde_json::from_slice::<TerminalHostRecord>(&bytes) {
-                Ok(record) => record,
-                Err(_) if !fail_closed => continue,
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("decode terminal-host record {}", path.display())
-                    });
-                }
-            };
-            if let Err(error) = validate_terminal_host_record(&path, &record) {
-                if fail_closed {
-                    return Err(error).with_context(|| {
-                        format!("validate terminal-host record {}", path.display())
-                    });
-                }
-                continue;
-            }
-            if !identities.insert((record.terminal_id.clone(), record.incarnation.clone())) {
-                if fail_closed {
-                    anyhow::bail!("duplicate terminal-host identity in {}", path.display());
-                }
-                continue;
-            }
-            records.push((path, record));
-        }
-        // Reset uses records only for marker membership and liveness checks, so
-        // keep its fail-closed scan linear.
-        if !fail_closed {
-            records.sort_by(|left, right| left.0.cmp(&right.0));
-        }
-        Ok(records)
-    }
-
-    pub fn validate_terminal_host_exit_record(
-        record_path: &Path,
-        record: &TerminalHostExitRecord,
-    ) -> anyhow::Result<()> {
-        if record.record_version != HOST_EXIT_RECORD_VERSION {
-            anyhow::bail!(
-                "unsupported terminal-host exit record version {}",
-                record.record_version
-            );
-        }
-        TerminalId::from_hex(&record.terminal_id)
-            .ok_or_else(|| anyhow::anyhow!("terminal-host exit id is not a canonical UUIDv4"))?;
-        HostIncarnation::from_hex(&record.incarnation).ok_or_else(|| {
-            anyhow::anyhow!("terminal-host exit incarnation is not a canonical UUIDv4")
-        })?;
-        anyhow::ensure!(record.exit.is_valid(), "terminal-host exit outcome is invalid");
-        let parent = record_path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("terminal-host exit record has no parent directory"))?;
-        if record_path != parent.join(format!("{}.exit", record.terminal_id)) {
-            anyhow::bail!("terminal-host exit record filename is not canonical");
-        }
-        let metadata = fs::symlink_metadata(record_path)?;
-        let expected_uid = fs::metadata(parent)?.uid();
-        if !metadata.file_type().is_file()
-            || metadata.uid() != expected_uid
-            || metadata.nlink() != 1
-            || metadata.mode() & 0o077 != 0
-        {
-            anyhow::bail!("terminal-host exit record permissions or ownership are unsafe");
-        }
-        Ok(())
-    }
-
-    pub fn load_terminal_host_exit_records(
-        root: &Path,
-    ) -> anyhow::Result<Vec<(PathBuf, TerminalHostExitRecord)>> {
-        let mut records = Vec::new();
-        let mut identities = HashSet::new();
-        let entries = match fs::read_dir(root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
-            Err(error) => return Err(error.into()),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("exit") {
-                continue;
-            }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
-            };
-            let Ok(record) = serde_json::from_slice::<TerminalHostExitRecord>(&bytes) else {
-                continue;
-            };
-            if validate_terminal_host_exit_record(&path, &record).is_err()
-                || !identities.insert((record.terminal_id.clone(), record.incarnation.clone()))
-            {
-                continue;
-            }
-            records.push((path, record));
-        }
-        records.sort_by(|left, right| left.0.cmp(&right.0));
-        Ok(records)
-    }
-
-    pub fn terminal_host_exit_record(
-        host_record_path: &Path,
-    ) -> anyhow::Result<Option<(PathBuf, TerminalHostExitRecord)>> {
-        let path = host_record_path.with_extension("exit");
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        let record = serde_json::from_slice::<TerminalHostExitRecord>(&bytes)?;
-        validate_terminal_host_exit_record(&path, &record)?;
-        Ok(Some((path, record)))
-    }
-
-    /// Acknowledge only the exact sidecar already committed to the registry.
-    /// A mismatched replacement is retained for reconciliation rather than
-    /// deleting evidence from another incarnation.
-    pub fn acknowledge_terminal_host_exit_record(
-        record_path: &Path,
-        expected: &TerminalHostExitRecord,
-    ) -> anyhow::Result<bool> {
-        let bytes = match fs::read(record_path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        let current: TerminalHostExitRecord = serde_json::from_slice(&bytes)?;
-        validate_terminal_host_exit_record(record_path, &current)?;
-        if &current != expected {
-            return Ok(false);
-        }
-        fs::remove_file(record_path)?;
-        // The terminal ended with a recorded exit: its signal breadcrumbs
-        // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
-        crate::terminal_loss_log::remove_signals(record_path);
-        pty_lock::remove_released(record_path, &current.terminal_id, &current.incarnation);
-        if let Some(parent) = record_path.parent() {
-            File::open(parent)?.sync_all()?;
-        }
-        Ok(true)
-    }
-
-    pub(crate) fn write_record(path: &Path, record: &TerminalHostRecord) -> anyhow::Result<()> {
-        write_json_record(path, record)
-    }
-
-    fn write_exit_record(path: &Path, record: &TerminalHostExitRecord) -> anyhow::Result<()> {
-        if let Some(parent) = path.parent() {
-            prepare_private_dir(parent)?;
-        }
-        let temporary = path.with_extension(format!(
-            "tmp-{}-{}",
-            std::process::id(),
-            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        let bytes = serde_json::to_vec(record)?;
-        let result = (|| -> anyhow::Result<bool> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-                .open(&temporary)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            match rename_no_replace(&temporary, path) {
-                Ok(()) => {
-                    if let Some(parent) = path.parent() {
-                        File::open(parent)?.sync_all()?;
-                    }
-                    Ok(true)
-                }
-                Err(error) if error.kind() == std_io::ErrorKind::AlreadyExists => Ok(false),
-                Err(error) => Err(error.into()),
-            }
-        })();
-        if temporary.exists() {
-            let _ = fs::remove_file(&temporary);
-        }
-        if result? {
-            return validate_terminal_host_exit_record(path, record);
-        }
-        let current: TerminalHostExitRecord = serde_json::from_slice(&fs::read(path)?)?;
-        validate_terminal_host_exit_record(path, &current)?;
-        anyhow::ensure!(
-            current == *record,
-            "terminal-host exit sidecar already contains a different outcome"
-        );
-        Ok(())
-    }
-
-    fn exit_persistence_diagnostic_path(exit_record_path: &Path) -> PathBuf {
-        exit_record_path.with_extension("exit-error")
-    }
-
-    fn write_exit_persistence_diagnostic(
-        exit_record_path: &Path,
-        attempt: u64,
-        error: &anyhow::Error,
-    ) -> std_io::Result<()> {
-        let path = exit_persistence_diagnostic_path(exit_record_path);
-        if let Some(parent) = path.parent() {
-            prepare_private_dir(parent).map_err(std_io::Error::other)?;
-        }
-        let message = format!(
-            "terminal-host exit persistence failed on attempt {attempt}; retrying: {error:#}\n"
-        );
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)?;
-        file.write_all(message.as_bytes())?;
-        file.sync_all()
-    }
-
-    fn clear_exit_persistence_diagnostic(exit_record_path: &Path) {
-        match fs::remove_file(exit_persistence_diagnostic_path(exit_record_path)) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std_io::ErrorKind::NotFound => {}
-            Err(_) => {}
-        }
-    }
-
-    fn next_exit_persistence_retry_delay(delay: Duration) -> Duration {
-        delay.saturating_mul(2).min(HOST_EXIT_PERSIST_RETRY_MAX)
-    }
-
-    #[cfg(target_vendor = "apple")]
-    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
-        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
-            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
-        })?;
-        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
-            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
-        })?;
-        // SAFETY: both pointers reference live NUL-terminated path strings,
-        // and RENAME_EXCL asks the kernel to leave an existing target intact.
-        if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
-            Ok(())
-        } else {
-            Err(std_io::Error::last_os_error())
-        }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn rename_no_replace(from: &Path, to: &Path) -> std_io::Result<()> {
-        let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| {
-            std_io::Error::new(std_io::ErrorKind::InvalidInput, "temporary path has NUL")
-        })?;
-        let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| {
-            std_io::Error::new(std_io::ErrorKind::InvalidInput, "exit path has NUL")
-        })?;
-        // SAFETY: both pointers reference live NUL-terminated path strings,
-        // and RENAME_NOREPLACE asks the kernel to leave an existing target intact.
-        // Call the syscall directly because musl does not export a `renameat2`
-        // wrapper symbol.
-        if unsafe {
-            libc::syscall(
-                libc::SYS_renameat2,
-                libc::AT_FDCWD,
-                from.as_ptr(),
-                libc::AT_FDCWD,
-                to.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        } == 0
-        {
-            Ok(())
-        } else {
-            Err(std_io::Error::last_os_error())
-        }
-    }
-
-    fn write_json_record(path: &Path, record: &impl Serialize) -> anyhow::Result<()> {
-        if let Some(parent) = path.parent() {
-            prepare_private_dir(parent)?;
-        }
-        let temporary = path.with_extension(format!(
-            "tmp-{}-{}",
-            std::process::id(),
-            RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        let bytes = serde_json::to_vec(record)?;
-        let result = (|| -> anyhow::Result<()> {
-            let mut file =
-                OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
-            file.write_all(&bytes)?;
-            barrier_sync::barrier_sync(&file)?;
-            fs::rename(&temporary, path)?;
-            if let Some(parent) = path.parent() {
-                barrier_sync::barrier_sync_dir(parent)?;
-            }
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result
-    }
-
-    fn prepare_private_dir(path: &Path) -> anyhow::Result<()> {
-        fs::create_dir_all(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-        Ok(())
-    }
-
-    /// The shared `/tmp` directory that holds host sockets. Every user can
-    /// create names there, so the directory must be a real one this user owns.
-    fn prepare_endpoint_dir(path: &Path) -> anyhow::Result<()> {
-        match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-                anyhow::bail!(
-                    "terminal host endpoint directory is not a directory: {}",
-                    path.display()
-                );
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std_io::ErrorKind::NotFound => fs::create_dir_all(path)?,
-            Err(error) => return Err(error.into()),
-        }
-        let metadata = fs::symlink_metadata(path)?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_dir()
-            || metadata.uid() != crate::platform::effective_uid()
-        {
-            anyhow::bail!(
-                "terminal host endpoint directory is not this user's: {}",
-                path.display()
-            );
-        }
-        if metadata.mode() & 0o077 != 0 {
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-            if fs::symlink_metadata(path)?.mode() & 0o077 != 0 {
-                anyhow::bail!(
-                    "terminal host endpoint directory is not private: {}",
-                    path.display()
-                );
-            }
-        }
-        Ok(())
-    }
+    pub(crate) use unadoptable::process_definitely_absent;
 
     fn wait_for_pty_readable_or_forced_drain(
         pty_fd: RawFd,
@@ -2525,171 +1929,6 @@ mod unix {
         }
     }
 
-    struct HostLivenessLease {
-        file: File,
-        path: PathBuf,
-    }
-
-    impl HostLivenessLease {
-        fn acquire(path: PathBuf) -> anyhow::Result<Self> {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(&path)?;
-            // SAFETY: flock only changes the advisory lock on this newly
-            // created, valid file descriptor.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-                let error = std::io::Error::last_os_error();
-                let _ = fs::remove_file(&path);
-                return Err(error.into());
-            }
-            barrier_sync::barrier_sync(&file)?; // why no full sync: barrier_sync.rs
-            Ok(Self { file, path })
-        }
-    }
-
-    impl Drop for HostLivenessLease {
-        fn drop(&mut self) {
-            // Closing the owner's descriptor does not release flock while a
-            // concurrently forked child still holds an inherited duplicate.
-            // The lease lifetime belongs to this owner, so end it explicitly
-            // before closing the descriptor.
-            // SAFETY: flock only changes the advisory lock associated with
-            // this valid, owned file descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
-    pub(crate) struct TerminalHostResetLock {
-        file: File,
-    }
-
-    pub(crate) struct TerminalHostPublicationLock {
-        file: File,
-    }
-
-    pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
-        prepare_private_dir(root)?;
-        let path = terminal_host_publication_lock_path(root);
-        let (file, existed) = barrier_sync::open_lock_file(&path)
-            .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        barrier_sync::sync_new_lock_file(&file, root, existed)?;
-        Ok(())
-    }
-
-    pub(crate) fn reserve_terminal_host_publication(
-        root: &Path,
-    ) -> anyhow::Result<TerminalHostPublicationLock> {
-        prepare_terminal_host_publication_lock(root)?;
-        acquire_terminal_host_publication_lock(root)
-    }
-
-    pub(crate) fn acquire_terminal_host_reset_lock(
-        root: &Path,
-    ) -> anyhow::Result<Option<TerminalHostResetLock>> {
-        prepare_terminal_host_publication_lock(root)?;
-        let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
-            || format!("terminal host state has live or unverified hosts: {}", root.display()),
-        )?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(Some(TerminalHostResetLock { file }))
-    }
-
-    pub(crate) fn acquire_terminal_host_publication_lock(
-        root: &Path,
-    ) -> anyhow::Result<TerminalHostPublicationLock> {
-        let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        lock_terminal_host_publication_file(&file, libc::LOCK_SH)
-            .with_context(|| format!("lock terminal-host publication lock {}", path.display()))?;
-        validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(TerminalHostPublicationLock { file })
-    }
-
-    fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
-    }
-
-    fn validate_terminal_host_publication_lock(
-        root: &Path,
-        path: &Path,
-        file: &File,
-    ) -> anyhow::Result<()> {
-        let root_metadata = fs::metadata(root)
-            .with_context(|| format!("inspect terminal-host root {}", root.display()))?;
-        let path_metadata = fs::symlink_metadata(path).with_context(|| {
-            format!("inspect terminal-host publication lock {}", path.display())
-        })?;
-        if !path_metadata.file_type().is_file()
-            || path_metadata.uid() != root_metadata.uid()
-            || path_metadata.mode() & 0o077 != 0
-            || path_metadata.nlink() != 1
-        {
-            anyhow::bail!("terminal-host publication lock is unsafe: {}", path.display());
-        }
-        let file_metadata = file.metadata()?;
-        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
-        {
-            anyhow::bail!(
-                "terminal-host publication lock changed while opening: {}",
-                path.display()
-            );
-        }
-        Ok(())
-    }
-
-    fn lock_terminal_host_publication_file(
-        file: &File,
-        operation: libc::c_int,
-    ) -> anyhow::Result<()> {
-        loop {
-            // SAFETY: flock only observes or changes the advisory lock on this
-            // valid descriptor.
-            if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
-                return Ok(());
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(error.into());
-        }
-    }
-
-    impl Drop for TerminalHostResetLock {
-        fn drop(&mut self) {
-            // SAFETY: flock only changes the advisory lock on this valid descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
-    impl Drop for TerminalHostPublicationLock {
-        fn drop(&mut self) {
-            // SAFETY: flock only changes the advisory lock on this valid descriptor.
-            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
-
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
@@ -3563,6 +2802,7 @@ mod unix {
         mod parser_failure;
         mod parser_order;
         use super::super::shared::control_responses::ControlResponseWaiter;
+        use super::super::sys::terminal_host_publication_lock_path;
         use super::*;
         use cmux_pty::{Child, PtyOpenError, PtySize};
         use ghostty_vt::CursorShape;
@@ -7244,28 +6484,35 @@ pub(crate) use shared::codec::{
 #[cfg(unix)]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
 #[cfg(unix)]
+pub(crate) use shared::records::load_terminal_host_records_for_reset;
+#[cfg(unix)]
+pub use shared::records::{
+    acknowledge_terminal_host_exit_record, load_terminal_host_exit_records,
+    load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_exit_record,
+    terminal_host_record_liveness, validate_terminal_host_exit_record,
+    validate_terminal_host_record,
+};
+#[cfg(unix)]
+pub(crate) use sys::acquire_terminal_host_reset_lock;
+#[cfg(all(unix, test))]
+pub(crate) use sys::{
+    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+};
+#[cfg(all(unix, test))]
+pub(crate) use unix::input_ack_surface_fixture;
+#[cfg(unix)]
 pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DeferredCellPixelResolution, StandbyTerminalHost,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    launch_terminal_host_from, launch_terminal_host_seeded, live_successor_record,
-    load_terminal_host_records_for_reset, record_owner_token, sweep_released_pty_locks,
+    adopt_terminal_host_with_kitty_limits, launch_terminal_host_from, launch_terminal_host_seeded,
+    live_successor_record, record_owner_token, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{
-    PtyCustody, TerminalHostAdoption, acknowledge_terminal_host_exit_record, adopt_terminal_host,
-    isolate_terminal_host_process_fds, launch_terminal_host, launch_terminal_host_adopting,
-    launch_terminal_host_with_identity, load_terminal_host_exit_records,
-    load_terminal_host_records, remove_stale_terminal_host_record,
-    request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_exit_record,
-    terminal_host_record_liveness, terminal_host_root, validate_terminal_host_exit_record,
-    validate_terminal_host_record,
-};
-#[cfg(all(unix, test))]
-pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
-    prepare_terminal_host_publication_lock,
+    PtyCustody, TerminalHostAdoption, adopt_terminal_host, isolate_terminal_host_process_fds,
+    launch_terminal_host, launch_terminal_host_adopting, launch_terminal_host_with_identity,
+    request_terminal_host_pty_custody, serve_terminal_host_stdio, terminal_host_root,
 };
 
 #[cfg(not(unix))]
