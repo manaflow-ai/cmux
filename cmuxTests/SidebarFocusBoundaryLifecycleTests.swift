@@ -347,3 +347,23 @@ struct SidebarSlideGlideTests {
         #expect(SidebarSlideGlide.factor(hiddenLeading: 10, dockedLeading: 200, sidebarWidth: 0) == 0)
     }
 }
+
+/// The tab bar's trailing part a slide pins to each pane's moving trailing
+/// edge is Bonsplit's action lane, whose width must match Bonsplit's rule.
+@Suite
+struct SidebarSlidePaneChromeLaneTests {
+    @Test
+    func laneIsPaddingPlusButtonsUpToFive() {
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 0, paneWidth: 500) == 0)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 1, paneWidth: 500) == 36)
+        // The default four buttons: 6 + 8 padding, 4 x 22, 3 x 4 spacing.
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 4, paneWidth: 500) == 114)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 5, paneWidth: 120) == 140)
+    }
+
+    @Test
+    func pastFiveTheLaneIsCappedNearAQuarterOfThePane() {
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 8, paneWidth: 400) == 140)
+        #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 8, paneWidth: 1000) == 218)
+    }
+}

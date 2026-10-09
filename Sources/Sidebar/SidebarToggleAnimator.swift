@@ -32,10 +32,10 @@ final class SidebarToggleAnimator: ObservableObject {
     private var dockedLayoutWillCommit: (Bool) -> Void = { _ in }
     /// How much further right the tab bar's first tab rests hidden.
     private var tabBarInsetDelta: () -> CGFloat = { 0 }
+    /// A hide's docked pane rects, taken before the hidden layout commits.
+    private var pendingDocked: SidebarSlidePaneLayout?
     /// How many action buttons a pane's tab bar shows on its trailing end.
     private var splitButtonCount: () -> Int = { 0 }
-    /// A hide's start, taken before the hidden layout commits.
-    private var pendingStart: SidebarSlideStart?
     /// The last hide's hidden and docked pane layouts: a show over the same
     /// hidden layout lands on exactly that docked one.
     private var paneLayouts: (hidden: SidebarSlidePaneLayout, docked: SidebarSlidePaneLayout, width: CGFloat)?
@@ -43,6 +43,7 @@ final class SidebarToggleAnimator: ObservableObject {
     /// What carries the running slide, captured when it starts and kept for
     /// every retarget until it lands.
     private var session: SidebarToggleSlideSession?
+    private var layoutObserver: NSObjectProtocol?
     /// Effects are being carried out; a press arriving meanwhile (the atomic
     /// commit runs the run loop once) waits its turn.
     private var isExecuting = false
@@ -161,14 +162,14 @@ final class SidebarToggleAnimator: ObservableObject {
                 } else {
                     slide = nil
                 }
-                pendingStart = captureStart(in: window, docked: true)
+                pendingDocked = SidebarSlideStart.dockedLayout(in: window)
                 commitAtomically(in: window) {
                     layout?.docksSidebar = false
                     dockedLayoutWillCommit(false)
                 } layers: {
                     if let slide { addSlideAnimation(slide, in: window) }
                 }
-                pendingStart = nil
+                pendingDocked = nil
                 if let slide { machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime()) }
             case let .animate(slide):
                 CATransaction.begin()
@@ -246,16 +247,18 @@ final class SidebarToggleAnimator: ObservableObject {
         // drop the slide this was for; a session built for it would never land.
         guard machine.slide?.generation == slide.generation else { return }
         if session == nil, let views = Self.slidingViews(in: window), let layout {
-            let start = pendingStart ?? captureStart(in: window, docked: false)
-            pendingStart = nil
+            let start = captureStart(in: window, docked: pendingDocked)
+            pendingDocked = nil
+            let panes = SidebarSlideStart.isRigid ? nil : paneLayouts(for: start, reference: views[0], width: layout.width, window: window)
             session = SidebarToggleSlideSession(
                 views: views,
                 trailingStillWidth: trailingStillWidth(),
                 titleGlide: layout.titlebarTitle?.glide(sidebarWidth: layout.width),
                 tabRow: start.tabRow,
-                lanes: start.lanes,
-                panes: paneLayouts(for: start, reference: views[0], width: layout.width, window: window)
+                chrome: start.chrome,
+                panes: panes
             )
+            watchLayout(in: window)
         }
         guard let session, !session.movingLayers.isEmpty else {
             // Nothing to move: land now, so the press still takes effect.
@@ -288,7 +291,7 @@ final class SidebarToggleAnimator: ObservableObject {
         }
     }
 
-    private func captureStart(in window: NSWindow, docked: Bool) -> SidebarSlideStart {
+    private func captureStart(in window: NSWindow, docked: SidebarSlidePaneLayout?) -> SidebarSlideStart {
         SidebarSlideStart.capture(in: window, docked: docked, inset: tabBarInsetDelta(), sidebarWidth: layout?.width ?? 0, buttonCount: splitButtonCount())
     }
 
@@ -296,7 +299,7 @@ final class SidebarToggleAnimator: ObservableObject {
     /// hide's press, seen at the last hide over this same hidden layout, or
     /// failing both, predicted.
     private func paneLayouts(for start: SidebarSlideStart, reference: NSView, width: CGFloat, window: NSWindow) -> SidebarToggleSlideSession.Panes {
-        let hidden = SidebarSlidePaneLayout.measure(in: reference)
+        let hidden = start.hidden ?? SidebarSlidePaneLayout.measure(in: reference)
         let docked: SidebarSlidePaneLayout
         if let measured = start.docked {
             docked = measured
@@ -306,7 +309,7 @@ final class SidebarToggleAnimator: ObservableObject {
         } else {
             docked = hidden.predictedDocked(in: reference, sidebarWidth: width)
         }
-        return .init(hidden: hidden, docked: docked, hostedViews: SidebarSlideStart.hostedViews(in: window), sidebarWidth: width)
+        return .init(hidden: hidden, docked: docked, portalViews: SidebarSlideStart.portalViews(in: window), sidebarWidth: width)
     }
 
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {
@@ -330,6 +333,28 @@ final class SidebarToggleAnimator: ObservableObject {
     private func removeSlideAnimations() {
         session?.tearDown(animationKey: Self.animationKey)
         session = nil
+        layoutObserver.map(NotificationCenter.default.removeObserver)
+        layoutObserver = nil
+    }
+
+    /// The slide's motion is built for the pane layout at its start. A
+    /// split, a close or a workspace switch mid-slide resizes split views;
+    /// the slide then lands at once on the new layout instead of moving
+    /// stale geometry.
+    private func watchLayout(in window: NSWindow) {
+        layoutObserver = NotificationCenter.default.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main
+        ) { [weak self, weak window] note in
+            guard let splitView = note.object as? NSSplitView, let window, splitView.window === window,
+                  SidebarSlidePaneLayout.splitView(splitView) != nil else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.session != nil, let slide = self.machine.slide else { return }
+#if DEBUG
+                SidebarNavigationTimings.record("slide.layoutChanged split=\(ObjectIdentifier(splitView).hashValue) frame=\(splitView.frame) executing=\(self.isExecuting)")
+#endif
+                self.land(generation: slide.generation)
+            }
+        }
     }
 
     /// Idempotent: a stale or repeated landing does nothing.

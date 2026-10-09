@@ -22,7 +22,7 @@ final class SidebarToggleSlideSession {
     struct Panes {
         let hidden: SidebarSlidePaneLayout
         let docked: SidebarSlidePaneLayout
-        let hostedViews: [NSView]
+        let portalViews: [SidebarSlideStart.PortalView]
         let sidebarWidth: CGFloat
     }
 
@@ -31,7 +31,7 @@ final class SidebarToggleSlideSession {
         trailingStillWidth: CGFloat,
         titleGlide: SidebarSlideGlide.Layer?,
         tabRow: SidebarSlideTabRowCapture?,
-        lanes: SidebarSlideTrailingChromeCapture?,
+        chrome: SidebarSlidePaneChrome?,
         panes: Panes?
     ) {
         self.init(views: views, trailingStillWidth: trailingStillWidth)
@@ -43,17 +43,19 @@ final class SidebarToggleSlideSession {
                 reference: reference,
                 container: container,
                 above: last,
-                hostedViews: panes.hostedViews,
+                portalViews: panes.portalViews,
                 hidden: panes.hidden,
                 docked: panes.docked,
                 sidebarWidth: panes.sidebarWidth,
-                lanes: lanes?.lanes ?? [:]
+                chrome: chrome?.bands ?? [:],
+                tabRow: tabRow
             ), let layer = glide.overlay?.layer {
                 paneGlide = glide
                 movingLayers.append(layer)
                 glides.append(contentsOf: glide.animations)
+                return
             } else {
-                stillChrome = lanes?.makeOverlays(above: reference, in: container) ?? []
+                stillChrome = chrome?.makeStillOverlays(above: reference, in: container) ?? []
             }
         }
         // The tab row picture rides with the content root (below the right

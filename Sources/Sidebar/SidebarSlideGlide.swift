@@ -235,8 +235,24 @@ struct SidebarSlideTabRowCapture {
 
     /// The overlay the slide moves with the content root, and the picture
     /// layer inside it that glides on top of that.
+    /// The plain ground and the gliding picture as layers inside `clip`
+    /// (the leading pane's own clip), so neither can reach the next pane.
+    func makeLayers(in clip: NSView, from reference: NSView) -> (ground: CALayer, picture: CALayer) {
+        let groundLayer = CALayer()
+        groundLayer.contents = ground
+        groundLayer.contentsGravity = .resize
+        groundLayer.zPosition = 999
+        groundLayer.frame = clip.convert(groundRect, from: reference)
+        let pictureLayer = CALayer()
+        pictureLayer.contents = picture
+        pictureLayer.contentsGravity = .resize
+        pictureLayer.zPosition = 1_000
+        pictureLayer.frame = clip.convert(pictureRect, from: reference)
+        return (groundLayer, pictureLayer)
+    }
+
     func makeOverlay(above reference: NSView, in container: NSView) -> (view: NSView, glide: SidebarSlideGlide.Layer)? {
-        let view = SidebarSlidePassthroughView(frame: container.convert(groundRect, from: reference))
+        let view = SidebarSlidePictureView(frame: container.convert(groundRect, from: reference))
         view.wantsLayer = true
         container.addSubview(view, positioned: .above, relativeTo: reference)
         guard let layer = view.layer else {
@@ -252,93 +268,4 @@ struct SidebarSlideTabRowCapture {
         layer.addSublayer(pictureLayer)
         return (view, SidebarSlideGlide.Layer(layer: pictureLayer, keyPath: "transform.translation.x", factor: factor))
     }
-}
-
-/// The action buttons on the trailing end of each pane that ends at the
-/// content's trailing edge rest at the same x in both layouts. The slide
-/// carries the full-width layout past that edge, though, so on their own
-/// they would slide out under the right sidebar (or the window edge) and
-/// pop back at the landing, or vanish at a hide's press and slide back in.
-/// The slide shows a still picture of them in place instead, taken at the
-/// press, over the real ones, and drops it in the commit that lands.
-@MainActor
-struct SidebarSlideTrailingChromeCapture {
-    /// Every pane's action lane, keyed by the pane's hosting view.
-    let lanes: [ObjectIdentifier: (image: CGImage, rect: NSRect)]
-    /// The panes that end at the content's trailing edge.
-    let trailingEdge: Set<ObjectIdentifier>
-
-    /// Bonsplit's action lane: 6 pt leading and 8 pt trailing padding, 22 pt
-    /// per button and 4 pt between them, all shown up to five buttons.
-    nonisolated static func laneWidth(buttonCount: Int, paneWidth: CGFloat) -> CGFloat {
-        guard buttonCount > 0 else { return 0 }
-        func width(_ count: Int) -> CGFloat { 10 + 26 * CGFloat(count) }
-        guard buttonCount > 5 else { return width(buttonCount) }
-        return min(width(buttonCount), max(paneWidth / 4, width(5)))
-    }
-
-    static func capture(in reference: NSView, buttonCount: Int) -> Self? {
-        guard buttonCount > 0 else {
-#if DEBUG
-            SidebarNavigationTimings.record("slide.trailing buttons=0")
-#endif
-            return nil
-        }
-        var rows: [ObjectIdentifier: (pane: NSRect, tabs: NSRect)] = [:]
-        func walk(_ view: NSView) {
-            if SidebarSlideTabRowCapture.isTabItemRegion(view), !view.isHiddenOrHasHiddenAncestor,
-               !view.visibleRect.isEmpty, let pane = SidebarSlideTabRowCapture.paneHost(of: view) {
-                let rect = reference.convert(view.visibleRect, from: view)
-                let key = ObjectIdentifier(pane)
-                rows[key] = (reference.convert(pane.bounds, from: pane), rows[key].map { $0.tabs.union(rect) } ?? rect)
-            }
-            view.subviews.forEach(walk)
-        }
-        walk(reference)
-        guard let trailing = rows.values.map(\.pane.maxX).max() else { return nil }
-        var lanes: [ObjectIdentifier: (image: CGImage, rect: NSRect)] = [:]
-        var trailingEdge: Set<ObjectIdentifier> = []
-        for (id, row) in rows {
-            let lane = laneWidth(buttonCount: buttonCount, paneWidth: row.pane.width)
-            let rect = NSRect(x: row.pane.maxX - lane, y: row.tabs.minY, width: lane, height: row.tabs.height)
-            guard let image = SidebarSlideTabRowCapture.snapshot(reference, rect) else { continue }
-            lanes[id] = (image, rect)
-            if row.pane.maxX > trailing - 1 { trailingEdge.insert(id) }
-        }
-#if DEBUG
-        SidebarNavigationTimings.record("slide.trailing rows=\(rows.count) lanes=\(lanes.count) buttons=\(buttonCount)")
-#endif
-        return lanes.isEmpty ? nil : Self(lanes: lanes, trailingEdge: trailingEdge)
-    }
-
-    /// Fallback without per-pane motion: still pictures of the trailing-edge
-    /// panes' lanes, which rest at the same x in both layouts.
-    func makeOverlays(above reference: NSView, in container: NSView) -> [NSView] {
-        lanes.filter { trailingEdge.contains($0.key) }.values.map { picture in
-            let view = SidebarSlidePassthroughView(frame: container.convert(picture.rect, from: reference))
-            view.wantsLayer = true
-            view.image = picture.image
-            view.layer?.contentsGravity = .resize
-            container.addSubview(view, positioned: .above, relativeTo: nil)
-            return view
-        }
-    }
-}
-
-/// Shows a picture and takes no clicks. Drawing goes through `updateLayer`,
-/// so a display pass (the atomic commit runs one) keeps the picture instead
-/// of repainting the layer with an empty `draw(_:)`.
-private final class SidebarSlidePassthroughView: NSView {
-    var image: CGImage? {
-        didSet { layer?.contents = image }
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.contents = image
-        layer?.contentsGravity = .resize
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
