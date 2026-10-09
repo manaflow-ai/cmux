@@ -13,12 +13,12 @@ mod app;
 mod browser_input;
 #[cfg(unix)]
 mod claude_wrapper;
-#[cfg(unix)]
-mod codex_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
+#[cfg(unix)]
+mod codex_wrapper;
 mod config;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]

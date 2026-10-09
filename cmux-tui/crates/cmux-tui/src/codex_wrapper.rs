@@ -161,9 +161,9 @@ fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
 }
 
 fn is_codex_shim(path: &Path) -> bool {
-    fs::read(path)
-        .ok()
-        .is_some_and(|bytes| bytes.windows(SHIM_MARKER.len()).any(|window| window == SHIM_MARKER.as_bytes()))
+    fs::read(path).ok().is_some_and(|bytes| {
+        bytes.windows(SHIM_MARKER.len()).any(|window| window == SHIM_MARKER.as_bytes())
+    })
 }
 
 fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
@@ -182,7 +182,8 @@ fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
-    let executable = agent_hook_install::shell_quote(executable.to_str().context("cmux-tui path is not UTF-8")?);
+    let executable =
+        agent_hook_install::shell_quote(executable.to_str().context("cmux-tui path is not UTF-8")?);
     let dir = agent_hook_install::shell_quote(dir.to_str().context("shim directory is not UTF-8")?);
     Ok(format!(
         "#!/bin/sh\n{SHIM_MARKER}\nif [ -x {executable} ]; then\n  exec {executable} agent {VERB} \"$@\"\nfi\n\nset -f\nIFS=:\nkept=\nfor entry in $PATH; do\n  [ \"$entry\" = {dir} ] || kept=\"${{kept:+$kept:}}$entry\"\ndone\nunset IFS\nset +f\nPATH=$kept\nexport PATH\nexec codex \"$@\"\n"
@@ -192,9 +193,27 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
 mod launch_classification {
     const INFORMATIONAL: &[&str] = &["--help", "-h", "--version", "-V"];
     const MANAGEMENT: &[&str] = &[
-        "apply", "app", "app-server", "archive", "completion", "debug", "delete", "doctor",
-        "exec-server", "features", "help", "login", "logout", "mcp", "mcp-server", "plugin",
-        "remote-control", "review", "sandbox", "unarchive", "update",
+        "apply",
+        "app",
+        "app-server",
+        "archive",
+        "completion",
+        "debug",
+        "delete",
+        "doctor",
+        "exec-server",
+        "features",
+        "help",
+        "login",
+        "logout",
+        "mcp",
+        "mcp-server",
+        "plugin",
+        "remote-control",
+        "review",
+        "sandbox",
+        "unarchive",
+        "update",
     ];
 
     pub(super) fn is_non_launch(args: &[String]) -> bool {
@@ -211,12 +230,27 @@ mod launch_classification {
                 if INFORMATIONAL.contains(&argument.as_str()) {
                     return true;
                 }
-                if matches!(argument.as_str(), "-c" | "--config" | "-m" | "--model" | "-p" | "--profile" | "-C" | "--cd" | "-s" | "--sandbox" | "--enable" | "--disable") && !argument.contains('=') {
+                if matches!(
+                    argument.as_str(),
+                    "-c" | "--config"
+                        | "-m"
+                        | "--model"
+                        | "-p"
+                        | "--profile"
+                        | "-C"
+                        | "--cd"
+                        | "-s"
+                        | "--sandbox"
+                        | "--enable"
+                        | "--disable"
+                ) && !argument.contains('=')
+                {
                     expects_value = true;
                 }
                 continue;
             }
-            return MANAGEMENT.contains(&argument.as_str()) && !matches!(argument.as_str(), "exec" | "resume" | "fork");
+            return MANAGEMENT.contains(&argument.as_str())
+                && !matches!(argument.as_str(), "exec" | "resume" | "fork");
         }
         false
     }
