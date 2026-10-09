@@ -1,3 +1,5 @@
+import CmuxNextSidebar
+
 /// Previous / Next (Leo 2026-10-09, rapid switching): what the
 /// browser-style keys step from the window's keyboard focus. A focused pane
 /// with 2+ tabs steps its tabs, wrapping inside the pane; a pane with one
@@ -6,7 +8,7 @@
 /// explicit commands skip the rule: Next/Previous Tab in Pane
 /// (`nextSurface`) and Next/Previous Sidebar Item (`nextSidebarTab`).
 enum PreviousNext {
-    enum Scope: Equatable {
+    nonisolated enum Scope: Equatable, Sendable {
         /// The focused pane's tabs, wrapping inside the pane.
         case paneTabs
         /// The sidebar rows, in sidebar order.
@@ -32,5 +34,28 @@ enum PreviousNext {
         case .paneTabs: pane?.selectAdjacent(offset)
         case .sidebarRows: SidebarNavigation.step(by: offset, services)
         }
+    }
+}
+
+// MARK: Sidebar rows
+
+extension PreviousNext {
+    /// One step of the sidebar walk: a sidebar item, or a tab row listed
+    /// beneath its workspace (Show Tabs Under Workspaces).
+    nonisolated enum RowStop: Hashable, Sendable {
+        case item(SidebarItem)
+        case tab(WorkspaceID, TabID)
+    }
+
+    nonisolated static func rowStops(_ items: [SidebarItem], tabs: (WorkspaceID) -> [TabID]) -> [RowStop] {
+        items.map(RowStop.item)
+    }
+
+    nonisolated static func current(_ item: SidebarItem?, focusedTab: TabID?, in stops: [RowStop]) -> RowStop? {
+        item.map(RowStop.item)
+    }
+
+    nonisolated static func stop(from current: RowStop?, in stops: [RowStop], by offset: Int, wraps: Bool) -> RowStop? {
+        nil
     }
 }
