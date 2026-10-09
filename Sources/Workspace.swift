@@ -4968,7 +4968,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+        repairRetiredRemoteTmuxContainerPanelsAfterDetach()
         return true
+    }
+
+    /// A window mirror retires its outer container panel after it mounts the
+    /// mirror-owned pane surface. If the workspace is later kept open while the
+    /// mirror detaches, that container remains in the bonsplit tree with a
+    /// permanently closed TerminalSurface. Remove it before the workspace is
+    /// presented as a local tab, and provide a fresh shell when nothing usable
+    /// remains. This closes the stale blank-tab path without touching live
+    /// panels (for example a user-created browser split).
+    private func repairRetiredRemoteTmuxContainerPanelsAfterDetach() {
+        let retiredPanelIDs = panels.values.compactMap { panel -> UUID? in
+            guard let terminalPanel = panel as? TerminalPanel,
+                  terminalPanel.surface.runtimeUnavailableReason == .closing else {
+                return nil
+            }
+            return terminalPanel.id
+        }
+        for panelID in retiredPanelIDs {
+            _ = closePanel(panelID, force: true)
+        }
+        guard panels.isEmpty, !isRetiredFromOwningTabManager else { return }
+        _ = createReplacementTerminalPanel()
     }
     private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
         remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
