@@ -16,6 +16,8 @@ use super::mcp;
 use super::{GlobalArgs, Surface, UsageError, parse_globals, wire};
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
+pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
+pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value>\n";
 
@@ -280,6 +282,14 @@ fn print_usage(global: &GlobalArgs, message: &str) -> i32 {
 /// ownership of either topology. Errors are retained so a partial snapshot is
 /// actionable when one owner is temporarily unavailable.
 pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, Value>) -> Value {
+    compose_snapshot_with_limit(daemon, app, None)
+}
+
+pub(super) fn compose_snapshot_with_limit(
+    daemon: Result<Value, Value>,
+    app: Result<Value, Value>,
+    limit: Option<usize>,
+) -> Value {
     let daemon_value = daemon.clone().ok();
     let app_value = app.clone().ok();
     let daemon_error = daemon.err();
@@ -300,11 +310,18 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
             "app": {"available": app_value.is_some(), "error": app_error.unwrap_or(Value::Null)},
         },
     });
-    if let Some(value) = daemon_value {
-        snapshot["daemon"] = value;
-    }
-    if let Some(value) = app_value {
-        snapshot["app"] = value;
+    if let Some(limit) = limit {
+        let mut truncated = false;
+        for collection in ["windows", "workspaces", "screens", "panes", "tabs", "terminals"] {
+            if let Some(items) = snapshot[collection].as_array_mut()
+                && items.len() > limit
+            {
+                items.truncate(limit);
+                truncated = true;
+            }
+        }
+        snapshot["limit"] = json!(limit);
+        snapshot["truncated"] = json!(truncated);
     }
     snapshot
 }
@@ -325,7 +342,13 @@ pub(super) fn snapshot_tool() -> Value {
         "name": SNAPSHOT_TOOL,
         "title": "Agent topology snapshot",
         "description": "Read windows, workspaces, panes, tabs, focus and selection with stable public ids. Combines the app and session daemon snapshots.",
-        "inputSchema": {"type": "object", "additionalProperties": false},
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
+            }
+        },
         "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
     })
 }
@@ -357,6 +380,18 @@ mod tests {
         assert_eq!(value["sources"]["daemon"]["available"], false);
         assert_eq!(value["sources"]["app"]["available"], true);
         assert_eq!(value["sources"]["daemon"]["error"]["code"], "transport.unavailable");
+    }
+
+    #[test]
+    fn bounded_snapshot_limits_each_topology_collection() {
+        let value = compose_snapshot_with_limit(
+            Ok(json!({"workspaces": [{"id": "ws_a"}, {"id": "ws_b"}]})),
+            Ok(json!({"topology": {"windows": []}})),
+            Some(1),
+        );
+        assert_eq!(value["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(value["limit"], 1);
+        assert_eq!(value["truncated"], true);
     }
 
     #[test]

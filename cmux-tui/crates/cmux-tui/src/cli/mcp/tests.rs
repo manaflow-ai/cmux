@@ -18,6 +18,7 @@ const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 struct Fake {
     actions: Value,
     fail_resources: bool,
+    fail_apps: bool,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -76,6 +77,13 @@ impl Backend for Fake {
             "params": params,
             "key": idempotency_key,
         }));
+        if self.fail_apps {
+            return Err(CallFailure {
+                kind: FailureKind::NotRun,
+                error: json!({"code": "transport.unavailable", "message": "app is down"}),
+                idempotency_key: None,
+            });
+        }
         match method {
             "action.list" => Ok(self.actions.clone()),
             "snapshot.get" => Ok(json!({"topology": {"windows": [{"id": "win_a"}]}})),
@@ -321,6 +329,16 @@ fn mutations_carry_an_idempotency_key_that_a_retry_replays() {
     assert_eq!(envelope["state"], "in_progress");
     assert!(envelope["idempotency_key"].as_str().unwrap().starts_with("mutation_"));
     assert_eq!(envelope["error"]["code"], "transport.failed", "the error passes through");
+}
+
+#[test]
+fn agents_snapshot_reports_total_owner_outage() {
+    let mut server =
+        Server::new(Fake { fail_resources: true, fail_apps: true, ..Fake::with_actions() }, None);
+    let result = call(&mut server, "agents_snapshot", json!({}));
+    assert_eq!(result["isError"], true);
+    assert_eq!(result["structuredContent"]["error"]["code"], "agents.unavailable");
+    assert_eq!(result["structuredContent"]["state"], "not_run");
 }
 
 #[test]

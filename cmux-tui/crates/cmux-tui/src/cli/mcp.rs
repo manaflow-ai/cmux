@@ -428,7 +428,24 @@ impl<B: Backend> Server<B> {
             return Ok(self.call_window_list(&arguments));
         }
         if name == super::agents::SNAPSHOT_TOOL {
-            if let Some(name) = arguments.keys().next() {
+            let limit = match arguments.get("limit") {
+                None => super::agents::DEFAULT_SNAPSHOT_LIMIT,
+                Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
+                    Some(value) if (1..=super::agents::MAX_SNAPSHOT_LIMIT).contains(&value) => {
+                        value
+                    }
+                    _ => {
+                        return Ok(tool_error(envelope(
+                            v2_tools::invalid(
+                                "agents_snapshot limit must be an integer from 1 to 1000",
+                            ),
+                            "not_run",
+                            None,
+                        )));
+                    }
+                },
+            };
+            if let Some(name) = arguments.keys().find(|name| name.as_str() != "limit") {
                 return Ok(tool_error(envelope(
                     v2_tools::invalid(format!("agents_snapshot has no argument {name:?}")),
                     "not_run",
@@ -443,7 +460,26 @@ impl<B: Backend> Server<B> {
                 .backend
                 .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None)
                 .map_err(agent_failure_value);
-            return Ok(success(super::agents::compose_snapshot(daemon, app), false));
+            let snapshot = super::agents::compose_snapshot_with_limit(
+                daemon.clone(),
+                app.clone(),
+                Some(limit),
+            );
+            if snapshot["sources"]["daemon"]["available"] == Value::Bool(false)
+                && snapshot["sources"]["app"]["available"] == Value::Bool(false)
+            {
+                return Ok(tool_error(envelope(
+                    json!({
+                        "code": "agents.unavailable",
+                        "message": "neither the cmux app nor its session daemon answered",
+                        "details": snapshot["sources"],
+                        "retryable": true,
+                    }),
+                    "not_run",
+                    None,
+                )));
+            }
+            return Ok(success(snapshot, false));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
