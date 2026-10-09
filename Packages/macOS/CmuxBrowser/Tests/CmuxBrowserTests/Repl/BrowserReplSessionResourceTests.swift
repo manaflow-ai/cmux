@@ -1214,15 +1214,8 @@ struct BrowserReplSessionResourceTests {
         defer { session.close() }
         let result = await browserReplWithDeadline(seconds: 120) {
             await session.evaluate(code: """
-            const waiting = new Map();
-            const previous = globalThis.__cmuxHostOnResult;
-            globalThis.__cmuxHostOnResult = (id, error, result) => {
-              const done = waiting.get(id);
-              if (!done) return previous(id, error, result);
-              waiting.delete(id);
-              done(error ? "refused " + JSON.parse(error).message : "ok");
-            };
-            const answer = (id) => new Promise((resolve) => waiting.set(id, resolve));
+            // The runtime's own table of calls waiting for their answer.
+            const answer = (id) => new Promise((resolve) => pending.set(id, { resolve: () => resolve("ok"), reject: (e) => resolve("refused " + e.message) }));
             const pad = "x".repeat(2 << 20);
             const call = answer(90001);
             native.driverCall(90001, "tabs.list", JSON.stringify({ pad }));
