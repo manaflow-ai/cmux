@@ -1868,13 +1868,28 @@ fn an_exhausted_route_fails_over_and_comes_back_after_its_wait() {
         );
     }
     let harnesses = |agents: &FakeAgents| -> Vec<String> {
-        agents.inner.lock().unwrap().specs.iter().map(|s| s.harness.clone()).collect()
+        agents
+            .inner
+            .lock()
+            .unwrap()
+            .specs
+            .iter()
+            .map(|s| s.harness.clone())
+            .collect()
     };
-    assert_eq!(harnesses(&agents), ["claude", "claude"], "built on the other route");
+    assert_eq!(
+        harnesses(&agents),
+        ["claude", "claude"],
+        "built on the other route"
+    );
     agents.inner.lock().unwrap().session_errors.clear();
     std::thread::sleep(Duration::from_millis(1_200));
     run_node(&compactor, &request(3)).unwrap();
-    assert_eq!(harnesses(&agents).last().map(String::as_str), Some("claude-sr"), "back on the first route");
+    assert_eq!(
+        harnesses(&agents).last().map(String::as_str),
+        Some("claude-sr"),
+        "back on the first route"
+    );
 }
 
 /// E2: a pooled or routed Claude compactor's other route is the user's own
@@ -1882,12 +1897,25 @@ fn an_exhausted_route_fails_over_and_comes_back_after_its_wait() {
 #[test]
 fn the_other_compactor_route_is_derived() {
     use optchat_chief::compactor::derived_alternate;
-    let all = ["claude".to_owned(), "claude-sr".to_owned(), "codex".to_owned()];
-    assert_eq!(derived_alternate("claude-sr", &all).as_deref(), Some("claude"));
-    assert_eq!(derived_alternate("claude-cr", &all).as_deref(), Some("claude"));
+    let all = [
+        "claude".to_owned(),
+        "claude-sr".to_owned(),
+        "codex".to_owned(),
+    ];
+    assert_eq!(
+        derived_alternate("claude-sr", &all).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        derived_alternate("claude-cr", &all).as_deref(),
+        Some("claude")
+    );
     assert_eq!(derived_alternate("claude", &all), None);
     assert_eq!(derived_alternate("codex", &all), None);
-    assert_eq!(derived_alternate("claude-sr", &["claude-sr".to_owned()]), None);
+    assert_eq!(
+        derived_alternate("claude-sr", &["claude-sr".to_owned()]),
+        None
+    );
 }
 
 /// E2: an exhausted route never posts the "cannot build summaries" notice

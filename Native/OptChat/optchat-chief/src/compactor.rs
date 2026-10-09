@@ -352,6 +352,10 @@ pub struct AcpmuxCompactor {
     model_fallback: Option<Option<String>>,
     /// Warm sessions kept for the next nodes (`with_warm`; 0: none).
     warm: usize,
+    /// The harness to build with while `spec.harness` is exhausted, and
+    /// until when it is (`with_alternate_harness`).
+    alternate: Option<String>,
+    exhausted_until: Mutex<Option<Instant>>,
     reaped: AtomicBool,
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
@@ -381,6 +385,8 @@ impl AcpmuxCompactor {
             cache_ttl: SharedTtl::default(),
             model,
             model_fallback: None,
+            alternate: None,
+            exhausted_until: Mutex::new(None),
             warm: 0,
             reaped: AtomicBool::new(false),
             me: std::sync::Weak::new(),
@@ -458,8 +464,58 @@ impl AcpmuxCompactor {
 
     /// The compactor harness to build with while `spec.harness` is exhausted
     /// (a 429/503/529 with retry-after), until its wait ends.
-    pub fn with_alternate_harness(self, _harness: Option<String>) -> AcpmuxCompactor {
+    pub fn with_alternate_harness(mut self, harness: Option<String>) -> AcpmuxCompactor {
+        self.alternate = harness.filter(|h| *h != self.spec.harness);
         self
+    }
+
+    /// The harness sessions start on now: the alternate while the first
+    /// route is exhausted, the first route again once its wait ends.
+    fn harness(&self) -> String {
+        let mut until = self
+            .exhausted_until
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match (*until, &self.alternate) {
+            (Some(t), Some(alternate)) if Instant::now() < t => alternate.clone(),
+            (Some(_), _) => {
+                *until = None;
+                drop(until);
+                self.say(&format!(
+                    "compactor route {} is back; building on it again",
+                    self.spec.harness
+                ));
+                self.spec.harness.clone()
+            }
+            (None, _) => self.spec.harness.clone(),
+        }
+    }
+
+    /// `error` says the first route is exhausted (a capacity error with its
+    /// wait): build on the alternate until the wait ends, and say so once.
+    /// False: no alternate, or already on it, or another error.
+    fn fail_over(&self, error: &ModelError) -> bool {
+        let Some(alternate) = &self.alternate else {
+            return false;
+        };
+        let Some(wait) = optchat_host::capacity_wait(&error.message) else {
+            return false;
+        };
+        let mut until = self
+            .exhausted_until
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if until.is_some_and(|t| Instant::now() < t) {
+            return false;
+        }
+        *until = Some(Instant::now() + wait);
+        drop(until);
+        self.say(&format!(
+            "compactor route {} is exhausted (ready in ~{}m); building on {alternate} until then",
+            self.spec.harness,
+            wait.as_secs().div_ceil(60)
+        ));
+        true
     }
 
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
@@ -546,6 +602,8 @@ impl AcpmuxCompactor {
         // ...and whether Claude Code's own marks were off (DISABLE).
         std::hash::Hash::hash(&ours, &mut h);
         std::hash::Hash::hash(&self.model(), &mut h);
+        // ...and the route it started on.
+        std::hash::Hash::hash(&self.harness(), &mut h);
         std::hash::Hasher::finish(&h)
     }
 
@@ -611,14 +669,10 @@ impl AcpmuxCompactor {
     }
 
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
-        crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
+        let harness = self.harness();
+        crate::harness_gate::admit_live(&*self.port, &harness).map_err(|reason| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
-            crate::harness_gate::trace_refusal(
-                &self.trace,
-                "compactor",
-                &self.spec.harness,
-                &reason,
-            );
+            crate::harness_gate::trace_refusal(&self.trace, "compactor", &harness, &reason);
             ModelError::new(crate::harness_gate::refusal(&reason))
         })
     }
@@ -1005,6 +1059,11 @@ impl CompactModel for AcpmuxCompactor {
         let result = match self.call_inner(request, followups, started) {
             // The account cannot use the model: the node again, fresh, on the fallback.
             Err(e) if followups.is_empty() && self.switch_model(&e) => {
+                self.end(request);
+                self.call_inner(request, followups, started)
+            }
+            // The first route is exhausted: the node again, fresh, on the other.
+            Err(e) if followups.is_empty() && self.fail_over(&e) => {
                 self.end(request);
                 self.call_inner(request, followups, started)
             }
@@ -1558,8 +1617,10 @@ pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = optchat_host::DEFAULT_MODEL;
 /// The compactor's other route when `harness` is exhausted: the user's own
 /// Claude login (`claude`) for a pooled or routed Claude harness, when
 /// acpmux has it (`admitted`). None: no other route.
-pub fn derived_alternate(_harness: &str, _admitted: &[String]) -> Option<String> {
-    None
+pub fn derived_alternate(harness: &str, admitted: &[String]) -> Option<String> {
+    let own = "claude";
+    (harness != own && harness.starts_with("claude") && admitted.iter().any(|h| h == own))
+        .then(|| own.to_owned())
 }
 
 /// The default compactor model of `family`'s harness (None: the harness's

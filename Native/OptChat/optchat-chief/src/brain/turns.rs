@@ -22,13 +22,22 @@ use optchat_host::{Appended, NewMessage};
 
 /// The notice for the first stuck view line (its node fails with a request
 /// error on every try); None when no line is stuck.
+/// A line held only by an exhausted route (a capacity error) is a quiet
+/// wait, logged by the host: no notice.
 pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
-    let node = status.stuck.first()?;
-    let class = status
-        .failures
+    let error = |node: &optchat_core::NodeId| {
+        status
+            .failures
+            .iter()
+            .find(|f| f.node == *node)
+            .map(|f| f.error.as_str())
+    };
+    let node = status
+        .stuck
         .iter()
-        .find(|f| f.node == *node)
-        .and_then(|f| optchat_host::error_class(&f.error))
+        .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
+    let class = error(node)
+        .and_then(optchat_host::error_class)
         .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
     Some(format!(
         "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",

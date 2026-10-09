@@ -775,7 +775,19 @@ fn start(
                 .map(|m| Arc::new(build(Some(m))) as Arc<dyn CompactModel>);
             // An account without the compactor model (Haiku on some
             // subscriptions) builds with the turn model instead, logged once.
+            // The other route while the first is exhausted (a 503 with
+            // retry-after): OPTCHAT_COMPACTOR_ALT_HARNESS, else the user's
+            // own `claude` login for a pooled or routed Claude harness.
+            let admitted: Vec<String> = families.keys().cloned().collect();
+            let alternate = env("OPTCHAT_COMPACTOR_ALT_HARNESS")
+                .or_else(|| crate::compactor::derived_alternate(&compactor_harness, &admitted));
+            if let Some(alt) = &alternate {
+                log(format!(
+                    "compactor: {alt} builds while {compactor_harness} is exhausted"
+                ));
+            }
             let main = build(compactor_model.as_deref())
+                .with_alternate_harness(alternate)
                 .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
                 .with_warm(crate::compactor::WARM_SESSIONS)
                 .shared();
@@ -1151,7 +1163,11 @@ fn spawn_probe(
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
                         route.name(),
-                        if fallback.is_some() { ", fallback too" } else { "" },
+                        if fallback.is_some() {
+                            ", fallback too"
+                        } else {
+                            ""
+                        },
                         started.elapsed().as_millis()
                     ));
                     let _ = tx.send(Input::CompactorStatus(Ok(())));
@@ -1160,7 +1176,13 @@ fn spawn_probe(
                     Some(text) => {
                         let _ = tx.send(Input::CompactorStatus(Err(text)));
                     }
-                    None => log(format!("compactor probe: {e}")),
+                    None => log(format!(
+                        "compactor probe: summaries wait for the model: ready in ~{}m ({e})",
+                        optchat_host::capacity_wait(&e)
+                            .unwrap_or_default()
+                            .as_secs()
+                            .div_ceil(60)
+                    )),
                 },
             }
         });
@@ -1172,6 +1194,10 @@ fn spawn_probe(
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
+    // An exhausted route is a wait, not a fault: nothing to post.
+    if optchat_host::capacity_wait(error).is_some() {
+        return None;
+    }
     let remedy = match route {
         CompactRoute::Acpmux => {
             "Check that acpmux runs and that its Claude harness signs in, or set \
