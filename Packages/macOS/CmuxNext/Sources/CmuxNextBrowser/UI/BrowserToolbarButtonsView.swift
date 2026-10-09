@@ -121,6 +121,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let facts = currentFacts()
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
+            // Most tab state events (title, progress, address) change no
+            // button: leave those buttons untouched.
+            guard states[button] != state else { continue }
             states[button] = state
             guard let view = buttons[button] else { continue }
             view.setSymbol(state.symbol, label: state.label)
