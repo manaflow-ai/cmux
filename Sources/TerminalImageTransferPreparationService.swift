@@ -126,7 +126,7 @@ actor TerminalImageTransferPreparationService {
     /// A nil result means the request needs the isolated full-worker lane.
     private func prepareFastPath(
         _ request: TerminalPastePreparationRequest
-    ) async -> TerminalPastePreparationOutcome? {
+    ) async -> TerminalImageTransferPreparationOutcome? {
         guard let fastOperation else { return nil }
         let deadline = self.deadline
         let deadlineSleep = self.deadlineSleep
