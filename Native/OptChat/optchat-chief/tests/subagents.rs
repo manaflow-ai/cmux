@@ -1004,3 +1004,28 @@ fn chief_stop_with_a_name_stops_only_that_subagent() {
         json!({"stopped": false, "error": "no subagent a9 at work"})
     );
 }
+
+/// Reference parity S2: `spawn(tasks, effort?)`: how hard the subagents
+/// think; by default as hard as the Chief's turn.
+#[test]
+fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
+    assert_eq!(
+        Call::parse("spawn", &json!({"tasks": ["x"], "effort": "high"})).unwrap(),
+        Call::Spawn {
+            tasks: vec!["x".into()],
+            cwd: None,
+            effort: Some("high".into())
+        }
+    );
+    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "effort": "harder"})).is_err());
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    call(&mut s, |sp| sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))).unwrap();
+    spawn(&mut s, &["two"]).unwrap();
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    let turn = specs[0].effort.clone();
+    let subs: Vec<_> = specs.iter().filter(|sp| sp.name.starts_with("optchat-sub-h0me-")).collect();
+    assert_eq!(subs[0].effort.as_deref(), Some("high"));
+    assert_eq!(subs[1].effort, turn, "as hard as the turn");
+}
