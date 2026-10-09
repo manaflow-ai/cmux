@@ -94,7 +94,7 @@ pub fn breakaway_allowed() -> io::Result<bool> {
             ptr::null_mut(),
             JobObjectBasicLimitInformation,
             (&raw mut limits).cast(),
-            std::mem::size_of::<JOBOBJECT_BASIC_LIMIT_INFORMATION>() as u32,
+            size_of::<JOBOBJECT_BASIC_LIMIT_INFORMATION>() as u32,
             ptr::null_mut(),
         )
     };
@@ -205,7 +205,7 @@ fn spawn_host_process_with(
 
     // SAFETY: a zeroed plain-data struct; the fields used are set below.
     let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
-    startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     startup.StartupInfo.hStdInput = inherited[0];
     startup.StartupInfo.hStdOutput = inherited[1];
@@ -291,7 +291,7 @@ impl AttributeList {
                 0,
                 PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
                 list._handles.as_ptr().cast(),
-                std::mem::size_of_val(&*list._handles),
+                size_of_val(&*list._handles),
                 ptr::null_mut(),
                 ptr::null(),
             )

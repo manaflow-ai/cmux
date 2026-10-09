@@ -162,7 +162,7 @@ impl NoBreakawayJob {
                 job,
                 JobObjectExtendedLimitInformation,
                 (&raw const limits).cast(),
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             );
             assert_ne!(set, 0, "SetInformationJobObject: {}", std::io::Error::last_os_error());
             Self(job)
@@ -192,7 +192,7 @@ impl NoBreakawayJob {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             assert_ne!(snapshot, INVALID_HANDLE_VALUE, "CreateToolhelp32Snapshot");
             let mut entry: THREADENTRY32 = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+            entry.dwSize = size_of::<THREADENTRY32>() as u32;
             let mut resumed = 0;
             let mut more = Thread32First(snapshot, &mut entry) != 0;
             while more {
