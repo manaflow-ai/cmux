@@ -6,7 +6,8 @@
  *   bun compat.ts check --change ... --target production      (static + replay, now)
  *
  * Production steps (db-release apply, promote) run compatNow themselves: the
- * static checks and the cmux-old request replay against staging (cmux-old.ts),
+ * static checks, the staging/production web revision compare and the cmux-old
+ * request replay against staging signed in as the agent profile (cmux-old.ts),
  * in the same run, against the latest stable release; no receipt written
  * elsewhere counts. Static checks: (1) inventory: `git grep` at the latest stable
  * release tag for every host and name the change reaches (cmux-vm and cmux-next
@@ -25,7 +26,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, sha256, type Lock, type RoleContract } from "./lint.ts"
 import { actor, readReceipts, receiptsDir, runIdOf, summaryLine, writeReceipt, REHEARSAL_MAX_AGE_MS } from "./receipts.ts"
-import { newestSpec, readGaps, replay } from "./cmux-old.ts"
 import { REPO_ROOT, treeOf, type Tree } from "./trees.ts"
 
 export type Change = { readonly kind: "migrations"; readonly tree: Tree } | { readonly kind: "image"; readonly variable: string; readonly snapshotId: string } | { readonly kind: "deploy"; readonly tree: Tree }
@@ -57,7 +57,8 @@ const SHIPPED = ["CLI", "Sources", "Packages", "cmux-tui/crates", ":!**/*Tests*"
 export const latestRelease = (): string => execFileSync("gh", ["release", "view", "--repo", "manaflow-ai/cmux", "--json", "tagName", "--jq", ".tagName"], { encoding: "utf8" }).trim()
 
 export const inventoryHits = (root: string, tag: string, words: ReadonlyArray<string>): Array<string> => {
-  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", `refs/tags/${tag}:refs/tags/${tag}`])
+  // Forced: a release tag that moved on origin (v0.65.0 did) must not leave a stale local copy in charge.
+  spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "--depth=1", "origin", `+refs/tags/${tag}:refs/tags/${tag}`])
   const hits: Array<string> = []
   for (const w of words) {
     const run = spawnSync("git", ["-C", root, "grep", "-l", "-F", w, tag, "--", ...SHIPPED], { encoding: "utf8" })
@@ -186,7 +187,55 @@ export const compatProblems = (dir: string, key: string, target: string, now = D
   if (last("compat-static")?.result !== "pass") problems.push(`no passing cmux-old static compat receipt for ${key} (bun scripts/cmux-next/release/compat.ts static ...)`)
   const smoke = last("compat-smoke")
   if (smoke?.result !== "pass") problems.push(`no passing cmux-old client smoke against staging for ${key} in the last 24 h (bun scripts/cmux-next/release/cmux-old.ts replay --change ${key})`)
-  else if (latest && smoke.release !== latest) problems.push(`the cmux-old smoke replayed ${smoke.release ?? "an unknown release"}, but the latest stable release is ${latest}: run cmux-old.ts generate --tag ${latest}, commit the spec, and replay`)
+  else {
+    if (latest && smoke.release !== latest) problems.push(`the cmux-old smoke replayed ${smoke.release ?? "an unknown release"}, but the latest stable release is ${latest}: run cmux-old.ts generate --tag ${latest}, commit the spec, and replay`)
+    if (smoke.authenticated !== true) problems.push(`the cmux-old smoke for ${key} was not signed in as the agent profile`)
+    const relation = smoke.revisions?.relation
+    if (relation !== "same" && relation !== "newer") problems.push(`the cmux-old smoke for ${key} ran while staging's web revision was ${relation ?? "not recorded"} relative to production`)
+  }
+  return problems
+}
+
+/** The commit origin's release tag names now (peeled), or undefined when it cannot be read. */
+export const remoteTagCommit = (root: string, tag: string): string | undefined => {
+  const run = spawnSync("git", ["-C", root, "ls-remote", "origin", `refs/tags/${tag}`, `refs/tags/${tag}^{}`], { encoding: "utf8" })
+  if (run.status !== 0) return undefined
+  const lines = run.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"))
+  return (lines.find(([, ref]) => ref?.endsWith("^{}")) ?? lines[0])?.[0]
+}
+
+export interface GateInput {
+  readonly latest: string
+  readonly specTag?: string
+  /** The spec's tag commit and the commit origin's tag names now. */
+  readonly specSha?: string
+  readonly tagSha?: string
+  readonly staticErrors: ReadonlyArray<string>
+  readonly affectsCmuxOld: boolean
+  readonly reach: string
+  readonly replay?: { readonly ok: boolean; readonly authenticated: boolean; readonly failures: ReadonlyArray<string> }
+  readonly revisions?: { readonly relation: string; readonly staging: { readonly sha?: string; readonly error?: string }; readonly production: { readonly sha?: string; readonly error?: string } }
+}
+
+/**
+ * Why a production step must refuse, from what the gate measured. A change that cmux-old reaches is
+ * allowed only by a passing replay signed in as the agent profile; every change refuses an
+ * unauthenticated replay, a spec older than the latest stable release, and a staging web revision
+ * that is not production's or a descendant of it (older, diverged or unknown: staging then is no
+ * stand-in for production).
+ */
+export const gateProblems = (g: GateInput): Array<string> => {
+  const problems: Array<string> = []
+  if (g.specTag !== g.latest) problems.push(`the cmux-old replay spec is ${g.specTag ?? "missing"} but the latest stable release is ${g.latest}: bun scripts/cmux-next/release/cmux-old.ts generate --tag ${g.latest}, commit it`)
+  else if (!g.tagSha || g.specSha !== g.tagSha) problems.push(`the cmux-old replay spec was generated from ${g.latest} at ${g.specSha?.slice(0, 12) ?? "?"}, but origin's ${g.latest} names ${g.tagSha?.slice(0, 12) ?? "nothing readable"}: the tag moved; regenerate the spec`)
+  problems.push(...g.staticErrors.map((e) => `static: ${e}`))
+  if (!g.replay) problems.push("the cmux-old replay did not run")
+  else {
+    problems.push(...g.replay.failures.map((f) => `replay: ${f}`))
+    if (!g.replay.authenticated) problems.push(`the cmux-old replay was not signed in as the agent profile (CMUX_UITEST_STACK_EMAIL/_PASSWORD in the environment or ~/.secrets/cmuxterm-dev.env)${g.affectsCmuxOld ? `; this change reaches a service cmux-old ${g.latest} calls (${g.reach})` : ""}`)
+  }
+  const relation = g.revisions?.relation ?? "unknown"
+  if (relation !== "same" && relation !== "newer") problems.push(`staging's web revision is ${relation} relative to production (staging ${g.revisions?.staging.sha ?? g.revisions?.staging.error ?? "?"}, production ${g.revisions?.production.sha ?? g.revisions?.production.error ?? "?"}): the replay against staging does not stand for production`)
   return problems
 }
 
@@ -195,28 +244,41 @@ export const compatProblems = (dir: string, key: string, target: string, now = D
  * checks (inventory, lint, API contract against origin/main) and the replay against staging must
  * pass. Writes compat-static and compat-smoke receipts as records. Empty: compatible.
  */
-export const compatNow = async (root: string, change: Change, env: Record<string, string | undefined> = process.env): Promise<Array<string>> => {
+export interface CompatDeps {
+  readonly latest?: () => string
+  readonly statics?: typeof staticChecks
+  readonly replay?: (spec: import("./cmux-old.ts").Spec, origin: string, creds: import("./cmux-old.ts").Credentials | undefined) => Promise<import("./cmux-old.ts").FullReplay>
+  readonly revisions?: () => import("./cmux-old.ts").Revisions
+  readonly spec?: () => import("./cmux-old.ts").Spec | undefined
+}
+
+export const compatNow = async (root: string, change: Change, env: Record<string, string | undefined> = process.env, deps: CompatDeps = {}): Promise<Array<string>> => {
+  const old = await import("./cmux-old.ts")
   const problems: Array<string> = []
-  // No overrides here: this gate runs inside production steps.
-  const latest = latestRelease()
+  // No overrides here: this gate runs inside production steps (deps exist for tests only).
+  const latest = (deps.latest ?? latestRelease)()
   if (spawnSync("git", ["-C", root, "fetch", "--quiet", "--no-tags", "origin", "main"]).status !== 0) problems.push("git fetch origin main failed: the API contract diff needs the current production revision")
-  const spec = newestSpec()
-  if (!spec || spec.tag !== latest) problems.push(`the cmux-old replay spec is ${spec?.tag ?? "missing"} but the latest stable release is ${latest}: bun scripts/cmux-next/release/cmux-old.ts generate --tag ${latest}, commit it`)
+  const spec = (deps.spec ?? old.newestSpec)()
   const sha = spawnSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim()
   const key = changeKey(root, change, sha)
-  const stat = await staticChecks(root, change, { base: "origin/main", release: latest, gitSha: sha })
-  problems.push(...stat.errors.map((e) => `static: ${e}`))
-  // The replay proves route existence and auth only; a change that cmux-old reaches stays refused until it proves more.
-  if (stat.affectsCmuxOld) problems.push(`this change reaches a service cmux-old ${latest} calls (${stat.notes.join("; ")}); production stays refused until the authenticated replay lands (bead cx-a6i1)`)
+  const stat = await (deps.statics ?? staticChecks)(root, change, { base: "origin/main", release: latest, gitSha: sha })
   const tree = change.kind === "image" ? "images" : change.tree.name
   const dir = receiptsDir(env)
   writeReceipt(dir, { action: "compat-static", what: `in-step cmux-old static compat of ${key}`, tree, target: "production", result: stat.errors.length ? "fail" : "pass", at: new Date().toISOString(), setHash: key, release: latest, runId: runIdOf(env), by: actor(), ...(stat.errors.length ? { errors: stat.errors } : {}), ...(stat.notes.length ? { warnings: stat.notes } : {}) })
+  const revisions = (deps.revisions ?? (() => old.webRevisions(root)))()
+  let replayed: import("./cmux-old.ts").FullReplay | undefined
   if (spec) {
-    const origin = "https://cmux-staging.vercel.app"
-    const result = await replay(spec, origin, readGaps())
-    problems.push(...result.failures.map((f) => `replay: ${f}`))
-    writeReceipt(dir, { action: "compat-smoke", what: `in-step replay of ${spec.requests.length} ${spec.tag} requests against ${origin} (route existence and auth only; bead cx-a6i1)`, tree, target: "production", result: result.ok ? "pass" : "fail", at: new Date().toISOString(), setHash: key, release: spec.tag, releaseSha: spec.sha, runId: runIdOf(env), by: actor(), ...(result.failures.length ? { errors: result.failures } : {}), ...(result.warnings.length ? { warnings: result.warnings } : {}) })
+    let creds: import("./cmux-old.ts").Credentials | undefined
+    try {
+      creds = old.loadCredentials(env, undefined)
+    } catch (e) {
+      problems.push(`agent credentials: ${(e as Error).message}`)
+    }
+    replayed = await (deps.replay ?? ((s, o, c) => old.authenticatedReplay(s, o, c, { gaps: old.readGaps(), revisions })))(spec, old.STAGING_ORIGIN, creds).catch((e: Error) => ({ ok: false, authenticated: false, lines: [], failures: [e.message], warnings: [], counts: {}, shapeOnly: [] }))
+    writeReceipt(dir, { action: "compat-smoke", what: `in-step ${replayed.authenticated ? "signed-in (agent profile)" : "unauthenticated"} replay of ${spec.requests.length} ${spec.tag} requests against ${old.STAGING_ORIGIN}`, tree, target: "production", result: replayed.ok && replayed.authenticated ? "pass" : "fail", at: new Date().toISOString(), setHash: key, release: spec.tag, releaseSha: spec.sha, authenticated: replayed.authenticated, counts: replayed.counts, shapeOnly: replayed.shapeOnly, revisions, runId: runIdOf(env), by: actor(), ...(replayed.failures.length ? { errors: replayed.failures } : {}), ...(replayed.warnings.length ? { warnings: replayed.warnings } : {}) })
   }
+  const tagSha = remoteTagCommit(root, latest)
+  problems.push(...gateProblems({ latest, ...(spec ? { specTag: spec.tag, specSha: spec.sha } : {}), ...(tagSha ? { tagSha } : {}), staticErrors: stat.errors, affectsCmuxOld: stat.affectsCmuxOld, reach: stat.notes.join("; "), ...(replayed ? { replay: replayed } : {}), revisions }))
   return problems
 }
 
@@ -248,7 +310,6 @@ const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   }
   if (command === "check") {
     // The same gate a production step runs in-process: static checks and the cmux-old replay, now.
-    console.log("note: the cmux-old replay checks route existence and the auth layer only, not signed-in responses (bead cx-a6i1)")
     const problems = await compatNow(root, change, process.env)
     for (const p of problems) console.error(`compat: ${p}`)
     if (!problems.length) console.log(`compat ok: ${key} (${target})`)
