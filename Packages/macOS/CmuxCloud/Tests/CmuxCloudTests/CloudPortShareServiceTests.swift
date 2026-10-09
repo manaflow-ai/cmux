@@ -143,12 +143,14 @@ struct CloudPortShareServiceTests {
         }
     }
 
-    @Test("a public link is never probed, since the probe would reach the user's app")
-    func publicSkipsProbe() async throws {
+    @Test("a public link waits for the edge before copying")
+    func publicWaitsForEdge() async throws {
         let api = FakePublishing(creates: [.row(publication(state: "active", access: .public))])
-        let link = try await service(api, probe: { _ in Issue.record("probed a public link"); return 503 })
+        let statuses = Statuses([503, 200])
+        let link = try await service(api, probe: { _ in await statuses.next() })
             .share(vmID: "brave-otter", port: 8000, teamID: nil)
         #expect(link.accessMode == .public)
+        #expect(await statuses.remaining == 0)
     }
 
     private func service(

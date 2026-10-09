@@ -123,13 +123,14 @@ public struct CloudPortShareService: Sendable {
         try await api.deletePublication(id: publicationID, scopeTeamID: teamID)
     }
 
-    /// A public link would send the probe to the user's app, so it is taken as
-    /// is. A protected link must answer the signed-out probe the way cmux's
-    /// authorization check does (401), or serve or redirect; anything else,
-    /// such as the edge's 503 or a 404 for a route it doesn't know yet, waits.
+    /// Probe both access modes with HEAD. A public app can return any ordinary
+    /// HTTP response, including 404, once the edge is forwarding; edge 5xx
+    /// responses and network failures still mean that the route is not ready.
+    /// A protected link must answer the signed-out probe with 401, or serve or
+    /// redirect; an edge 503 or unknown-route 404 waits in that mode.
     private func serves(_ publication: VMPublication) async -> Bool {
-        guard publication.accessMode != .public else { return true }
         guard let url = URL(string: publication.url), let status = await probe(url) else { return false }
+        if publication.accessMode == .public { return status < 500 }
         return (200..<400).contains(status) || status == 401
     }
 
