@@ -149,12 +149,13 @@ public final class MockBrowserTab: BrowserTab {
     @discardableResult
     public func presentPrompt(_ kind: BrowserPromptKind, origin: String) async -> BrowserPromptResponse {
         await withCheckedContinuation { continuation in
-            var prompt: BrowserPrompt!
-            prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
+            var prompt: BrowserPrompt?
+            let made = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
                 self?.pendingPrompts.removeAll { $0 === prompt }
                 continuation.resume(returning: response)
             }
-            pendingPrompts.append(prompt)
+            prompt = made
+            pendingPrompts.append(made)
         }
     }
 
@@ -210,7 +211,7 @@ public final class MockBrowserTab: BrowserTab {
         let size = 4
         let context = CGContext(
             data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
         context?.setFillColor(gray: 0.5, alpha: 1)

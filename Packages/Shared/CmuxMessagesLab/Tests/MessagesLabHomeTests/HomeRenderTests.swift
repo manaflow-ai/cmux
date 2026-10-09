@@ -31,9 +31,9 @@ import Testing
         for (i, t) in Self.agent.enumerated() { items.append(Fixture2.item(Seq(i + 2), Fixture2.them, t)) }
         items.append(Fixture2.item(5, Fixture2.me, "Thanks, **looks good** (mine stays as typed)."))
         p.apply(items: items, summary: Fixture2.summary(lastSeq: 5), typing: [], hasOlder: false)
-        c.demo.backgroundColor = Fixture.background
-        c.host.layoutSubtreeIfNeeded(); c.demo.layoutIfNeeded(); c.demo.collection.layoutIfNeeded()
-        let hit = try #require(c.demo.lastTextRow(mine: false))
+        c.demo!.backgroundColor = Fixture.background
+        c.host.layoutSubtreeIfNeeded(); c.demo!.layoutIfNeeded(); c.demo!.collection.layoutIfNeeded()
+        let hit = try #require(c.demo!.lastTextRow(mine: false))
         let from = CGPoint(x: hit.body.minX + 16, y: hit.body.minY + 14), to = CGPoint(x: hit.body.maxX - 30, y: hit.body.maxY - 12)
         c.mouseDown(at: from, event(.leftMouseDown))
         c.mouseDragged(at: to, event(.leftMouseDragged))
@@ -42,7 +42,7 @@ import Testing
         // Row bitmaps draw asynchronously: let them land.
         for _ in 0..<30 {
             try await Task.sleep(for: .milliseconds(40))
-            c.host.layoutSubtreeIfNeeded(); c.demo.collection.layoutIfNeeded(); CATransaction.flush()
+            c.host.layoutSubtreeIfNeeded(); c.demo!.collection.layoutIfNeeded(); CATransaction.flush()
         }
         let b = c.host.bounds
         let ctx = try #require(CGContext(data: nil, width: Int(b.width * 2), height: Int(b.height * 2), bitsPerComponent: 8, bytesPerRow: 0,
