@@ -971,6 +971,14 @@ pub(super) fn resolve_socket_with_env(
         }
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
+    // A Chief's call: the app's daemon while the app runs, else the Chief's
+    // owner daemon (chief_target.rs).
+    if let Some(path) = super::chief_target::daemon_socket(
+        |name| env(name).and_then(|value| value.into_string().ok()),
+        super::chief_target::is_socket,
+    ) {
+        return Ok((path, false));
+    }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = env(name)
             && !path.is_empty()
