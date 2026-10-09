@@ -141,13 +141,17 @@ describe("turn footer", () => {
       "Fork from here",
     ]);
     expect(group!.querySelectorAll(".cv-iconbtn--compact")).toHaveLength(3);
-    expect([...group!.querySelectorAll("svg")].map((svg) => [svg.getAttribute("width"), svg.getAttribute("height")])).toEqual([
+    expect(
+      [...group!.querySelectorAll("svg")].map((svg) => [svg.getAttribute("width"), svg.getAttribute("height")]),
+    ).toEqual([
       ["14", "14"],
       ["14", "14"],
       ["14", "14"],
     ]);
     expect(group!.nextElementSibling?.tagName).toBe("TIME");
-    await act(async () => group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
+    await act(async () =>
+      group!.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click(),
+    );
     expect(forked).toEqual([7]);
     await unmount();
   });
