@@ -368,7 +368,9 @@ struct BrowserReplSessionResourceTests {
 
         let busy = DispatchSemaphore(value: 0)
         #expect(session.thread.perform { busy.wait() })
-        let payload = "\"" + String(repeating: "x", count: 1 << 20) + "\""
+        // Each just under the 1 MiB one event may carry (a larger one is
+        // withheld on arrival and holds only its notice).
+        let payload = "\"" + String(repeating: "x", count: (1 << 20) - 16) + "\""
         for _ in 0..<100 { driver.emit("console", payload) }
         busy.signal()
 
