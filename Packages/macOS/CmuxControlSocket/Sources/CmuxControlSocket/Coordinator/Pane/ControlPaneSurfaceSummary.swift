@@ -11,6 +11,8 @@ public import Foundation
 public struct ControlPaneSurfaceSummary: Sendable, Equatable {
     /// The surface's panel identifier, if it resolved.
     public let surfaceID: UUID?
+    /// The surface's restart-stable panel identity, if it resolved.
+    public let stableSurfaceID: UUID?
     /// The tab's title.
     public let title: String
     /// The panel type's raw value, if the panel resolved.
@@ -24,18 +26,21 @@ public struct ControlPaneSurfaceSummary: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - surfaceID: The surface's panel identifier, if resolved.
+    ///   - stableSurfaceID: The surface's restart-stable panel identity, if resolved.
     ///   - title: The tab's title.
     ///   - typeRawValue: The panel type's raw value, if resolved.
     ///   - isSelected: Whether this surface is selected.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID?,
+        stableSurfaceID: UUID? = nil,
         title: String,
         typeRawValue: String?,
         isSelected: Bool,
         dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
+        self.stableSurfaceID = stableSurfaceID
         self.title = title
         self.typeRawValue = typeRawValue
         self.isSelected = isSelected

@@ -283,7 +283,7 @@ extension ControlCommandCoordinator {
         _ node: ControlSystemTreeWorkspaceNode,
         refs: SystemTreeWorkspaceRefs
     ) -> JSONValue {
-        .object([
+        var item: [String: JSONValue] = [
             "id": .string(node.workspaceID.uuidString),
             "ref": refs.workspaceRef,
             "index": .int(Int64(node.index)),
@@ -298,7 +298,11 @@ extension ControlCommandCoordinator {
                 systemTreeLayoutPayload($0, paneRefsByID: refs.paneRefsByID)
             } ?? .null,
             "panes": .array(zip(node.panes, refs.panes).map { pair in systemTreePanePayload(pair.0, refs: pair.1) }),
-        ])
+        ]
+        if let stableWorkspaceID = node.stableWorkspaceID {
+            item["stable_id"] = .string(stableWorkspaceID.uuidString)
+        }
+        return .object(item)
     }
 
     /// The `system.tree` workspace layout payload — the split tree in the shape
@@ -378,6 +382,9 @@ extension ControlCommandCoordinator {
             "tty": orNull(node.tty),
             "render_health": orNull(node.renderHealthRawValue),
         ]
+        if let stableSurfaceID = node.stableSurfaceID {
+            item["stable_id"] = .string(stableSurfaceID.uuidString)
+        }
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
         if let dockScope = node.dockScopeRawValue {
             item["dock_scope"] = .string(dockScope)

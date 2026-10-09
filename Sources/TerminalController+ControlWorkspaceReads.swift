@@ -11,7 +11,7 @@ extension TerminalController {
     /// coordinator now owns), bridging the app-typed `remoteStatusPayload()`.
     private func controlWorkspaceSummary(_ workspace: Workspace) -> ControlWorkspaceSummary {
         ControlWorkspaceSummary(
-            id: workspace.id, title: workspace.title, customTitle: workspace.customTitle,
+            id: workspace.id, stableID: workspace.stableId, title: workspace.title, customTitle: workspace.customTitle,
             customDescription: workspace.customDescription,
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,

@@ -9,8 +9,10 @@ public import Foundation
 /// browser/terminal-only extras are carried as optionals: they are emitted only
 /// when present, matching the legacy `if let` conditional key writes.
 public struct ControlSurfaceSummary: Sendable, Equatable {
-    /// The surface's panel identifier.
+    /// The surface's live panel identifier.
     public let surfaceID: UUID
+    /// The surface's restart-stable identifier, when the app can provide it.
+    public let stableSurfaceID: UUID?
     /// The panel type's raw value.
     public let typeRawValue: String
     /// The resolved display title.
@@ -58,7 +60,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// Creates a surface summary.
     ///
     /// - Parameters:
-    ///   - surfaceID: The surface's panel identifier.
+    ///   - surfaceID: The surface's live panel identifier.
+    ///   - stableSurfaceID: The surface's restart-stable identifier, if available.
     ///   - typeRawValue: The panel type's raw value.
     ///   - title: The resolved display title.
     ///   - isFocused: Whether this surface is focused.
@@ -74,6 +77,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID,
+        stableSurfaceID: UUID? = nil,
         typeRawValue: String,
         title: String,
         isFocused: Bool,
@@ -95,6 +99,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
+        self.stableSurfaceID = stableSurfaceID
         self.typeRawValue = typeRawValue
         self.title = title
         self.isFocused = isFocused
