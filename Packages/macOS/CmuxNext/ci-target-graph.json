@@ -10,6 +10,7 @@
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
+    "CmuxInstallAuthCore": "Packages/Shared/CmuxInstallAuthCore",
     "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
@@ -440,7 +441,8 @@
       ],
       "packages": [
         "CMUXAuthCore",
-        "CmuxAuthRuntime"
+        "CmuxAuthRuntime",
+        "CmuxInstallAuthCore"
       ]
     },
     "CmuxNextCloudTests": {
@@ -449,7 +451,9 @@
       "targets": [
         "CmuxNextCloud"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxInstallAuthCore"
+      ],
       "reads": []
     },
     "CmuxNextCodeRouter": {

@@ -506,7 +506,7 @@ pub fn run_with_drafts(
         (e, m) => e.or(m),
     };
     TurnOutcome {
-        reply: fold.final_text().map(str::to_owned),
+        reply: fold.final_text(),
         done_draft,
         cancelled,
         error,

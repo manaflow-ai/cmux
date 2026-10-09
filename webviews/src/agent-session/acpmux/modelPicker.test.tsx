@@ -288,6 +288,95 @@ describe("T3 model picker", () => {
     ]);
   });
 
+  const typeQuery = async (text: string) => {
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    return input;
+  };
+  const fastOption = {
+    id: "fast-mode",
+    name: "Fast mode",
+    currentValue: "off",
+    options: [
+      { value: "off", name: "Off" },
+      { value: "on", name: "On" },
+    ],
+  };
+
+  // Lawrence 2026-10-08: "typing needs to be separate that lets me search through all of them".
+  test("typing searches every harness, whatever tab shows", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    await typeQuery("gpt");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
+    await typeQuery("opus");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+      "Opus 4.1",
+      "Opus 5.5",
+    ]);
+  });
+
+  // Lawrence 2026-10-08: "type like 'gpt medium fast' and it needs to update the other things too".
+  test("a typed effort and fast mode land with the model in this harness", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = value.catalog[0]!.models.map((model) => ({
+      ...model,
+      efforts: ["low", "high"],
+      fast: model.id === "claude-opus-5-5",
+    }));
+    value.summary!.configOptions = [effort, fastOption];
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("claude low fast");
+    expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["Opus 5.5"]);
+    expect(modelRows()[0]!.textContent).toContain("low · fast");
+    await key(input, "Enter");
+    // Opus 5.5 already runs: the effort and fast mode change at once.
+    expect(calls).toEqual(["config effort low", "config fast-mode on"]);
+  });
+
+  test("a typed combo for another harness starts it, then lands the model and effort in its new session", async () => {
+    const value = snapshot();
+    value.catalog[2]!.models = value.catalog[2]!.models.map((model) => ({ ...model, efforts: ["low", "medium"] }));
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = await typeQuery("gpt medium");
+    await key(input, "Enter");
+    expect(calls).toEqual(["harness codex"]);
+    // The new Codex session reports its default model and its effort option.
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "o3",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra"]);
+    await render({
+      ...value,
+      summary: {
+        sessionId: "s2",
+        harness: "codex",
+        model: "gpt-6-astra",
+        configOptions: [{ ...effort, options: [{ value: "low" }, { value: "medium" }], currentValue: "low" }],
+      },
+    });
+    expect(calls).toEqual(["harness codex", "model gpt-6-astra", "config effort medium"]);
+  });
+
+  test("Cmd-Ctrl-M opens the picker", async () => {
+    await render();
+    await act(async () =>
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true }),
+      ),
+    );
+    expect(menu()).not.toBeNull();
+  });
+
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
   // "Claude Code". The chip draws one harness: the running one, or the one a switch is starting.
   test("the chip keeps one harness's mark and name while another harness is browsed", async () => {

@@ -171,4 +171,55 @@ import Testing
                                        machines: services.machines) == [Self.firstKey],
                 "the old space keeps only its workspace")
     }
+
+    /// `action.run space.new` from a script (no `focus`) goes through the
+    /// same path as the button: the new space starts with its own workspace,
+    /// pinned there. The run may not change the view, so the window stays in
+    /// its space on its workspace, and the current space never lists the
+    /// new workspace (cx-f8aw, nxdog78-v1: workspace-3 showed in the
+    /// current space).
+    @Test func scriptedNewSpaceGetsItsOwnWorkspaceWithoutMovingTheView() async throws {
+        let daemon = try RoomsDaemon()
+        defer { daemon.stop() }
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        services.daemon.start(makeConnection: { daemon.connection() })
+        defer {
+            for controller in services.windows.controllers { controller.window?.close() }
+            services.daemon.shutdownConnection()
+        }
+        try await Self.waitUntil("home daemon loaded with rooms") {
+            services.daemon.store.isLoaded && services.daemon.store.personal.isLoaded && services.daemon.store.workspaces.count == 1
+        }
+        let window = try #require(services.windows.openWindow(workspaces: [Self.firstKey]))
+        services.windows.didActivate(window)
+        services.windows.reconcileMembership()
+        #expect(window.state.profileID == .defaultProfile)
+
+        let run = RegistryControlBridge(registry: services.registry).performActionTracked(ControlActionRequest(
+            actionID: "space.new", origin: "script", focus: false))
+        #expect(run.outcome == .ran, "space.new: \(run.outcome)")
+
+        try await Self.waitUntil("the new space's workspace is created, pinned and mirrored") {
+            services.daemon.store.workspaces.count == 2
+                && daemon.state.value.withLock { $0.rooms.count == 2 && $0.pins.count == 1 }
+        }
+        let (room, newKey, pins) = daemon.state.value.withLock { state in
+            (state.rooms[1].id, state.workspaces[1].key, state.pins.map { "\($0.key)=\($0.room)" })
+        }
+        #expect(pins == ["\(newKey)=\(room)"], "the new workspace must be pinned to the new space, pins: \(pins)")
+        try await Self.waitUntil("the window lists the new workspace") {
+            services.windows.registry.members(of: window.state.id).contains(newKey)
+        }
+        for task in run.work { #expect(await task.value == nil, "space.new work failed") }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(window.state.profileID == .defaultProfile, "a script run must not switch the window's space")
+        #expect(window.state.workspaceID == Self.firstKey, "a script run must not change the shown workspace")
+        #expect(WindowProfiles.visible(services.windows.registry.members(of: window.state.id), profile: .defaultProfile,
+                                       machines: services.machines) == [Self.firstKey],
+                "the current space must not list the new space's workspace")
+        #expect(WindowProfiles.visible(services.windows.registry.members(of: window.state.id), profile: ProfileID(rawValue: room),
+                                       machines: services.machines) == [newKey],
+                "the new space holds its own workspace")
+    }
 }

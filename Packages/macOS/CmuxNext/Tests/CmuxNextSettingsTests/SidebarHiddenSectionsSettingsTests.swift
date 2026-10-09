@@ -4,8 +4,8 @@ import Testing
 
 /// Leo (2026-10-06): a section header's menu hides Projects, and Settings
 /// brings it back (`sidebar.showProjects`). The section under the workspaces
-/// is the optional Chats section, which keeps its one setting
-/// (`sidebar.showChats`, SIDEBAR-NO-RECENTS); there is no Show Recents.
+/// is All chats (`sidebar.showChats`, on by default since cx-xub5); there is
+/// no Show Recents.
 @Suite struct SidebarHiddenSectionsSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
@@ -13,7 +13,7 @@ import Testing
 
     @Test func projectsShowByDefault() throws {
         let sections = try parse("{}").sidebarSections
-        #expect(sections.showProjects && !sections.showChats)
+        #expect(sections.showProjects && sections.showChats)
     }
 
     @Test func projectsHide() throws {

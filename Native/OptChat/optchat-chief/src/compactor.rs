@@ -353,6 +353,9 @@ pub struct AcpmuxCompactor {
     /// Warm sessions kept for the next nodes (`with_warm`; 0: none).
     warm: usize,
     reaped: AtomicBool,
+    /// This compactor, when shared (`shared`): a warm session then starts on
+    /// its own thread after the node returns.
+    me: std::sync::Weak<AcpmuxCompactor>,
     log: Option<Log>,
     trace: crate::trace::Trace,
 }
@@ -380,6 +383,7 @@ impl AcpmuxCompactor {
             model_fallback: None,
             warm: 0,
             reaped: AtomicBool::new(false),
+            me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
         }
@@ -440,6 +444,16 @@ impl AcpmuxCompactor {
             fallback.as_deref().unwrap_or("the harness's default model")
         ));
         true
+    }
+
+    /// The compactor shared, as the host holds it: a node's slot then warms
+    /// up on its own thread, after the node's line is returned.
+    pub fn shared(self) -> Arc<AcpmuxCompactor> {
+        let mut compactor = self;
+        Arc::new_cyclic(|me| {
+            compactor.me = me.clone();
+            compactor
+        })
     }
 
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
@@ -852,7 +866,7 @@ impl AcpmuxCompactor {
             started();
         }
         Ok(Reply::text(strip_preamble(
-            fold.final_text().unwrap_or_default(),
+            &fold.final_text().unwrap_or_default(),
         )))
     }
 
@@ -945,14 +959,26 @@ impl AcpmuxCompactor {
                 )
             }
             Some(last) => {
-                let session = self
+                let (session, ours) = self
                     .live
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get(&node)
-                    .map(|l| l.id.clone())
+                    .map(|l| (l.id.clone(), l.ours))
                     .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
-                (session, vec![text_block(&last.retry)])
+                let mut block = text_block(&last.retry);
+                // With our mark, Claude Code places none of its own: each
+                // retry ends with ours, so it reads the previous request
+                // from the cache. 5 minutes whatever the node's TTL: a retry
+                // chain lasts seconds and a 5m write costs 1.25x the input
+                // against 2x for 1h (the API takes a 5m mark after a 1h
+                // one). The view mark and RETRY_MARKS retry marks stay
+                // within the API's 4; a later retry reads the last marked
+                // request's entry unmarked.
+                if ours && followups.len() <= RETRY_MARKS {
+                    block["cache_control"] = CacheTtl::FiveMinutes.cache_control();
+                }
+                (session, vec![block])
             }
         };
         self.prompt(node, &session, blocks, started)
@@ -1038,7 +1064,21 @@ impl AcpmuxCompactor {
         // The next node's session starts now, in this slot, so it does not
         // wait for one; else the slot goes back.
         if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
-            self.warm_up(live.slot, live.system.clone(), live.ours);
+            // Off the node's path: starting Claude Code takes seconds, and
+            // the node's line (and any turn waiting for it) must not wait.
+            let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
+            match self.me.upgrade() {
+                Some(me) => {
+                    let spawned = std::thread::Builder::new()
+                        .name("optchat-compact-warm".into())
+                        .spawn(move || me.warm_up(slot, system, ours));
+                    if let Err(e) = spawned {
+                        self.say(&format!("starting a warm compactor session: {e}"));
+                        self.slots.give_slot(slot, true);
+                    }
+                }
+                None => self.warm_up(slot, system, ours),
+            }
         } else {
             if live.system.is_some() {
                 let _ = self.port.set_system_prompt(&live.preset, "");
@@ -1103,6 +1143,10 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
         .create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
+
+/// Size-loop retries of a node with our mark that carry a mark of their own:
+/// with the view mark, the API's limit of 4 per request.
+pub const RETRY_MARKS: usize = 3;
 
 fn text_block(text: &str) -> Value {
     json!({"type": "text", "text": text})
@@ -1479,9 +1523,8 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
-/// The effort of a Claude compactor session: high, with Claude Haiku 5.5
-/// (`optchat_host::DEFAULT_EFFORT`, as the reference client runs it; at low
-/// effort the compactor overshot the size limit much more). acpmux maps
+/// The effort of a Claude compactor session: medium, with Claude Haiku 5.5
+/// (`optchat_host::DEFAULT_EFFORT`, chosen by measurement). acpmux maps
 /// `effort` onto Claude Code's `--effort`.
 pub const COMPACTOR_EFFORT: &str = optchat_host::DEFAULT_EFFORT;
 
@@ -1499,12 +1542,12 @@ pub fn compactor_effort(family: Family) -> Option<String> {
     }
 }
 
-/// The compactor model a Claude Code harness is asked for: the `haiku`
-/// alias, which Claude Code maps to its current Haiku. Claude Code 2.1.287
-/// does not know the full id `claude-haiku-5-5` ("[claude-code:
-/// unrecognized_model]"); the Messages API route keeps it
-/// (`optchat_host::DEFAULT_MODEL`).
-pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = "haiku";
+/// The compactor model a Claude Code harness is asked for: the full id
+/// `claude-haiku-5-5` (`optchat_host::DEFAULT_MODEL`). Claude Code 2.1.287
+/// only warns that it does not list it ("[claude-code:unrecognized_model]")
+/// and runs it; its `haiku` alias is Haiku 4.5 (measured: 52 s and no
+/// prompt caching for one node, against 1.3 s at effort low).
+pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = optchat_host::DEFAULT_MODEL;
 
 /// The default compactor model of `family`'s harness (None: the harness's
 /// own default model).
@@ -1519,7 +1562,6 @@ pub fn compactor_model_for(family: Family) -> Option<String> {
 pub fn is_model_unavailable(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     lower.contains("issue with the selected model")
-        || lower.contains("unrecognized_model")
         || lower.contains("may not exist or you may not have access")
         || (lower.contains("not_found_error") && lower.contains("model"))
 }

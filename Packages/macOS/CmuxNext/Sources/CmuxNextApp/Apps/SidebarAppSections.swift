@@ -37,8 +37,9 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         }
     }
 
+    /// All chats draws its own hover-revealed header (`SidebarChatsView`), so the band adds no title row.
     func title(for contribution: String) -> String? {
-        contribution == SidebarChatsView.contribution ? SidebarChatsView.title : provider.title(for: contribution)
+        contribution == SidebarChatsView.contribution ? nil : provider.title(for: contribution)
     }
 
     func makeView(for contribution: String) -> NSView? {

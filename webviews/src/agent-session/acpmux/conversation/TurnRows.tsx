@@ -14,6 +14,7 @@ import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
 import { useT } from "../i18n";
+import { failureCopy, isAuthenticationFailure } from "../failureCopy";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expanded: boolean; onToggle: () => void }) {
@@ -75,53 +76,61 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, forkSeq, retry } = useContext(TurnActionsContext);
+  const { fork, forkSeq, retry, reauthenticate } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
+  const authenticationFailed = failed && isAuthenticationFailure(row.error);
   return (
     <div className="cv-turn-actions">
       {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
-      {text && (
-        <button
-          type="button"
-          className="cv-iconbtn"
-          aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
-          onClick={() =>
-            void copyText(text).then(
-              () => setCopied(true),
-              () => setCopied(false),
-            )
-          }
-        >
-          <Copy />
-        </button>
-      )}
-      {retry && prompt && (
-        <button
-          type="button"
-          className="cv-iconbtn"
-          aria-label={t("turn.retry")}
-          title={t("turn.retryLabel")}
-          onClick={() => retry(prompt)}
-        >
-          <Retry />
-        </button>
-      )}
-      {fork && seq !== undefined && seq === forkSeq && (
-        <button
-          type="button"
-          className="cv-iconbtn"
-          aria-label={t("turn.fork")}
-          title={t("turn.fork")}
-          onClick={() => fork(seq)}
-        >
-          <TurnFork />
-        </button>
-      )}
-      {failed && <span className="cv-turn-note">{row.error || t("turn.failed")}</span>}
+      <span className="cv-turn-action-group">
+        {text && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={copied ? t("turn.copied") : t("turn.copy")}
+            title={copied ? t("turn.copied") : t("turn.copy")}
+            onClick={() =>
+              void copyText(text).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              )
+            }
+          >
+            <Copy size={14} />
+          </button>
+        )}
+        {retry && prompt && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("turn.retry")}
+            title={t("turn.retryLabel")}
+            onClick={() => retry(prompt)}
+          >
+            <Retry size={14} />
+          </button>
+        )}
+        {authenticationFailed && reauthenticate && (
+          <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
+            {t("turn.signInAgain")}
+          </button>
+        )}
+        {fork && seq !== undefined && seq === forkSeq && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("turn.fork")}
+            title={t("turn.fork")}
+            onClick={() => fork(seq)}
+          >
+            <TurnFork size={14} />
+          </button>
+        )}
+      </span>
+      {failed && <span className="cv-turn-note">{failureCopy(t, row.error)}</span>}
       <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
         {clock.format(row.at)}
       </time>

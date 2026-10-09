@@ -11,7 +11,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import type { CatalogRefreshState } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
@@ -253,6 +253,53 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
+  // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
+  // fast mode turns on once the agent reports the model and offers it. A combo for another harness
+  // starts that harness and waits for its new session, then lands the same way. A failed switch,
+  // or a session that is not the one the pick started, drops it.
+  const crossing = useRef<(ModelCombo & { from?: string }) | undefined>(undefined);
+  const fastWanted = useRef<{ sessionId?: string; model: string } | undefined>(undefined);
+  const combo = (picked: ModelCombo) => {
+    crossing.current = undefined;
+    fastWanted.current = undefined;
+    if (picked.harness !== harness) {
+      if (!onHarness) return;
+      crossing.current = { ...picked, from: summary?.sessionId };
+      onHarness(picked.harness);
+      return;
+    }
+    land(picked.model, picked.effort);
+    if (!picked.fast) return;
+    // The model already runs: fast mode changes now; else once the agent reports the model.
+    if (picked.model === current && fastMode) {
+      if (fastMode.currentValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+    } else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
+  };
+  const switchFailed = snapshot.switching?.phase === "failed";
+  useEffect(() => {
+    const wanted = crossing.current;
+    if (!wanted) return;
+    if (switchFailed) {
+      crossing.current = undefined;
+      return;
+    }
+    if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
+    crossing.current = undefined;
+    land(wanted.model, wanted.effort);
+    if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
+  });
+  const fastValue = fastMode?.currentValue;
+  useEffect(() => {
+    const wanted = fastWanted.current;
+    if (!wanted) return;
+    if (wanted.sessionId !== summary?.sessionId) {
+      fastWanted.current = undefined;
+      return;
+    }
+    if (current !== wanted.model || !fastMode) return;
+    fastWanted.current = undefined;
+    if (fastValue !== fastMode.onValue) fastMode.onPick(fastMode.onValue);
+  });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else "Default".
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
@@ -287,6 +334,7 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={onHarness}
+          onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           fastMode={fastMode}
