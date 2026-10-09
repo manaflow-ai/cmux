@@ -159,6 +159,9 @@ final class HeaderView: UIView {
 /// Window chrome: traffic lights and the 1 pt light border.
 final class ChromeView: UIView {
     var drawsTrafficLights = true { didSet { canvas.setNeedsDisplay() } }
+    /// The view's left edge is the window's left edge (true), or it meets a sidebar (false: the
+    /// border has no left side and square left corners; only the window's edges get the line).
+    var leadingEdgeIsWindowEdge = true { didSet { if leadingEdgeIsWindowEdge != oldValue { canvas.setNeedsDisplay() } } }
     private let canvas = CanvasView()
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -190,9 +193,22 @@ final class ChromeView: UIView {
                 }
             }
             UIColor(white: 1, alpha: 0.075).setStroke()
-            let border = UIBezierPath(roundedRect: b.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 15.5)
-            border.lineWidth = 1
-            border.stroke()
+            let r = b.insetBy(dx: 0.5, dy: 0.5)
+            if self.leadingEdgeIsWindowEdge {
+                let border = UIBezierPath(roundedRect: r, cornerRadius: 15.5)
+                border.lineWidth = 1
+                border.stroke()
+            } else {
+                // Top edge, right corners and side, bottom edge; the left side meets the sidebar.
+                let p = CGMutablePath()
+                p.move(to: CGPoint(x: b.minX, y: r.minY))
+                p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.minY), tangent2End: CGPoint(x: r.maxX, y: r.maxY), radius: 15.5)
+                p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.maxY), tangent2End: CGPoint(x: b.minX, y: r.maxY), radius: 15.5)
+                p.addLine(to: CGPoint(x: b.minX, y: r.maxY))
+                ctx.addPath(p)
+                ctx.setLineWidth(1)
+                ctx.strokePath()
+            }
         }
     }
     required init?(coder: NSCoder) { fatalError() }

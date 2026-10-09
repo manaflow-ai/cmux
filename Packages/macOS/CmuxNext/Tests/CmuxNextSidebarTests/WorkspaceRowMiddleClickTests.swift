@@ -76,9 +76,14 @@ import Testing
             // through the window server's frame (not this unshown window's) got wrong.
             let cg = try #require(made.cgEvent?.copy())
             cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+            // Like DebugMouse.keepingWindowPoint, move the copy only when AppKit missed the point:
+            // setting a location on an event for a window that is not on screen maps it through the
+            // window server, which puts every point outside the window ((-1, height + 1)).
             let first = try #require(NSEvent(cgEvent: cg))
-            cg.location = CGPoint(x: cg.location.x + at.x - first.locationInWindow.x,
-                                  y: cg.location.y - (at.y - first.locationInWindow.y))
+            if first.locationInWindow != at {
+                cg.location = CGPoint(x: cg.location.x + at.x - first.locationInWindow.x,
+                                      y: cg.location.y - (at.y - first.locationInWindow.y))
+            }
             let event = try #require(NSEvent(cgEvent: cg))
             #expect(event.buttonNumber == 2)
             #expect(event.locationInWindow == at)

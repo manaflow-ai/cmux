@@ -100,7 +100,8 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         let count = 32
         var data = Data(count: count)
         let status = data.withUnsafeMutableBytes { bytes in
-            SecRandomCopyBytes(kSecRandomDefault, count, bytes.baseAddress!)
+            guard let base = bytes.baseAddress else { return errSecAllocate }
+            return SecRandomCopyBytes(kSecRandomDefault, count, base)
         }
         guard status == errSecSuccess else {
             throw CmxIrohIdentityRepositoryError.randomGenerationFailed(status)

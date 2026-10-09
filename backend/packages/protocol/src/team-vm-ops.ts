@@ -217,10 +217,14 @@ export const TeamVmRetiredDelete = def({
   risk: "destructive",
   target: "team",
   principals: ["session"],
-  params: Schema.Struct({ vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)) }),
+  params: Schema.Struct({
+    vm: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+    /** The owner or admin attests that the team files (/srv/team) were copied off the paused VM; a rebuild does not carry them (cx-zr9i). */
+    files_copied: Schema.Literal(true)
+  }),
   result: Schema.Struct({ vm: Schema.String, deleted: Schema.Boolean }),
-  errors: [...adminErrors],
-  docs: "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited.",
+  errors: [...adminErrors, "team_vm.retired_files_unconfirmed"],
+  docs: "Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited.",
   cli: { path: "team vm retired delete", visible: true },
   mcp: { expose: "never", group: "team" }
 })

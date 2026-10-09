@@ -200,8 +200,8 @@ export const TeamVmAccountsRead = def({
     /** The current members' Linux users, sorted by UID. A member who left is not listed; its UIDs are never reused. */
     users: Schema.Array(TeamVmAccountUser)
   }),
-  errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins).",
+  errors: ["auth.unauthenticated", "auth.forbidden", "team_vm.stale_epoch", "owner.unreachable"],
+  docs: "The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).",
   cli: { path: "team ssh accounts", visible: false },
   mcp: { expose: "never", group: "team" }
 })

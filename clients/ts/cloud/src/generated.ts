@@ -2601,7 +2601,7 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
-  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). */
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
   readonly "team_vm.accounts": {
     readonly params: Readonly<Record<string, never>>
     readonly result: {
@@ -2691,10 +2691,11 @@ export interface CloudOps {
       readonly epoch: number
     }
   }
-  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited. */
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.retired.delete": {
     readonly params: {
       readonly vm: string
+      readonly files_copied: true
     }
     readonly result: {
       readonly vm: string
