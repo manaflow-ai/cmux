@@ -560,3 +560,278 @@
     padding: 14px 16px 40px;
   }
 }
+
+/* Design B: make the page feel like one deliberate workspace. The sidebar carries the page
+   identity, while the content keeps a calm rhythm of hairlines and nested radii. */
+.sidebar-intro {
+  display: grid;
+  gap: 3px;
+  padding: 2px 8px 5px;
+}
+
+.sidebar-title {
+  font-size: var(--text-heading);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-caption {
+  max-width: 178px;
+  margin: 0;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
+.sidebar-section-label {
+  padding: 3px 8px 1px;
+  color: var(--soft-text);
+  font-size: var(--text-caption);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.search-bar {
+  gap: 6px;
+}
+
+.search-bar .search-input {
+  min-height: 30px;
+  border-color: var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.filter-button {
+  min-height: 30px;
+  padding-inline: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.filter-label {
+  max-width: 0;
+  overflow: hidden;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  transition: max-width var(--motion-hover) var(--motion-ease), opacity var(--motion-hover) var(--motion-ease);
+  opacity: 0;
+}
+
+.filter-button:hover .filter-label,
+.filter-button:focus-visible .filter-label,
+.filter-button[aria-pressed="true"] .filter-label {
+  max-width: 112px;
+  opacity: 1;
+}
+
+.section-link {
+  min-height: 32px;
+  border: 1px solid transparent;
+}
+
+.section-link[aria-current] {
+  border-color: var(--border);
+  box-shadow: inset 2px 0 0 var(--text);
+}
+
+.section-icon {
+  width: 21px;
+  height: 21px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--input-bg);
+}
+
+.section-link[aria-current] .section-icon {
+  background: var(--accent-soft);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.section-heading .section-title {
+  margin: 0;
+}
+
+.section-heading-icon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--muted-text);
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-title::after {
+  flex: 1;
+  border-top: 1px solid var(--border);
+  content: "";
+}
+
+.rows {
+  overflow: visible;
+}
+
+.row {
+  min-height: 44px;
+}
+
+.row:hover {
+  background: var(--input-bg);
+}
+
+.row[data-row-key] .row-title::before {
+  display: inline-block;
+  opacity: 0;
+  transition: opacity var(--motion-out) var(--motion-ease);
+  width: 5px;
+  height: 5px;
+  margin: 0 7px 2px 0;
+  border-radius: 50%;
+  border: 1px solid var(--text);
+  content: "";
+  vertical-align: middle;
+}
+
+.row[data-customized] .row-title::before {
+  opacity: 1;
+}
+
+.row-control {
+  gap: 10px;
+}
+
+.row-managed {
+  max-width: 100%;
+  background: var(--input-bg);
+  color: var(--muted-text);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.theme-hero {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.theme-preview {
+  border-radius: 13px;
+}
+
+.theme-popover {
+  border-radius: 10px;
+}
+
+.domain-panel {
+  background: var(--cmux-elevated-background, var(--cmux-surface-background, Canvas));
+  box-shadow: var(--ui-popup-shadow, 0 10px 28px color-mix(in srgb, var(--text) 12%, transparent));
+}
+
+.domain {
+  position: relative;
+}
+
+[data-settings-state="loading"] .content {
+  cursor: progress;
+}
+
+[data-settings-state="loading"] .content .column {
+  opacity: 0.72;
+}
+
+@media (max-width: 600px) {
+  .sidebar-intro {
+    display: none;
+  }
+
+  .sidebar-section-label {
+    display: none;
+  }
+
+  .filter-label {
+    display: none;
+  }
+
+  .section-heading {
+    margin-bottom: 16px;
+  }
+
+  .section-heading-icon {
+    width: 27px;
+    height: 27px;
+  }
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding-inline: 12px;
+  }
+
+  .section-title {
+    font-size: var(--text-heading);
+  }
+
+  .group-title {
+    font-size: var(--text-detail);
+  }
+
+  .row-main {
+    align-items: flex-start;
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .row-control {
+    max-width: none;
+    width: 100%;
+    justify-content: flex-start;
+    padding-top: 2px;
+  }
+
+  .row-control .reset-slot {
+    margin-inline-start: auto;
+  }
+
+  .domain-panel {
+    right: auto;
+    left: 0;
+  }
+}
+
+/* Keep the changed filter discoverable without narrowing search on hover. */
+.search-bar { flex-wrap: wrap; }
+.search-bar .search { flex-basis: 100%; }
+.filter-button { width: 100%; justify-content: flex-start; gap: 7px; }
+.filter-label { max-width: none; opacity: 1; transition: none; }
+.filter-count { margin-inline-start: auto; }
+.filter-button:hover .filter-label,
+.filter-button:focus-visible .filter-label,
+.filter-button[aria-pressed="true"] .filter-label { max-width: none; }
+.domain-list { list-style: none; padding: 0; margin: 0; }
+.domain-option[data-highlighted] { background: var(--accent-soft); }
+.domain-panel { max-width: calc(100vw - 24px); }
+.theme-caption { padding: 0 12px 12px; }
+.save-status { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: var(--text-caption); }
+.save-status[data-save-state="error"] { color: var(--danger); }
+@media (max-width: 600px) {
+  .search-bar { flex-wrap: nowrap; }
+  .search-bar .search { flex-basis: auto; }
+  .filter-button { width: auto; }
+  .filter-label { display: inline; }
+}

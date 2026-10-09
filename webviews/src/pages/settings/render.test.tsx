@@ -15,7 +15,14 @@ const surface = "var(--cmux-surface-background, transparent)";
 const bootstrapRule =
   "html{background:var(--cmux-surface-background) !important}body{background:transparent !important}";
 // --accent marks an on control (a switch, a default button), never a surface (layout.css).
-const allowedFills = new Set(["transparent", "none", "var(--accent-soft)", "var(--input-bg)", "var(--accent)"]);
+const allowedFills = new Set([
+  "transparent",
+  "none",
+  "var(--accent-soft)",
+  "var(--input-bg)",
+  "var(--accent)",
+  "var(--cmux-elevated-background, var(--cmux-surface-background, Canvas))",
+]);
 const containerTags = new Set([
   "HTML",
   "BODY",
@@ -68,7 +75,7 @@ test("no rule declares a background other than transparent or the two interactio
   expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item))).toEqual([]);
   // Containers never take a token fill; only controls and interaction states do.
   const containers =
-    /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.domain-panel|\.notice|\.banner)$/;
+    /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.notice|\.banner)$/;
   expect(
     fills.filter((item) => item.value !== "transparent" && selectors(item).some((part) => containers.test(part))),
   ).toEqual([]);

@@ -4,6 +4,7 @@ import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
 import { homes } from "../categories";
+import { Icon } from "../icons";
 import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
@@ -77,8 +78,16 @@ export function SettingsApp() {
   };
 
   return (
-    <div className="settings" ref={keyboardRef}>
+    <div
+      className="settings"
+      ref={keyboardRef}
+      data-settings-state={!state.loaded ? "loading" : state.readable ? "ready" : "unavailable"}
+    >
       <aside className="sidebar">
+        <div className="sidebar-intro">
+          <div className="sidebar-title text-fg">{t("settingsPage.title")}</div>
+          <p className="sidebar-caption text-muted">{t("settingsPage.intro")}</p>
+        </div>
         <SearchField
           query={query}
           onQuery={setQuery}
@@ -87,16 +96,24 @@ export function SettingsApp() {
           changedCount={changedCount}
           onChangedOnly={setChangedOnly}
         />
+        <div className="sidebar-section-label text-dim">{t("settingsPage.sections")}</div>
         <SectionList current={searching ? null : location.section} onSelect={(section) => go(section)} />
       </aside>
-      <main className="content">
+      <main className="content" aria-busy={!state.loaded}>
         <div className="column">
           {!state.connected ? (
             <ReadOnlyBanner />
           ) : state.loaded && !state.readable ? (
             <ReadOnlyBanner reason="loadFailed" />
           ) : null}
-          {shownChangedOnly && <h1 className="section-title">{t("settingsPage.changedTitle")}</h1>}
+          {shownChangedOnly && (
+            <div className="section-heading">
+              <span className="section-heading-icon text-muted" aria-hidden="true">
+                <Icon name="filter" />
+              </span>
+              <h1 className="section-title">{t("settingsPage.changedTitle")}</h1>
+            </div>
+          )}
           {searching ? (
             <SearchResults query={shownQuery} changedOnly={shownChangedOnly} />
           ) : (

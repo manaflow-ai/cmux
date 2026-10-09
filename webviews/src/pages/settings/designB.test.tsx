@@ -6,7 +6,10 @@ const restore = installDom();
 afterAll(restore);
 const { renderPage, rowElement, click, changeValue, fire, ops } = await import("./testing");
 let page: Rendered | null = null;
-afterEach(() => { page?.unmount(); page = null; });
+afterEach(() => {
+  page?.unmount();
+  page = null;
+});
 
 test("font search escapes the scroll container and supports keyboard selection", async () => {
   page = await renderPage({ path: "/settings/appearance" });
@@ -23,7 +26,10 @@ test("font search escapes the scroll container and supports keyboard selection",
 });
 
 test("a failed write replaces the hint and retry replays only that setting", async () => {
-  page = await renderPage({ path: "/settings/privacy", mock: { failing: { "cmux.settings.set": "cmux.settings.permission_denied" } } });
+  page = await renderPage({
+    path: "/settings/privacy",
+    mock: { failing: { "cmux.settings.set": "cmux.settings.permission_denied" } },
+  });
   const row = rowElement(page.container, "history.terminalCommands");
   await click(row.querySelector("[role=switch]")!);
   expect(row.querySelector(".row-help") === null).toBe(true);
@@ -41,7 +47,7 @@ test("font search has an empty result and Escape returns to its trigger", async 
   await click(trigger);
   const input = document.querySelector<HTMLInputElement>(".domain-panel input")!;
   await changeValue(input, "no-such-font-123");
-  expect(document.querySelector(".domain-panel")?.textContent).toContain("No matching settings.");
+  expect(document.querySelector(".domain-panel")?.textContent).toContain("No matches. Try another name.");
   await fire(input, "keydown", { key: "Escape" });
   expect(document.querySelector(".domain-panel")).toBeNull();
   expect(document.activeElement === trigger).toBe(true);

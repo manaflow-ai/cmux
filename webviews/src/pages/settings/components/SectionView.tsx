@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { categoryById, type CategoryCard } from "../categories";
+import { Icon } from "../icons";
 import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
@@ -42,7 +43,12 @@ export function SectionView({ section, focus }: { section: string; focus: string
   const groups = category.groups.filter((group) => !(studio && group.rows.every((row) => drawn.has(row.key))));
   return (
     <div className="section" data-section={category.id}>
-      <h1 className="section-title">{text(category.title)}</h1>
+      <div className="section-heading">
+        <span className="section-heading-icon border-edge text-muted" aria-hidden="true">
+          <Icon name={category.symbol} />
+        </span>
+        <h1 className="section-title text-fg">{text(category.title)}</h1>
+      </div>
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} />
       ))}

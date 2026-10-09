@@ -3,6 +3,7 @@
 // levels of the active window; Reset runs the level's clear action (the palette's path).
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
+import { SaveStatus } from "./SaveStatus";
 import { t } from "../strings";
 
 function overriddenText(level: string, theme: string): string | null {
@@ -14,7 +15,7 @@ function overriddenText(level: string, theme: string): string | null {
 
 export function ScopeOverrides() {
   const store = useStore();
-  const { host, connected } = useSettingsState();
+  const { host, connected, saves } = useSettingsState();
   const theme = host?.theme;
   if (!theme) return null;
   const overrides = theme.levels.flatMap((level) => {
@@ -25,11 +26,14 @@ export function ScopeOverrides() {
   return overrides.map(({ level, label }) => (
     <div className="row row-note" key={level} data-override={level}>
       <Icon name="layers" />
-      <span className="row-note-text">{label}</span>
+      <span className="row-note-text">
+        {label}
+        <SaveStatus destination={`theme:${level}`} />
+      </span>
       <button
         type="button"
         className="link-button"
-        disabled={!connected}
+        disabled={!connected || saves.get(`theme:${level}`)?.status === "saving"}
         onClick={() => void store.setTheme(level, null)}
       >
         {t("settingsPage.reset")}

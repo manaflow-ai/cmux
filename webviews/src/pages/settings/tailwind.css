@@ -1,7 +1,7 @@
 /* Tailwind for the Settings page (Lawrence 2026-10-08: "use tailwind for everything here"): theme
    and utilities, no Preflight, so the page's own rules keep their look. The tokens name the page's
-   variables (styles.css), so a utility follows the web theme: `text-fg`, `bg-input`,
-   `border-edge`. The app build compiles this file in its esbuild pass
+   variables (styles.css), so a utility follows the web theme: `text-fg`, `bg-hover`, `bg-menu`,
+   `border-edge`, and `shadow-menu`. The app build compiles this file in its esbuild pass
    (scripts/agent-pane/tailwindCompile.mjs); the dev server and the gallery through Vite. */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
@@ -11,10 +11,14 @@
 @theme inline {
   --color-fg: var(--text);
   --color-muted: var(--muted-text);
+  --color-dim: var(--soft-text);
   --color-soft: var(--soft-text);
   --color-edge: var(--border);
+  --color-hover: var(--input-bg);
+  --color-menu: var(--cmux-elevated-background, var(--cmux-surface-background, Canvas));
   --color-input: var(--input-bg);
   --color-accent-soft: var(--accent-soft);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
+  --shadow-menu: var(--ui-popup-shadow, 0 10px 30px color-mix(in srgb, var(--text) 14%, transparent));
 }

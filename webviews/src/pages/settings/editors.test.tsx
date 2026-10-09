@@ -155,7 +155,7 @@ describe("editors", () => {
     const control = row.querySelector<HTMLButtonElement>("[role=switch]")!;
     expect(control.disabled).toBe(true);
     expect(control.getAttribute("aria-checked")).toBe("false");
-    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Managed by your organization");
+    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Set by your organization's profile");
     expect(row.querySelector("[data-reset]")).toBeNull();
     expect(page.container.querySelector('[data-section-link="browser"] [data-badge="lock"]')).not.toBeNull();
   });
@@ -170,6 +170,14 @@ describe("editors", () => {
     await click(row().querySelector("[data-reset]")!);
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "history.terminalCommands" }]);
     expect(row().querySelector("[data-reset]")).toBeNull();
+  });
+
+  test("customized rows carry a quiet changed marker without changing their layout", async () => {
+    page = await renderPage({ path: "/settings/privacy", mock: { values: { "history.terminalCommands": true } } });
+    const row = rowElement(page.container, "history.terminalCommands");
+    expect(row.hasAttribute("data-customized")).toBe(true);
+    expect(row.querySelector(".row-title")?.textContent).toContain("Terminal Commands");
+    expect(row.querySelector("[data-reset]")).not.toBeNull();
   });
 
   test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
@@ -232,7 +240,7 @@ describe("editors", () => {
       mock: { managed: { "history.terminalCommands": { value: false, source: "team", reason: "x", team: "Acme" } } },
     });
     const row = rowElement(page.container, "history.terminalCommands");
-    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("Managed by Acme");
+    expect(row.querySelector("[data-managed-reason]")?.textContent).toBe("x · Acme");
   });
 
   test("a first read that fails keeps every editor read only and says why", async () => {
@@ -269,6 +277,15 @@ describe("editors", () => {
     const theme = rowElement(page.container, "appearance.theme");
     expect(theme.querySelector("button.domain-button")).toBeNull();
     expect(theme.querySelector("input.text")).not.toBeNull();
+  });
+
+  test("font picker floats above its card without clipping neighboring rows", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const row = rowElement(page.container, "terminal.fontFamily");
+    await click(row.querySelector("button.domain-button")!);
+    const panel = document.querySelector<HTMLElement>(".domain-panel")!;
+    expect(panel.closest(".content") === null).toBe(true);
+    expect(getComputedStyle(page.container.querySelector(".rows")!).overflow).toBe("visible");
   });
 
   test("a diagnostic shows an inline notice and a warning badge", async () => {

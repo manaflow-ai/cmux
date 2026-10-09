@@ -19,7 +19,15 @@ const account: AccountsRow = {
   statusKind: "success",
   busy: false,
   buttons: [button("reauth", "Re-authenticate"), button("connect", "Connect to CodeRouter")],
-  linked: [{ id: "sample-account", label: "Sample research account", state: "Healthy", healthy: true, busy: false }],
+  linked: [
+    {
+      id: "sample-account",
+      label: "Sample research account",
+      state: "Healthy",
+      healthy: true,
+      busy: false,
+    },
+  ],
   note: null,
   outcome: null,
   confirm: null,
@@ -34,13 +42,24 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   ...state,
 });
 const host: Partial<HostLists> = {
-  machines: [{ id: "sample-build", title: "Research build machine", subtitle: "Online · local network", active: true }],
+  machines: [
+    {
+      id: "sample-build",
+      title: "Research build machine",
+      subtitle: "Online · local network",
+      active: true,
+    },
+  ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
-const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
+const input = (selector: string, value: string): PageFixtureStep => ({
+  selector,
+  action: "input",
+  value,
+});
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
@@ -85,7 +104,10 @@ const variants: Record<string, SettingsPageVariant> = {};
 for (const category of categories) {
   const allThemes = category.id === "theme";
   variants[category.id] = variant(category.id, { allThemes });
-  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
+  variants[`${category.id}-customized`] = variant(category.id, {
+    allThemes,
+    options: { values: customValues },
+  });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
   for (const [index, group] of category.groups.entries())
     variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
@@ -118,7 +140,13 @@ Object.assign(variants, {
         { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
         { id: "codex", name: null, kind: "acp", source: "path", problem: null },
         { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
-        { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+        {
+          id: "github-copilot-cli",
+          name: "GitHub Copilot",
+          kind: "acp",
+          source: "user-file",
+          problem: null,
+        },
         { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
         { id: "grok", name: null, kind: "acp", source: "path", problem: "Authentication required" },
         { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
@@ -130,7 +158,9 @@ Object.assign(variants, {
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
   }),
   backdrops: variant("experimental", {
-    options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
+    options: {
+      values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" },
+    },
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -149,7 +179,10 @@ Object.assign(variants, {
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
   }),
   "terminal-shell-unknown": variant("terminal", {
-    host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
+    host: {
+      ...host,
+      terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null },
+    },
   }),
   loading: variant("general", {
     loading: true,
@@ -159,13 +192,19 @@ Object.assign(variants, {
   "permission-error": variant("general", {
     options: { failing: { "cmux.settings.list": "cmux.settings.permission_denied" } },
   }),
-  "not-found": variant("general", { options: { failing: { "cmux.settings.snapshot": "cmux.settings.not_found" } } }),
+  "not-found": variant("general", {
+    options: { failing: { "cmux.settings.snapshot": "cmux.settings.not_found" } },
+  }),
   "managed-controls": variant("browser", { focus: "browser.remoteLocalhost" }),
   "empty-rooms": variant("rooms", { host: { ...host, rooms: [], browser_profiles: [] } }),
   "unsupported-rooms": variant("rooms", { host: { ...host, rooms: null } }),
   "empty-machines": variant("machines", { host: { ...host, machines: [] } }),
-  "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
-  "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
+  "long-rooms": variant("rooms", {
+    host: { ...host, rooms: longRows, browser_profiles: longProfiles },
+  }),
+  "long-profiles": variant("browser", {
+    host: { ...host, rooms: [], browser_profiles: longProfiles },
+  }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
   "profile-editor": variant("browser", {
     steps: [
@@ -176,8 +215,12 @@ Object.assign(variants, {
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
-  "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
-  "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
+  "search-empty": variant("general", {
+    steps: [input("[data-settings-search]", "no-such-setting")],
+  }),
+  "reset-confirmation": variant("advanced", {
+    steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")],
+  }),
   "theme-picker": variant("theme", {
     allThemes: true,
     steps: [click("[data-theme-picker]"), wait(".theme-popover [data-theme-option]")],
@@ -274,7 +317,9 @@ Object.assign(variants, {
   }),
   "row-diagnostic": variant("browser", {
     focus: "browser.newTabPage",
-    options: { diagnostics: [{ path: "browser.newTabPage", message: "The address must use an allowed scheme." }] },
+    options: {
+      diagnostics: [{ path: "browser.newTabPage", message: "The address must use an allowed scheme." }],
+    },
   }),
   "ghostty-diagnostics": variant("terminal", {
     host: {
@@ -296,21 +341,36 @@ Object.assign(variants, {
           reason: "not-applicable",
           replacement: null,
         },
-        { kind: "invalid", name: "unknown setting", file: null, line: null, reason: null, replacement: null },
+        {
+          kind: "invalid",
+          name: "unknown setting",
+          file: null,
+          line: null,
+          reason: null,
+          replacement: null,
+        },
       ],
     },
   }),
   // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
   // Focusing the card's first button scrolls it into view.
   "computer-use-off": variant("agents", {
-    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
+    host: {
+      ...host,
+      computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null },
+    },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,
-      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+      },
     },
     steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
     note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
@@ -318,7 +378,12 @@ Object.assign(variants, {
   "computer-use-not-granted": variant("agents", {
     host: {
       ...host,
-      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
+      computer_use: {
+        phase: "ready",
+        accessibility: false,
+        screen_recording: false,
+        helper: "cmux Computer Use",
+      },
     },
     steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
     note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
@@ -351,11 +416,21 @@ Object.assign(variants, {
     steps: [wait("[data-agents-cli]")],
     note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
   }),
-  "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
-  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
+  "agents-empty": variant("agents", {
+    agents: { harnesses: [] },
+    note: "No harness: the empty line.",
+  }),
+  "accounts-empty": variant("accounts", {
+    accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }),
+  }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
-      { busy: true, status: "Refreshing", statusKind: "neutral", buttons: [button("reauth", "Re-authenticate", true)] },
+      {
+        busy: true,
+        status: "Refreshing",
+        statusKind: "neutral",
+        buttons: [button("reauth", "Re-authenticate", true)],
+      },
       { refreshing: true },
     ),
   }),
@@ -365,12 +440,24 @@ Object.assign(variants, {
       statusKind: "attention",
       note: "Reconnect to try again.",
       outcome: { kind: "danger", text: "The account service is unavailable." },
-      linked: [{ id: "sample-account", label: "Sample account", state: "Expired", healthy: false, busy: false }],
+      linked: [
+        {
+          id: "sample-account",
+          label: "Sample account",
+          state: "Expired",
+          healthy: false,
+          busy: false,
+        },
+      ],
     }),
   }),
   "accounts-confirmation": variant("accounts", {
     accounts: accounts({
-      confirm: { text: "Connect this sample account to CodeRouter?", confirm: "Connect", cancel: "Cancel" },
+      confirm: {
+        text: "Connect this sample account to CodeRouter?",
+        confirm: "Connect",
+        cancel: "Cancel",
+      },
     }),
   }),
   "accounts-paste": variant("accounts", {
@@ -405,12 +492,51 @@ Object.assign(variants, {
       },
     ),
   }),
+  // Round-1 state aliases keep the gallery matrix explicit for busy, retry, diagnostic and
+  // managed states while reusing the page's real provider shapes.
+  saving: variant("accounts", {
+    accounts: accounts(
+      {
+        busy: true,
+        status: "Saving…",
+        statusKind: "neutral",
+        buttons: [button("reauth", "Re-authenticate", true)],
+      },
+      { refreshing: true },
+    ),
+    note: "A destination is busy while its credentials are saved; the existing value remains visible.",
+  }),
+  "saving-retry": variant("privacy", {
+    options: {
+      values: customValues,
+      failing: { "cmux.settings.set": "cmux.settings.permission_denied" },
+    },
+    focus: "history.terminalCommands",
+    note: "A failed write leaves the row in place so the user can retry without losing the value.",
+  }),
+  diagnostics: variant("advanced", {
+    options: {
+      diagnostics: [
+        { path: "browser.newTabPage", message: "The address must use an allowed scheme." },
+        { path: "unknown.option", message: "Unknown configuration option." },
+      ],
+    },
+    note: "Configuration diagnostics are visible inline and in the category badge.",
+  }),
+  "mdm-locks": variant("browser", {
+    focus: "browser.remoteLocalhost",
+    note: "A managed setting keeps its value visible, with the lock reason inline.",
+  }),
 } satisfies Record<string, SettingsPageVariant>);
 
 // The two overall looks for the chief's pick (layout.css): each on the Theme section with every
 // bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
 for (const look of ["quiet", "dense"] as const) {
-  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
+  variants[`look-${look}-theme`] = variant("theme", {
+    look,
+    allThemes: true,
+    note: `${look} look: Theme.`,
+  });
   variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
   variants[`look-${look}-browser`] = variant("browser", {
     look,

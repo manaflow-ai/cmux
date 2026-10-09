@@ -45,6 +45,8 @@ import {
 } from "./ops";
 
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
+export type SaveState = { status: "saving" | "error"; retry: () => void };
+
 export type RowError = { code: string; message: string; detail?: string };
 
 export type SettingsState = {
@@ -60,6 +62,7 @@ export type SettingsState = {
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
   errors: ReadonlyMap<string, RowError>;
+  saves: ReadonlyMap<string, SaveState>;
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
@@ -72,7 +75,11 @@ export type SettingsState = {
 };
 
 /** The page's own state: nothing here is a setting value. */
-export type UiState = { connected: boolean; errors: ReadonlyMap<string, RowError> };
+export type UiState = {
+  connected: boolean;
+  errors: ReadonlyMap<string, RowError>;
+  saves?: ReadonlyMap<string, SaveState>;
+};
 
 /** What the query cache holds, as the page composes it. */
 export type CacheView = {
@@ -105,6 +112,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,
+    saves: ui.saves ?? new Map(),
     domains: scope?.domains ?? emptyDomains,
     host: cache.host ?? null,
     accounts: cache.accounts ?? null,
@@ -230,8 +238,13 @@ export class SettingsStore {
 
   /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
   async setTheme(level: string, spec: string | null): Promise<void> {
-    await this.request("cmux.settings.theme.set", { level, spec });
-    await this.refreshHost();
+    const destination = `theme:${level}`;
+    if (this.ui.saves?.get(destination)?.status === "saving") return;
+    const retry = () => void this.setTheme(level, spec);
+    this.saveState(destination, { status: "saving", retry });
+    const reply = await this.request("cmux.settings.theme.set", { level, spec });
+    this.saveState(destination, reply.ok ? null : { status: "error", retry });
+    if (reply.ok) await this.refreshHost();
   }
 
   /** Whether `text` is a theme spec the host accepts. */
@@ -384,6 +397,9 @@ export class SettingsStore {
     if (!this.ui.connected) {
       return { ok: false, error: { code: "cmux.page.unavailable", message: "cmux is not connected" } };
     }
+    const destination = `user:${write.kind === "resetAll" ? "all" : write.key}`;
+    const retry = () => void this.write(write);
+    this.saveState(destination, { status: "saving", retry });
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;
     const observer = new MutationObserver<void, TransportError, Write, { previous: ScopeData | undefined }>(
@@ -409,6 +425,7 @@ export class SettingsStore {
     try {
       await observer.mutate(write);
     } catch (error) {
+      this.saveState(destination, { status: "error", retry });
       const wire = error instanceof TransportError ? error.wire : wireError(error);
       const code = errorCode(wire);
       if (code === "unavailable") this.updateUi({ connected: false });
@@ -417,8 +434,16 @@ export class SettingsStore {
     } finally {
       observer.reset();
     }
+    this.saveState(destination, null);
     if (write.kind !== "resetAll") this.setError(write.key, null);
     return { ok: true };
+  }
+
+  private saveState(destination: string, state: SaveState | null): void {
+    const saves = new Map(this.ui.saves);
+    if (state) saves.set(destination, state);
+    else saves.delete(destination);
+    this.updateUi({ saves });
   }
 
   private async fetchNative(queryKey: readonly string[]): Promise<void> {
@@ -487,7 +512,8 @@ function errorText(code: string): string {
 
 /** The lock line of a managed row, in the page's language. */
 export function managedText(info: ManagedInfo): string {
-  return info.team ? t("settingsPage.managedByTeam", info.team) : t("settingsPage.managed");
+  const reason = info.reason.trim() || t("settingsPage.managed");
+  return info.team ? `${reason} · ${info.team}` : reason;
 }
 
 /** The managed info of a row, from cmux.settings.list or the snapshot. */

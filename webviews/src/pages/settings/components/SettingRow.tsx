@@ -9,6 +9,7 @@ import { managedOf, managedText, valueOf } from "../store";
 import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
+import { SaveStatus } from "./SaveStatus";
 import { RowNotice } from "./RowNotice";
 
 /**
@@ -60,6 +61,7 @@ export function SettingRow({
       data-row-key={row.key}
       data-kind={row.kind}
       data-managed={managed ? "" : undefined}
+      data-customized={customized ? "" : undefined}
       data-filtered={filtered ? "" : undefined}
       inert={filtered}
       aria-hidden={filtered ? true : undefined}
@@ -73,7 +75,7 @@ export function SettingRow({
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>
-          {row.help && (
+          {row.help && !error && (
             <div className="row-help">
               <Highlight text={text(row.help)} query={query} />
             </div>
@@ -94,6 +96,7 @@ export function SettingRow({
               {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}
+          <SaveStatus destination={`user:${row.key}`} />
         </ContextMenu>
         <div className="row-control">
           <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />

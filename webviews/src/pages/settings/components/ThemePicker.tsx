@@ -127,6 +127,11 @@ export function ThemePicker({
             )
           }
         />
+        {shown.length === 0 && (
+          <p className="empty text-muted" role="status">
+            {t("settingsPage.pickerEmpty")}
+          </p>
+        )}
         <div className="theme-count">{t("settingsPage.theme.count", names.length)}</div>
       </Popover>
     </>

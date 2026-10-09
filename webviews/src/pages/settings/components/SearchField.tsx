@@ -64,6 +64,7 @@ export function SearchField({
           onClick={() => onChangedOnly(!changedOnly)}
         >
           <Icon name="filter" />
+          <span className="filter-label">{filterLabel}</span>
           {changedCount > 0 && <span className="filter-count">{changedCount}</span>}
         </button>
       </Tooltip>
