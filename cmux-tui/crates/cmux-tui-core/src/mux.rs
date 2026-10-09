@@ -41,6 +41,73 @@ use tree_edit::{
     screen_tabs, stamp_changed_active_pane, stamp_pane_focus, surface_screen_id, unique_screen_ids,
     workspace_mutation_result,
 };
+mod kitty_budget_state;
+use kitty_budget_state::KITTY_IMAGE_BUDGET_OWNER_LIMIT;
+use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_INITIAL;
+use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX;
+use kitty_budget_state::KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS;
+#[cfg(test)]
+use kitty_budget_state::KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE;
+#[cfg(test)]
+use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_BYTES;
+#[cfg(test)]
+use kitty_budget_state::KITTY_IMAGE_PROCESS_BUDGET_COUNT;
+#[cfg(test)]
+use kitty_budget_state::KITTY_OBJECT_OWNERS_PER_SURFACE;
+use kitty_budget_state::KittyImageBudgetEntry;
+pub(crate) use kitty_budget_state::KittyImageBudgetReservation;
+use kitty_budget_state::KittyImageBudgetState;
+use kitty_budget_state::PendingKittyImageBudgetOperation;
+pub(crate) use kitty_budget_state::RENDER_ATTACHMENT_LIMIT;
+pub(crate) use kitty_budget_state::RenderAttachmentPermit;
+use kitty_budget_state::kitty_image_budget_capacity;
+use kitty_budget_state::kitty_image_limits_for_capacity;
+#[cfg(test)]
+use kitty_budget_state::kitty_surface_byte_reservation;
+mod cell_pixel_state;
+use cell_pixel_state::CELL_PIXEL_RETRY_MAX_ATTEMPTS;
+#[cfg(test)]
+use cell_pixel_state::CellPixelBeforePublishHook;
+use cell_pixel_state::CellPixelCompletionTracker;
+#[cfg(test)]
+use cell_pixel_state::CellPixelOperationHook;
+use cell_pixel_state::CellPixelRetryQueue;
+use cell_pixel_state::CellPixelRetryTask;
+pub use cell_pixel_state::CellPixelUpdate;
+pub use cell_pixel_state::CellPixelUpdateFailure;
+#[cfg(test)]
+use cell_pixel_state::KittyImageBudgetOperationHook;
+use cell_pixel_state::PendingCellPixelOperation;
+use cell_pixel_state::PendingCellPixelUpdate;
+#[cfg(test)]
+use cell_pixel_state::TerminalSpawnAfterCellPixelSnapshotHook;
+#[cfg(test)]
+use cell_pixel_state::TerminalSpawnBeforeCellPixelReconcileHook;
+use cell_pixel_state::apply_cell_pixel_size_until;
+use cell_pixel_state::cell_pixel_retry_delay;
+use cell_pixel_state::validate_cell_pixel_convergence;
+mod client_sizing_state;
+use client_sizing_state::AppliedClientSize;
+use client_sizing_state::ClientResizeRequest;
+pub(crate) use client_sizing_state::ClientSizeRollback;
+pub(crate) use client_sizing_state::ClientSizingIdentity;
+use client_sizing_state::ClientSizingRollbackToken;
+use client_sizing_state::ClientSizingState;
+pub(crate) use client_sizing_state::ControlClientResize;
+use client_sizing_state::PreparedControlClientResize;
+use client_sizing_state::SizingMember;
+use client_sizing_state::SurfaceResizeCompletion;
+use client_sizing_state::SurfaceResizeRestore;
+use client_sizing_state::TerminalSizingEntry;
+use client_sizing_state::entry_owns;
+pub(crate) use client_sizing_state::sub_view_participant_id;
+pub(crate) use client_sizing_state::view_participant_id;
+mod terminal_exit_waiters;
+use terminal_exit_waiters::TerminalExitDetachTracker;
+#[cfg(test)]
+use terminal_exit_waiters::TerminalExitStateQueryGuard;
+pub(crate) use terminal_exit_waiters::TerminalExitSubscription;
+use terminal_exit_waiters::TerminalExitWaiters;
 mod agent_reports;
 mod agent_roster_fold;
 mod agent_roster_restore;
@@ -333,123 +400,8 @@ const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
-const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
-const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
-const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
-const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
-const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
-const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
-// libghostty owns independent primary and alternate screen stores. cmux also
-// keeps one replay pixel cache and one render pixel cache per PTY surface.
-// A grayscale native image expands by up to 3x in either RGB pixel cache.
-const KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE: u64 = 2 + 3 + 3;
-// Image and placement limits are independent on the primary and alternate screens.
-const KITTY_OBJECT_OWNERS_PER_SURFACE: u64 = 2;
-const KITTY_IMAGE_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_IMAGES;
-const KITTY_PLACEMENT_PROCESS_BUDGET_COUNT: u64 = ghostty_vt::MAX_KITTY_PLACEMENTS;
-const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
-    let image_limit = KITTY_IMAGE_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
-    let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
-    if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
-};
-
-fn cell_pixel_retry_delay(attempts: u8) -> Duration {
-    let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
-    CELL_PIXEL_RETRY_INITIAL.saturating_mul(multiplier).min(CELL_PIXEL_RETRY_MAX)
-}
-
-fn kitty_image_budget_capacity(surface_count: usize, current: usize) -> usize {
-    if surface_count == 0 {
-        return 0;
-    }
-    // Keep hysteresis for larger buckets, but always restore the sole
-    // survivor's full share instead of stranding it in the two-surface bucket.
-    if current == 0
-        || surface_count > current
-        || surface_count <= current / 4
-        || (surface_count == 1 && current > 1)
-    {
-        return surface_count.checked_next_power_of_two().unwrap_or(usize::MAX);
-    }
-    current
-}
-
-fn kitty_surface_byte_reservation(image_bytes: u64) -> u64 {
-    image_bytes
-        .saturating_mul(KITTY_IMAGE_PERSISTENT_COPIES_PER_SURFACE)
-        .saturating_add(ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes))
-}
-
-fn kitty_image_bytes_for_process_share(process_share: u64) -> u64 {
-    let mut lower = 0;
-    let mut upper = process_share.min(ghostty_vt::MAX_KITTY_IMAGE_BYTES as u64);
-    while lower < upper {
-        let candidate = lower + (upper - lower).div_ceil(2);
-        if kitty_surface_byte_reservation(candidate) <= process_share {
-            lower = candidate;
-        } else {
-            upper = candidate - 1;
-        }
-    }
-    lower
-}
-
-fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
-    if capacity == 0 {
-        return KittyGraphicsLimits::disabled();
-    }
-    let surface_count = u64::try_from(capacity).unwrap_or(u64::MAX);
-    let process_share = KITTY_IMAGE_PROCESS_BUDGET_BYTES.checked_div(surface_count).unwrap_or(0);
-    let image_bytes = kitty_image_bytes_for_process_share(process_share);
-    let inflight_bytes = ghostty_vt::kitty_inflight_replay_limit_for_image_bytes(image_bytes);
-    let object_owners = surface_count.saturating_mul(KITTY_OBJECT_OWNERS_PER_SURFACE);
-    let images = KITTY_IMAGE_PROCESS_BUDGET_COUNT
-        .checked_div(object_owners)
-        .unwrap_or(0)
-        .min(ghostty_vt::MAX_KITTY_IMAGES);
-    let placements = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT
-        .checked_div(object_owners)
-        .unwrap_or(0)
-        .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
-    KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
-}
-
-#[derive(Clone)]
-struct KittyImageBudgetEntry {
-    surface: Option<Weak<Surface>>,
-    applied: KittyGraphicsLimits,
-    owns_quota: bool,
-    removing: bool,
-}
-
-#[derive(Default)]
-struct KittyImageBudgetState {
-    entries: HashMap<SurfaceId, KittyImageBudgetEntry>,
-    blocked_surfaces: HashSet<SurfaceId>,
-    capacity: usize,
-    worker_running: bool,
-    expansion_in_flight: bool,
-}
-
-struct PendingKittyImageBudgetOperation {
-    surface_id: SurfaceId,
-    surface: Weak<Surface>,
-    limits: KittyGraphicsLimits,
-    expanding: bool,
-    result: DeadlinePending<anyhow::Result<()>>,
-}
-
-pub(crate) struct KittyImageBudgetReservation {
-    mux: Weak<Mux>,
-    surface: SurfaceId,
-    initial_limits: KittyGraphicsLimits,
-    committed: bool,
-}
-
 #[cfg(unix)]
 pub(crate) struct PendingTerminalHostBinding {
     mux: Weak<Mux>,
@@ -478,45 +430,6 @@ impl Drop for PendingTerminalHostRelease {
     }
 }
 
-impl KittyImageBudgetReservation {
-    pub(crate) fn initial_limits(&self) -> KittyGraphicsLimits {
-        self.initial_limits
-    }
-
-    pub(crate) fn commit(
-        mut self,
-        surface: &Arc<Surface>,
-        applied: KittyGraphicsLimits,
-    ) -> anyhow::Result<()> {
-        if let Some(mux) = self.mux.upgrade() {
-            mux.commit_kitty_image_surface(self.surface, surface, applied)?;
-        }
-        self.committed = true;
-        Ok(())
-    }
-}
-
-impl Drop for KittyImageBudgetReservation {
-    fn drop(&mut self) {
-        if self.committed {
-            return;
-        }
-        if let Some(mux) = self.mux.upgrade() {
-            mux.cancel_kitty_image_surface_reservation(self.surface);
-        }
-    }
-}
-
-pub(crate) struct RenderAttachmentPermit {
-    active: Arc<AtomicUsize>,
-}
-
-impl Drop for RenderAttachmentPermit {
-    fn drop(&mut self) {
-        self.active.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
 fn workspace_resource_upsert(
     sequence: usize,
     session_id: &str,
@@ -542,34 +455,6 @@ fn workspace_resource_upsert(
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
-}
-
-#[derive(Debug, Default)]
-pub struct CellPixelUpdate {
-    pub resizes: Vec<(SurfaceId, (u16, u16), u64)>,
-    pub failures: Vec<CellPixelUpdateFailure>,
-}
-
-#[derive(Debug)]
-pub struct CellPixelUpdateFailure {
-    pub surface: SurfaceId,
-    pub error: String,
-    pub deferred: bool,
-}
-
-#[derive(Debug)]
-struct PendingCellPixelUpdate {
-    generation: u64,
-    target: (u16, u16),
-    failures: HashSet<SurfaceId>,
-    use_for_creation: bool,
-}
-
-struct CellPixelCompletionTracker {
-    generation: u64,
-    target: (u16, u16),
-    publishing: AtomicBool,
-    completed: Mutex<HashSet<SurfaceId>>,
 }
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
@@ -803,25 +688,6 @@ enum BrowserSurfaceAttach {
     Attached(Option<TreeDelta>),
 }
 
-type ClientSurfaceSizes = HashMap<SurfaceId, HashMap<u64, (u16, u16)>>;
-type SurfaceResizeAcceptance = (bool, Option<u64>);
-type AppliedClientSize = (SurfaceResizeAcceptance, Option<(u16, u16)>, ClientSizeRollback);
-type SurfaceResizeOutcome = Result<(), Arc<str>>;
-type SurfaceResizeCompletion = SyncSender<SurfaceResizeOutcome>;
-
-struct ClientResizeRequest {
-    surface: SurfaceId,
-    client: u64,
-    requested: (u16, u16),
-    completion: Option<SurfaceResizeCompletion>,
-    terminal_runtime: Option<SurfaceId>,
-}
-
-struct PreparedControlClientResize {
-    request: ClientResizeRequest,
-    attached: Option<crate::server::ClientSizeUpdate>,
-}
-
 struct PendingWorkspaceSurface<'a> {
     pending: &'a Mutex<HashMap<SurfaceId, WorkspaceId>>,
     surface: SurfaceId,
@@ -831,409 +697,6 @@ impl Drop for PendingWorkspaceSurface<'_> {
     fn drop(&mut self) {
         self.pending.lock().unwrap().remove(&self.surface);
     }
-}
-
-enum SurfaceResizeRestore {
-    Complete(bool),
-    Pending(Receiver<SurfaceResizeOutcome>),
-}
-
-#[derive(PartialEq, Eq)]
-struct ClientSizingRollbackToken {
-    surface_sizes: Option<HashMap<u64, (u16, u16)>>,
-    surface_orders: HashMap<u64, u64>,
-    participating_surface_clients: HashSet<u64>,
-    uses_excluded_fallback: bool,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct ClientSizeRollback {
-    pub(crate) previous_size: Option<(u16, u16)>,
-    pub(crate) previous_report_order: Option<u64>,
-    pub(crate) previous_geometry: Option<(u16, u16)>,
-    pub(crate) applied_report_order: u64,
-}
-
-pub(crate) struct ControlClientResize {
-    pub accepted: bool,
-    pub reservation_id: Option<u64>,
-    pub effective_size: Option<(u16, u16)>,
-    pub attached: Option<crate::server::ClientSizeUpdate>,
-    pub rollback: ClientSizeRollback,
-}
-
-#[derive(Default)]
-struct SurfaceClientSizing {
-    excluded_clients: HashSet<u64>,
-    exclusive_client: Option<u64>,
-}
-
-/// Shared sizing state of one terminal runtime (one PTY grid). Every client
-/// view of every placement of the runtime and every relay sub-view is one
-/// participant of `engine`; see `docs/shared-terminal-sizing.md`.
-struct TerminalSizingEntry {
-    engine: TerminalSizingEngine,
-    /// Placements whose views joined this runtime. Size-state events fan out
-    /// to each of them.
-    placements: BTreeSet<SurfaceId>,
-    /// Every participant of `engine`, keyed by participant id.
-    members: HashMap<String, SizingMember>,
-    /// The grid this engine last applied. The engine resizes the PTY only
-    /// when its decision changes, so it never fights a resize it did not
-    /// make (for example a direct terminal-host renderer).
-    applied: std::cell::Cell<Option<(u16, u16)>>,
-}
-
-/// Which connection and placement one engine participant belongs to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct SizingMember {
-    client: u64,
-    placement: SurfaceId,
-    /// Relay sub-view name; `None` for the connection's own view.
-    view: Option<String>,
-}
-
-/// Identity of one control connection for the sizing engine.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ClientSizingIdentity {
-    pub(crate) user_id: Option<String>,
-    pub(crate) display_name: Option<String>,
-    pub(crate) device_kind: TerminalDeviceKind,
-    pub(crate) device_name: Option<String>,
-    pub(crate) device_id: Option<String>,
-}
-
-/// Where a size-state publication goes after the sizing lock is released.
-struct SizeStatePublication {
-    runtime: SurfaceId,
-    placements: Vec<SurfaceId>,
-    state: Arc<TerminalSizingState>,
-}
-
-#[derive(Default)]
-struct ClientSizingState {
-    surfaces: ClientSurfaceSizes,
-    report_order: HashMap<(SurfaceId, u64), u64>,
-    latest_explicit_size: Option<(u64, (u16, u16))>,
-    next_size_order: u64,
-    policies: HashMap<SurfaceId, SurfaceClientSizing>,
-    terminal_runtime_by_placement: HashMap<SurfaceId, SurfaceId>,
-    /// Shared sizing engines keyed by terminal runtime id.
-    terminal_sizing: HashMap<SurfaceId, TerminalSizingEntry>,
-    /// Per-terminal policy overrides keyed by terminal runtime id.
-    terminal_size_policies: HashMap<SurfaceId, TerminalSizingPolicy>,
-    /// Workspace default policies for terminals without an override.
-    workspace_size_policies: HashMap<WorkspaceId, TerminalSizingPolicy>,
-    /// Runtimes whose published state changed since the last flush.
-    pending_size_states: BTreeSet<SurfaceId>,
-    /// Own views (connection, placement) someone detached with a view
-    /// detach. The connection stays attached; its view is not a participant
-    /// until `reattach-view`.
-    detached_views: HashSet<(u64, SurfaceId)>,
-}
-
-/// Host participant id of one client's view of one terminal placement. The
-/// runtime's own placement keeps the short `c<client>` form.
-pub(crate) fn view_participant_id(runtime: SurfaceId, placement: SurfaceId, client: u64) -> String {
-    if placement == runtime { format!("c{client}") } else { format!("c{client}@{placement}") }
-}
-
-fn entry_owns(sizing: &ClientSizingState, runtime: SurfaceId, participant: &str) -> bool {
-    sizing
-        .terminal_sizing
-        .get(&runtime)
-        .is_some_and(|entry| entry.engine.state().owners.iter().any(|owner| owner == participant))
-}
-
-/// Host participant id of one relay sub-view.
-pub(crate) fn sub_view_participant_id(client: u64, view: &str) -> String {
-    format!("c{client}/{view}")
-}
-
-impl ClientSizingState {
-    fn next_size_order(&mut self) -> u64 {
-        self.next_size_order = self.next_size_order.wrapping_add(1).max(1);
-        self.next_size_order
-    }
-
-    fn record_explicit_size(&mut self, size: (u16, u16)) {
-        let order = self.next_size_order();
-        self.latest_explicit_size = Some((order, size));
-    }
-
-    fn rollback_token(
-        &self,
-        surface: SurfaceId,
-        attached_clients: Option<&HashSet<u64>>,
-    ) -> ClientSizingRollbackToken {
-        let participating_surface_clients = self
-            .surfaces
-            .get(&surface)
-            .into_iter()
-            .flat_map(HashMap::keys)
-            .filter(|client| self.client_participates(surface, **client))
-            .copied()
-            .collect();
-        ClientSizingRollbackToken {
-            surface_sizes: self.surfaces.get(&surface).cloned(),
-            surface_orders: self
-                .report_order
-                .iter()
-                .filter_map(|((reported_surface, client), order)| {
-                    (*reported_surface == surface).then_some((*client, *order))
-                })
-                .collect(),
-            participating_surface_clients,
-            uses_excluded_fallback: self.uses_excluded_fallback(surface, attached_clients),
-        }
-    }
-
-    fn client_participates(&self, surface: SurfaceId, client: u64) -> bool {
-        let Some(policy) = self.policies.get(&surface) else {
-            return true;
-        };
-        policy.exclusive_client.map_or_else(
-            || !policy.excluded_clients.contains(&client),
-            |exclusive| exclusive == client,
-        )
-    }
-
-    /// Whether this client's view of `surface` currently sets a dimension of
-    /// the runtime's shared grid.
-    fn owns_terminal_geometry(&self, runtime: SurfaceId, surface: SurfaceId, client: u64) -> bool {
-        let id = view_participant_id(runtime, surface, client);
-        self.terminal_sizing
-            .get(&runtime)
-            .is_some_and(|entry| entry.engine.state().owners.contains(&id))
-    }
-
-    /// Connections whose views or relay sub-views set a dimension of the grid.
-    fn terminal_owner_clients(&self, runtime: SurfaceId) -> HashSet<u64> {
-        let Some(entry) = self.terminal_sizing.get(&runtime) else { return HashSet::new() };
-        entry
-            .engine
-            .state()
-            .owners
-            .iter()
-            .filter_map(|owner| entry.members.get(owner).map(|member| member.client))
-            .collect()
-    }
-
-    fn note_size_state(&mut self, runtime: SurfaceId, changed: bool) {
-        if changed {
-            self.pending_size_states.insert(runtime);
-        }
-    }
-
-    fn take_size_state_publications(&mut self) -> Vec<SizeStatePublication> {
-        std::mem::take(&mut self.pending_size_states)
-            .into_iter()
-            .filter_map(|runtime| {
-                let entry = self.terminal_sizing.get(&runtime)?;
-                Some(SizeStatePublication {
-                    runtime,
-                    placements: entry.placements.iter().copied().collect(),
-                    state: Arc::new(entry.engine.state().clone()),
-                })
-            })
-            .collect()
-    }
-
-    fn report_participates(&self, surface: SurfaceId, client: u64) -> bool {
-        if let Some(runtime) = self.terminal_runtime_by_placement.get(&surface) {
-            return self.owns_terminal_geometry(*runtime, surface, client);
-        }
-        self.client_participates(surface, client)
-    }
-
-    fn uses_excluded_fallback(
-        &self,
-        surface: SurfaceId,
-        attached_clients: Option<&HashSet<u64>>,
-    ) -> bool {
-        let attached_participates = attached_clients.is_some_and(|clients| {
-            clients.iter().any(|client| self.client_participates(surface, *client))
-        });
-        let reporter_participates = self.surfaces.get(&surface).is_some_and(|viewers| {
-            viewers.keys().any(|client| self.client_participates(surface, *client))
-        });
-        !attached_participates && !reporter_participates
-    }
-
-    fn effective_size(&self, surface: SurfaceId, use_excluded: bool) -> Option<(u16, u16)> {
-        self.surfaces
-            .get(&surface)?
-            .iter()
-            .filter(|(client, _)| use_excluded || self.client_participates(surface, **client))
-            .map(|(_, size)| *size)
-            .reduce(|smallest, size| (smallest.0.min(size.0), smallest.1.min(size.1)))
-    }
-
-    fn latest_effective_size(
-        &self,
-        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
-    ) -> Option<(u64, (u16, u16))> {
-        // The default for a newly created surface follows the latest
-        // authoritative terminal report or the latest effective browser
-        // report. Passive terminal viewports never influence future PTYs.
-        // Cache browser fallback once per surface to keep this scan linear.
-        let mut fallback_by_surface = HashMap::<SurfaceId, bool>::new();
-        let ((surface, reporter), order) = self
-            .report_order
-            .iter()
-            .filter(|((surface, client), _)| {
-                let surface = *surface;
-                let client = *client;
-                if let Some(runtime) = self.terminal_runtime_by_placement.get(&surface) {
-                    return self.owns_terminal_geometry(*runtime, surface, client)
-                        && self
-                            .surfaces
-                            .get(&surface)
-                            .is_some_and(|viewers| viewers.contains_key(&client));
-                }
-                let use_excluded = *fallback_by_surface.entry(surface).or_insert_with(|| {
-                    self.uses_excluded_fallback(surface, attached_clients.get(&surface))
-                });
-                self.surfaces.get(&surface).is_some_and(|viewers| viewers.contains_key(&client))
-                    && (use_excluded || self.client_participates(surface, client))
-            })
-            .max_by_key(|(_, order)| *order)
-            .map(|(key, order)| (*key, *order))?;
-        let size = if self.terminal_runtime_by_placement.contains_key(&surface) {
-            self.surfaces.get(&surface).and_then(|viewers| viewers.get(&reporter)).copied()
-        } else {
-            let use_excluded = fallback_by_surface[&surface];
-            self.effective_size(surface, use_excluded)
-        }?;
-        Some((order, size))
-    }
-
-    fn creation_size(
-        &mut self,
-        attached_clients: &HashMap<SurfaceId, HashSet<u64>>,
-    ) -> Option<(u16, u16)> {
-        let report = self.latest_effective_size(attached_clients);
-        match (self.latest_explicit_size, report) {
-            (Some((explicit_order, explicit)), Some((report_order, _)))
-                if explicit_order >= report_order =>
-            {
-                Some(explicit)
-            }
-            (_, Some((_, report))) => {
-                self.latest_explicit_size = None;
-                Some(report)
-            }
-            (Some((_, explicit)), None) => Some(explicit),
-            (None, None) => None,
-        }
-    }
-
-    fn note_applied_report(
-        &mut self,
-        surface: SurfaceId,
-        client: u64,
-        attached_clients: &HashSet<u64>,
-        effective: Option<(u16, u16)>,
-        report_order: u64,
-    ) {
-        let use_excluded = self.uses_excluded_fallback(surface, Some(attached_clients));
-        let contributes = use_excluded || self.client_participates(surface, client);
-        if effective.is_some()
-            && contributes
-            && self
-                .latest_explicit_size
-                .is_some_and(|(explicit_order, _)| report_order > explicit_order)
-        {
-            self.latest_explicit_size = None;
-        }
-    }
-}
-
-#[cfg(test)]
-type CellPixelBeforePublishHook = Arc<dyn Fn((u16, u16)) + Send + Sync>;
-#[cfg(test)]
-type CellPixelOperationHook =
-    Arc<dyn Fn(&Arc<Surface>, (u16, u16), Instant) -> anyhow::Result<Option<u64>> + Send + Sync>;
-#[cfg(test)]
-type KittyImageBudgetOperationHook =
-    Arc<dyn Fn(&Arc<Surface>, KittyGraphicsLimits, Instant) -> anyhow::Result<()> + Send + Sync>;
-#[cfg(test)]
-type TerminalSpawnAfterCellPixelSnapshotHook = Arc<dyn Fn(bool) + Send + Sync>;
-#[cfg(test)]
-type TerminalSpawnBeforeCellPixelReconcileHook = Arc<dyn Fn(&Arc<Surface>) + Send + Sync>;
-
-type CellPixelSurfaceResult = (SurfaceId, (u16, u16), anyhow::Result<Option<u64>>, bool);
-
-struct PendingCellPixelOperation {
-    surface: Weak<Surface>,
-    result: DeadlinePending<CellPixelSurfaceResult>,
-}
-
-struct CellPixelRetryTask {
-    surfaces: Vec<Weak<Surface>>,
-    pending: Vec<PendingCellPixelOperation>,
-    attempts: u8,
-    generation: u64,
-    target: (u16, u16),
-    completion: Arc<CellPixelCompletionTracker>,
-    report: SurfaceResizeReporter,
-    timeout: Duration,
-    #[cfg(test)]
-    operation_hook: Option<CellPixelOperationHook>,
-}
-
-#[derive(Default)]
-struct CellPixelRetryQueue {
-    pending: Option<CellPixelRetryTask>,
-    worker_running: bool,
-}
-
-fn apply_cell_pixel_size_until(
-    surface: &Arc<Surface>,
-    target: (u16, u16),
-    deadline: Instant,
-    report: &SurfaceResizeReporter,
-    #[cfg(test)] operation_hook: Option<&CellPixelOperationHook>,
-) -> CellPixelSurfaceResult {
-    let id = surface.id;
-    let size = surface.size();
-    let callback = report.clone();
-    #[cfg(test)]
-    if let Some(hook) = operation_hook {
-        let result =
-            validate_cell_pixel_convergence(surface, target, hook(surface, target, deadline));
-        callback(id, size, result.as_ref().ok().copied().flatten());
-        let deferred = result.as_ref().err().is_some_and(|error| {
-            error.downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>().is_some()
-        });
-        return (id, size, result, deferred);
-    }
-    let result = validate_cell_pixel_convergence(
-        surface,
-        target,
-        surface.set_cell_pixel_size_reporting_until(
-            target.0,
-            target.1,
-            deadline,
-            Box::new(move |accepted| callback(id, size, accepted)),
-        ),
-    );
-    let deferred = result.as_ref().err().is_some_and(|error| {
-        error.downcast_ref::<crate::terminal_host_runtime::DeferredCellPixelAck>().is_some()
-    });
-    (id, size, result, deferred)
-}
-
-fn validate_cell_pixel_convergence(
-    surface: &Surface,
-    target: (u16, u16),
-    result: anyhow::Result<Option<u64>>,
-) -> anyhow::Result<Option<u64>> {
-    let reservation = result?;
-    if reservation.is_none() && surface.cell_pixel_size() != target {
-        anyhow::bail!("cell pixel update did not converge to {}x{} pixels", target.0, target.1);
-    }
-    Ok(reservation)
 }
 
 /// One-shot wakeup shared by a terminal-exit subscription and any
@@ -1276,136 +739,6 @@ impl ResourceWaitWake {
             }
         }
         true
-    }
-}
-
-#[derive(Default)]
-struct TerminalExitDetachTracker {
-    active: Mutex<HashSet<String>>,
-    changed: Condvar,
-}
-
-impl TerminalExitDetachTracker {
-    fn acquire(self: &Arc<Self>, terminal_id: String) -> Option<TerminalExitDetachLease> {
-        if !self.active.lock().unwrap().insert(terminal_id.clone()) {
-            return None;
-        }
-        Some(TerminalExitDetachLease { tracker: self.clone(), terminal_id })
-    }
-
-    fn finish(&self, terminal_id: &str) {
-        let mut active = self.active.lock().unwrap();
-        if active.remove(terminal_id) {
-            self.changed.notify_all();
-        }
-    }
-
-    #[cfg(test)]
-    fn contains(&self, terminal_id: &str) -> bool {
-        self.active.lock().unwrap().contains(terminal_id)
-    }
-
-    #[cfg(test)]
-    fn wait_until_finished(&self, terminal_id: &str, deadline: Instant) -> bool {
-        let mut active = self.active.lock().unwrap();
-        while active.contains(terminal_id) {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next, timeout) = self.changed.wait_timeout(active, remaining).unwrap();
-            active = next;
-            if timeout.timed_out() && active.contains(terminal_id) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-struct TerminalExitDetachLease {
-    tracker: Arc<TerminalExitDetachTracker>,
-    terminal_id: String,
-}
-
-impl Drop for TerminalExitDetachLease {
-    fn drop(&mut self) {
-        self.tracker.finish(&self.terminal_id);
-    }
-}
-
-#[derive(Default)]
-struct TerminalExitWaiters {
-    next_id: AtomicU64,
-    waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
-}
-
-pub(crate) struct TerminalExitSubscription<'a> {
-    owner: &'a TerminalExitWaiters,
-    terminal_id: TerminalPublicId,
-    waiter_id: u64,
-    wake: Arc<ResourceWaitWake>,
-}
-
-impl TerminalExitWaiters {
-    fn subscribe(&self, terminal_id: &TerminalPublicId) -> TerminalExitSubscription<'_> {
-        let waiter_id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let wake = Arc::new(ResourceWaitWake::default());
-        self.waiters
-            .lock()
-            .unwrap()
-            .entry(terminal_id.clone())
-            .or_default()
-            .insert(waiter_id, Arc::downgrade(&wake));
-        TerminalExitSubscription { owner: self, terminal_id: terminal_id.clone(), waiter_id, wake }
-    }
-
-    fn notify(&self, terminal_id: &TerminalPublicId) {
-        let waiters = self.waiters.lock().unwrap().remove(terminal_id).unwrap_or_default();
-        for waiter in waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
-            waiter.notify();
-        }
-    }
-
-    #[cfg(test)]
-    fn waiter_count(&self, terminal_id: &TerminalPublicId) -> usize {
-        self.waiters.lock().unwrap().get(terminal_id).map(HashMap::len).unwrap_or_default()
-    }
-}
-
-impl TerminalExitSubscription<'_> {
-    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
-        self.wake.clone()
-    }
-
-    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
-        self.wake.wait_until(deadline)
-    }
-}
-
-impl Drop for TerminalExitSubscription<'_> {
-    fn drop(&mut self) {
-        let mut waiters = self.owner.waiters.lock().unwrap();
-        let remove_terminal = waiters.get_mut(&self.terminal_id).is_some_and(|terminal_waiters| {
-            terminal_waiters.remove(&self.waiter_id);
-            terminal_waiters.is_empty()
-        });
-        if remove_terminal {
-            waiters.remove(&self.terminal_id);
-        }
-    }
-}
-
-#[cfg(test)]
-struct TerminalExitStateQueryGuard<'a>(&'a AtomicU64);
-
-#[cfg(test)]
-impl Drop for TerminalExitStateQueryGuard<'_> {
-    fn drop(&mut self) {
-        // Count completed queries. Tests use this release/acquire edge to
-        // distinguish a waiter blocked after its initial read from one that
-        // merely entered terminal_exit_state and is still behind the registry
-        // writer lock.
-        self.0.fetch_add(1, Ordering::Release);
     }
 }
 
