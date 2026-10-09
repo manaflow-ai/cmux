@@ -106,6 +106,7 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -219,6 +220,7 @@ on:
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -730,6 +732,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
+          bash scripts/cmux-next/tests/continue-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
@@ -1799,6 +1802,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
+
+      # GitHub runs `schedule` only from main's workflow, so this green compile
+      # is the periodic tick that publishes an earlier nightly-next build Apple
+      # accepted after its run stopped waiting (cx-f58x). It builds nothing and
+      # submits nothing (scripts/cmux-next/continue-nightly-next.sh, tested by
+      # scripts/cmux-next/tests/continue-nightly-next.test.sh).
+      - name: Request a nightly-next continuation for an accepted pending build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
 
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]
