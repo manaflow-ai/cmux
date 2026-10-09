@@ -97,9 +97,10 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(markers(blocks), vec![t.len() - 3]);
     let marked = &t[t.len() - 3];
     assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
+    // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral"})
+        json!({"type": "ephemeral", "ttl": "1h"})
     );
     assert_eq!(
         *blocks,
