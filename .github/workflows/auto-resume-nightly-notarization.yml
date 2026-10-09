@@ -50,6 +50,7 @@ jobs:
       short_sha: ${{ steps.check.outputs.short_sha }}
       source_run_id: ${{ steps.check.outputs.source_run_id }}
       source_run_attempt: ${{ steps.check.outputs.source_run_attempt }}
+      metadata_only: ${{ steps.check.outputs.metadata_only }}
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || github.event.workflow_run.id }}
@@ -119,6 +120,8 @@ jobs:
               print("reason=no-published-recovery-artifacts")
               raise SystemExit(0)
           print("ready=true")
+          metadata = [f"cmux-{channel}-notarization-metadata-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
+          print(f"metadata_only={'true' if all(name in names for name in metadata) else 'false'}")
           PY
           cat "$RUNNER_TEMP/artifact-check" > "$GITHUB_OUTPUT"
           {
@@ -155,6 +158,7 @@ jobs:
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
+      RECOVERY_METADATA_ONLY: ${{ needs.preflight.outputs.metadata_only }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -167,16 +171,20 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
-      - name: Download exact recovery artifacts
+      - name: Download exact polling inputs
         run: |
           set -euo pipefail
           mkdir -p recovery
+          kind=recovery
+          [ "$RECOVERY_METADATA_ONLY" != true ] || kind=metadata
           for variant in arm64 x86_64 universal; do
-            artifact="cmux-${CHANNEL}-notarization-recovery-${variant}-${SHORT_SHA}"
+            artifact="cmux-${CHANNEL}-notarization-${kind}-${variant}-${SHORT_SHA}"
             gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
               --name "$artifact" --dir "recovery/$variant"
             test -f "recovery/$variant/cmux-nightly-notarization-recovery.json"
-            test -f "recovery/$variant/cmux-nightly-notarization-recovery-app.tar.gz"
+            if [ "$RECOVERY_METADATA_ONLY" != true ]; then
+              test -f "recovery/$variant/cmux-nightly-notarization-recovery-app.tar.gz"
+            fi
           done
 
       - name: Poll saved Apple submissions without reserving a Mac
@@ -185,14 +193,18 @@ jobs:
           set -uo pipefail
           mkdir -p poll-reports
 
-          # Resolve and verify each downloaded recovery artifact once. Polling
-          # only needs the saved state file; repeating this command would
-          # re-hash the DMG and re-extract the app archive on every retry.
+          # New runs provide only manifest and state for polling. Retained
+          # older runs fall back to full recovery artifacts and verify those
+          # once. The Mac always verifies the full artifact before stapling.
+          resolve_args=(--extract-app)
+          if [ "$RECOVERY_METADATA_ONLY" = true ]; then
+            resolve_args=(--metadata-only)
+          fi
           for variant in arm64 x86_64 universal; do
             manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
             if ! python3 scripts/ci/resolve-notarization-recovery.py \
                 "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
-                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict --extract-app \
+                --run-attempt "$SOURCE_RUN_ATTEMPT" --strict "${resolve_args[@]}" \
                 > "$RUNNER_TEMP/recovery-$variant.env"; then
               echo "recovery resolver failed for $variant" >&2
               exit 1
@@ -355,6 +367,8 @@ jobs:
         with:
           name: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: verified/*
+          # The accepted DMG is already compressed with LZMA.
+          compression-level: 0
           if-no-files-found: error
           retention-days: 14
 

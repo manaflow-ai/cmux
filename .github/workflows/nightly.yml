@@ -1438,6 +1438,7 @@ jobs:
           ./scripts/verify-tunnel-extension-engine.sh "$binary"
 
       - name: Archive unsigned nightly app
+        if: needs.decide.outputs.build_only != 'true'
         run: |
           set -euo pipefail
           products="build-universal/Build/Products/Release"
@@ -1448,6 +1449,7 @@ jobs:
           tar -C "$products" -czf "$RUNNER_TEMP/cmux-nightly-unsigned.tar.gz" cmux.app
 
       - name: Upload unsigned nightly app
+        if: needs.decide.outputs.build_only != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2149,6 +2151,19 @@ jobs:
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.log
             cmux-nightly-notarization-recovery-app.tar.gz
+            cmux-nightly-notarization-recovery.json
+          # The DMG and app archive are already compressed.
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload notarization polling metadata
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-metadata-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          path: |
+            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
             cmux-nightly-notarization-recovery.json
           if-no-files-found: error
           retention-days: 14

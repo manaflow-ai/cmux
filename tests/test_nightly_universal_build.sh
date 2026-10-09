@@ -483,6 +483,14 @@ assert "CHANNEL_APP_PATH" in prepare_recovery
 assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
 assert "cmux-nightly-notarization-recovery.json" in recovery
 assert "if-no-files-found: error" in recovery
+assert "compression-level: 0" in recovery
+metadata = step("Upload notarization polling metadata")
+assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in metadata
+assert "-notarization-metadata-" in metadata
+assert ".notarization.state" in metadata
+assert "cmux-nightly-notarization-recovery.json" in metadata
+assert "tar.gz" not in metadata and "NIGHTLY_DMG_RELEASE }}\n" not in metadata
+assert "retention-days: 14" in metadata
 
 notarize_timeout = re.search(
     r"^      - name: Notarize app ticket through final DMG\n(.*?)(?=^      - name:)",
@@ -876,12 +884,16 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
   job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
+  job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
   step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  END { exit !(saw_cold_gate && saw_dsym_gate) }
+  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
+  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
   exit 1
 fi
 

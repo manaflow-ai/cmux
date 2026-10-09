@@ -27,6 +27,85 @@ def manifest_program():
 
 
 class RecoveryManifestTests(unittest.TestCase):
+    def metadata_fixture(self, root):
+        manifest = {
+            "schema": 1, "source_run_id": "123", "source_run_attempt": "1",
+            "head_sha": "a" * 40, "short_sha": "a" * 7, "should_publish": True,
+            "channel": "nightly", "variant": "arm64", "release_tag": "nightly",
+            "dmg_prefix": "cmux-nightly-macos", "build": "123",
+            "dmg_path": "cmux-nightly-macos-arm64.dmg",
+            "immutable_path": "cmux-nightly-macos-arm64-123.dmg",
+            "app_path": "cmux-nightly-notarization-recovery-app/cmux NIGHTLY.app",
+            "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+            "state_path": "cmux-nightly-macos-arm64.dmg.notarization.state",
+            "log_path": "cmux-nightly-macos-arm64.dmg.notarization.log",
+            "dmg_sha256": "b" * 64, "submission_id": "fixture-id",
+        }
+        path = root / "cmux-nightly-notarization-recovery.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        state = root / manifest["state_path"]
+        state.write_text("submission_id=fixture-id\ndmg_sha256=" + "b" * 64 + "\nsubmit_exit=0\n")
+        return manifest, path, state
+
+    def resolve_metadata(self, path):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/resolve-notarization-recovery.py"),
+             str(path), "123", "a" * 40, "nightly", "arm64", "--run-attempt", "1",
+             "--strict", "--metadata-only"],
+            capture_output=True, text=True,
+        )
+
+    def test_metadata_only_needs_no_dmg_app_or_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, path, state = self.metadata_fixture(root)
+            resolved = self.resolve_metadata(path)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertIn(f"STATE_FILE={state.resolve()}\n", resolved.stdout)
+            self.assertEqual({p.name for p in root.iterdir()}, {path.name, state.name})
+
+    def test_metadata_only_rejects_unbound_or_failed_state(self):
+        for invalid, expected in (
+            ("submission_id=other\ndmg_sha256=" + "b" * 64, "does not match"),
+            ("submission_id=fixture-id\ndmg_sha256=" + "c" * 64, "does not match"),
+            ("submission_id=fixture-id\nsubmission_id=fixture-id", "duplicate"),
+            ("malformed-state-line", "invalid"),
+            ("submission_id=fixture-id\ndmg_sha256=" + "b" * 64 + "\nsubmit_exit=1", "nonzero"),
+        ):
+            with self.subTest(state=invalid), tempfile.TemporaryDirectory() as directory:
+                _, path, state = self.metadata_fixture(Path(directory))
+                state.write_text(invalid, encoding="utf-8")
+                resolved = self.resolve_metadata(path)
+                self.assertNotEqual(resolved.returncode, 0)
+                self.assertIn(expected, resolved.stderr)
+                self.assertNotIn("STATE_FILE=", resolved.stdout)
+
+    def test_metadata_only_rejects_wrong_source_and_unsafe_state(self):
+        for key, value in (
+            ("source_run_id", "456"), ("source_run_attempt", "2"), ("head_sha", "c" * 40),
+            ("channel", "rc"), ("variant", "universal"), ("should_publish", False),
+            ("state_path", "../cmux-nightly-macos-arm64.dmg.notarization.state"),
+        ):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                manifest, path, _ = self.metadata_fixture(Path(directory))
+                manifest[key] = value
+                path.write_text(json.dumps(manifest), encoding="utf-8")
+                resolved = self.resolve_metadata(path)
+                self.assertNotEqual(resolved.returncode, 0)
+                self.assertNotIn("STATE_FILE=", resolved.stdout)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "artifact"
+            artifact.mkdir()
+            _, path, state = self.metadata_fixture(artifact)
+            outside = root / "outside.state"
+            state.rename(outside)
+            state.symlink_to(outside)
+            resolved = self.resolve_metadata(path)
+            self.assertNotEqual(resolved.returncode, 0)
+            self.assertIn("escapes artifact", resolved.stderr)
+
     def test_manifest_paths_survive_relocation(self):
         for absolute in (False, True):
             with self.subTest(absolute_source_paths=absolute), tempfile.TemporaryDirectory() as directory:

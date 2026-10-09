@@ -162,6 +162,23 @@ def extract_app_archive(root: Path, archive_path: Path, app_relative: str) -> No
         raise ValueError("recovered app archive did not produce an app bundle")
 
 
+def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
+    """Bind a saved Apple submission to the validated source manifest."""
+    root = manifest_path.parent.resolve()
+    state_path = safe_path(root, str(manifest["state_path"]), "state_path")
+    state = {}
+    for line in state_path.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if not separator or not key or key in state:
+            raise ValueError("invalid or duplicate notarization state line")
+        state[key] = value
+    if state.get("submission_id") != manifest["submission_id"] or state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
+        raise ValueError("notarization state does not match recovery manifest")
+    if state.get("submit_exit", "0") != "0":
+        raise ValueError("notarization submit exited nonzero")
+    return state_path
+
+
 def resolve_files(manifest: Mapping[str, Any], manifest_path: Path, *, extract_app: bool = False) -> dict[str, Path | str]:
     root = manifest_path.parent.resolve()
     files = {key: safe_path(root, str(manifest[key]), key) for key in ("state_path", "dmg_path", "log_path", "app_archive_path")}
@@ -176,16 +193,7 @@ def resolve_files(manifest: Mapping[str, Any], manifest_path: Path, *, extract_a
             digest.update(chunk)
     if digest.hexdigest().lower() != str(manifest["dmg_sha256"]).lower():
         raise ValueError("recovery DMG SHA-256 mismatch")
-    state = {}
-    for line in files["state_path"].read_text(encoding="utf-8").splitlines():
-        key, separator, value = line.partition("=")
-        if not separator or not key or key in state:
-            raise ValueError("invalid or duplicate notarization state line")
-        state[key] = value
-    if state.get("submission_id") != manifest["submission_id"] or state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
-        raise ValueError("notarization state does not match recovery manifest")
-    if state.get("submit_exit", "0") != "0":
-        raise ValueError("notarization submit exited nonzero")
+    resolve_state(manifest, manifest_path)
     values = {
         "STATE_FILE": files["state_path"], "DMG_RELEASE": files["dmg_path"],
         "EVIDENCE_FILE": files["log_path"], "APP_PATH": app,
@@ -208,7 +216,10 @@ def main() -> int:
         "--source-run-attempt", "--run-attempt", dest="run_attempt",
         help="exact GitHub Actions run attempt that created the recovery artifact",
     )
-    parser.add_argument("--metadata-only", action="store_true")
+    parser.add_argument(
+        "--metadata-only", action="store_true",
+        help="validate manifest and saved state for polling without reading DMG or app bytes",
+    )
     parser.add_argument("--strict", action="store_true")
     parser.add_argument(
         "--published", action="store_true",
@@ -216,6 +227,8 @@ def main() -> int:
     )
     parser.add_argument("--extract-app", action="store_true")
     args = parser.parse_args()
+    if args.metadata_only and args.extract_app:
+        parser.error("--metadata-only cannot extract the app")
     manifest_path = args.manifest.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     strict = args.strict or args.published
@@ -231,9 +244,11 @@ def main() -> int:
         strict=strict,
     )
     if args.metadata_only:
+        state_path = resolve_state(validated, manifest_path)
         for key in ("source_run_id", "source_run_attempt", "head_sha", "channel", "variant", "release_tag", "dmg_prefix", "build", "should_publish"):
             if key in validated:
                 print(f"{key}={validated[key]}")
+        print(f"STATE_FILE={state_path}")
         return 0
     values = resolve_files(validated, manifest_path, extract_app=args.extract_app)
     for key, value in values.items():
