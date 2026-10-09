@@ -46,9 +46,13 @@ public protocol AutomationTabProvider: AnyObject {
     /// trusted input, animation frames, focus and snapshots work. Nothing is
     /// shown and no focus moves. True when the tab moved into a window now.
     func keepRendering(_ tab: WebKitTab) async -> Bool
+    /// Whether agents may drive tab `targetID` (either engine).
+    func isDrivable(_ targetID: String) -> Bool
 }
 
 public extension AutomationTabProvider {
     /// An App with no render window: hidden tabs stay as they are.
     func keepRendering(_ tab: WebKitTab) async -> Bool { false }
+    /// An App that lists only WebKit tabs.
+    func isDrivable(_ targetID: String) -> Bool { automationTabs(all: true).contains { $0.tab.id.rawValue == targetID } }
 }

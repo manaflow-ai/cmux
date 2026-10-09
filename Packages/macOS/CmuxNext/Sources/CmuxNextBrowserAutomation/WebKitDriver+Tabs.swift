@@ -77,9 +77,12 @@ extension WebKitDriver {
 
     /// Selecting a tab changes the user's view, so the host passes it only
     /// for origin `user` or `focus: true`.
+    /// The App owns selection for both engines: a Chromium tab it lets
+    /// agents drive is accepted too (the WebKit driver never holds it).
     func tabsActivate(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (tab, _) = try target(params)
-        provider?.activateAutomationTab(tab.id)
+        let raw = try params.string("targetId")
+        guard let provider, provider.isDrivable(raw) else { throw DriverError(.notFound, "\(params.method): no tab \(raw)") }
+        provider.activateAutomationTab(BrowserTabID(rawValue: raw))
         return .null
     }
 
