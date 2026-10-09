@@ -16,7 +16,7 @@
    "cmux-remote": 60,
    "cmux-terminal-client": 1,
    "cmux-tui": 87,
-   "cmux-tui-core": 293,
+   "cmux-tui-core": 287,
    "cmux-wg": 15
   },
   "panic_macro": {

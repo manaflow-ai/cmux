@@ -199,7 +199,7 @@ Every surface has one authoritative cell grid. Byte and render attach modes obse
 Each client reports the cell grid available for every surface it displays with
 `resize-surface`. Terminals use the shared sizing reducer defined in
 [`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md) and
-implemented in `cmux-tui-core/src/sizing_policy.rs`. Every client view of a
+implemented in `crates/cmux-terminal-sizing` (re-exported as `cmux_tui_core::sizing_policy`). Every client view of a
 terminal placement is one participant with id `c<client>` (or
 `c<client>@<placement>` for a projected placement other than the terminal's
 first), and every relay sub-view is one participant `c<client>/<view>`. A view
