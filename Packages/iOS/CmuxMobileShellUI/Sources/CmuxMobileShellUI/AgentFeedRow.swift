@@ -533,7 +533,7 @@ struct AgentFeedRow: View, Equatable {
                 .fill(Color.accentColor)
         )
 
-        VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 6) {
             Group {
                 if reply.contains("\n") {
                     bubbleSide(bubble, sender: .user, fullWidth: true)
