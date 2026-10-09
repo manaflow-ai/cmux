@@ -128,22 +128,22 @@ struct TerminalSizingText {
         case .latest:
             L10n.string(
                 "mobile.terminal.sizing.mode.latest.help",
-                defaultValue: "Uses the device that most recently sends input."
+                defaultValue: "Uses the device with the most recent input, unless it is excluded from sizing."
             )
         case .smallest:
             L10n.string(
                 "mobile.terminal.sizing.mode.smallest.help",
-                defaultValue: "Uses the smallest grid that fits every connected device."
+                defaultValue: "Uses the smallest grid that fits every device included in sizing."
             )
         case .largest:
             L10n.string(
                 "mobile.terminal.sizing.mode.largest.help",
-                defaultValue: "Uses the largest grid reported by connected devices."
+                defaultValue: "Uses the largest grid reported by devices included in sizing."
             )
         case .priority:
             L10n.string(
                 "mobile.terminal.sizing.mode.priority.help",
-                defaultValue: "The first available device in the list sets the grid. Drag to reorder."
+                defaultValue: "The first available device included in sizing sets the grid. Drag to reorder."
             )
         case .fixed:
             L10n.string(

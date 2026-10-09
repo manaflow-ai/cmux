@@ -345,9 +345,24 @@ extension TerminalSizingPolicy {
     /// - Parameter visibleKeys: The attached keys in their new order.
     /// - Returns: A policy with the visible keys reordered.
     public func withReorderedPriority(visibleKeys: [String]) -> TerminalSizingPolicy {
+        var visibleSeen = Set<String>()
+        let visible = visibleKeys.filter { visibleSeen.insert($0).inserted }
+        var nextVisibleIndex = 0
+        var reordered: [String] = []
         var seen = Set<String>()
-        let visible = visibleKeys.filter { seen.insert($0).inserted }
-        let detached = priority.filter { !seen.contains($0) }
-        return TerminalSizingPolicy(mode: mode, priority: visible + detached, fixed: fixed)
+        for key in priority {
+            if visibleSeen.contains(key) {
+                guard nextVisibleIndex < visible.count else { continue }
+                let replacement = visible[nextVisibleIndex]
+                nextVisibleIndex += 1
+                if seen.insert(replacement).inserted { reordered.append(replacement) }
+            } else if seen.insert(key).inserted {
+                reordered.append(key)
+            }
+        }
+        if nextVisibleIndex < visible.count {
+            reordered.append(contentsOf: visible[nextVisibleIndex...])
+        }
+        return TerminalSizingPolicy(mode: mode, priority: reordered, fixed: fixed)
     }
 }

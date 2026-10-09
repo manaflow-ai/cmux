@@ -182,19 +182,7 @@ struct TerminalSizePanelView: View {
         var keys = rows.map(\.priorityKey)
         let key = keys.remove(at: from)
         keys.insert(key, at: to)
-        var seen = Set<String>()
-        let ranked = keys.filter { seen.insert($0).inserted }
-        // Keep saved keys for devices that are temporarily detached. They are
-        // not visible in this panel, but should regain their stored slot when
-        // they reconnect.
-        let detached = store.snapshot(for: surfaceID)
-            .map { snapshot in
-                snapshot.state.policy
-                    .migratingLegacyPriorityKeys(snapshot.state.participants.map(\.participant))
-                    .priority
-                    .filter { !seen.contains($0) }
-            } ?? []
-        _ = store.setPriority(ranked + detached, surfaceID: surfaceID)
+        _ = store.setPriority(keys, surfaceID: surfaceID)
     }
 
     @ViewBuilder

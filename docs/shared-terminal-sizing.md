@@ -78,10 +78,10 @@ The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 priority list survives reconnects and can rank "Maya's Mac Studio" above
 "Maya's MacBook Pro" above "Maya's iPhone". A policy entry in the older
 two-segment form still matches every device of that kind for that user
-(newest activity among them wins), so stored policies keep working. There is
-no stored-policy rewrite: the next edit in a size panel, which writes the
-keys of the listed participants, replaces legacy entries with per-device
-keys.
+(newest activity among them wins), so stored policies keep working. When a
+Priority policy is written through the shared action path, legacy entries are
+expanded and attached devices missing from the list are appended in host
+order. An untouched persisted policy is left as-is until its next update.
 
 ## Policy
 
@@ -98,9 +98,10 @@ keys.
   with reason `priority-fallback`.
 - `fixed`: `fixed.cols` × `fixed.rows`, whatever is attached.
 
-The size panel explains the selected mode. Follow Latest uses the device that
-most recently sends input. Priority shows every attached device as a numbered,
-drag-to-reorder list; the first available device in that list sets the grid.
+The size panel explains the selected mode. Follow Latest uses the device with
+the most recent input unless it is excluded from sizing. Priority shows every attached
+device as a numbered, drag-to-reorder list; the first available device included
+in sizing sets the grid.
 
 `owners` lists the participants that set a dimension, in attach order. A
 viewport is clamped to at least 2 × 1.

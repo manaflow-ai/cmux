@@ -304,7 +304,7 @@ struct TerminalSizeSheet: View {
                     fixedRows = presentation.grid.rows
                 }
                 if mode == .priority {
-                    let participants = allRows(presentation).map(\.participant)
+                    let participants = presentation.participants.map(\.participant)
                     policy = policy.withCompletePriority(for: participants)
                 }
                 run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
@@ -319,13 +319,9 @@ struct TerminalSizeSheet: View {
     ) {
         var keys = orderedRows(presentation).map(\.priorityKey)
         keys.move(fromOffsets: source, toOffset: destination)
-        var seen = Set<String>()
-        let ranked = keys.filter { seen.insert($0).inserted }
-        // Keep ranked keys of participants that are not attached right now,
-        // after the attached ones, so a reconnect finds its old slot.
-        var policy = presentation.policy.migratingLegacyPriorityKeys(allRows(presentation).map(\.participant))
-        let detachedKeys = policy.priority.filter { !seen.contains($0) }
-        policy.priority = ranked + detachedKeys
+        let policy = presentation.policy
+            .migratingLegacyPriorityKeys(presentation.participants.map(\.participant))
+            .withReorderedPriority(visibleKeys: keys)
         run { await store.setTerminalSizePolicy(policy, surfaceID: surfaceID) }
     }
 

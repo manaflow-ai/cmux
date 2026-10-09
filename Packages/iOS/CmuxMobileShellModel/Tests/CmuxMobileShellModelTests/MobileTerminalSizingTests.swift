@@ -165,6 +165,15 @@ private func sizeState(
         #expect(!presentation.selfCounts)
     }
 
+    @Test func presentationKeepsHostParticipantOrderForPriorityEdits() {
+        let presentation = MobileTerminalSizingPresentation(
+            state: sizeState(generation: 1),
+            selfParticipantID: "mobile:phone",
+            localViewport: nil
+        )
+        #expect(presentation.participants.map(\.id) == ["c3", "mobile:phone"])
+    }
+
     @Test func largerPhoneHidesNothing() {
         let presentation = MobileTerminalSizingPresentation(
             state: sizeState(generation: 1),

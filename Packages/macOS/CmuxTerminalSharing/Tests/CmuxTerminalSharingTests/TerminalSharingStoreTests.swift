@@ -99,6 +99,15 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         ])
     }
 
+    @Test func settingPriorityPolicyThroughSharedPathRanksAttachedParticipants() {
+        let (store, controller, id) = fixture()
+        defer { withExtendedLifetime(controller) {} }
+        #expect(store.setPolicy(TerminalSizingPolicy(mode: .priority), surfaceID: id))
+        #expect(store.snapshot(for: id)?.state.policy.priority == [
+            "u_me/mac", "u_a/iphone", "u_b/ipad"
+        ])
+    }
+
     @Test func enteringPriorityPreservesDetachedPriorityKeys() {
         let (store, controller, id) = fixture(
             policy: TerminalSizingPolicy(mode: .latest, priority: ["u_old/mac"])
@@ -107,6 +116,20 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         #expect(store.setMode(.priority, surfaceID: id))
         #expect(store.snapshot(for: id)?.state.policy.priority == [
             "u_old/mac", "u_me/mac", "u_a/iphone", "u_b/ipad"
+        ])
+    }
+
+    @Test func reorderingPriorityKeepsDetachedKeysInTheirSlots() {
+        let (store, controller, id) = fixture(
+            policy: TerminalSizingPolicy(
+                mode: .priority,
+                priority: ["u_old/mac", "u_me/mac", "u_a/iphone"]
+            )
+        )
+        defer { withExtendedLifetime(controller) {} }
+        #expect(store.setPriority(["u_a/iphone", "u_me/mac"], surfaceID: id))
+        #expect(store.snapshot(for: id)?.state.policy.priority == [
+            "u_old/mac", "u_a/iphone", "u_me/mac", "u_b/ipad"
         ])
     }
 

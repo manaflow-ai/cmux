@@ -645702,55 +645702,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses the largest grid reported by connected devices."
+            "value": "Uses the largest grid reported by devices included in sizing."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم أكبر شبكة أبلغت عنها الأجهزة المتصلة."
+            "value": "يستخدم أكبر شبكة أبلغت عنها الأجهزة المشمولة في تحديد الحجم."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendet das größte von den verbundenen Geräten gemeldete Raster."
+            "value": "Verwendet das größte von den in die Größenanpassung einbezogenen Geräten gemeldete Raster."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa la cuadrícula más grande indicada por los dispositivos conectados."
+            "value": "Usa la cuadrícula más grande indicada por los dispositivos incluidos en el ajuste de tamaño."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise la plus grande grille signalée par les appareils connectés."
+            "value": "Utilise la plus grande grille signalée par les appareils inclus dans le dimensionnement."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続されているデバイスが報告した最大グリッドを使用します。"
+            "value": "サイズ調整に含まれるデバイスが報告した最大グリッドを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결된 기기가 보고한 가장 큰 격자를 사용합니다."
+            "value": "크기 조정에 포함된 기기가 보고한 가장 큰 격자를 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用已连接设备报告的最大网格。"
+            "value": "使用参与调整大小的设备报告的最大网格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用已連接裝置回報的最大網格。"
+            "value": "使用參與調整大小的裝置回報的最大網格。"
           }
         }
       }
@@ -645761,55 +645761,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses the device that most recently sends input."
+            "value": "Uses the device with the most recent input, unless it is excluded from sizing."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم الجهاز الذي أرسل إدخالًا مؤخرًا."
+            "value": "يستخدم الجهاز الذي أرسل الإدخال الأحدث، ما لم يكن مستبعدًا من تحديد الحجم."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendet das Gerät, das zuletzt Eingaben sendet."
+            "value": "Verwendet das Gerät mit der neuesten Eingabe, sofern es nicht von der Größenanpassung ausgeschlossen ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa el dispositivo que envía entradas más recientemente."
+            "value": "Usa el dispositivo con la entrada más reciente, a menos que esté excluido del ajuste de tamaño."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise l’appareil qui envoie des entrées le plus récemment."
+            "value": "Utilise l’appareil ayant reçu la saisie la plus récente, sauf s’il est exclu du dimensionnement."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後に入力したデバイスを使用します。"
+            "value": "最新の入力を行ったデバイスを使用します。ただし、サイズ調整から除外されたデバイスは除きます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "가장 최근에 입력한 기기를 사용합니다."
+            "value": "가장 최근에 입력한 기기를 사용하지만, 크기 조정에서 제외된 기기는 사용하지 않습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用最近发送输入的设备。"
+            "value": "使用最近发送输入的设备，但不包括从调整大小中排除的设备。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用最近傳送輸入的裝置。"
+            "value": "使用最近傳送輸入的裝置，但不包括從調整大小中排除的裝置。"
           }
         }
       }
@@ -645820,55 +645820,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The first available device in the list sets the grid. Drag to reorder."
+            "value": "The first available device included in sizing sets the grid. Drag to reorder."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحدد أول جهاز متاح في القائمة الشبكة. اسحب لإعادة الترتيب."
+            "value": "يحدد أول جهاز متاح مشمول في تحديد الحجم الشبكة. اسحب لإعادة الترتيب."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das erste verfügbare Gerät in der Liste legt das Raster fest. Ziehen zum Sortieren."
+            "value": "Das erste verfügbare, in die Größenanpassung einbezogene Gerät legt das Raster fest. Zum Sortieren ziehen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El primer dispositivo disponible de la lista define la cuadrícula. Arrastra para reordenar."
+            "value": "El primer dispositivo disponible incluido en el ajuste de tamaño define la cuadrícula. Arrastra para reordenar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le premier appareil disponible de la liste définit la grille. Faites glisser pour réorganiser."
+            "value": "Le premier appareil disponible inclus dans le dimensionnement définit la grille. Faites glisser pour réorganiser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リストの最初にある利用可能なデバイスがグリッドを設定します。ドラッグして並べ替えます。"
+            "value": "サイズ調整に含まれる最初の利用可能なデバイスがグリッドを設定します。ドラッグして並べ替えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "목록에서 사용 가능한 첫 번째 기기가 격자를 설정합니다. 드래그하여 순서를 바꾸세요."
+            "value": "크기 조정에 포함된 사용 가능한 첫 번째 기기가 격자를 설정합니다. 드래그하여 순서를 바꾸세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "列表中第一个可用设备会设置网格。拖动即可重新排序。"
+            "value": "参与调整大小的第一个可用设备会设置网格。拖动即可重新排序。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清單中第一個可用的裝置會設定網格。拖曳即可重新排序。"
+            "value": "參與調整大小的第一個可用裝置會設定網格。拖曳即可重新排序。"
           }
         }
       }
@@ -645879,55 +645879,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses the smallest grid that fits every connected device."
+            "value": "Uses the smallest grid that fits every device included in sizing."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم أصغر شبكة تلائم جميع الأجهزة المتصلة."
+            "value": "يستخدم أصغر شبكة تلائم كل جهاز مشمول في تحديد الحجم."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendet das kleinste Raster, das auf jedes verbundene Gerät passt."
+            "value": "Verwendet das kleinste Raster, das auf jedes in die Größenanpassung einbezogene Gerät passt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa la cuadrícula más pequeña que cabe en todos los dispositivos conectados."
+            "value": "Usa la cuadrícula más pequeña que cabe en todos los dispositivos incluidos en el ajuste de tamaño."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise la plus petite grille adaptée à tous les appareils connectés."
+            "value": "Utilise la plus petite grille adaptée à tous les appareils inclus dans le dimensionnement."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続されているすべてのデバイスに収まる最小グリッドを使用します。"
+            "value": "サイズ調整に含まれるすべてのデバイスに収まる最小グリッドを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결된 모든 기기에 맞는 가장 작은 격자를 사용합니다."
+            "value": "크기 조정에 포함된 모든 기기에 맞는 가장 작은 격자를 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用能容纳所有已连接设备的最小网格。"
+            "value": "使用能容纳所有参与调整大小的设备的最小网格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用能容納所有已連接裝置的最小網格。"
+            "value": "使用能容納所有參與調整大小的裝置的最小網格。"
           }
         }
       }
