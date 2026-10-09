@@ -795,6 +795,8 @@ mod tests {
             client_msg_id: key.to_string(),
             parts: vec![Part::Text { text: text.to_string(), runs: None }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         }
     }
 

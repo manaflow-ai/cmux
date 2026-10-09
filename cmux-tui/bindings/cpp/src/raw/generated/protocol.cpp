@@ -1767,6 +1767,16 @@ Result<ConversationImportMessage> Codec<ConversationImportMessage>::decode(const
 Result<Json> Codec<ConversationMessage>::encode(const ConversationMessage& value) {
     (void)value;
     Json::Object object;
+    if (value.answers) {
+        auto encoded = encode_value(*value.answers);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers", std::move(encoded).value());
+    }
+    if (value.answers_pending) {
+        auto encoded = encode_value(*value.answers_pending);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers_pending", std::move(encoded).value());
+    }
     auto encoded_author = encode_value(value.author);
     if (!encoded_author) return std::move(encoded_author).error();
     object.emplace("author", std::move(encoded_author).value());
@@ -1813,6 +1823,18 @@ Result<ConversationMessage> Codec<ConversationMessage>::decode(const Json& value
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationMessage result{};
+    const Json* field_answers = value.find("answers");
+    if (field_answers) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_answers);
+        if (!decoded) return std::move(decoded).error();
+        result.answers = std::move(decoded).value();
+    }
+    const Json* field_answers_pending = value.find("answers_pending");
+    if (field_answers_pending) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_answers_pending);
+        if (!decoded) return std::move(decoded).error();
+        result.answers_pending = std::move(decoded).value();
+    }
     const Json* field_author = value.find("author");
     if (!field_author) {
         return make_error(ErrorCode::decode, "missing required field 'author'");

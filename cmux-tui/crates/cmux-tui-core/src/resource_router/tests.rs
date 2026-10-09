@@ -384,3 +384,26 @@ fn run_validation_preserves_exact_argv_and_rejects_empty_executable() {
     .unwrap_err();
     assert_eq!(invalid.code, "validation.invalid");
 }
+
+/// E22 live run: a Chief reply names what it answers; every result that
+/// carries such a message (conversation.send, history, changes) must still
+/// meet the embedded catalog ("operation result violates the embedded
+/// catalog" in `cmux chief -p`).
+#[test]
+fn a_conversation_message_with_answers_meets_the_catalog() {
+    let message = json!({
+        "id": "msg_01J0000000000000000000000B", "conversation": "conv_01J0000000000000000000000A",
+        "seq": 2, "client_msg_id": "turn:optchat:1:2026", "author": "agent_mux",
+        "parts": [{"type": "text", "text": "READY"}],
+        "answers": ["msg_01J0000000000000000000000A"],
+        "answers_pending": ["msg_01J0000000000000000000000A"],
+        "created_at": "2026-10-09T16:00:00.000Z", "reactions": []
+    });
+    validate_catalog_value(
+        &message,
+        &json!({"kind": "ref", "name": "ConversationMessage"}),
+        "message",
+        &HashMap::new(),
+    )
+    .unwrap();
+}

@@ -137,6 +137,8 @@ impl Core {
                     client_msg_id: key,
                     parts: vec![work_part(&session.name, status, session.last_prompt.as_deref())],
                     reply_to: None,
+                    answers: Vec::new(),
+                    answers_pending: Vec::new(),
                 },
                 child: Some(session.session_id.clone()),
             });

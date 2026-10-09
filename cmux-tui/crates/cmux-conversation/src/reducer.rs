@@ -19,7 +19,8 @@ pub enum Reject {
     NotAuthor,
     /// The target or reply-to message does not exist in this conversation.
     UnknownMessage,
-    /// Parts are empty, too many, too long, or malformed.
+    /// Parts are empty, too many, too long, or malformed, or the
+    /// `answers` lists are.
     InvalidParts,
     /// The idempotency key was used before with a different request.
     IdempotencyConflict,
@@ -232,11 +233,12 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
     next.rev = head.rev + 1;
     let now = request.now;
     let (message, change) = match request.op {
-        Op::MessageSend { client_msg_id, parts, reply_to } => {
+        Op::MessageSend { client_msg_id, parts, reply_to, answers, answers_pending } => {
             if client_msg_id != request.idempotency_key || !valid_token(client_msg_id) {
                 return Err(Reject::InvalidClientMsgId);
             }
             validate_parts(parts)?;
+            validate_answers(answers, answers_pending)?;
             let is_agent =
                 head.participant(request.actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
             let bad_question = |part: &Part| match part {
@@ -279,6 +281,8 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 author: request.actor.to_string(),
                 parts: parts.clone(),
                 reply_to: reply_to.clone(),
+                answers: answers.clone(),
+                answers_pending: answers_pending.clone(),
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,
@@ -435,6 +439,23 @@ fn require_participant(head: &ConversationHead, actor: &str) -> Result<(), Rejec
 
 /// An opaque client token (idempotency key, `client_msg_id`): 1 to 128
 /// printable ASCII characters.
+/// `answers` names at most [`MAX_ANSWERS`] distinct message ids, and
+/// `answers_pending` only ids of `answers`. The ids are not looked up: a
+/// reply may answer a message the owner already trimmed.
+fn validate_answers(answers: &[String], pending: &[String]) -> Result<(), Reject> {
+    let distinct = |ids: &[String]| {
+        ids.iter().enumerate().all(|(i, id)| valid_token(id) && !ids[..i].contains(id))
+    };
+    if answers.len() > crate::MAX_ANSWERS
+        || !distinct(answers)
+        || !distinct(pending)
+        || pending.iter().any(|id| !answers.contains(id))
+    {
+        return Err(Reject::InvalidParts);
+    }
+    Ok(())
+}
+
 pub fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 128 && token.bytes().all(|byte| byte.is_ascii_graphic())
 }

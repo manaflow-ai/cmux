@@ -5502,7 +5502,7 @@ QuestionState = object{kind:"pending"} | object{kind:"cancelled"} | object{kind:
 QuestionAnswer = object{selections:map<string, object{option_ids:[string], other?:string}>, respondent?:object{participant:string, display_name:string, device?:string, remote:bool}, answered_at?:string}
 DerivedImage = object{hash:string, mime_type:"image/jpeg"|"image/webp", byte_count:uint64}
 Reaction = object{author:string, part_index:uint32, kind:object{tapback:"love"|"like"|"dislike"|"laugh"|"emphasize"|"question"}|object{emoji:string}, at:string}
-Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
+Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, answers?:[string], answers_pending?:[string], created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
 Summary = object{id:string, owner:"local", title:string, participants:[Participant], last_seq:uint64, rev:uint64, created_at:string, updated_at:string, last_message?:Message, read_cursors:map<string,uint64>}
 ```
 
@@ -5608,7 +5608,7 @@ with `replayed:true` and publishes nothing. `op` is tagged by `kind`:
 
 | kind | fields | rule |
 | --- | --- | --- |
-| `message.send` | `client_msg_id, parts, reply_to?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part |
+| `message.send` | `client_msg_id, parts, reply_to?, answers?, answers_pending?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part; `answers` names at most 64 distinct message ids this reply answers (an agent's turn reply; `cmux chief -p` prints the replies that answer its message), `answers_pending` the ids of `answers` whose subagents still work; a malformed list is `invalid_parts` |
 | `message.edit` | `message_id, parts` | author only; not retracted |
 | `message.retract` | `message_id` | author only; parts and reactions become empty |
 | `reaction.add` / `reaction.remove` | `message_id, part_index, reaction` | `reaction` is a reaction `kind` object; one per (author, part, kind) |

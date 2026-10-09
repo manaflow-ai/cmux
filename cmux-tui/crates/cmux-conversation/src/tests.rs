@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -96,6 +96,8 @@ impl Host {
             client_msg_id: key.to_string(),
             parts: vec![text(body)],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         };
         self.run(actor, key, op).unwrap().message.unwrap()
     }
@@ -136,11 +138,21 @@ fn conversation_send_assigns_dense_seq_and_requires_matching_client_msg_id() {
     assert_eq!((first.seq, second.seq), (1, 2));
     assert_eq!(host.head.last_seq, 2);
     assert_eq!(host.head.rev, 3);
-    let mismatched =
-        Op::MessageSend { client_msg_id: "c3".to_string(), parts: vec![text("x")], reply_to: None };
+    let mismatched = Op::MessageSend {
+        client_msg_id: "c3".to_string(),
+        parts: vec![text("x")],
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     assert_eq!(host.run(ALICE, "other", mismatched).unwrap_err(), Reject::InvalidClientMsgId);
-    let outsider =
-        Op::MessageSend { client_msg_id: "c4".to_string(), parts: vec![text("x")], reply_to: None };
+    let outsider = Op::MessageSend {
+        client_msg_id: "c4".to_string(),
+        parts: vec![text("x")],
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     assert_eq!(host.run(EVE, "c4", outsider).unwrap_err(), Reject::NotParticipant);
     assert_eq!(host.head.rev, 3);
 }
@@ -152,6 +164,8 @@ fn conversation_parts_are_bounded() {
         client_msg_id: "k".to_string(),
         parts,
         reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     for parts in [
         vec![],
@@ -203,6 +217,8 @@ fn conversation_reply_to_must_name_an_existing_part() {
         client_msg_id: key.to_string(),
         parts: vec![text("answer")],
         reply_to: Some(PartRef { message_id: message_id.to_string(), part_index }),
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     assert_eq!(
         host.run(MUX, "c2", reply("msg_nope", 0, "c2")).unwrap_err(),
@@ -428,6 +444,8 @@ fn random_op(rng: &mut Rng, host: &Host, key: &str) -> Op {
             client_msg_id: key.to_string(),
             parts: vec![text("x"); 1 + rng.below(2) as usize],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         },
         3 => Op::MessageEdit { message_id, parts: vec![text("edited")] },
         4 => Op::MessageRetract { message_id },
@@ -537,7 +555,13 @@ fn send_as(
     parts: Vec<Part>,
     now_ms: u64,
 ) -> Commit {
-    let op = Op::MessageSend { client_msg_id: key.to_string(), parts, reply_to: None };
+    let op = Op::MessageSend {
+        client_msg_id: key.to_string(),
+        parts,
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     let now = format_rfc3339_millis(now_ms);
     let id = format!("msg_{key}");
     let request = OpRequest {
@@ -551,4 +575,49 @@ fn send_as(
         last_message: None,
     };
     apply(head, &request).unwrap()
+}
+
+/// E22: a reply says which messages it answers (`answers`), and which of
+/// them still have subagents at work (`answers_pending`), so a client waits
+/// for the reply to its own message, not for the end of the running turn.
+#[test]
+fn conversation_a_reply_records_the_messages_it_answers() {
+    let mut host = Host::new();
+    let first = host.send(ALICE, "q1", "first question");
+    let second = host.send(ALICE, "q2", "second question");
+    let send = |key: &str, answers: Value, pending: Value| -> Op {
+        serde_json::from_value(json!({
+            "kind": "message.send", "client_msg_id": key,
+            "parts": [{"type": "text", "text": "answer"}],
+            "answers": answers, "answers_pending": pending,
+        }))
+        .unwrap()
+    };
+    let op = send("r1", json!([first.id, second.id]), json!([second.id]));
+    let reply = host.run(MUX, "r1", op).unwrap().message.unwrap();
+    let wire = serde_json::to_value(&reply).unwrap();
+    assert_eq!(wire["answers"], json!([first.id, second.id]));
+    assert_eq!(wire["answers_pending"], json!([second.id]));
+    // A message that answers nothing keeps the wire shape old readers know.
+    let plain = serde_json::to_value(&first).unwrap();
+    assert!(plain.get("answers").is_none() && plain.get("answers_pending").is_none());
+    // The op round-trips with both lists.
+    let op = send("r2", json!([first.id]), json!([]));
+    let again: Op = serde_json::from_value(serde_json::to_value(&op).unwrap()).unwrap();
+    assert_eq!(again, op);
+    assert_eq!(serde_json::to_value(&op).unwrap()["answers"], json!([first.id]));
+    // Malformed lists are refused: a pending id it does not answer, a
+    // duplicate, a bad token, too many ids.
+    let too_many: Vec<String> = (0..=MAX_ANSWERS).map(|i| format!("msg_{i}")).collect();
+    for (key, answers, pending) in [
+        ("b1", json!([first.id]), json!([second.id])),
+        ("b2", json!([first.id, first.id]), json!([])),
+        ("b3", json!(["bad id"]), json!([])),
+        ("b4", json!(too_many), json!([])),
+    ] {
+        assert_eq!(
+            host.run(MUX, key, send(key, answers, pending)).unwrap_err(),
+            Reject::InvalidParts
+        );
+    }
 }

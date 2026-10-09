@@ -172,6 +172,8 @@ impl ConversationStore {
                     author: message.author.clone(),
                     parts: message.parts.clone(),
                     reply_to: None,
+                    answers: Vec::new(),
+                    answers_pending: Vec::new(),
                     created_at: message.created_at.clone(),
                     edited_at: None,
                     retracted_at: None,
@@ -332,6 +334,8 @@ mod tests {
             client_msg_id: "now-1".into(),
             parts: vec![Part::Text { text: "typed now".into(), runs: None }],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         };
         store.apply_op(&id, "now-1", "user_local", &op).unwrap();
         let error = store.import(&id, &history()).unwrap_err().to_string();

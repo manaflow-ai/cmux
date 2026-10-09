@@ -49,6 +49,8 @@ pub use types::{
 pub const OWNER_LOCAL: &str = "local";
 /// Most parts in one message.
 pub const MAX_PARTS: usize = 16;
+/// Most message ids one reply answers (`answers`).
+pub const MAX_ANSWERS: usize = 64;
 /// Most UTF-8 bytes of text across a message's text parts.
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 /// Longest title, in characters.

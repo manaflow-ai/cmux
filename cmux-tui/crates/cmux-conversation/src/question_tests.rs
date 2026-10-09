@@ -72,6 +72,8 @@ fn posted(multi: bool) -> (ConversationHead, Message) {
         client_msg_id: "k1".into(),
         parts: vec![Part::Question(question(multi))],
         reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     let commit = run(&head(), MUX, &op, None).unwrap();
     (commit.head, commit.message.unwrap())
@@ -112,6 +114,8 @@ fn only_an_agent_posts_a_question() {
         client_msg_id: "k1".into(),
         parts: vec![Part::Question(question(false))],
         reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     assert_eq!(run(&head(), ALICE, &op, None).unwrap_err(), Reject::InvalidParts);
     assert!(run(&head(), MUX, &op, None).is_ok());
@@ -133,6 +137,8 @@ fn a_posted_question_must_be_pending_and_well_formed() {
             client_msg_id: "k1".into(),
             parts: vec![Part::Question(bad)],
             reply_to: None,
+            answers: Vec::new(),
+            answers_pending: Vec::new(),
         };
         assert_eq!(run(&head(), MUX, &op, None).unwrap_err(), Reject::InvalidParts);
     }
@@ -252,6 +258,8 @@ fn answering_a_non_question_part_is_refused() {
         client_msg_id: "k1".into(),
         parts: vec![Part::Text { text: "hi".into(), runs: None }],
         reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
     };
     let commit = run(&head(), MUX, &send, None).unwrap();
     let message = commit.message.unwrap();

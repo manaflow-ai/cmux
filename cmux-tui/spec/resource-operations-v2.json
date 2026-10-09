@@ -8561,6 +8561,34 @@
             "name": "ConversationPartRef"
           }
         },
+        "answers": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 64
+          },
+          "description": "The ids of the messages this reply answers (an agent's turn reply)."
+        },
+        "answers_pending": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 64
+          },
+          "description": "The ids in answers whose work (subagents) still runs: more replies to them follow."
+        },
         "created_at": {
           "required": true,
           "type": {

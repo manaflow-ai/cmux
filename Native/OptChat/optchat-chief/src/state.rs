@@ -62,6 +62,14 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// E22: what the last turn answered (message ids): a spawn made after
+    /// that turn's end still belongs to it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub last_answers: Vec<String>,
+    /// E22: what a turn stopped for a newer message answered: the next turn
+    /// answers it too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carry_answers: Vec<String>,
     /// Child sessions (acpmux session id) the Chief started.
     #[serde(default)]
     pub children: BTreeMap<String, ChildRecord>,
@@ -164,6 +172,19 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// E22: the messages that turn answered; each turn its reports cause
+    /// answers them too, and says while a subagent of it still works.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
+}
+
+impl SpawnRecord {
+    /// A subagent still works or has a report waiting that starts a turn.
+    pub fn working(&self) -> bool {
+        self.subs
+            .iter()
+            .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +288,11 @@ pub struct PendingTurn {
     /// its own position.
     #[serde(default)]
     pub mid: Vec<Batch>,
+    /// E22: the ids of the messages the reply answers: the turn's own and
+    /// the steered ones, and for a subagent's report the messages of the
+    /// turn that spawned it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
 }
 
 impl PendingTurn {
@@ -675,6 +701,8 @@ mod tests {
                     runs: None,
                 }],
                 reply_to: None,
+                answers: Vec::new(),
+                answers_pending: Vec::new(),
             },
             rate_retried: false,
             not_before: None,

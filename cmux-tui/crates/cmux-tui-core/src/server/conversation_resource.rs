@@ -177,7 +177,13 @@ fn send(
         })?),
         None => None,
     };
-    let op = Op::MessageSend { client_msg_id: key.clone(), parts, reply_to };
+    let op = Op::MessageSend {
+        client_msg_id: key.clone(),
+        parts,
+        reply_to,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+    };
     let outcome = commit_op(mux, conversation, &key, principal, &op, &None)
         .map_err(|error| owner_error(operation, conversation, &key, error))?;
     let message = outcome.result.change.get("message").cloned().unwrap_or(Value::Null);
