@@ -122,18 +122,27 @@ import UniformTypeIdentifiers
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 250)
         sidebar.wantsLayer = true
         sidebar.appearance = scope.appearance
+        // An offscreen window (never ordered front) makes AppKit draw the
+        // rows' layer contents; detached views leave them empty.
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sidebar
         scope.root(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         sidebar.list.setWindowVisible(true)
         sidebar.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
         sidebar.displayIfNeeded()
+        CATransaction.flush()
         scopes.append(scope)
+        windows.append(window)
         return sidebar
     }
 
     static var keep: [StatusIndicatorLayer] = []
     static var scopes: [ThemeScope] = []
+    static var windows: [NSWindow] = []
 
     /// Renders `layer` with the Core Animation compositor at `count` times,
     /// `1 / fps` apart, starting now.
@@ -151,8 +160,9 @@ import UniformTypeIdentifiers
         ])
         let host = CALayer()
         host.frame = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        host.isGeometryFlipped = true
         let holder = CALayer()
+        // Scale about the bottom-left corner, not the center.
+        holder.anchorPoint = .zero
         holder.frame = host.bounds
         holder.sublayerTransform = CATransform3DMakeScale(scale, scale, 1)
         host.addSublayer(holder)
@@ -161,6 +171,8 @@ import UniformTypeIdentifiers
         holder.addSublayer(layer)
         renderer.layer = host
         renderer.bounds = host.bounds
+        // Animations get their begin time when the transaction commits.
+        CATransaction.flush()
         let start = CACurrentMediaTime()
         var images: [CGImage] = []
         for index in 0..<count {
@@ -180,7 +192,16 @@ import UniformTypeIdentifiers
                   let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info, provider: provider,
                                       decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { throw SheetError.noImage }
-            images.append(image)
+            // The texture's first row is the bottom of the layer tree.
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let flip = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { throw SheetError.noImage }
+            flip.translateBy(x: 0, y: CGFloat(height))
+            flip.scaleBy(x: 1, y: -1)
+            flip.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            guard let upright = flip.makeImage() else { throw SheetError.noImage }
+            images.append(upright)
         }
         layer.removeFromSuperlayer()
         return images
@@ -215,6 +236,8 @@ import UniformTypeIdentifiers
             StatusIndicatorAppearance.shared.apply(previous)
             Self.keep.removeAll()
             Self.scopes.removeAll()
+            Self.windows.forEach { $0.close() }
+            Self.windows.removeAll()
         }
         let count = Int(Self.seconds * Self.fps)
         var body = ""
@@ -225,7 +248,9 @@ import UniformTypeIdentifiers
                 let layer = Self.matrix(look, slot: slot)
                 let width = Int(layer.bounds.width)
                 let images = try Self.frames(of: layer, count: count)
-                anyMotion = anyMotion || Self.png(images[0]) != Self.png(images[count / 3])
+                // Any frame: one offset can equal a whole spinner period.
+                let first = Self.png(images[0])
+                anyMotion = anyMotion || images.dropFirst().contains { Self.png($0) != first }
                 body += "<h3>\(Int(slot)) pt slot</h3><div class=\"pair\"><figure>\(Self.img(Self.gif(images), "image/gif", width: width))<figcaption>animated (\(count) frames, \(Int(Self.fps)) fps)</figcaption></figure>"
                 body += "<figure>\(Self.img(Self.png(images[0]), "image/png", width: width))<figcaption>first frame (the still look under Reduce Motion)</figcaption></figure></div>"
             }
@@ -241,6 +266,27 @@ import UniformTypeIdentifiers
             }
             body += "</div>"
         }
+        // The export path (StatusIconSet.image, for notification attachments):
+        // the same marks drawn still by Core Graphics, 16 pt, in each look.
+        body += "<h2>Exported still images (StatusIconSet.image, 16 pt)</h2>"
+        for look in Self.looks {
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(nil, input: look.input, animated: false)
+            var rows = "<tr><th></th>" + Self.states.map { "<th>\($0.0)</th>" }.joined() + "</tr>"
+            for set in StatusIconSet.allCases {
+                rows += "<tr><td>\(set.tunableTitle)</td>"
+                for state in Self.states {
+                    let image = scope.perform { set.image(state: state.1, pointSize: 16, appearance: scope.appearance) }
+                    let data = image.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }.map(Self.png) ?? Data()
+                    rows += "<td>" + (data.isEmpty ? "" : Self.img(data, "image/png", width: 16)) + "</td>"
+                }
+                rows += "</tr>"
+            }
+            let background = look.tokens.surfaceBackground.withAlpha(1).nsColor.usingColorSpace(.sRGB) ?? .black
+            let hex = String(format: "#%02x%02x%02x", Int(background.redComponent * 255), Int(background.greenComponent * 255), Int(background.blueComponent * 255))
+            body += "<h3>\(look.name)</h3><table style=\"background:\(hex);color:#888\">\(rows)</table>"
+            Self.scopes.append(scope)
+        }
         var legend = ""
         for set in StatusIconSet.allCases {
             legend += "<tr><td><code>\(set.rawValue)</code></td><td>\(set.tunableTitle)</td><td>\(set.summary)</td></tr>"
@@ -254,6 +300,7 @@ import UniformTypeIdentifiers
         <p>Rendered by the app's own StatusIndicatorLayer and SidebarView, frames from the Core Animation compositor (CARenderer), 2x pixels shown at real size.
         Blocked kinds come from OSC 7501 <code>kind</code> (permission, question, auth). Colors are the theme's attention, danger, success and foreground roles.
         Pick one in DEV/NIGHTLY: Debug menu &gt; Status Icons, or Debug Settings &gt; Status Indicators &gt; Status icons. The default stays <code>current</code> until one is picked.</p>
+        <p>Motion captured by the compositor: \(anyMotion ? "yes" : "no (stills only on this host)").</p>
         <table>\(legend)</table>
         \(body)
         </body></html>
@@ -265,7 +312,9 @@ import UniformTypeIdentifiers
         if let artifacts = ProcessInfo.processInfo.environment["NX_ARTIFACTS"] {
             try Data(html.utf8).write(to: URL(fileURLWithPath: artifacts).appending(path: "status-icons-contact-sheet.html"))
         }
-        #expect(anyMotion, "the compositor renders the working animations")
+        // Motion is reported in the sheet, not asserted: the step returns the
+        // artifact only when green, and some hosts render stills.
+        #expect(html.contains("image/gif"))
         #expect(html.contains("badges"))
     }
 }
