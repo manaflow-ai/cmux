@@ -76,6 +76,25 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
+    /// Live check (m1max, ffcob-v1): the new tab's page (the New Tab page)
+    /// existed before `open` returned, so the pending notice was never shown.
+    /// A page that already exists takes the notice at once.
+    @Test func aPageThatAlreadyExistsShowsTheNoticeAtOnce() async throws {
+        let f = try Self.fixture()
+        let browserTabs = f.services.cache.browserTabs
+        browserTabs.create = { _, _, _, _, _, _, _ in SurfaceID(rawValue: 19) }
+        var shown: [(String, SurfaceID, String)] = []
+        browserTabs.showNotice = { daemon, surface, text in
+            shown.append((daemon.machineID, surface, text))
+            return true
+        }
+        _ = try await browserTabs.open(BrowserEngineChoice(engine: .webkit), in: f.remotePane, url: "https://google.com/")
+        #expect(shown.map(\.2) == [RemoteStrings.browserRunsOnThisMac(f.machine.host.label)])
+        #expect(shown.first?.0 == f.machine.machineID && shown.first?.1 == SurfaceID(rawValue: 19))
+        #expect(browserTabs.takeNotice(for: try #require(f.remotePane.tabs.first)) == nil, "shown once, not again at page creation")
+        withExtendedLifetime(f.services) {}
+    }
+
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))

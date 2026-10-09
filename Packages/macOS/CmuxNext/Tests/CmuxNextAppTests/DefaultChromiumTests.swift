@@ -47,15 +47,24 @@ struct DefaultChromiumTests {
         #expect(BrowserEngineChoice(engine: .webkit, fallback: .notBundled).newTabURL == "about:blank")
     }
 
+    /// Surface handles are per daemon: a fallback on one machine's surface 5
+    /// is not another machine's surface 5 (cx-2cob).
+    @Test func fallbackNoticeIsPerMachine() {
+        let log = ChromiumFallbackLog()
+        log.record(.notBundled, source: .newTab, machine: "ssh-a", surface: SurfaceID(rawValue: 5))
+        #expect(log.takeNotice(machine: "local", surface: SurfaceID(rawValue: 5)) == nil, "this Mac's surface 5 is another tab")
+        #expect(log.takeNotice(machine: "ssh-a", surface: SurfaceID(rawValue: 5)) == ChromiumFallbackLog.notice(for: .notBundled))
+    }
+
     @Test func fallbackNoticeShowsOnce() {
         let log = ChromiumFallbackLog()
-        log.record(.notBundled, source: .newTab, surface: SurfaceID(rawValue: 1))
-        log.record(.notBundled, source: .newTab, surface: SurfaceID(rawValue: 2))
-        #expect(log.takeNotice(for: SurfaceID(rawValue: 3)) == nil, "not a fallback tab")
-        #expect(log.takeNotice(for: SurfaceID(rawValue: 2)) == ChromiumFallbackLog.notice(for: .notBundled))
-        #expect(log.takeNotice(for: SurfaceID(rawValue: 1)) == nil, "the notice never repeats")
-        log.record(.startFailed("x"), source: .recordedTab, surface: SurfaceID(rawValue: 4))
-        #expect(log.takeNotice(for: SurfaceID(rawValue: 4)) == nil)
+        log.record(.notBundled, source: .newTab, machine: "local", surface: SurfaceID(rawValue: 1))
+        log.record(.notBundled, source: .newTab, machine: "local", surface: SurfaceID(rawValue: 2))
+        #expect(log.takeNotice(machine: "local", surface: SurfaceID(rawValue: 3)) == nil, "not a fallback tab")
+        #expect(log.takeNotice(machine: "local", surface: SurfaceID(rawValue: 2)) == ChromiumFallbackLog.notice(for: .notBundled))
+        #expect(log.takeNotice(machine: "local", surface: SurfaceID(rawValue: 1)) == nil, "the notice never repeats")
+        log.record(.startFailed("x"), source: .recordedTab, machine: "local", surface: SurfaceID(rawValue: 4))
+        #expect(log.takeNotice(machine: "local", surface: SurfaceID(rawValue: 4)) == nil)
         #expect(log.count == 3)
         #expect(log.lastReason == .startFailed("x"))
         #expect(log.lastSource == .recordedTab)
