@@ -261,6 +261,7 @@ struct BrowserReplPinnedFileAccessTests {
         /// Reloads the frame and returns what it showed, if its response
         /// was admitted.
         func reloadFrame(_ query: String) async throws -> String? {
+            waiter.forgetChildFrames()
             _ = try await webView.callAsyncJavaScript("""
                 const frame = document.querySelector('iframe')
                 window.frameDone = new Promise(resolve => {
@@ -364,6 +365,11 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     func childFrameResponse() async -> Bool {
         if !childFrameResults.isEmpty { return childFrameResults.removeFirst() }
         return await withCheckedContinuation { childFrameContinuation = $0 }
+    }
+
+    /// Forgets the child frames' loads judged so far.
+    func forgetChildFrames() {
+        childFrameResults = []
     }
 
     private func finish() {
