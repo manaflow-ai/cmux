@@ -62,11 +62,22 @@ const ctx: PlayContext = {
     await act(async () => {});
     expect(Boolean(condition())).toBe(true);
   },
-  hover: unused,
+  hover: async (target) => {
+    await act(async () => {
+      find(target).dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
+    });
+  },
   focus: unused,
   scroll: unused,
   selectText: unused,
-  type: unused,
+  type: async (text, target) => {
+    const input = (target ? find(target) : doc.activeElement) as HTMLInputElement;
+    await act(async () => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  },
   pointer: { down: unused, move: unused, up: unused },
 };
 

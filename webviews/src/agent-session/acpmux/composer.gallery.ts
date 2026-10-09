@@ -288,6 +288,10 @@ export default agentPaneEntry({
         const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
+        // A full provider catalog places Sonnet below the visible rows. Filter it into view
+        // before pointer input, then reveal the row's hover-only favorite control.
+        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
+        await ctx.hover(favorite);
         // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
         if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
         // Tooltips consume title on hover; the translated accessible name stays available.
@@ -295,8 +299,8 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () =>
             ctx.find(starred).getAttribute("aria-selected") === "true" &&
-            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some(
-              (row) => row.textContent === "Sonnet 5.5",
+            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
+              row.textContent?.endsWith("Sonnet 5.5"),
             ),
         );
       },
