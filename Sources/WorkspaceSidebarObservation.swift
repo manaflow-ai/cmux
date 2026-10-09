@@ -13,6 +13,14 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
+extension Publisher where Failure == Never, Output: Sendable {
+    /// The values of a main-thread publisher as an async sequence for a
+    /// `@MainActor` consumer.
+    func sidebarMainThreadValues() -> AsyncPublisher<Self> {
+        values
+    }
+}
+
 extension View {
     /// Observes row-affecting workspace publishers above the lazy-list boundary.
     ///
@@ -34,7 +42,7 @@ extension View {
                 for (id, workspace) in zip(ids, workspaces) {
                     let cloudChanges = workspace.cloudBindingState.changes()
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
-                        .values
+                        .sidebarMainThreadValues()
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         // DispatchQueue.main, not RunLoop.main: the RunLoop
                         // scheduler delivers only in the DEFAULT runloop mode,
