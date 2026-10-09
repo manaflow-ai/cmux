@@ -147,6 +147,9 @@ pub struct CompactorSpec {
     pub timeout: Duration,
     /// This Chief's home id: the `cmux.chief` tag on every compactor session.
     pub chief: String,
+    /// The `env` of the user's Claude Code settings: the slots load no user
+    /// setting source, so their project settings carry it.
+    pub user_env: BTreeMap<String, String>,
 }
 
 /// Compactor sessions that live at once across the main and fallback
@@ -1474,6 +1477,7 @@ pub fn compactor_spec(
         effort: compactor_effort(family),
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
+        user_env: crate::session_dir::user_settings_env(&user_claude_home()),
     }
 }
 

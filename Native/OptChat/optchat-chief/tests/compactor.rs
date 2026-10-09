@@ -57,6 +57,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         effort: None,
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
+        user_env: Default::default(),
     }
 }
 
@@ -1643,4 +1644,24 @@ fn an_older_acpmux_keeps_the_args_it_knows() {
         ]
     );
     assert_eq!(without_isolation_args(&[json!("--tools"), json!("")]), None);
+}
+
+/// A compactor slot loads no user setting source, so its project settings
+/// carry the env of the user's Claude Code settings (the user's API route).
+#[test]
+fn a_compactor_slot_carries_the_users_settings_env() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [("ANTHROPIC_BASE_URL".to_owned(), "http://router:31415".to_owned())].into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let settings: Value = serde_json::from_slice(
+        &std::fs::read(work.join("slot-0").join(".claude").join("settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
 }

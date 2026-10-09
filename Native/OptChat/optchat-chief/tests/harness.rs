@@ -350,6 +350,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         env: Default::default(),
         instructions: None,
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
+        user_env: Default::default(),
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -689,6 +690,44 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
     );
     assert!(sub.args.is_empty(), "{:?}", sub.args);
     assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
+}
+
+/// A turn that loads no user setting source still gets the env of the
+/// user's Claude Code settings (the user's API route, for one: a Mac whose
+/// subrouter route lives only in ~/.claude/settings.json). The session's own
+/// env wins over it.
+#[test]
+fn the_session_settings_carry_the_users_settings_env() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, settings_json, user_settings_env};
+    let dir = tempfile::tempdir().unwrap();
+    let claude_home = dir.path().join("claude-home");
+    std::fs::create_dir_all(&claude_home).unwrap();
+    std::fs::write(
+        claude_home.join("settings.json"),
+        r#"{"env": {"ANTHROPIC_BASE_URL": "http://router:31415", "PATH": "/user/bin", "N": 3}, "hooks": {}}"#,
+    )
+    .unwrap();
+    let user_env = user_settings_env(&claude_home);
+    assert_eq!(user_env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("http://router:31415"));
+    assert!(!user_env.contains_key("N"), "string values only");
+    assert!(user_settings_env(&dir.path().join("none")).is_empty());
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: [("PATH".to_owned(), "/ours".to_owned())].into(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env,
+    };
+    let settings = settings_json(&setup, &paths, &[]);
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+    assert_eq!(
+        settings["env"]["PATH"],
+        format!("{}:/ours", paths.bin.display()),
+        "the session's own env wins"
+    );
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

@@ -539,6 +539,7 @@ fn start(
         env: session_env,
         instructions: instructions.clone(),
         tools,
+        user_env: session_dir::user_settings_env(&crate::compactor::user_claude_home()),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
