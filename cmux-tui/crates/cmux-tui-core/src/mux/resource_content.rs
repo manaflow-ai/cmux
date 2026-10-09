@@ -24,6 +24,8 @@ use split_ids::ensure_split_public_ids;
 mod full_projection;
 mod live_screen;
 mod published_screens;
+mod scoped_projection;
+pub(crate) use scoped_projection::created_view_workspace;
 #[cfg(test)]
 mod scoped_projection_tests;
 mod split_ids;
@@ -600,6 +602,9 @@ pub(crate) struct ResourceEffectProjection {
     pub(crate) patch: ResourcePatch,
     pub(crate) changes: Value,
     pub(crate) result: Value,
+    /// `changes` restate every live resource (a full projection), so a
+    /// commit may seed the registry's public topology fold from them.
+    pub(crate) restates_all: bool,
 }
 
 impl ResourceEffectProjection {

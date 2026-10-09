@@ -92,6 +92,7 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
+use resource_content::created_view_workspace;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -5263,6 +5264,7 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            projection.restates_all,
         )?;
         state.resource_revision = commit.revision;
         drop(state);
@@ -5279,11 +5281,23 @@ impl Mux {
         fingerprint: &Value,
         result: Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        // A created view changed one workspace: project only that one once
+        // the public fold is seeded (a full projection seeds it).
+        let scope = created_view_workspace(&result);
         self.commit_resource_effect_projection(
             idempotency_key,
             operation,
             fingerprint,
-            |registry, state| self.resource_effect_projection_locked(registry, state, result),
+            |registry, state| match scope {
+                Some(workspace) if registry.public_fold_seeded() => self
+                    .resource_effect_projection_scoped_locked(
+                        registry,
+                        state,
+                        &[workspace],
+                        result,
+                    ),
+                _ => self.resource_effect_projection_locked(registry, state, result),
+            },
         )
     }
 
@@ -13946,12 +13960,12 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
         Ok(TerminalPlacementResult {
             placement: Some(placement),
             terminal_id: identity.terminal_id,
             terminal_incarnation: Some(identity.incarnation),
-            terminal_revision: snapshot.revision,
+            terminal_revision,
             replayed: false,
             created_path: Some(created_path),
             created_surface: Some(surface.id),
@@ -16458,7 +16472,7 @@ impl Mux {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-                let current_revision = registry.terminal_snapshot()?.revision;
+                let current_revision = registry.terminal_revision()?;
                 let changed = replay.result["changed"].as_bool().unwrap_or(true);
                 #[cfg(test)]
                 if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
@@ -17080,7 +17094,9 @@ fn commit_terminal_lifecycle(
     incarnation: Option<&str>,
     exit: Option<Value>,
 ) -> anyhow::Result<(RegistryTerminal, u64)> {
-    let snapshot = registry.terminal_snapshot()?;
+    // Only the revision fence is needed: reading every terminal row here made
+    // each launch O(terminals) under the registry lock.
+    let (generation, revision) = (registry.generation().to_string(), registry.terminal_revision()?);
     let mut terminal = registry
         .terminal_record(terminal_id)?
         .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -17098,8 +17114,8 @@ fn commit_terminal_lifecycle(
             "incarnation": terminal.incarnation,
             "lifecycle": terminal.lifecycle,
         }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
+        Some(&generation),
+        Some(revision),
         event_kind,
         &terminal,
         &serde_json::json!({

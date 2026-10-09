@@ -611,7 +611,10 @@ covered cursor, it replays through the captured head before live delivery. A
 generation mismatch or expired cursor sends a fresh snapshot with
 `reset_reason`; a cursor ahead of head returns `cursor.invalid`. One atomic
 transaction produces one `session.delta` batch with `previous_revision` and
-the new revision. Durable resource batches are append-only. A registry upgraded
+the new revision. A batch carries what its transaction changed: an upsert whose
+value the journal already states is left out, and a topology create restates
+only the workspace it changed, so a consumer applies each batch on top of the
+state it holds. Durable resource batches are append-only. A registry upgraded
 from the earlier bounded store preserves its oldest retained revision and sends
 a fresh snapshot when a requested cursor predates that boundary. Transport
 stream queues remain bounded independently.

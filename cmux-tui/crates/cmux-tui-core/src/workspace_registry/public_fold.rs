@@ -89,6 +89,11 @@ impl WorkspaceRegistry {
         Ok(Value::Array(kept))
     }
 
+    /// Whether the fold holds a complete topology to prune against.
+    pub(crate) fn public_fold_seeded(&self) -> bool {
+        self.public_fold.is_some()
+    }
+
     /// Record a committed resource revision whose journaled changes were
     /// `journaled`. When they are the unpruned changes of a full topology
     /// projection (`full_projection`), they are the complete live set and
