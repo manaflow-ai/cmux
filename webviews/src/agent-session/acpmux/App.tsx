@@ -992,6 +992,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1186,9 +1187,20 @@ function AcpmuxPane() {
       ...(connected && {
         retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
       }),
+      ...(connected &&
+        loginCommand &&
+        snapshot.summary?.hostKind !== "cloud" && {
+          reauthenticate: () =>
+            void callNative("tab.open", {
+              kind: "terminal",
+              text: loginCommand,
+              ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+              run: true,
+            }).catch(() => undefined),
+        }),
       review: hunkReview,
     }),
-    [forkable, forkSeq, connected, hunkReview],
+    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -1803,6 +1815,12 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit and Resend (the message menu): the prompt goes back into the composer, before
+          // anything typed since, with the caret in it.
+          "chat.editPrompt": async ({ text }) => {
+            restorePrompt(String(text ?? ""), []);
+            composerHandle.current?.focus();
+          },
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
@@ -2132,6 +2150,8 @@ function AcpmuxPane() {
       active = false;
     };
   }, [freshChat, newTab, quick, loadNewTabProjects]);
+  // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+  const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2318,7 +2338,8 @@ function AcpmuxPane() {
               () => undefined,
             )
           }
-          projectChoices={freshChat && !quick ? newTabProjects : undefined}
+          // A started local chat lists the same folders to move to (dogfood 09).
+          projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
           onBrowseProject={
             freshChat && !quick
               ? () => {
@@ -2344,9 +2365,17 @@ function AcpmuxPane() {
           }
           localName={machineName}
           movedTo={movedTo}
+          onBrowseFolder={
+            canMove
+              ? () =>
+                  callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => result?.cwd)
+                    .catch(() => undefined)
+              : undefined
+          }
           // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
           onMove={
-            snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
+            canMove
               ? (cwd) => {
                   const move: ChatMove = {
                     id: `${Date.now().toString(36)}-${chatMoves.length}`,

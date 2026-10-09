@@ -31,8 +31,7 @@ extension HomeController {
         let contentY = point.y + scene.offset
         let probe = CGRect(x: point.x, y: contentY - 1, width: 1, height: 2)
         for i in scene.layout.rows(in: probe) where i < scene.model.count {
-            let row = scene.model.rows[i]
-            guard !row.ghost, row.spec.partRow != nil else { continue }
+            guard let row = scene.model.rows[checked: i], !row.ghost, row.spec.partRow != nil else { continue }
             let body = RowArt.bodyRect(row.spec, metrics: scene.metrics)
             let top = scene.windowY(contentY: scene.layout.frame(for: i).minY)
             let bubble = body.offsetBy(dx: 0, dy: top)
@@ -50,8 +49,7 @@ extension HomeController {
         var out: [HomeHit] = []
         for i in scene.layout.rows(in: CGRect(x: 0, y: content.minY, width: scene.size.width, height: max(1, content.height)))
         where i < scene.model.count {
-            let row = scene.model.rows[i]
-            guard !row.ghost, row.spec.partRow != nil else { continue }
+            guard let row = scene.model.rows[checked: i], !row.ghost, row.spec.partRow != nil else { continue }
             let body = RowArt.bodyRect(row.spec, metrics: scene.metrics)
             let bubble = body.offsetBy(dx: 0, dy: scene.windowY(contentY: scene.layout.frame(for: i).minY))
             guard bubble.maxY >= rect.minY, bubble.minY <= rect.maxY,
@@ -63,12 +61,16 @@ extension HomeController {
 
     /// Row keys are `part:<item key>:<part index>`.
     private func hit(forRowKey key: String, bubble: CGRect) -> HomeHit? {
-        guard key.hasPrefix("part:"), let colon = key.lastIndex(of: ":"),
-              let index = Int(key[key.index(after: colon)...]) else { return nil }
-        let raw = String(key[key.index(key.startIndex, offsetBy: 5)..<colon])
-        guard let item = items.first(where: { $0.key.rawValue == raw }), index < item.parts.count else { return nil }
-        let attachment: AttachmentRef? = if case .attachment(let ref) = item.parts[index] { ref } else { nil }
-        return HomeHit(item: item.key, partIndex: index, text: item.parts[index].plainText, isMine: item.author == me,
+        guard key.hasPrefix("part:"), let colon = key.lastIndex(of: ":") else { return nil }
+        guard let index = Int(key.suffix(from: key.index(after: colon))) else { return nil }
+        // "part:" is five characters; "part:3" has no item key between it and the last colon.
+        let start = key.index(key.startIndex, offsetBy: 5)
+        guard start <= colon else { CrashGuard.fault("row key without an item key: \(key)"); return nil }
+        let raw = String(key.prefix(upTo: colon).dropFirst(5))
+        guard let item = items.first(where: { $0.key.rawValue == raw }), index < item.parts.count, let part = item.parts[checked: index]
+        else { return nil }
+        let attachment: AttachmentRef? = if case .attachment(let ref) = part { ref } else { nil }
+        return HomeHit(item: item.key, partIndex: index, text: part.plainText, isMine: item.author == me,
                        bubble: toHost(bubble), attachment: attachment)
     }
 }

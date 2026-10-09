@@ -96,8 +96,8 @@ extension HomeController {
 
     /// The playback state of a video part (nil when the part is not a video).
     public func videoState(for item: IdempotencyKey, partIndex: Int) -> HomeVideoState? {
-        guard let parts = items.first(where: { $0.key == item })?.parts, parts.indices.contains(partIndex),
-              case .attachment(let ref) = parts[partIndex], AttachmentLayout.media(ref)?.isVideo == true else { return nil }
+        guard let parts = items.first(where: { $0.key == item })?.parts, let part = parts.indices.contains(partIndex) ? parts[checked: partIndex] : nil,
+              case .attachment(let ref) = part, AttachmentLayout.media(ref)?.isVideo == true else { return nil }
         return scene.video.state("part:\(item.rawValue):\(partIndex)")
     }
 

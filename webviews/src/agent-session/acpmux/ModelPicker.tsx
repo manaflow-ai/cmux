@@ -15,6 +15,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -32,7 +33,15 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
-  models: { id: string; name?: string; unavailable?: string; efforts?: string[]; fast?: boolean }[];
+  models: {
+    id: string;
+    name?: string;
+    shortName?: string;
+    family?: string;
+    unavailable?: string;
+    efforts?: string[];
+    fast?: boolean;
+  }[];
   unavailable?: string;
   acpmuxHarness?: string;
   pickable: boolean;
@@ -45,50 +54,45 @@ type HarnessChoice = {
 type ModelChoice = {
   id: string;
   name: string;
+  family?: string;
   unavailable?: string;
   efforts?: string[];
   fast?: boolean;
-  version: number[];
-  order: number;
 };
 
-function versionOf(model: { id: string; name?: string }): number[] {
-  const text = model.name ?? model.id;
-  const match = /\d+(?:\.\d+)*/.exec(text);
-  return match ? match[0].split(".").map(Number) : (model.id.match(/\d+/g) ?? []).map(Number);
-}
-
-function compareVersions(a: ModelChoice, b: ModelChoice): number {
-  const length = Math.max(a.version.length, b.version.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (a.version[index] ?? -1) - (b.version[index] ?? -1);
-    if (difference !== 0) return difference;
-  }
-  return a.order - b.order;
-}
-
-function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
-  if (!entry) return [];
+/// A harness's models, each once, newest first: the default and each family's newest models
+/// (`latest`), then every older version (`older`, folded in the list). A catalog model names
+/// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
+/// entry, so the owner map keys stay the same objects between renders.
+const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
+function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+  if (!entry) return { latest: [], older: [] };
+  const cached = choiceCache.get(entry);
+  if (cached) return cached;
   const seen = new Set<string>();
-  const choices = entry.models.flatMap((model, order) => {
+  const choices = entry.models.flatMap((model): ModelChoice[] => {
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
       {
         id: model.id,
-        name: isDefaultChoice(model) ? "Default" : model.name || model.id,
+        name: isDefaultChoice(model) ? "Default" : model.shortName || model.name || model.id,
+        ...(model.family ? { family: model.family } : {}),
         unavailable: model.unavailable,
         efforts: model.efforts,
         fast: model.fast,
-        version: versionOf(model),
-        order,
       },
     ];
   });
-  const defaults = choices.filter((choice) => isDefaultChoice(choice));
-  const models = choices.filter((choice) => !isDefaultChoice(choice)).sort(compareVersions);
-  // The list is deliberately stable. Newest and best models sit nearest the anchor at the bottom.
-  return [...defaults, ...models];
+  const sections = modelSections(choices, entry.name);
+  choiceCache.set(entry, sections);
+  return sections;
+}
+
+/// Every model of a harness, newest first, older versions included.
+function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
+  const { latest, older } = sectionsFor(entry);
+  return [...latest, ...older];
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -211,6 +215,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [olderOpen, setOlderOpen] = useState(false);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try {
       const stored = globalThis.localStorage?.getItem("cmux.model-picker.favorites");
@@ -245,10 +250,15 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (starredView) {
       for (const entry of harnesses)
         for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected) for (const model of choicesFor(selected)) owner.set(model, selected);
+    } else if (selected) {
+      // Older versions fold under one row until it opens (cx-jqkx).
+      const { latest, older } = sectionsFor(selected);
+      for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
+    }
     return owner;
-  }, [favorites, harnesses, parsed, searching, selected, starredView]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
+  const olderCount = searching || starredView ? 0 : sectionsFor(selected).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -293,10 +303,14 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
+    // A session on an older version opens with the fold open, its row highlighted.
+    const { latest, older } = sectionsFor(current);
+    const runsOlder = older.some((model) => model.id === props.model);
+    setOlderOpen(runsOlder);
     setActive(
       Math.max(
         0,
-        choicesFor(current).findIndex((model) => model.id === props.model),
+        (runsOlder ? [...latest, ...older] : latest).findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
@@ -395,11 +409,19 @@ export function ModelPicker(props: ModelPickerProps) {
     else if (searching) return;
     if (id === undefined || id === selectedHarness) return;
     setSelectedHarness(id);
+    setOlderOpen(false);
     if (index >= 0) setActiveHarness(index);
     setActive(0);
   };
-  const move = (step: number) =>
+  const move = (step: number) => {
+    // Moving down past the last row opens the "Older models" fold, so keys reach every model.
+    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
+      setOlderOpen(true);
+      setActive(visible.length);
+      return;
+    }
     setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
+  };
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const shortcut = event.ctrlKey && ["n", "p", "j", "k"].includes(event.key.toLowerCase());
     if (shortcut) {
@@ -693,6 +715,20 @@ export function ModelPicker(props: ModelPickerProps) {
                     </span>
                   </div>
                 ))
+              )}
+              {olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0) && (
+                <button
+                  type="button"
+                  className={`acpmux-mp-older ${modelRow} ${rowFill(false)} text-muted`}
+                  aria-expanded={olderOpen}
+                  onClick={() => setOlderOpen((value) => !value)}
+                >
+                  <span className="acpmux-menu-label min-w-0 flex-1 truncate">{t("picker.olderModels")}</span>
+                  <span className="flex-none text-[12px] text-dim">{olderCount}</span>
+                  <span className={`flex-none ${olderOpen ? "rotate-180" : ""}`} aria-hidden="true">
+                    <ChevronIcon />
+                  </span>
+                </button>
               )}
             </PickerOptionList>
             {fastMode && (

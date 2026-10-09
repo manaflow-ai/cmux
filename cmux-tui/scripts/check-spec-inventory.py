@@ -561,6 +561,36 @@ def serialized_literal_event_names(source: str) -> set[str]:
 CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "server/activity.rs")
 
 
+# server/ modules (and their child directories) whose events are not in the
+# raw SDK catalog yet: they speak their own wire families (agent session
+# attach, loopback forwarding, scripts, terminal snapshot digests). The
+# inventory does not read them until the spec covers those events (cx-chun).
+SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
+    {"agent_session_attach", "loopback_forward", "scripts", "terminal_snapshot"}
+)
+
+
+def server_module_sources() -> list[str]:
+    """Production source of every Rust file under src/server/ (server.rs's
+    child modules), sorted by path. server.rs moves code into these files, so
+    they are read the same way as server.rs; test files, inline test modules
+    and SERVER_MODULES_OUTSIDE_RAW_SDK are left out."""
+    root = TUI / "crates/cmux-tui-core/src/server"
+    if not root.is_dir():
+        return []
+    sources = []
+    for path in sorted(root.rglob("*.rs")):
+        parts = path.relative_to(root).parts
+        if (
+            path.name.endswith("_tests.rs")
+            or "tests" in parts[:-1]
+            or parts[0].removesuffix(".rs") in SERVER_MODULES_OUTSIDE_RAW_SDK
+        ):
+            continue
+        sources.append(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
+    return sources
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
@@ -570,6 +600,14 @@ def event_names() -> set[str]:
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
+    for module_source in server_module_sources():
+        source = strip_rust_comments(module_source)
+        module_tokens = rust_tokens(source)
+        module_constants = rust_string_constants(module_tokens)
+        names.update(json_macro_event_names(module_tokens, module_constants))
+        names.update(inserted_event_names(module_tokens, module_constants))
+        names.update(assigned_event_names(module_tokens, module_constants))
+        names.update(serialized_literal_event_names(source))
 
     # Frontend brokers build their targeted control events in their own
     # server modules.
@@ -590,7 +628,7 @@ def event_names() -> set[str]:
     if conversations.exists():
         names.update(function_event_names(conversations.read_text(), "wire_json"))
     # So does the cloud conversations proxy (cloud-conversations-v1).
-    cloud = TUI / "crates/cmux-tui-core/src/cloud_conversations/stream.rs"
+    cloud = TUI / "crates/cmux-tui-cloud-conversations/src/stream.rs"
     if cloud.exists():
         names.update(function_event_names(cloud.read_text(), "wire_json"))
 
@@ -624,6 +662,8 @@ def first_function_event_names(source: str, *names: str) -> set[str]:
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    for module_source in server_module_sources():
+        server += "\n" + module_source
     hints: dict[str, set[str]] = {}
 
     def add(names: set[str], stream: str) -> None:

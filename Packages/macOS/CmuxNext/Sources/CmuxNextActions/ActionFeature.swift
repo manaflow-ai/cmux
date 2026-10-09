@@ -13,21 +13,26 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
     case apps
     case remoteHosts
 
-    /// The feature `descriptor` belongs to, or nil. Rules by id and
-    /// category, so a new action of a feature is covered with no edit;
+    /// The feature `descriptor` belongs to, or nil. Rules by id, category and
+    /// owning catalog, so a new action of a feature is covered with no edit;
     /// `ActionFeatureTests` pins the resulting sets.
     public static func feature(of descriptor: ActionDescriptor) -> ActionFeature? {
         let id = descriptor.id.rawValue
         let lowered = id.lowercased()
         if lowered.hasPrefix("computeruse") || id.hasPrefix("palette.computerUse.") { return .computerUse }
         if descriptor.category == .remote || id == "disconnectRemoteTab" || ["server.makeThisMacAServer", "server.addServer"].contains(id) { return .remoteHosts }
-        if id.hasPrefix("app.") || id.hasPrefix("appStore.") { return .apps }
+        // Apps: the App Store catalog's own actions, by membership, not by an
+        // "app." prefix (Share cmux is `app.shareCmux` and is not an Apps action).
+        if appsActionIDs.contains(descriptor.id) { return .apps }
         if lowered.contains("cloud") || id == "switchRightSidebarToMachines" { return .cloud }
         return nil
     }
 }
 
 extension ActionFeature {
+    /// The actions of the Apps feature: every action `AppStoreActionCatalog` declares.
+    nonisolated static let appsActionIDs: Set<ActionID> = Set(AppStoreActionCatalog.descriptors().map(\.id))
+
     /// The feature in `disabled` that `descriptor` belongs to, or nil.
     public static func turnedOff(_ descriptor: ActionDescriptor, in disabled: Set<ActionFeature>) -> ActionFeature? {
         guard !disabled.isEmpty, let feature = feature(of: descriptor), disabled.contains(feature) else { return nil }

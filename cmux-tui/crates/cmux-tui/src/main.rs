@@ -11,6 +11,7 @@ mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+mod agent_plugin_config;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -2760,6 +2761,7 @@ fn start_detached_owner_session(
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
+        chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
