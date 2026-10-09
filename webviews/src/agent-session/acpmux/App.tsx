@@ -2128,6 +2128,8 @@ function AcpmuxPane() {
       active = false;
     };
   }, [freshChat, newTab, quick, loadNewTabProjects]);
+  // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+  const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2312,7 +2314,8 @@ function AcpmuxPane() {
             () => undefined,
           )
         }
-        projectChoices={freshChat && !quick ? newTabProjects : undefined}
+        // A started local chat lists the same folders to move to (dogfood 09).
+        projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
         onBrowseProject={
           freshChat && !quick
             ? () => {
@@ -2338,9 +2341,17 @@ function AcpmuxPane() {
         }
         localName={machineName}
         movedTo={movedTo}
+        onBrowseFolder={
+          canMove
+            ? () =>
+                callNative<{ cwd?: string }>("project.browse")
+                  .then((result) => result?.cwd)
+                  .catch(() => undefined)
+            : undefined
+        }
         // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
         onMove={
-          snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
+          canMove
             ? (cwd) => {
                 const move: ChatMove = {
                   id: `${Date.now().toString(36)}-${chatMoves.length}`,
