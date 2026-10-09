@@ -104,6 +104,9 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
+    /// Reply text streamed (drafts, `draft.rs`): read soon, at most every
+    /// `draft::STREAM_GAP`.
+    Streamed,
     /// New events that matter for the log (not text chunks, but for a
     /// prompt's first, which says its response started): fetch them.
     Changed,
@@ -517,6 +520,8 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 turn.spoke |= is_output(kind);
                 if first || !is_noise(kind) {
                     let _ = turn.tx.send(TurnSignal::Changed);
+                } else if kind == "agent_message_chunk" {
+                    let _ = turn.tx.send(TurnSignal::Streamed);
                 }
             }
         }

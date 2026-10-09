@@ -733,6 +733,8 @@ impl AcpmuxCompactor {
                         started();
                     }
                 }
+                // Reply drafts are for turns.
+                Ok(TurnSignal::Streamed) => {}
                 Ok(TurnSignal::Done(answer)) => break answer,
                 Ok(TurnSignal::Lost) | Err(RecvTimeoutError::Disconnected) => {
                     return Err(ModelError::new(
