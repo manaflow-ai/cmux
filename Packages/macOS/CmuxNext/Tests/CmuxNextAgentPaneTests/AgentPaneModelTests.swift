@@ -42,24 +42,21 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(unset["linkScheme"] == nil)
     }
 
-    /// A tab a `cmux://session/<id>` link opened asks the page to refuse a
-    /// session the daemon does not have, until the page reports one it shows.
-    @Test func aLinkedSessionMustExistUntilThePageReportsOne() async throws {
+    /// A pane attaches only to the exact session its tab recorded (P1 2026-10-09: a restored
+    /// subagent tab whose session was gone showed another chat of the recreated daemon). Every
+    /// handshake that names a session asks the page to refuse it when the daemon lacks it,
+    /// also after the page reported a session and reconnects. A new chat names none.
+    @Test func aRecordedSessionMustAlwaysExist() async throws {
         let model = AgentPaneModel(host: RecordingHost(), sessionId: "s1")
-        model.sessionMustExist = true
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
         #expect(value["sessionMustExist"] as? Bool == true)
         #expect(value["sessionId"] as? String == "s1")
         _ = await model.respond(to: .persistSession("s2"))
         let after = try #require(await model.respond(to: .reconnect)["value"] as? [String: Any])
-        #expect(after["sessionMustExist"] == nil)
-        // A tab opened any other way, or a new chat, falls back as before.
-        let plain = try #require(await AgentPaneModel(host: RecordingHost(), sessionId: "s1").respond(to: .ready)["value"] as? [String: Any])
-        #expect(plain["sessionMustExist"] == nil)
-        let fresh = AgentPaneModel(host: RecordingHost())
-        fresh.sessionMustExist = true
-        let freshValue = try #require(await fresh.respond(to: .ready)["value"] as? [String: Any])
-        #expect(freshValue["sessionMustExist"] == nil)
+        #expect(after["sessionMustExist"] as? Bool == true)
+        #expect(after["sessionId"] as? String == "s2")
+        let fresh = try #require(await AgentPaneModel(host: RecordingHost()).respond(to: .ready)["value"] as? [String: Any])
+        #expect(fresh["sessionMustExist"] == nil)
     }
 
     /// Reloading the page reattaches the session it reported, not a new one.
