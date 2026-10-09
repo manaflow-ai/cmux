@@ -1311,7 +1311,11 @@ Entry points the runtime defines, called by the app:
   (a finished download still becomes readable). The bytes count as the
   event will reach the runtime: masking can make an event longer, and one
   that masked would take the waiting events past 64 MiB arrives withheld
-  (`{ targetId, withheld }`). When the limit ends a call,
+  (`{ targetId, withheld }`). An event over the 1 MiB one event may carry
+  is withheld where it arrives, before it is queued: it counts only as its
+  notice against those 64 MiB, its payload is neither kept nor parsed, and
+  the tab it names is read from the payload's top-level `targetId` in one
+  pass over its bytes. When the limit ends a call,
   the timers it set (an interval re-arming itself) are cancelled. The next
   cell's output starts with `error` lines saying how many callbacks were
   stopped, waited or were dropped. After the session closes

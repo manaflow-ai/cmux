@@ -2238,10 +2238,17 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// `maxQueuedEvents` events or `maxQueuedEventBytes` bytes queued or
     /// held, it is dropped here, before anything holds it, and the next
     /// cell says so; a finished download still becomes readable. Secrets
-    /// are masked on `eventQueue`, off the JavaScript thread, and an event
-    /// past `maxEventPayloadBytes` is withheld instead.
+    /// are masked on `eventQueue`, off the JavaScript thread. An event past
+    /// `maxEventPayloadBytes` is withheld here, before it is queued: it
+    /// holds only the tab it names (read without parsing the payload), and
+    /// its payload is neither kept nor parsed.
     private func deliverEvent(name: String, payloadJSON: String) {
-        let reserved = name.utf8.count + payloadJSON.utf8.count
+        let maxBytes = ledger.limits.each(.queuedEventBytes) ?? .max
+        let size = payloadJSON.utf8.count
+        let oversized = size > maxBytes
+        let withheldTarget = oversized ? BrowserReplEgress.eventTargetId(payloadJSON) : nil
+        let queuedJSON: String? = oversized ? nil : payloadJSON
+        let reserved = name.utf8.count + (oversized ? withheldTarget?.utf8.count ?? 0 : size)
         let admitted = admitEvent(bytes: reserved)
         let downloadPath = name == "download.finished"
             ? JSONSerialization.browserReplObject(payloadJSON)["path"] as? String
@@ -2254,7 +2261,16 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         eventQueue.async { [weak self] in
             guard let self else { return }
-            let (payload, charged) = self.chargeMaskedEvent(name: name, raw: payloadJSON, reserved: reserved)
+            let (payload, charged) = if let queuedJSON {
+                self.chargeMaskedEvent(name: name, raw: queuedJSON, reserved: reserved)
+            } else {
+                self.chargeWithheldEvent(
+                    name: name,
+                    targetId: withheldTarget,
+                    reason: BrowserReplEgress.oversizedEventReason(name: name, size: size, maxBytes: maxBytes),
+                    reserved: reserved
+                )
+            }
             let queued = self.thread.perform { [weak self] in
                 guard let self else { return }
                 if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
@@ -2303,7 +2319,14 @@ public final class BrowserReplSession: @unchecked Sendable {
             return (masked, size)
         }
         let reason = "this \(name) event is \(masked.size) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)), so its content was withheld"
-        let withheld = boundary.egress(.withheldEvent(payloadJSON: raw, reason: reason))
+        return chargeWithheldEvent(name: name, targetId: BrowserReplEgress.eventTargetId(raw), reason: reason, reserved: reserved)
+    }
+
+    /// An event's notice in place of its content, and the bytes it now
+    /// holds of ``BrowserReplResource/queuedEventBytes`` (it was admitted
+    /// with `reserved`).
+    private func chargeWithheldEvent(name: String, targetId: String?, reason: String, reserved: Int) -> (payload: BrowserReplEgress, reserved: Int) {
+        let withheld = boundary.egress(.withheldEvent(targetId: targetId, reason: reason))
         let withheldSize = name.utf8.count + withheld.size
         ledger.resize(.queuedEventBytes, from: reserved, to: withheldSize, force: true)
         return (withheld, withheldSize)

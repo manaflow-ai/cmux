@@ -720,7 +720,7 @@ checks nothing stays reserved after the session ends.
 | What the clipboards of the tabs the session created hold (M): `clipboard.write`, the pages' writes, Copy and Cut, each tab's until it is replaced, the session leaves or the tab closes | 128 MiB (one write: 32 items, 64 MiB of Base64) | the write is refused and the clipboard keeps what it held |
 | Page events waiting for the session's thread | 10,000 | a new one is dropped (the next cell says so) |
 | Bytes of those events (M) | 64 MiB, masked | a new one is dropped, or arrives withheld |
-| One page event | 1 MiB | arrives withheld (`{ targetId, withheld }`) |
+| One page event | 1 MiB | arrives withheld (`{ targetId, withheld }`), decided where it arrives: it holds only its notice of the 64 MiB and is never parsed |
 | Page events held between cells | 10,000 | the oldest is dropped |
 | Pending timers | 10,000 | `setTimeout` throws `RangeError` |
 | Timer or event callback outside a cell | 10 s per run, 10% of the thread's time | stopped, or held until the next cell |

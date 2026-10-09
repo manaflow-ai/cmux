@@ -12,11 +12,12 @@ enum BrowserReplEgressData {
     case fetch(Result<String, BrowserReplDriverError>)
     /// A page event's payload. One past `maxBytes`, or that masking would
     /// grow past the redaction limit, arrives withheld
-    /// (``withheldEvent(payloadJSON:reason:)``).
+    /// (``withheldEvent(targetId:reason:)``).
     case event(name: String, payloadJSON: String, maxBytes: Int)
     /// `{ targetId, withheld }` for a page event whose content is not
-    /// delivered: the tab it names, and why.
-    case withheldEvent(payloadJSON: String, reason: String)
+    /// delivered: the tab it names (``BrowserReplEgress/eventTargetId(_:)``,
+    /// read without parsing the payload), and why.
+    case withheldEvent(targetId: String?, reason: String)
     /// An `fs` operation's answer, as `{"ok": value}` or `{"error": …}`.
     /// File contents (`readFile`) are masked as bytes, every other value
     /// and message as text.
@@ -91,7 +92,7 @@ extension BrowserReplBoundary {
             let size = payloadJSON.utf8.count
             let reason: String
             if size > maxBytes {
-                reason = "this \(name) event is \(size) bytes, past the \(maxBytes >> 20) MiB a page event may carry, so its content was withheld"
+                reason = Self.oversizedEventReason(name: name, size: size, maxBytes: maxBytes)
             } else {
                 do {
                     return BrowserReplEgress(.success(try redaction?.redactJSON(payloadJSON, isCancelled: isCancelled) ?? payloadJSON))
@@ -101,9 +102,9 @@ extension BrowserReplBoundary {
                     reason = BrowserReplSecretStore.limitMessage(size)
                 }
             }
-            return BrowserReplEgress(.success(Self.withheld(payloadJSON, reason: reason, with: redaction)))
-        case .withheldEvent(let payloadJSON, let reason):
-            return BrowserReplEgress(.success(Self.withheld(payloadJSON, reason: reason, with: redaction)))
+            return BrowserReplEgress(.success(Self.withheld(Self.eventTargetId(payloadJSON), reason: reason, with: redaction)))
+        case .withheldEvent(let targetId, let reason):
+            return BrowserReplEgress(.success(Self.withheld(targetId, reason: reason, with: redaction)))
         case .fs(let op, let result):
             return BrowserReplEgress(.success(Self.maskingFS(op: op, result, with: redaction, isCancelled: isCancelled)))
         case .host(let result):
@@ -209,12 +210,34 @@ extension BrowserReplBoundary {
 
     /// `{ targetId, withheld }`: the tab the event names (masked), and why
     /// its content is not there.
-    private static func withheld(_ payloadJSON: String, reason: String, with redaction: BrowserReplSecretStore.Redaction?) -> String {
+    private static func withheld(_ targetId: String?, reason: String, with redaction: BrowserReplSecretStore.Redaction?) -> String {
         var withheld: [String: Any] = ["withheld": reason]
-        if let targetId = JSONSerialization.browserReplObject(payloadJSON)["targetId"] as? String, targetId.utf8.count <= 256 {
+        if let targetId {
             withheld["targetId"] = redaction?.redact(targetId) ?? targetId
         }
         return JSONSerialization.browserReplString(withheld) ?? "{}"
+    }
+
+    /// Why a page event of `size` bytes, past `maxBytes`, arrives withheld.
+    static func oversizedEventReason(name: String, size: Int, maxBytes: Int) -> String {
+        "this \(name) event is \(size) bytes, past the \(maxBytes >> 20) MiB a page event may carry, so its content was withheld"
+    }
+
+    /// The longest `targetId` a withheld event's notice names.
+    static let maxWithheldTargetIdBytes = 256
+
+    /// The top-level `targetId` string of a page event's payload, read in
+    /// one pass over its bytes without parsing the payload: a withheld
+    /// event is one too large (or too costly) to deserialize, and its
+    /// notice needs only this. `nil` when the payload is not a JSON object,
+    /// has no such string, or names one past ``maxWithheldTargetIdBytes``
+    /// or with an escape (tab ids are UUIDs).
+    static func eventTargetId(_ payloadJSON: String) -> String? {
+        var json = payloadJSON
+        return json.withUTF8 { bytes in
+            var scanner = BrowserReplEventTargetScanner(bytes: bytes)
+            return scanner.topLevelString(forKey: "targetId", maxBytes: maxWithheldTargetIdBytes)
+        }
     }
 
     /// Every answer is masked: file contents (`readFile`) as bytes, any
@@ -363,5 +386,104 @@ extension Data {
             offset = end
         }
         self = out
+    }
+}
+
+/// A forward-only reader of a JSON object's top-level members over UTF-8
+/// bytes, for ``BrowserReplEgress/eventTargetId(_:)``: it skips values
+/// without building them, so its cost is one pass and no allocation.
+struct BrowserReplEventTargetScanner {
+    let bytes: UnsafeBufferPointer<UInt8>
+    var index = 0
+
+    init(bytes: UnsafeBufferPointer<UInt8>) {
+        self.bytes = bytes
+    }
+
+    /// The string value of the first top-level member named `key`.
+    mutating func topLevelString(forKey key: String, maxBytes: Int) -> String? {
+        let key = Array(key.utf8)
+        skipWhitespace()
+        guard take(UInt8(ascii: "{")) else { return nil }
+        skipWhitespace()
+        if take(UInt8(ascii: "}")) { return nil }
+        while true {
+            skipWhitespace()
+            guard let name = string() else { return nil }
+            skipWhitespace()
+            guard take(UInt8(ascii: ":")) else { return nil }
+            skipWhitespace()
+            if !name.escaped, name.range.count == key.count, bytes[name.range].elementsEqual(key) {
+                guard let value = string(), !value.escaped, value.range.count <= maxBytes else { return nil }
+                return String(decoding: UnsafeBufferPointer(rebasing: bytes[value.range]), as: UTF8.self)
+            }
+            guard skipValue() else { return nil }
+            skipWhitespace()
+            guard take(UInt8(ascii: ",")) else { return nil }
+        }
+    }
+
+    private mutating func take(_ byte: UInt8) -> Bool {
+        guard index < bytes.count, bytes[index] == byte else { return false }
+        index += 1
+        return true
+    }
+
+    private mutating func skipWhitespace() {
+        while index < bytes.count {
+            switch bytes[index] {
+            case 0x20, 0x09, 0x0A, 0x0D: index += 1
+            default: return
+            }
+        }
+    }
+
+    /// A string at `index`: its bytes between the quotes, and whether it
+    /// holds an escape. Leaves `index` past the closing quote.
+    private mutating func string() -> (range: Range<Int>, escaped: Bool)? {
+        guard take(UInt8(ascii: "\"")) else { return nil }
+        let start = index
+        var escaped = false
+        while index < bytes.count {
+            switch bytes[index] {
+            case UInt8(ascii: "\\"):
+                escaped = true
+                index += 2
+            case UInt8(ascii: "\""):
+                let range = start..<index
+                index += 1
+                return (range, escaped)
+            default:
+                index += 1
+            }
+        }
+        return nil
+    }
+
+    /// Skips one value: a string, a nested object or array, or a scalar.
+    /// Leaves `index` at the `,` or `}` after it.
+    private mutating func skipValue() -> Bool {
+        var depth = 0
+        while index < bytes.count {
+            switch bytes[index] {
+            case UInt8(ascii: "\""):
+                guard string() != nil else { return false }
+                if depth == 0 { return true }
+            case UInt8(ascii: "{"), UInt8(ascii: "["):
+                depth += 1
+                index += 1
+            case UInt8(ascii: "}"), UInt8(ascii: "]"):
+                if depth == 0 { return true }
+                depth -= 1
+                index += 1
+                if depth == 0 { return true }
+            case UInt8(ascii: ","):
+                if depth == 0 { return true }
+                index += 1
+            default:
+                index += 1
+            }
+        }
+        return false
     }
 }
