@@ -37,6 +37,10 @@ for (const [name, state] of Object.entries(settings.variants)) {
       await run(async () => {
         page.provider.setHost({ ...page.provider.host, ...structuredClone(state.host ?? {}) });
         if (state.accounts) page.provider.accounts = structuredClone(state.accounts);
+        if (state.agents) {
+          page.provider.agents.state = { ...page.provider.agents.state, ...structuredClone(state.agents) };
+          await page.store.runAgents({ action: "refresh" });
+        }
         await page.store.refreshAccounts();
       });
       const category = categoryOf(state.section);
