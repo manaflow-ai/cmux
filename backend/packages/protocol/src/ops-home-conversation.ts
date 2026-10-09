@@ -282,6 +282,31 @@ export const InviteApproveJoin = def({
   mcp: { expose: "opt_in", group: "home" }
 })
 
+/**
+ * Answer a pending agent question in a conversation.  The owner derives the
+ * respondent and timestamp from the authenticated principal; clients only
+ * provide the question's selections (and optional `other` text).
+ */
+export const QuestionAnswer = def({
+  name: "question.answer",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "message",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    message_id: MessageId,
+    part_index: PartIndex,
+    answer: Schema.Struct({ selections: Schema.Unknown })
+  }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_message", "invalid_part_index", "invalid_answer", "question_closed", "human_only", "retracted"],
+  docs: "Answer a pending question posted by an agent. The owner stamps the signed-in person and time, and accepts only validated selections.",
+  cli: { path: "chat answer", visible: false },
+  mcp: { expose: "opt_in", group: "home" }
+})
+
 export const ConversationSettingsSet = def({
   name: "conversation.settings.set",
   owner: "cloud:ConversationDO",
@@ -393,6 +418,7 @@ export const homeConversationOps = [
   InviteRevoke,
   InviteAccept,
   InviteApproveJoin,
+  QuestionAnswer,
   ConversationSettingsSet,
   ConversationSnapshot,
   ConversationHistory

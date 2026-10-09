@@ -2542,6 +2542,18 @@ export interface CloudOps {
       readonly removed: boolean
     }
   }
+  /** Answer a pending question posted by an agent. The owner stamps the signed-in person and time, and accepts only validated selections. */
+  readonly "question.answer": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly message_id: MessageId
+      readonly part_index: number
+      readonly answer: {
+        readonly selections: unknown
+      }
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Add a tapback or emoji reaction to a message part (one per author, part and kind). */
   readonly "reaction.add": {
     readonly params: {
@@ -3259,6 +3271,7 @@ export const cloudOpMeta = {
   "push.prefs.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "question.answer": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },

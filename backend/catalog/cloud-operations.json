@@ -44014,6 +44014,190 @@
         }
       }
     },
+    "question.answer": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "message",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MessageId"
+            }
+          },
+          "part_index": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "answer": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "selections": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "json"
+                  }
+                }
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "human_only",
+        "idempotency.conflict",
+        "invalid_answer",
+        "invalid_part_index",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "question_closed",
+        "retracted",
+        "unknown_conversation",
+        "unknown_message",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat answer",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "home"
+      },
+      "docs": "Answer a pending question posted by an agent. The owner stamps the signed-in person and time, and accepts only validated selections.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "message_id": {
+            "$ref": "#/$defs/MessageId"
+          },
+          "part_index": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMaximum": 16
+          },
+          "answer": {
+            "type": "object",
+            "properties": {
+              "selections": {}
+            },
+            "required": [
+              "selections"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "conversation",
+          "message_id",
+          "part_index",
+          "answer"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "MessageId": {
+            "type": "string"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "reaction.add": {
       "class": "mutation",
       "idempotency": "required",
