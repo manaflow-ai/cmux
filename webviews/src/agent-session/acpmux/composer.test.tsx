@@ -752,6 +752,49 @@ describe("acpmux composer draft", () => {
     }
   });
 
+  test("does not send an empty mount value before restoring a daemon draft", async () => {
+    const sessionId = "session-mount-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
+    const writes: Record<string, unknown>[] = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      (dom.window as unknown as {
+        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+      }).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => ({ draft: "draft from daemon" }),
+        "chat.writeDraft": async (params) => {
+          writes.push(params);
+          return undefined;
+        },
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("draft from daemon");
+      expect(writes).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
+  });
+
   test("keeps a typed draft queued until acpmux reconnects", async () => {
     const sessionId = "session-queued-draft";
     const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;

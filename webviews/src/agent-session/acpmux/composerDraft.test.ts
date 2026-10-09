@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { composerDraft, readDurableDraft, seededText, writePersistedDraft } from "./composerDraft";
+import {
+  composerDraft,
+  notifyDraftActionsChanged,
+  readDurableDraft,
+  seededText,
+  writePersistedDraft,
+} from "./composerDraft";
 import { newSessionParams } from "./direct";
 
 describe("a chat opened from another tab", () => {
@@ -48,6 +54,32 @@ describe("a chat opened from another tab", () => {
         { method: "read", params: { sessionId: "session-1" } },
         { method: "write", params: { sessionId: "session-1", text: "saved by daemon" } },
       ]);
+    } finally {
+      (globalThis as { window?: unknown }).window = previous;
+    }
+  });
+
+  test("waits for an action change before retrying a failed draft write", async () => {
+    const previous = (globalThis as { window?: unknown }).window;
+    let attempts = 0;
+    let fail = true;
+    (globalThis as { window?: unknown }).window = {
+      cmuxAcpmuxActions: {
+        "chat.writeDraft": async () => {
+          attempts += 1;
+          if (fail) throw new Error("disconnected");
+        },
+      },
+    };
+    try {
+      writePersistedDraft("session-failed-write", "queued");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(attempts).toBe(1);
+
+      fail = false;
+      notifyDraftActionsChanged();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(attempts).toBe(2);
     } finally {
       (globalThis as { window?: unknown }).window = previous;
     }
