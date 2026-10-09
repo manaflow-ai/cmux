@@ -49,6 +49,7 @@ jobs:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
     steps:
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -129,10 +130,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
-          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-          ./scripts/ci/resume-nightly-notarization.sh \
-            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            ./scripts/ci/resume-helper-notarization.sh \
+              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "cmux.$REQUESTED_CHANNEL.entitlements" "$APPLE_SIGNING_IDENTITY" "$outer_state"
+          else
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+            ./scripts/ci/resume-nightly-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+          fi
 
       - name: Upload verified recovery artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

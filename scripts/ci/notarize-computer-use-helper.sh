@@ -168,6 +168,7 @@ start_submission() {
 
 finish_submission() {
   local submit_id submitted_cdhash current_cdhash wait_json wait_status submit_status
+  local wait_output wait_evidence wait_evidence_parent state_tmp
   if [ ! -f "$SUBMISSION_FILE" ]; then
     echo "Computer Use notarization state not found: $SUBMISSION_FILE" >&2
     exit 1
@@ -188,21 +189,59 @@ finish_submission() {
     exit 1
   fi
 
+  wait_output="$TMP_DIR/helper-notary-wait-output"
+  wait_evidence="${CMUX_HELPER_NOTARY_OUTPUT_FILE:-${SUBMISSION_FILE}.log}"
+  wait_evidence_parent="$(dirname "$wait_evidence")"
+  if [ ! -d "$wait_evidence_parent" ] || [ ! -w "$wait_evidence_parent" ]; then
+    echo "Computer Use notarization evidence parent must be an existing writable directory: $wait_evidence_parent" >&2
+    exit 1
+  fi
+  HELPER_WAIT_TIMEOUT="${CMUX_HELPER_WAIT_TIMEOUT:-25m}"
   set +e
-  wait_json="$("$XCRUN_TOOL" notarytool wait "$submit_id" \
+  "$XCRUN_TOOL" notarytool wait "$submit_id" \
     "${NOTARY_AUTH_ARGS[@]}" \
-    --output-format json)"
+    --output-format json --timeout "$HELPER_WAIT_TIMEOUT" \
+    >"$wait_output" 2>&1
   wait_status=$?
   set -e
+  wait_json="$(cat "$wait_output")"
   if [ -n "$wait_json" ]; then
-    submit_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' <<<"$wait_json")"
+    submit_status="$(python3 -c 'import json,re,sys; raw=sys.stdin.read(); d=json.JSONDecoder(); status="unknown";
+for m in re.finditer(r"\{", raw):
+ try: value,_=d.raw_decode(raw[m.start():])
+ except json.JSONDecodeError: continue
+ if isinstance(value,dict) and value.get("status"): status=value["status"]
+print(status)' <<<"$wait_json" 2>/dev/null || true)"
+    [ -n "$submit_status" ] || submit_status="unknown"
   else
     submit_status="unknown"
   fi
   if [ "$wait_status" -ne 0 ] || [ "$submit_status" != "Accepted" ]; then
+    # Keep the exact helper state and all Apple diagnostics. A timeout means
+    # the submission is still independently recoverable; the nightly workflow
+    # uploads this state with the signed app because no DMG exists yet.
+    state_tmp="$SUBMISSION_FILE.tmp.$$"
+    umask 077
+    {
+      printf 'submission_id=%s\n' "$submit_id"
+      printf 'cdhashes=%s\n' "$submitted_cdhash"
+      printf 'status=%s\n' "${submit_status:-unknown}"
+      printf 'wait_exit=%s\n' "$wait_status"
+      printf 'output_file=%s\n' "$wait_evidence"
+    } > "$state_tmp"
+    /bin/mv "$state_tmp" "$SUBMISSION_FILE"
+    /bin/cp "$wait_output" "$wait_evidence"
+    {
+      printf '\n--- notarytool log for submission %s ---\n' "$submit_id"
+      "$XCRUN_TOOL" notarytool log "$submit_id" \
+        "${NOTARY_AUTH_ARGS[@]}" || true
+    } >> "$wait_evidence" 2>&1
+    cat "$wait_evidence" >&2
     echo "Computer Use helper notarization failed with status: $submit_status (wait exit $wait_status)" >&2
-    "$XCRUN_TOOL" notarytool log "$submit_id" \
-      "${NOTARY_AUTH_ARGS[@]}" || true
+    if grep -Eiq 'timeout|timed out|In Progress|Submitted|Waiting for Upload' "$wait_evidence"; then
+      echo "Computer Use helper notarization remains pending; state retained at $SUBMISSION_FILE" >&2
+      exit 75
+    fi
     exit 1
   fi
 

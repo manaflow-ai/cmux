@@ -2057,41 +2057,115 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       # Submit the exact signed DMG and hand Apple processing to the trusted
-      # workflow_run continuation. The build lane never waits on Apple's queue.
+      # workflow_run continuation. If the nested helper is still queued, no
+      # DMG exists yet; preserve that exact helper submission and signed app.
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
         if: always() && (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
         run: |
           set -euo pipefail
-          for required in \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$NIGHTLY_DMG_RELEASE.notarization.state" \
-            "$NIGHTLY_DMG_RELEASE.notarization.log" \
-            "$CHANNEL_APP_PATH"; do
-            if [ ! -e "$required" ]; then
-              echo "Missing notarization recovery input: $required" >&2
-              exit 1
-            fi
-          done
+          recovery_kind=dmg
+          recovery_state="$NIGHTLY_DMG_RELEASE.notarization.state"
+          recovery_log="$NIGHTLY_DMG_RELEASE.notarization.log"
+          if [ ! -e "$NIGHTLY_DMG_RELEASE" ]; then
+            helper_state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
+            helper_log="${helper_state}.log"
+            for required in "$helper_state" "$helper_log" "$CHANNEL_APP_PATH"; do
+              if [ ! -e "$required" ]; then
+                echo "Missing helper notarization recovery input: $required" >&2
+                exit 1
+              fi
+            done
+            recovery_kind=computer-use-helper
+            recovery_state="$helper_state"
+            recovery_log="$helper_log"
+          else
+            for required in "$NIGHTLY_DMG_RELEASE" "$recovery_state" "$recovery_log" "$CHANNEL_APP_PATH"; do
+              if [ ! -e "$required" ]; then
+                echo "Missing notarization recovery input: $required" >&2
+                exit 1
+              fi
+            done
+          fi
           recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
           rm -f "$recovery_app_archive"
           tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf "$recovery_app_archive" "$(basename "$CHANNEL_APP_PATH")"
-          dmg_sha256="$(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | awk '{print $1}')"
-          [[ "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]] || {
-            echo "Could not record a SHA-256 for $NIGHTLY_DMG_RELEASE" >&2
-            exit 1
-          }
-          python3 - \
-            "$NIGHTLY_DMG_RELEASE.notarization.state" \
-            "$dmg_sha256" \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$CHANNEL_APP_PATH" \
-            "$CHANNEL" \
-            "$NIGHTLY_VARIANT" \
-            "$CHANNEL_RELEASE_TAG" \
-            "$NIGHTLY_BUILD" \
-            "${{ needs.decide.outputs.head_sha }}" \
-            "${{ needs.decide.outputs.short_sha }}" <<'PY'
+          echo "kind=$recovery_kind" >> "$GITHUB_OUTPUT"
+          if [ "$recovery_kind" = computer-use-helper ]; then
+            python3 - \
+              "$recovery_state" \
+              "$recovery_log" \
+              "$CHANNEL_APP_PATH" \
+              "$CHANNEL" \
+              "$NIGHTLY_VARIANT" \
+              "$CHANNEL_RELEASE_TAG" \
+              "$NIGHTLY_BUILD" \
+              "${{ needs.decide.outputs.head_sha }}" \
+              "${{ needs.decide.outputs.short_sha }}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          state_path, log_path, app_path, channel, variant, release_tag, build, head_sha, short_sha = sys.argv[1:]
+          state = {}
+          for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
+              if not line:
+                  continue
+              key, sep, value = line.partition("=")
+              if not sep or key in state:
+                  raise SystemExit(f"invalid helper notarization state line: {line!r}")
+              state[key] = value
+          submission_id = state.get("submission_id", "")
+          cdhashes = state.get("cdhashes", "")
+          if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
+              raise SystemExit("helper state has no valid Apple submission id")
+          if not cdhashes or any(not all(character in "0123456789abcdefABCDEF" for character in value) for value in cdhashes.split(",")):
+              raise SystemExit("helper state has invalid CDHash evidence")
+          if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted":
+              raise SystemExit("accepted helper must not be uploaded as pending recovery")
+          pathlib.Path("cmux-nightly-notarization-recovery.json").write_text(
+              json.dumps({
+                  "schema": 2,
+                  "recovery_kind": "computer-use-helper",
+                  "source_run_id": "${{ github.run_id }}",
+                  "source_run_attempt": "${{ github.run_attempt }}",
+                  "should_publish": "${{ needs.decide.outputs.should_publish }}" == "true",
+                  "channel": channel,
+                  "variant": variant,
+                  "release_tag": release_tag,
+                  "build": build,
+                  "head_sha": head_sha,
+                  "short_sha": short_sha,
+                  "dmg_path": f"cmux-{channel}-macos-{variant}.dmg",
+                  "app_path": f"cmux-nightly-notarization-recovery-app/{pathlib.Path(app_path).name}",
+                  "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+                  "helper_state_path": pathlib.Path(state_path).name,
+                  "helper_log_path": pathlib.Path(log_path).name,
+                  "immutable_path": f"cmux-{channel}-macos-{variant}-{build}.dmg",
+                  "dmg_prefix": f"cmux-{channel}-macos",
+                  "submission_id": submission_id,
+                  "helper_cdhashes": cdhashes,
+              }, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          else
+            dmg_sha256="$(shasum -a 256 "$NIGHTLY_DMG_RELEASE" | awk '{print $1}')"
+            [[ "$dmg_sha256" =~ ^[[:xdigit:]]{64}$ ]] || {
+              echo "Could not record a SHA-256 for $NIGHTLY_DMG_RELEASE" >&2
+              exit 1
+            }
+            python3 - \
+              "$recovery_state" \
+              "$dmg_sha256" \
+              "$NIGHTLY_DMG_RELEASE" \
+              "$CHANNEL_APP_PATH" \
+              "$CHANNEL" \
+              "$NIGHTLY_VARIANT" \
+              "$CHANNEL_RELEASE_TAG" \
+              "$NIGHTLY_BUILD" \
+              "${{ needs.decide.outputs.head_sha }}" \
+              "${{ needs.decide.outputs.short_sha }}" <<'PY'
           import json
           import pathlib
           import sys
@@ -2144,9 +2218,10 @@ jobs:
               encoding="utf-8",
           )
           PY
+          fi
 
       - name: Upload pending notarization recovery artifact
-        if: always() && steps.prepare-notarization-recovery.outcome == 'success'
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success' && steps.prepare-notarization-recovery.outputs.kind == 'dmg'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
@@ -2156,18 +2231,42 @@ jobs:
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.log
             cmux-nightly-notarization-recovery-app.tar.gz
             cmux-nightly-notarization-recovery.json
-          # The DMG and app archive are already compressed.
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload helper notarization recovery artifact
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success' && steps.prepare-notarization-recovery.outputs.kind == 'computer-use-helper'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          path: |
+            ${{ runner.temp }}/cmux-computer-use-notarization.state
+            ${{ runner.temp }}/cmux-computer-use-notarization.state.log
+            cmux-nightly-notarization-recovery-app.tar.gz
+            cmux-nightly-notarization-recovery.json
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload notarization polling metadata
-        if: always() && steps.prepare-notarization-recovery.outcome == 'success'
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success' && steps.prepare-notarization-recovery.outputs.kind == 'dmg'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-metadata-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
           path: |
             ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
+            cmux-nightly-notarization-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload helper polling metadata
+        if: always() && steps.prepare-notarization-recovery.outcome == 'success' && steps.prepare-notarization-recovery.outputs.kind == 'computer-use-helper'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-notarization-metadata-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
+          path: |
+            ${{ runner.temp }}/cmux-computer-use-notarization.state
             cmux-nightly-notarization-recovery.json
           if-no-files-found: error
           retention-days: 14

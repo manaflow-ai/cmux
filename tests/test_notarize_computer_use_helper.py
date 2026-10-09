@@ -67,6 +67,9 @@ elif name == 'xcrun':
         ]))
         print(json.dumps({'id': 'fixture-submission', 'status': 'In Progress'}))
     elif args[:2] == ['notarytool', 'wait']:
+        if os.environ.get('FIXTURE_NOTARY_WAIT_TIMEOUT'):
+            print('Timeout of 25m reached before processing completed.', file=sys.stderr)
+            sys.exit(124)
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_NOTARY_STATUS', 'Accepted')}))
     elif args[:2] == ['notarytool', 'log']:
         entries = json.loads((root / 'submitted.json').read_text())
@@ -191,6 +194,19 @@ class HelperNotarizationTests(unittest.TestCase):
         self.run_helper(success=False, FIXTURE_NOTARY_STATUS='Invalid')
         self.assertFalse(self.calls('xcrun', 'stapler'))
         self.assertTrue(self.calls('xcrun', 'notarytool', 'log'))
+
+    def test_helper_wait_timeout_retains_state_and_signed_app_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper('--finish', self.state, success=False, FIXTURE_NOTARY_WAIT_TIMEOUT='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(self.state.exists())
+        evidence = Path(str(self.state) + '.log')
+        self.assertTrue(evidence.exists())
+        self.assertIn('Timeout of 25m reached', evidence.read_text())
+        self.assertIn('status=unknown', self.state.read_text())
+        self.assertIn('wait_exit=124', self.state.read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
 
     def test_invalid_signature_or_ticket_cannot_reseal_host(self):
         for env in ({'FIXTURE_VERIFY_FAIL': '1'}, {'FIXTURE_VALIDATE_FAIL': '1'}):

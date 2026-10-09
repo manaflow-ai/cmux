@@ -73,6 +73,8 @@ fi
 
 if [ "$SKIP_NOTARIZATION" = true ]; then
   echo "Skipping Computer Use and outer notarization for internal dogfood artifact"
+elif [ "${CMUX_COMPUTER_USE_HELPER_ALREADY_FINISHED:-false}" = true ]; then
+  echo "Computer Use helper was finished by the recovery continuation"
 elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \

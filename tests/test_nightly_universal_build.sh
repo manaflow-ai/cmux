@@ -480,6 +480,8 @@ assert "NIGHTLY_DMG_RELEASE" in recovery
 assert ".notarization.state" in recovery
 assert ".notarization.log" in recovery
 assert "CHANNEL_APP_PATH" in prepare_recovery
+assert "computer-use-helper" in prepare_recovery
+assert "helper_state_path" in prepare_recovery
 assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
 assert "cmux-nightly-notarization-recovery.json" in recovery
 assert "if-no-files-found: error" in recovery
@@ -531,6 +533,7 @@ resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-reco
 assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
 assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
 auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "resume-helper-notarization.sh" in auto
 generate_deltas = re.search(
     r"^  generate-deltas:\n(.*?)(?=^  republish-deltas:)",
     auto,
