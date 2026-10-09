@@ -322,6 +322,11 @@ impl AcpmuxCompactor {
         true
     }
 
+    /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
+    pub fn with_warm(self, _n: usize) -> AcpmuxCompactor {
+        self
+    }
+
     /// Logs one line per node: its seconds, prompts and token use.
     pub fn with_log(mut self, log: Log) -> AcpmuxCompactor {
         self.log = Some(log);

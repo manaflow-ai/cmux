@@ -1355,3 +1355,39 @@ fn the_next_node_prompts_at_the_writers_first_streamed_output() {
     agents.release();
     assert!(chat.settle(None, Some(WAIT)), "{:?}", chat.status().failures);
 }
+
+/// hq-6d gap 3b: a node does not wait for a Claude Code process to start.
+/// When a node ends, a warm session starts in its slot with the same system
+/// prompt, and the next node prompts it at once (a fresh conversation per
+/// node, as the spec needs; a session is never reused across nodes).
+#[test]
+fn the_next_node_takes_a_warm_session_started_when_the_last_one_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path()).with_warm(2);
+    for i in 1..=2 {
+        assert_eq!(
+            run_node(&compactor, &request(i)).unwrap(),
+            "user: pasted a deploy log"
+        );
+    }
+    let inner = agents.inner.lock().unwrap();
+    let names: Vec<&str> = inner.specs.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "optchat-compact-test-1+1",
+            "optchat-compact-test-warm-0",
+            "optchat-compact-test-warm-0"
+        ]
+    );
+    // Each warm session started with the nodes' system prompt.
+    let system = cached_prompt(&request(1), true).system;
+    for k in 1..=2 {
+        assert_eq!(inner.systems[k].as_deref(), Some(system.as_str()));
+    }
+    // Node 2 prompted the first warm session and ended it; the second waits.
+    assert_eq!(inner.prompts.len(), 2);
+    assert_eq!(inner.ended, ["s1", "s2"]);
+}
