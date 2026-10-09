@@ -130,7 +130,7 @@ export default agentPaneEntry({
     },
     // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
     "context-menu": {
-      note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Insert Mention.",
+      note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention.",
       ready: { draft: "Add retries with backoff to the fetch helper" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -246,6 +246,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "add-menu": {
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
     "context-breakdown": {
       note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
       snapshot: chat(finished, {
@@ -298,6 +308,57 @@ export default agentPaneEntry({
           return current !== previous && Boolean(current && ctx.document.getElementById(current));
         });
       },
+    },
+    "reasoning-menu": {
+      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "thought_level",
+              currentValue: "high",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+                { value: "high", name: "High" },
+                { value: "xhigh", name: "Extra high" },
+              ],
+            },
+          ],
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+      },
+    },
+    "reasoning-none": {
+      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-reasoning-none",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: CWD,
+          turnCount: 1,
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              category: "thought_level",
+              currentValue: "default",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        },
+      }),
     },
     "model-menu-starred": {
       note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",

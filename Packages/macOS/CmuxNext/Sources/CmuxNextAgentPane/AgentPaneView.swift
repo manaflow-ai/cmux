@@ -177,8 +177,7 @@ public final class AgentPaneView: NSView {
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         model.onEdit = { [weak self] command in
-            guard let self else { return }
-            NSApp.sendAction(command.selector, to: webView, from: self)
+            if let self { NSApp.sendAction(command.selector, to: webView, from: self) }
         }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
@@ -193,6 +192,7 @@ public final class AgentPaneView: NSView {
         if page == nil {
             navigation.view = self
             webView.navigationDelegate = navigation
+            webView.uiDelegate = PageOpenPanel.shared
             addSubview(webView)
             source.load(into: webView)
         }

@@ -127,8 +127,6 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
-  /// Opens the host's file and image picker; the + menu offers it only when set.
-  onAttach?(): void;
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
@@ -186,7 +184,6 @@ export function Composer({
   leading,
   accessory,
   prompt,
-  onAttach,
   onEdit,
   onCmuxCommand,
   onImportFile,
@@ -263,6 +260,8 @@ export function Composer({
   const held = useRef(0);
   held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  // + then Attach files clicks this input: the system file chooser (an open panel in the app).
+  const chooser = useRef<HTMLInputElement>(null);
   const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
   attach.current = async (files: File[]) => {
     if (files.length === 0) return;
@@ -704,13 +703,15 @@ export function Composer({
       disabled: !onEdit,
       onSelect: () => runEdit("pasteAsPlainText"),
     },
-    ...(onAttach
-      ? [{ id: "attach", label: t(COMPOSER_LABELS.attachFiles), separatorBefore: true, onSelect: onAttach }]
-      : []),
+    {
+      id: "attach",
+      label: t(COMPOSER_LABELS.attachFiles),
+      separatorBefore: true,
+      onSelect: () => chooser.current?.click(),
+    },
     {
       id: "mention",
       label: t(COMPOSER_LABELS.insertMention),
-      separatorBefore: !onAttach,
       disabled: shell,
       onSelect: () => mention(),
     },
@@ -897,6 +898,20 @@ export function Composer({
           )}
         </ContextMenu>
         <div className="acpmux-composer-bar">
+          <input
+            ref={chooser}
+            className="acpmux-attach-input"
+            type="file"
+            multiple
+            hidden
+            aria-label={t(COMPOSER_LABELS.attach)}
+            onChange={(event) => {
+              const files = [...(event.currentTarget.files ?? [])];
+              // Cleared, choosing the same file again still fires change.
+              event.currentTarget.value = "";
+              void attach.current(files);
+            }}
+          />
           {leading !== undefined ? (
             leading
           ) : (
@@ -909,7 +924,7 @@ export function Composer({
               sections={[
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
+                    { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
                     { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
@@ -930,7 +945,7 @@ export function Composer({
                           planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
                         )
                       : id === "attach"
-                        ? onAttach?.()
+                        ? chooser.current?.click()
                         : id === "mention"
                           ? mention()
                           : id === "files"
