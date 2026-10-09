@@ -16156,6 +16156,99 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent zoom-in",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomIn",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Zoom In",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent zoom-out",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomOut",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Zoom Out",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent actual-size",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPaneZoomReset",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Agent Chat: Actual Size",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent new-chat",
       "context_menu" : "offered",
       "context_menus" : [
@@ -16201,9 +16294,9 @@
     {
       "cli" : "offered",
       "cli_name" : "agent toggle-acp-inspector",
-      "context_menu" : "guiOnly",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -20040,9 +20133,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-size",
-      "context_menu" : "stepAdjust",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -20066,9 +20159,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings decrease-interface-size",
-      "context_menu" : "stepAdjust",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -20092,9 +20185,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings reset-interface-size",
-      "context_menu" : "stepAdjust",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -20209,6 +20302,32 @@
       },
       "title" : "Reset Interface Scale",
       "title_key" : "action.appearance.uiScale.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings change-background",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "appearance.changeBackground",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Change Background…",
+      "title_key" : "action.appearance.changeBackground",
       "title_table" : "ActionCatalog"
     },
     {
@@ -21327,7 +21446,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.increaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -21353,7 +21477,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.decreaseFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -21379,7 +21508,12 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
       "id" : "terminal.resetFontSize",
       "mcp" : "stepAdjust",
       "palette" : "offered",
@@ -24434,6 +24568,86 @@
     "context_menus_not_exported lists the menus built by hand in their views; they are not in context_menus. Whoever adds a new hand-built menu adds it to that list (ContextMenuCatalog.exportHandBuiltMenus)."
   ],
   "context_menus" : {
+    "agentChat" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appearance.changeBackground",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 1
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appearance.interfaceSize.increase",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appearance.interfaceSize.decrease",
+          "kind" : "action",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appearance.interfaceSize.reset",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 5
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPane.toggleInspector",
+          "kind" : "action",
+          "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
     "bookmark" : {
       "entries" : [
         {
@@ -26753,6 +26967,45 @@
                 "feature" : null,
                 "requires" : [
 
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomIn",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomOut",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPaneZoomReset",
+              "kind" : "action",
+              "order" : 18,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "agentPaneFocused"
                 ]
               }
             }
