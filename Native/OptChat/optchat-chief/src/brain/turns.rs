@@ -23,7 +23,7 @@ use optchat_host::{Appended, NewMessage};
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
-        if self.phase != Phase::Idle || self.queue.is_empty() || !self.ready() {
+        if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
             return;
         }
         self.phase = Phase::Settling;
@@ -206,7 +206,9 @@ impl Brain {
     /// conversation (G9: the others wait their turn), render the view BEFORE
     /// logging them, then log each as `user`.
     fn take_turn(&mut self) -> Option<TurnStart> {
-        let side = self.queue.front()?.conversation.clone();
+        // The conversation of the first item that wakes (a quiet report waits).
+        let head = self.queue.iter().find(|q| q.wakes());
+        let side = head.or(self.queue.front())?.conversation.clone();
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
@@ -279,42 +281,32 @@ impl Brain {
             .collect();
         self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // Per-turn state goes after the view, never in the system prompt:
+        // the subagents at work now (the reference client's line), before
+        // the new messages. Never logged.
+        let at_work = self.at_work_line();
+        let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
         let engine = self.turn_engine_choice();
         let family = self.family_of(&engine.harness);
         self.note_engine(&engine);
-        let default_family = self.family_of(&self.settings.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let cached = (matches!(self.settings.engine, Engine::Acpmux)
-            && family == crate::acpmux::Family::Claude)
-            .then_some(self.settings.turn_preset.as_deref())
-            .flatten()
-            .filter(|preset| self.agents.system_prompt(preset));
+        let (cached, plain_preset) = self.session_presets(family);
+        let cached = cached.as_deref();
         let marker = !self.marker_refused.load(Ordering::SeqCst);
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
                 let layout = cached_layout(
                     &self.settings.system_text,
                     &view.text,
-                    &texts.join("\n\n"),
+                    &prompt_texts.join("\n\n"),
                     marker,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => {
-                // The family's own preset when the turn left the default
-                // harness's family (the port falls back to the default's).
-                let preset = match family {
-                    crate::acpmux::Family::Codex => self.settings.codex_preset.clone(),
-                    crate::acpmux::Family::Claude if default_family != family => {
-                        self.settings.turn_preset.clone()
-                    }
-                    _ => None,
-                };
-                (turn_blocks(&view.text, &texts), None, preset)
-            }
+            None => (turn_blocks(&view.text, &prompt_texts), None, plain_preset),
         };
         let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
@@ -337,6 +329,9 @@ impl Brain {
             serde_json::json!({"kind": "blocks"})
         };
         layout["images"] = serde_json::json!(image_count);
+        if let Some(line) = &at_work {
+            layout["at_work"] = serde_json::json!(line);
+        }
         self.trace_start(
             &key,
             first,
@@ -616,20 +611,12 @@ impl Brain {
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
-        let s = &self.settings;
-        let choice = s
-            .engine_file
-            .as_deref()
-            .map(crate::engine::load)
-            .unwrap_or_default();
-        let mut engine =
-            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
-        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+        let (engine, unknown) = self.next_engine();
+        if let Some(named) = unknown {
             (self.log)(&format!(
-                "engine.json names harness {}, which acpmux does not have; this turn runs on {}",
-                engine.harness, s.harness
+                "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
+                engine.harness
             ));
-            engine.harness = s.harness.clone();
         }
         self.turn_engine = Some(engine.clone());
         engine
@@ -649,7 +636,7 @@ impl Brain {
 
     /// A harness's family (the default harness is Claude in a brain made
     /// without acpmux's metadata when it has a turn preset).
-    fn family_of(&self, harness: &str) -> crate::acpmux::Family {
+    pub(super) fn family_of(&self, harness: &str) -> crate::acpmux::Family {
         match self.settings.families.get(harness) {
             Some(f) => *f,
             None if self.settings.families.is_empty() && self.settings.turn_preset.is_some() => {
@@ -759,8 +746,13 @@ impl Brain {
         };
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
+        let owner_stopped = std::mem::take(&mut self.owner_stopped);
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
+            (reply, _) if owner_stopped && outcome.cancelled => match reply {
+                Some(reply) => format!("{reply}\n\n(turn stopped)"),
+                None => "(turn stopped)".to_owned(),
+            },
             (None, Some(error)) if outcome.refused => format!("(turn {error})"),
             (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
             (Some(reply), None) => reply,
@@ -815,6 +807,7 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
+        self.prewarm_next_turn();
         self.maybe_start_turn();
     }
 }
