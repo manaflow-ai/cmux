@@ -53,7 +53,9 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
     /// temporary directories `fileRoots` may not receive this download, or
     /// `nil`.
     ///
-    /// Each URL is judged: a local file by the rule the session's own
+    /// Each URL is judged: a page cmux serves from local files (its own
+    /// schemes, a loopback origin it registered, or a document such a page
+    /// wrote) is refused under any policy and roots, a local file by the rule the session's own
     /// navigations follow (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``),
     /// any other by the policy as a navigation started by ``initiator``
     /// (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``), so
@@ -66,6 +68,9 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
         }
         for hop in hops {
             let scheme = hop.prefix { $0 != ":" }.lowercased()
+            if let reason = appServedRefusal(hop) {
+                return BrowserReplDownloadRefusal(hop: hop, rule: .fileSandbox, detail: reason)
+            }
             if scheme == "file" {
                 if let reason = BrowserReplFileSandbox.navigationRefusal(hop, roots: fileRoots) {
                     return BrowserReplDownloadRefusal(hop: hop, rule: .fileSandbox, detail: reason)
@@ -88,6 +93,24 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
             }
         }
         return nil
+    }
+
+    /// Why `hop` is a read of files cmux serves from its own local files
+    /// (``BrowserReplFileSandbox/appServedRefusal(url:documentOrigin:)``),
+    /// or nil: a URL of one of cmux's own schemes or of a loopback origin
+    /// it registered, a `blob:` of such an origin, or a document's own
+    /// writing (``isWriting(_:)``) whose ``initiator`` is such a page or an
+    /// opaque document one made
+    /// (``BrowserReplFrameGate/appServedBlockReason(_:)``). No root of any
+    /// session grants those files, so this holds with or without a domain
+    /// policy.
+    func appServedRefusal(_ hop: String) -> String? {
+        let isBlob = hop.prefix(while: { $0 != ":" }).lowercased() == "blob"
+        if let reason = BrowserReplFileSandbox.appServedRefusal(url: hop, documentOrigin: isBlob ? BrowserReplDomainPolicy.blobOrigin(hop) : nil) {
+            return reason
+        }
+        guard Self.isWriting(hop), let initiator else { return nil }
+        return BrowserReplFrameGate.appServedBlockReason(initiator)
     }
 
     /// Whether `hop` is a document's own writing rather than a place
@@ -113,7 +136,8 @@ public struct BrowserReplDownloadRefusal: Sendable, Equatable {
     public enum Rule: Sendable, Equatable {
         /// It went through more than ``BrowserReplDownloadSource/maximumHops`` URLs.
         case tooManyHops
-        /// A local file outside the session's directories.
+        /// A local file outside the session's directories, or a page cmux
+        /// serves from local files.
         case fileSandbox
         /// A place the session's domain policy blocks.
         case domainPolicy

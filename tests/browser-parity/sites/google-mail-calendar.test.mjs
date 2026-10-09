@@ -85,6 +85,23 @@ test("gmail.send reply: the draft names who the reply goes to, and sends only to
   }
 });
 
+// r37 whole#4: Gmail's Reply and Send are its own controls, never an
+// element of a message body the sender wrote, also when that body comes
+// after Gmail's controls in the page.
+test("gmail.send reply: a sender's Reply and Send look-alikes in a message body are never clicked", async () => {
+  env.state.gmailTrailingBody = '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send" aria-label="Send">Send</div>';
+  const clicks = env.state.gmailDecoyClicks.length;
+  try {
+    const d = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Only Gmail\'s own buttons." })');
+    assert.deepEqual(d.preview.to, ["bob@example.com"]);
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.deepEqual(env.state.gmailSent.at(-1), { threadId: "thread-f:1790000000000000001", to: "bob@example.com", cc: null, bcc: null, body: "Only Gmail's own buttons." });
+  } finally {
+    env.state.gmailTrailingBody = null;
+  }
+  assert.deepEqual(env.state.gmailDecoyClicks.slice(clicks), [], "a sender's look-alike control was clicked");
+});
+
 // decisions.md, "Gmail replies": until a live check (drafts only, never
 // confirmed) shows that the To, Cc and Bcc a reply draft previews are the
 // ones Gmail's own reply composer addresses, replies are off in source: a

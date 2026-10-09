@@ -14,7 +14,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
-  const { URL } = root.CmuxBrowserRepl.core;
+  const { URL, functionSource } = root.CmuxBrowserRepl.core;
   const TYPES = ["text", "email", "password", "tel", "number", "url"];
   // The credential kind of a field, or null. The app runs the same rule
   // (sites/auth-fill.js) before it fills anything.
@@ -53,6 +53,21 @@
     return a.action === "press_enter" ? el instanceof HTMLInputElement : isSubmit(el);
   };
 
+  // What the submit control would submit, read in the agent's world (page
+  // script cannot answer for it): whether it is in the document, its form,
+  // its own submission attributes and its form's. The control pressed after
+  // the sheet is the element checked before it, with all of these unchanged.
+  const SUBMIT_IDENTITY = (el) => {
+    const form = el.form;
+    const attrs = (x, names) => names.map((n) => x.getAttribute(n));
+    return JSON.stringify([
+      el.isConnected,
+      el.localName,
+      attrs(el, ["type", "form", "formaction", "formmethod", "formenctype", "formtarget", "formnovalidate", "name", "value", "disabled"]),
+      form ? [form.isConnected, attrs(form, ["action", "method", "enctype", "target", "novalidate", "data-cmux-auth-form"])] : null,
+    ]);
+  };
+
   S.register(
     "browserAuth",
     (t) => ({
@@ -81,6 +96,7 @@
         const current = new URL(page.url()).origin;
         if (!o.origin || o.origin !== current) return { status: "origin_changed" };
         const locate = (sel) => (typeof sel === "string" ? page.locator(sel) : sel);
+        const readSubmitIdentity = (el) => el._pinnedFrame._call("agent", functionSource(SUBMIT_IDENTITY), [], [el._handle], "browserAuth submit");
         const marked = [];
         const formMarker = `form-${Math.floor(Math.random() * 1e12).toString(36)}`;
         let frameId;
@@ -111,14 +127,22 @@
           // the submit control of the fields' own form, never another
           // control the user did not agree to press by filling the sheet.
           let submitLoc = null;
+          let submitIdentity = null;
           const action = o.submit ? o.submit.action || "click" : null;
           if (o.submit) {
             if (action !== "click" && action !== "press_enter") throw new S.SiteError("invalid", `browserAuth.request: submit.action: expected "click" or "press_enter", got ${JSON.stringify(action)}`);
             submitLoc = locate(o.submit.selector);
             if (!submitLoc || typeof submitLoc.count !== "function") throw new S.SiteError("invalid", "browserAuth.request: submit.selector: expected a selector string or a locator");
             if ((await submitLoc.count()) !== 1) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_unique" } };
+            // The element itself is pinned: after the sheet no lookup finds
+            // another element in its place.
+            const pinned = await submitLoc.elementHandle({ timeout: 5000 }).catch(() => null);
+            if (!pinned) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_unique" } };
+            submitLoc = pinned;
             const ok = await submitLoc.evaluate(SUBMITS_FORM, { markers: marked.map((m) => m.marker), action, formMarker }).catch(() => false);
             if (!ok) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
+            submitIdentity = await readSubmitIdentity(submitLoc).catch(() => null);
+            if (!submitIdentity) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
           }
           // The user should see the page they are signing in to under the sheet.
           await page.bringToFront().catch(() => {});
@@ -139,9 +163,10 @@
           if (!r || r.status !== "filled") return { status: (r && r.status) || "unavailable" };
           if (submitLoc) {
             try {
-              // Checked again right before the press: still one control,
-              // still submitting the form marked before the sheet.
-              if ((await submitLoc.count()) !== 1 || !(await submitLoc.evaluate(SUBMITS_FORM, { action, formMarker }))) return { status: "submission_failed" };
+              // Checked again right before the press: the same element,
+              // still submitting the form marked before the sheet, to the
+              // same place.
+              if ((await readSubmitIdentity(submitLoc)) !== submitIdentity || !(await submitLoc.evaluate(SUBMITS_FORM, { action, formMarker }))) return { status: "submission_failed" };
               if (action === "press_enter") await submitLoc.press("Enter");
               else await submitLoc.click();
             } catch (e) {

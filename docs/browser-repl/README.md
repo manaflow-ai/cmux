@@ -651,7 +651,9 @@ rest. Measurements: [performance.md](performance.md).
   and the session's domain policy allows every address the download came
   through (redirects included, also one after the download started, and
   judged again under the policy then when it finishes; a local file only
-  from the session's own directories). A download that went to a session
+  from the session's own directories; never from a page cmux serves from
+  local files, its own schemes or a loopback origin it registered, nor
+  written by such a page, with or without a policy). A download that went to a session
   ends with it: when the session leaves the tab (it ends, is reset, or the
   tab moves to a workspace where it may not drive it) a download of it
   still running is cancelled and its file removed, also in a tab it kept,
