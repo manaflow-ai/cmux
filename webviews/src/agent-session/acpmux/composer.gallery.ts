@@ -152,6 +152,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "add-menu": {
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      snapshot: chat(finished, {
+        commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
       snapshot: chat(finished, {

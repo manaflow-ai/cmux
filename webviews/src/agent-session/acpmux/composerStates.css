@@ -97,6 +97,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
     opacity: 0;
   }
 }
+/* A picker menu above its button rises out of it: it starts a little lower and settles up, so it
+   grows away from the button rather than dropping toward it. */
+@keyframes acpmux-menu-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
@@ -124,6 +132,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-menu,
   .acpmux-slash-menu {
     animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+  .acpmux-menu[data-side="above"] {
+    animation-name: acpmux-menu-rise;
   }
 }
 
