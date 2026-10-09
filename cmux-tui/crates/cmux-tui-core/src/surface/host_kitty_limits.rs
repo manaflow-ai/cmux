@@ -72,6 +72,7 @@ mod tests {
         ));
         assert!(matches!(staged(false, encoded(limits)), HostedTransition::ResyncRequired));
         assert!(matches!(staged(true, Vec::new()), HostedTransition::ResyncRequired));
+        assert!(matches!(staged(true, vec![0; 9]), HostedTransition::ResyncRequired));
         assert!(matches!(staged(true, vec![0; 17]), HostedTransition::ResyncRequired));
         assert!(matches!(staged(true, vec![0; 33]), HostedTransition::ResyncRequired));
         let out_of_range = KittyGraphicsLimits { images: u64::MAX, ..limits };

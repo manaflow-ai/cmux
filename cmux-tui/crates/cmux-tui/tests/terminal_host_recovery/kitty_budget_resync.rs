@@ -72,6 +72,69 @@ fn kitty_budget_doubling_does_not_reconnect_existing_hosts() {
     wait_for_no_host_records(&harness.host_root());
 }
 
+/// The safety side: a quota change that does evict must still reopen the
+/// stream. One terminal stores 600 images (each 1x1 pixel, no placement);
+/// at capacity 4 the image count limit per screen drops to 512, so its host
+/// evicts and that terminal reconnects. A terminal without images does not.
+#[test]
+fn kitty_budget_doubling_that_evicts_images_reconnects_that_host_only() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("kitty-evicting-doubling");
+    let trigger = harness.dir.join("draw");
+    let done = harness.dir.join("drawn");
+    let script = format!(
+        "while [ ! -e '{}' ]; do sleep 0.05; done; i=1; while [ $i -le 600 ]; do \
+         printf '\\033_Ga=t,q=2,f=24,s=1,v=1,i=%d;AAAA\\033\\\\' $i; i=$((i+1)); done; \
+         : > '{}'; exec cat",
+        trigger.display(),
+        done.display()
+    );
+    let drawn = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run","argv":["/bin/sh","-c",script],"new_workspace":true,"cols":80,"rows":24,
+        }),
+    );
+    let mut surfaces = vec![drawn["surface"].as_u64().unwrap(), run_cat(&harness.socket, 2)];
+    wait_for_host_records(&harness.host_root(), 2);
+    // Both hosts hold their capacity-2 quota (1,024 images per screen).
+    std::thread::sleep(Duration::from_secs(3));
+    let existing = terminal_ids(&harness.socket);
+    assert_eq!(existing.len(), 2);
+    fs::write(&trigger, b"").unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    while !done.exists() {
+        assert!(Instant::now() < deadline, "the images were not drawn");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    let before = gap_reasons(&harness.socket);
+
+    surfaces.push(run_cat(&harness.socket, 3));
+    wait_for_host_records(&harness.host_root(), 3);
+    std::thread::sleep(Duration::from_secs(3));
+
+    let after = gap_reasons(&harness.socket);
+    let new_reconnects = |terminal: &String| {
+        let count = |gaps: &[(String, String)]| {
+            gaps.iter().filter(|(id, reason)| id == terminal && reason == "host_reconnect").count()
+        };
+        count(&after) - count(&before)
+    };
+    let mut counts = existing.iter().map(new_reconnects).collect::<Vec<_>>();
+    counts.sort_unstable();
+    assert_eq!(
+        counts[0], 0,
+        "the terminal without images must not reconnect: {counts:?}"
+    );
+    assert!(counts[1] >= 1, "the host that evicted images must reconnect: {counts:?}");
+
+    for (index, surface) in surfaces.into_iter().enumerate() {
+        close_terminal_surface(&harness.socket, surface, 10 + index as u64);
+    }
+    wait_for_no_host_records(&harness.host_root());
+}
+
 /// Hosts launched by `first`, adopted by `second`, then a quota change from
 /// `second` (a third terminal doubles the capacity). The limits payload on
 /// ResyncRequired must not break an older peer: an older daemon reconnects
