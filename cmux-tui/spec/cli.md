@@ -635,7 +635,7 @@ reflog message (bounded attempt journal: 7 days, 256 entries). `push` pushes the
 `--branch`) to the branch of the same name on a configured remote (default:
 where `git push` would go, else `origin`), never forced, and makes it the
 branch's upstream when the branch has none (or with `--set-upstream`). It
-refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `detached_head`, `branch_not_found`, `head_moved`,
+refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_mismatch`, `detached_head`, `branch_not_found`, `head_moved`,
 `rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
 `hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
 commit the remote has succeeds with `up_to_date`.

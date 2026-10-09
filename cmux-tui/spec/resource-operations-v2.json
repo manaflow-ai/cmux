@@ -13199,6 +13199,7 @@
     },
     "git.commit": {
       "class": "mutation",
+      "risk": "execute",
       "idempotency": "required",
       "target": "session",
       "ancestors": [
@@ -13578,10 +13579,11 @@
       ],
       "constraints": [
         "Never forces: a remote branch with commits the local one lacks refuses with rejected_non_fast_forward.",
+        "A branch that tracks another branch name or remote refuses with upstream_mismatch (as push.default=simple) unless set_upstream is true, which pushes the same-named branch and tracks it.",
         "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s. A remote with its own push refspecs or mirroring is refused.",
         "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
-        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, upstream_mismatch, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
       ]
     },
     "git.status": {

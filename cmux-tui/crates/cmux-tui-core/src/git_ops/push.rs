@@ -146,8 +146,29 @@ fn push(
     }
     refuse_special_remote(git, &remote)?;
     let destination = format!("refs/heads/{branch}");
-    let tracked = upstream_remote.is_some() && config(format!("branch.{branch}.merge")).is_some();
+    let upstream_merge = config(format!("branch.{branch}.merge"));
+    let tracked = upstream_remote.is_some() && upstream_merge.is_some();
     let set_upstream = fields.get("set_upstream").and_then(Value::as_bool).unwrap_or(!tracked);
+    // As `push.default=simple` does: a branch that tracks another branch name
+    // (or another remote) is not pushed to a same-named branch behind its
+    // back, unless the caller asks to track what it pushes.
+    if tracked
+        && !set_upstream
+        && (upstream_remote.as_deref() != Some(remote.as_str())
+            || upstream_merge.as_deref() != Some(destination.as_str()))
+    {
+        let upstream = format!(
+            "{}/{}",
+            upstream_remote.as_deref().unwrap_or_default(),
+            upstream_merge.as_deref().unwrap_or_default().trim_start_matches("refs/heads/")
+        );
+        return Err(refused(
+            OPERATION,
+            "upstream_mismatch",
+            format!("{branch} tracks {upstream}, not {remote}/{branch}; push it in a terminal"),
+            json!({"branch": branch, "upstream": upstream, "remote": remote}),
+        ));
+    }
     let refspec = format!("{tip}:{destination}");
     let command = ["push", "--porcelain", "--", remote.as_str(), refspec.as_str()];
     let run = git.run(&command).map_err(|failure| run_failed(OPERATION, &failure))?;

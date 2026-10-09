@@ -105055,6 +105055,138 @@
           }
         }
       }
+    },
+    "git.push.upstreamMismatch": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتتبع هذا الفرع فرعًا باسم آخر، لذلك لا يدفعه cmux. ادفعه من الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova grana prati granu s drugim imenom, pa je cmux ne pusha. Pushajte u terminalu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne gren følger en gren med et andet navn, så cmux pusher den ikke. Push i en terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Branch folgt einem Branch mit anderem Namen, daher pusht cmux ihn nicht. Pushe im Terminal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch tracks a branch with another name, so cmux does not push it. Push in a terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta rama sigue una rama con otro nombre, por lo que cmux no la envía. Envíala desde una terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette branche suit une branche d’un autre nom, donc cmux ne la pousse pas. Poussez-la dans un terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo branch segue un branch con un altro nome, quindi cmux non ne esegue il push. Esegui il push in un terminale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブランチは別の名前のブランチを追跡しているため、cmux はプッシュしません。ターミナルでプッシュしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សាខានេះតាមដានសាខាដែលមានឈ្មោះផ្សេង ដូច្នេះ cmux មិន push វាទេ។ សូម push នៅក្នុងទែមីណល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 브랜치는 다른 이름의 브랜치를 추적하므로 cmux가 푸시하지 않습니다. 터미널에서 푸시하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne grenen sporer en gren med et annet navn, så cmux pusher den ikke. Push i en terminal."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta gałąź śledzi gałąź o innej nazwie, więc cmux jej nie wypycha. Wypchnij ją w terminalu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este branch acompanha um branch com outro nome, então o cmux não faz push dele. Faça push em um terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта ветка отслеживает ветку с другим именем, поэтому cmux её не пушит. Выполните пуш в терминале."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สาขานี้ติดตามสาขาที่มีชื่ออื่น cmux จึงไม่พุช ให้พุชในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu dal başka adlı bir dalı izliyor, bu yüzden cmux onu göndermiyor. Terminalde gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця гілка відстежує гілку з іншою назвою, тому cmux її не пушить. Виконайте пуш у терміналі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhánh này theo dõi một nhánh có tên khác, nên cmux không push nó. Hãy push trong terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分支跟踪另一个名称的分支，因此 cmux 不会推送它。请在终端中推送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分支追蹤另一個名稱的分支，因此 cmux 不會推送它。請在終端機中推送。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

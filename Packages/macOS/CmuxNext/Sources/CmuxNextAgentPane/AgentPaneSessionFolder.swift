@@ -5,8 +5,8 @@ import Foundation
 /// session, so a commit or push never runs in a folder the page named.
 public nonisolated struct AgentPaneSessionFolder: Equatable, Sendable {
     public var cwd: String
-    /// False for a session on another machine (`hostKind` "cloud"): its
-    /// folder is not this Mac's.
+    /// False for a session on another machine (a cloud host, a peer, or any
+    /// host other than this Mac's daemon): its folder is not this Mac's.
     public var isLocal: Bool
 
     public init(cwd: String, isLocal: Bool) {
@@ -20,6 +20,8 @@ public nonisolated struct AgentPaneSessionFolder: Equatable, Sendable {
         guard let entries = sessions as? [[String: Any]],
               let entry = entries.first(where: { $0["sessionId"] as? String == sessionId }),
               let cwd = entry["cwd"] as? String, !cwd.isEmpty else { return nil }
-        self.init(cwd: cwd, isLocal: entry["hostKind"] as? String != "cloud")
+        let hostKind = entry["hostKind"] as? String
+        let peer = entry["peer"].map { !($0 is NSNull) && ($0 as? Bool) != false } ?? false
+        self.init(cwd: cwd, isLocal: (hostKind == nil || hostKind == "local") && !peer)
     }
 }

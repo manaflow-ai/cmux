@@ -89,7 +89,8 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// The folder of the daemon's session `sessionId` from its session list
-    /// (`_acpmux/watch`), nil when the daemon has no such session or names
+    /// (`_acpmux/watch`, whose reply carries `sessions` with `hostKind` and
+    /// `peer`; the subscription ends with this one-shot connection), nil when the daemon has no such session or names
     /// no folder. The agent pane's commits and pushes run here, never in a
     /// folder the page names.
     @concurrent static func sessionFolder(socketPath: String, sessionId: String,

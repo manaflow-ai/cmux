@@ -136,6 +136,7 @@ test("every reason the spec names has its own localized text", () => {
       "no_remote",
       "push_refspec_configured",
       "mirror_remote",
+      "upstream_mismatch",
       "detached_head",
       "branch_not_found",
       "head_moved",

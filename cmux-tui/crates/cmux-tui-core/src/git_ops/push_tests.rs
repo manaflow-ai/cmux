@@ -213,3 +213,26 @@ fn push_refuses_hostile_branches_unknown_remotes_and_special_remotes() {
     git(&repository, &["config", "remote.origin.mirror", "true"]);
     assert_eq!(refused(&push(&mux, &repository, json!({}), "k-mirror")).0, "mirror_remote");
 }
+
+/// A branch that tracks another branch name is not pushed to a same-named
+/// branch behind its back (as `push.default=simple`); asking to track what
+/// is pushed (`set_upstream`) pushes and moves the upstream.
+#[test]
+fn push_refuses_a_branch_that_tracks_another_name_unless_it_sets_the_upstream() {
+    let (repository, remote) = with_remote("push-other-name");
+    let mux = session("push-other-name");
+    ok(&push(&mux, &repository, json!({}), "k-other-main"));
+    git(&repository, &["checkout", "-q", "-b", "feat", "--track", "origin/main"]);
+    write(&repository, "a.txt", "feat\n");
+    commit_all(&repository, "feat");
+    let (reason, extra) = refused(&push(&mux, &repository, json!({}), "k-other-feat"));
+    assert_eq!(reason, "upstream_mismatch");
+    assert_eq!(extra["upstream"], "origin/main", "{extra}");
+    assert!(
+        !git_output(&remote, &["rev-parse", "--verify", "-q", "refs/heads/feat"]).status.success()
+    );
+
+    let tracked = ok(&push(&mux, &repository, json!({"set_upstream": true}), "k-other-set"));
+    assert_eq!(tracked["value"]["upstream"], "origin/feat");
+    assert_eq!(git(&repository, &["rev-parse", "--abbrev-ref", "feat@{upstream}"]), "origin/feat");
+}

@@ -606,7 +606,7 @@
       "class": "mutation"
     },
     "git.commit": {
-      "scope": "git:write",
+      "scope": "git:execute",
       "class": "mutation"
     },
     "git.diff": {

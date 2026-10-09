@@ -187,6 +187,7 @@ const PUSH_REASONS: Record<string, StringKey> = {
   no_remote: "git.push.noRemote",
   push_refspec_configured: "git.push.refspecConfigured",
   mirror_remote: "git.push.mirrorRemote",
+  upstream_mismatch: "git.push.upstreamMismatch",
   detached_head: "git.push.detachedHead",
   branch_not_found: "git.push.branchNotFound",
   head_moved: "git.headMoved",
