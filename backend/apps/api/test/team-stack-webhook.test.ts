@@ -1,10 +1,9 @@
 import { env } from "cloudflare:workers"
-import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
-import { signSvixContent } from "../../../../libs/svix-webhook/src/svix.ts"
 import { userIdFor } from "../src/domains/user.ts"
 import workerModule from "../src/index.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { call, deliver, memberRow, mirroredTeam, PROJECT, stackWorld, teamIdOf, teamState, teamStub, useStack } from "./team-stack-support.ts"
 import { inDO, sessionToken, sshLine, testEnv, worker } from "./team-ssh-support.ts"
 
 /**
@@ -12,96 +11,6 @@ import { inDO, sessionToken, sshLine, testEnv, worker } from "./team-ssh-support
  * (POST /v1/hooks/stack, Svix signature), and a session acts in a shared team only while
  * TeamDO lists it as a member (header x-cmux-team, checked on every request).
  */
-const SECRET = (env as unknown as { STACK_WEBHOOK_SECRET: string }).STACK_WEBHOOK_SECRET
-const PROJECT = testEnv.STACK_PROJECT_ID
-
-/** The cmux id of a Stack team: stable, derived, no lookup (like userIdFor). */
-const teamIdOf = (stackTeam: string) => `team_${createHash("sha256").update(`stack-team:${PROJECT}:${stackTeam}`).digest("hex").slice(0, 20)}`
-const teamStub = (team: string) => testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-
-/** Stack's truth as the fake server answers it; each TeamDO under test reads it. */
-const stackWorld = () => {
-  const teams = new Map<string, string>()
-  const members = new Map<string, string>()
-  let calls = 0
-  const fake = {
-    findUserByEmail: async () => undefined,
-    createUser: async () => {
-      throw new Error("unused")
-    },
-    createSession: async () => {
-      throw new Error("unused")
-    },
-    getTeam: async (t: string) => {
-      calls++
-      return teams.has(t) ? { display_name: teams.get(t)! } : null
-    },
-    getTeamMember: async (t: string, u: string) => {
-      calls++
-      if (!teams.has(t)) return "team_gone" as const
-      return members.has(`${t}:${u}`) ? { display_name: members.get(`${t}:${u}`)! } : null
-    }
-  }
-  return { teams, members, fake, calls: () => calls }
-}
-type World = ReturnType<typeof stackWorld>
-
-const useStack = (stackTeam: string, w: World) =>
-  inDO(teamStub(teamIdOf(stackTeam)), async (instance) => {
-    instance.stack = w.fake
-  })
-
-interface Delivery {
-  id?: string
-  ts?: number
-  secret?: string
-  signatures?: (good: string) => string
-}
-const deliver = async (type: string, data: unknown, o: Delivery = {}) => {
-  const body = JSON.stringify({ type, data })
-  const id = o.id ?? `msg_${crypto.randomUUID().replace(/-/g, "")}`
-  const ts = String(o.ts ?? Math.floor(Date.now() / 1000))
-  const good = `v1,${await signSvixContent(o.secret ?? SECRET, `${id}.${ts}.${body}`)}`
-  const res = await worker.fetch("https://api.test/v1/hooks/stack", {
-    method: "POST",
-    headers: { "content-type": "application/json", "svix-id": id, "svix-timestamp": ts, "svix-signature": o.signatures ? o.signatures(good) : good },
-    body
-  })
-  return { status: res.status, body: (await res.json().catch(() => null)) as any, id }
-}
-
-const teamState = (team: string) =>
-  inDO(teamStub(team), async (instance) => {
-    const engine = instance.boundEngine
-    return engine ? { team: engine.currentState.team, member_count: engine.currentState.member_count } : { team: null, member_count: 0 }
-  })
-const memberRow = (team: string, user: string) => inDO(teamStub(team), async (instance) => instance.boundEngine?.rows.get("member", user)?.row ?? null)
-
-const call = async (token: string, path: "/v1/ops" | "/v1/read", body: Record<string, unknown>, team?: string) => {
-  const res = await worker.fetch(`https://api.test${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...(team ? { "x-cmux-team": team } : {}) },
-    body: JSON.stringify(body)
-  })
-  return { status: res.status, body: (await res.json().catch(() => null)) as any }
-}
-
-/** A Stack team with one Stack member, mirrored through the webhook; the person also exists in cmux. */
-const mirroredTeam = async (name = "Acme") => {
-  const w = stackWorld()
-  const stackTeam = crypto.randomUUID()
-  const stackUser = crypto.randomUUID()
-  const team = teamIdOf(stackTeam)
-  await useStack(stackTeam, w)
-  w.teams.set(stackTeam, name)
-  w.members.set(`${stackTeam}:${stackUser}`, "Aziz")
-  const token = await sessionToken(stackUser, "Aziz")
-  expect((await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body.ok).toBe(true)
-  expect((await deliver("team.created", { id: stackTeam, display_name: name, profile_image_url: null, created_at_millis: Date.now() })).status).toBe(200)
-  expect((await deliver("team_membership.created", { team_id: stackTeam, user_id: stackUser })).status).toBe(200)
-  return { w, stackTeam, stackUser, team, user: userIdFor(PROJECT, stackUser), token }
-}
-
 describe("Stack team webhooks into TeamDO (cx-3bi.43)", { timeout: 60_000 }, () => {
   it("a signed team.created and team_membership.created mirror the team and the member; team_membership.deleted removes through team.member.remove", async () => {
     const t = await mirroredTeam("Acme Corp")
