@@ -17,7 +17,10 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 e45682739c04 refactor-app-rs: impl App pane ops, managed machine/workspace ops, keyboard ingress, sidebar keys, machine/provider menus -> app/{pane_ops,managed_ops,keyboard,sidebar_keys,machine_menus}.rs; app.rs 31500 -> 29986.
 - 2026-10-09 8575e3a010c9 refactor-app-rs: impl App prompt/dialog keys, action dispatch, browser ops, menu activation, focus navigation -> app/{prompt_keys,actions,browser_ops,menu_activate,focus_nav}.rs; app.rs 29986 -> 28415.
 - 2026-10-09 33193c387817 refactor-app-rs: impl App key forwarding, hit testing + tab moves, mouse dispatch, PTY mouse, PTY writes -> app/{key_forward,tab_moves,mouse_dispatch,pty_mouse,pty_write}.rs; app.rs 28415 -> 26886.
-- 2026-10-09 (pending) refactor-app-rs: impl App hover/right button, left press, left drag/release, clipboard/toasts -> app/{pointer_hover,left_down,left_drag,clipboard}.rs; app.rs 26886 -> 25890.
+- 2026-10-09 0b621992dcdc refactor-app-rs: impl App hover/right button, left press, left drag/release, clipboard/toasts -> app/{pointer_hover,left_down,left_drag,clipboard}.rs; app.rs 26886 -> 25890.
+- 2026-10-09 6d56dc9ce9b8 refactor-app-rs: impl App scrollbars + split resize, context menu building, scroll wheel + browser pointer -> app/{scrollbar_resize,menu_build,scroll_browser}.rs; app.rs 25890 -> 24626.
+- 2026-10-09 8ad8c5d30355 refactor-app-rs: tests 1/4: 145 app tests -> app/tests/{host_input,shortcuts_menus,selection_clicks,viewport_history}.rs (child modules of the inline tests module, use super::*; paths super:: -> crate::app::); test count unchanged; app.rs 24626 -> 19149.
+- 2026-10-09 (pending) refactor-app-rs: tests 2/4: 153 app tests -> app/tests/{menus_browser,pty_mouse,graphics_pointer,mux_recovery}.rs; test count unchanged; app.rs 19149 -> 13659.
 
 ## Target module map for cmux-tui/crates/cmux-tui/src/app.rs (2026-10-09)
 

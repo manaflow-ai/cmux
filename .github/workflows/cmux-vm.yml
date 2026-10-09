@@ -28,6 +28,10 @@
 # is skipped with a notice. With the optional secret CMUX_VM_SMOKE_API_KEY_B
 # (a key of a second smoke tenant with the same scopes) the smoke also proves
 # that the second tenant gets 404 for every call on the first tenant's VM.
+# With the optional secret CMUX_VM_SMOKE_SERVICE_KEY and variable
+# CMUX_VM_SMOKE_SERVICE_TEAM it also smokes the service principal (cx-b4h.13);
+# the staging Worker then needs that key's hash in the environment secret
+# CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set.
 #
 # Production deploys are added with the protected cmux-vm-production
 # environment (cx-b4h.5), not here.
@@ -364,6 +368,8 @@ jobs:
           CMUX_VM_STACK_PROJECT_ID: ${{ secrets.CMUX_VM_STACK_PROJECT_ID }}
           CMUX_VM_STACK_SECRET_SERVER_KEY: ${{ secrets.CMUX_VM_STACK_SECRET_SERVER_KEY }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          # Optional (cx-b4h.13): service key hashes; absent leaves the Worker's current value.
+          CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -423,4 +429,7 @@ jobs:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_STAGING_URL }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_API_KEY_B: ${{ secrets.CMUX_VM_SMOKE_API_KEY_B }}
+          # Optional (cx-b4h.13): a service key limited to role=chief and to this synthetic team.
+          CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
+          CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
