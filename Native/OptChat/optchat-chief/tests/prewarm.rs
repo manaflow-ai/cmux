@@ -48,3 +48,18 @@ fn hints_the_turn_session_shape_in_the_cached_layout() {
 fn hints_the_turn_session_shape_without_a_preset_system_prompt() {
     hints_the_turn_session_shape(false);
 }
+
+/// A pooled harness starting next to a turn's own session on one home
+/// raced it (E18, live 2026-10-09: two codex processes on one CODEX_HOME,
+/// "failed to initialize sqlite state runtime"). The pool is hinted only
+/// when the Chief is idle: never when a turn starts at once.
+#[test]
+fn no_hint_races_a_turn_that_starts_at_once() {
+    let mut h = Harness::new(default_script());
+    h.say("user_local", "waiting before acpmux is up");
+    h.connect();
+    h.settle();
+    let (hints, specs) = shapes(&h);
+    assert_eq!(specs.len(), 1, "{specs:?}");
+    assert_eq!(hints.len(), 1, "only the hint after the turn, none at connect: {hints:?}");
+}

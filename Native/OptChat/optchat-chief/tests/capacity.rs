@@ -155,3 +155,31 @@ fn connection_errors_back_off_and_end() {
         None
     );
 }
+
+/// A harness that stops sending events (E18: a codex turn ran 8+ minutes
+/// on a one-line reply) ends the turn with a typed error after the idle
+/// limit, and the Chief runs it once again; it never hangs silently.
+#[test]
+fn a_turn_with_no_events_for_the_idle_limit_ends_and_runs_again() {
+    use optchat_chief::turn::is_idle_error;
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(dir.path());
+    s.turn_idle_limit = Some(std::time::Duration::from_millis(300));
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![json!({"dir": "mux", "kind": "turn_started", "msg": {}})]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::configured(dir, script, owner(), s, Arc::new(|_: &str| {}));
+    h.agents.inner.lock().unwrap().answer_never = true;
+    h.connect();
+    h.say("user_local", "hello");
+    h.settle();
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 2, "the idle turn, then again");
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert!(!sends[0].1.contains("turn failed"), "{sends:?}");
+    assert!(is_idle_error("the turn made no progress for 10 minutes and was stopped"));
+}

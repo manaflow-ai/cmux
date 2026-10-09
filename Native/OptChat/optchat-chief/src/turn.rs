@@ -787,3 +787,8 @@ pub fn transient_retry_after(error: &str, attempt: u32) -> Option<Duration> {
     }
     Some(Duration::from_secs(1u64 << attempt.min(16)).min(CONNECTION_MAX_WAIT))
 }
+
+/// Whether `error` is the idle watchdog's.
+pub fn is_idle_error(_error: &str) -> bool {
+    false
+}
