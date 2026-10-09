@@ -128,6 +128,7 @@ run_helper() {
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
   CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
+  CMUX_NOTARY_PENDING_ON_TIMEOUT="${TEST_NOTARY_PENDING_ON_TIMEOUT:-false}" \
   GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
@@ -296,6 +297,63 @@ if ! grep -Fxq "submission_id=fixture-id" "$ASYNC_STATE" \
   exit 1
 fi
 
+# Published nightly-next waits a bounded time in the job. A wait that runs out
+# hands the exact submission to the next nightly-next run instead of failing;
+# it never staples or produces the immutable publication artifact.
+: > "$LOG"
+PENDING_STATE="$TMP_DIR/cmux-nightly-pending.state"
+PENDING_OUTPUT="$TMP_DIR/cmux-nightly-pending.log"
+PENDING_GITHUB_OUTPUT="$TMP_DIR/pending.github-output"
+rm -f "$PENDING_STATE" "$PENDING_OUTPUT" "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
+if ! TEST_NOTARY_PENDING_ON_TIMEOUT=true CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$PENDING_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$PENDING_OUTPUT" \
+  GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/pending.err"; then
+  echo "FAIL: a bounded nightly-next wait that ran out must hand off the submission, not fail" >&2
+  cat "$TMP_DIR/pending.err" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$PENDING_STATE" \
+  || ! grep -Fxq "wait_timed_out=true" "$PENDING_STATE" \
+  || ! grep -Fxq "submission_pending=true" "$PENDING_GITHUB_OUTPUT" \
+  || ! grep -q '^xcrun notarytool submit .*--wait --timeout ' "$LOG" \
+  || grep -Fq 'xcrun stapler staple' "$LOG" \
+  || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: a timed-out bounded wait did not hand off a pending ticket without stapling" >&2
+  cat "$LOG" "$PENDING_STATE" "$PENDING_GITHUB_OUTPUT" >&2
+  exit 1
+fi
+
+# The same mode still fails a rejected submission, and still staples and
+# validates an accepted one in the job.
+: > "$LOG"
+rm -f "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
+if TEST_NOTARY_PENDING_ON_TIMEOUT=true CMUX_TEST_NOTARY_STATUS=Invalid \
+  GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" run_helper >/dev/null 2>"$TMP_DIR/pending-invalid.err"; then
+  echo "FAIL: an Invalid submission must fail even when timeouts hand off" >&2
+  exit 1
+fi
+if [ -s "$PENDING_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$PENDING_GITHUB_OUTPUT"; then
+  echo "FAIL: an Invalid submission must not be handed off as pending" >&2
+  exit 1
+fi
+: > "$LOG"
+rm -f "$PENDING_GITHUB_OUTPUT" "$IMMUTABLE"
+rm -rf "$TMP_DIR/cmux-nightly-mount"
+if ! TEST_NOTARY_PENDING_ON_TIMEOUT=true GITHUB_OUTPUT="$PENDING_GITHUB_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/pending-accepted.err"; then
+  echo "FAIL: an Accepted submission failed when timeouts hand off" >&2
+  cat "$TMP_DIR/pending-accepted.err" >&2
+  exit 1
+fi
+if ! grep -Fq 'xcrun stapler staple' "$LOG" || [ ! -e "$IMMUTABLE" ] \
+  || { [ -e "$PENDING_GITHUB_OUTPUT" ] && grep -Fq "submission_pending=true" "$PENDING_GITHUB_OUTPUT"; }; then
+  echo "FAIL: an Accepted submission must be stapled and published in the job" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
 
 # The bounded notary wait only helps if the step and the job outlive it: the
@@ -314,12 +372,16 @@ step = step.group(1)
 step_timeout = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)
 assert step_timeout, "the notarize step needs its own timeout-minutes"
 step_timeout = int(step_timeout.group(1))
-wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (\d+)m$", step, re.M)
+wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (.+)$", step, re.M)
 assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
-wait = int(wait.group(1))
+# `${{ <nightly-next> && '20m' || '40m' }}`: the last value is main's and RC's.
+waits = [int(value) for value in re.findall(r"\b(\d+)m\b", wait.group(1))]
+assert waits, f"no wait in {wait.group(1)!r}"
 # Run 37648507383: Apple had not finished any of the 3 DMGs after 25m, so
 # nothing published. A healthy submission returns in minutes; wait 40m.
-assert wait >= 40, f"the {wait}m notary wait gives up before Apple usually finishes a stalled DMG"
+# Published nightly-next waits less: it hands a slow one to its next run.
+assert waits[-1] >= 40, f"the {waits[-1]}m notary wait gives up before Apple usually finishes a stalled DMG"
+wait = max(waits)
 assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
 assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
 PY
