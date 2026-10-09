@@ -19,6 +19,10 @@ extension EnvironmentValues {
     @Entry public var cnShellRoute: CNShellRoute? = nil
     /// Terminal font size from Settings, in points.
     @Entry public var cnTerminalFontSize: CGFloat = 13
+    /// True when the root is hosted in the tab shell's `TabView`. Roots keep
+    /// their own floating bottom chrome above the tab bar (safe area) and
+    /// may hide the tab bar on pushed detail screens, as Messages does.
+    @Entry public var cnHostedInTabBar: Bool = false
 }
 
 /// A request from the shell to open one item inside a module root.

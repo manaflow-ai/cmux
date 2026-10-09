@@ -41,6 +41,7 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
     private let composer = ComposerView()
     private var composerBottom: NSLayoutConstraint?
     private var composerHeight: NSLayoutConstraint?
+    private var tabSafeBottom: NSLayoutConstraint?
     private var keyboardShown = false
 
     private struct PendingSend {
@@ -103,6 +104,11 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
         rebuild()
         let id = conversation.id
         Task { [store] in await store.loadHistory(id) }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        tabSafeBottom?.isActive = (navigationController as? ConvNavigationController)?.isHostedInTabBar ?? false
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -323,6 +329,12 @@ final class ThreadViewController: UIViewController, UICollectionViewDelegate, UI
         view.addSubview(composer)
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         let bottom = composer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -style.composerMarginIdle)
+        bottom.priority = UILayoutPriority(999)
+        // Tab shell: stay above anything the shell keeps at the bottom edge
+        // (tab bar, bottom accessory), which it reports through the safe area.
+        let tabSafe = composer.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8)
+        tabSafe.isActive = (navigationController as? ConvNavigationController)?.isHostedInTabBar ?? false
+        tabSafeBottom = tabSafe
         let height = composer.heightAnchor.constraint(equalToConstant: composer.fieldHeight)
         composerBottom = bottom
         composerHeight = height

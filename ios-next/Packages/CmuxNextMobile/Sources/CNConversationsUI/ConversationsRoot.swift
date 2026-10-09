@@ -16,9 +16,10 @@ public struct ConversationsRoot: View {
 
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var route
+    @Environment(\.cnHostedInTabBar) private var hostedInTabBar
 
     public var body: some View {
-        ConversationsContainer(connection: connection, leadingItem: leadingItem, route: route)
+        ConversationsContainer(connection: connection, leadingItem: leadingItem, route: route, hostedInTabBar: hostedInTabBar)
             .ignoresSafeArea(.all)
     }
 }
@@ -27,12 +28,14 @@ private struct ConversationsContainer: UIViewControllerRepresentable {
     let connection: HostConnection
     let leadingItem: AnyView?
     let route: CNShellRoute?
+    let hostedInTabBar: Bool
 
     func makeUIViewController(context: Context) -> ConvNavigationController {
         let store = ConversationsStore(connection: connection)
         let nav = ConvNavigationController(store: store)
         store.start()
         nav.list.setLeadingItem(leadingItem)
+        nav.hostedInTabBarHint = hostedInTabBar
         nav.handle(route)
         return nav
     }
@@ -42,6 +45,7 @@ private struct ConversationsContainer: UIViewControllerRepresentable {
             controller.replaceStore(ConversationsStore(connection: connection))
         }
         controller.list.setLeadingItem(leadingItem)
+        controller.hostedInTabBarHint = hostedInTabBar
         controller.handle(route)
     }
 

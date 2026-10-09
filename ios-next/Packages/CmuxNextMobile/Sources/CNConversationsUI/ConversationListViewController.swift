@@ -31,6 +31,15 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
     private let micButton = UIButton(type: .system)
     private let composeButton = UIButton(type: .system)
     private var searchBottom: NSLayoutConstraint!
+    private var tabBarBottom: NSLayoutConstraint?
+
+    /// Keeps the floating search/compose bar clear of the tab shell's tab bar.
+    func updateBottomChrome() {
+        guard isViewLoaded, let tabBarBottom else { return }
+        let inTabs = (navigationController as? ConvNavigationController)?.isHostedInTabBar ?? false
+        tabBarBottom.isActive = inTabs
+        view.setNeedsLayout()
+    }
     private var filter = ""
 
     private weak var openCell: ConversationRowCell?
@@ -91,6 +100,12 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
         buildSearch()
         observeStore()
         applySnapshot(animated: false)
+        updateBottomChrome()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateBottomChrome()
     }
 
     private func observeStore() {
@@ -318,6 +333,10 @@ final class ConversationListViewController: UIViewController, UICollectionViewDe
         composeGlass.contentView.addSubview(composeButton)
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         searchBottom = bar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -style.searchBottomInset)
+        searchBottom.priority = UILayoutPriority(999)
+        // In the tab shell the bar floats 8 pt above the tab bar (safe area);
+        // the keyboard still wins when it is higher.
+        tabBarBottom = bar.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8)
         let side = style.searchSideInset
         NSLayoutConstraint.activate([
             bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),

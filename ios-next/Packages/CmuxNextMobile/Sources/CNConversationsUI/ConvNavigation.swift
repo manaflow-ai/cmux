@@ -47,6 +47,15 @@ final class ConvNavigationController: UINavigationController, UINavigationContro
         view.addGestureRecognizer(backPan)
     }
 
+    /// The shell's `cnHostedInTabBar`; a `UITabBarController` ancestor counts too.
+    var hostedInTabBarHint = false { didSet { if oldValue != hostedInTabBarHint { list.updateBottomChrome() } } }
+    var isHostedInTabBar: Bool { hostedInTabBarHint || tabBarController != nil }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        list.updateBottomChrome()
+    }
+
     private var handledRoute: UUID?
     private var pendingRoute: CNShellRoute?
 
@@ -121,6 +130,13 @@ final class ConvNavigationController: UINavigationController, UINavigationContro
     }
 
     // MARK: UINavigationControllerDelegate
+
+    func navigationController(_ nav: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
+        // Messages hides the tab bar inside a thread; the composer owns the bottom edge.
+        guard let tabs = tabBarController else { return }
+        let hide = viewController !== list
+        if tabs.isTabBarHidden != hide { tabs.setTabBarHidden(hide, animated: animated) }
+    }
 
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
                               from fromVC: UIViewController, to toVC: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
