@@ -23,7 +23,7 @@ use optchat_host::{Appended, NewMessage};
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
-        if self.phase != Phase::Idle || self.queue.is_empty() || !self.ready() {
+        if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
             return;
         }
         self.phase = Phase::Settling;
@@ -206,7 +206,9 @@ impl Brain {
     /// conversation (G9: the others wait their turn), render the view BEFORE
     /// logging them, then log each as `user`.
     fn take_turn(&mut self) -> Option<TurnStart> {
-        let side = self.queue.front()?.conversation.clone();
+        // The conversation of the first item that wakes (a quiet report waits).
+        let head = self.queue.iter().find(|q| q.wakes());
+        let side = head.or(self.queue.front())?.conversation.clone();
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
