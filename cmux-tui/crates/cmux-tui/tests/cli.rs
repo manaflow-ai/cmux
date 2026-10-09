@@ -3646,6 +3646,9 @@ fn bin() -> &'static str {
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/chief.rs"]
+mod chief;
 
 /// Runs the CLI against `server` with `--json` and returns its JSON result.
 /// `caller` runs it as a cmux terminal would: routed by `CMUX_TUI_SOCKET`
