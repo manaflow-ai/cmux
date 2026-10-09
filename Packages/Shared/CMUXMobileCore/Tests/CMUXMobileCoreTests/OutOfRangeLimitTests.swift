@@ -7,10 +7,10 @@ import Testing
 @Suite struct OutOfRangeLimitTests {
     @Test func decodeFramesRefusesLimitsBelowTheirMinimum() throws {
         var buffer = try MobileSyncFrameCodec.encodeFrame(Data("x".utf8))
-        #expect(throws: MobileSyncFrameCodecError.self) {
+        #expect(throws: MobileSyncFrameCodecError.invalidLimit) {
             try MobileSyncFrameCodec.decodeFrames(from: &buffer, maximumDecodedFrameCount: 0)
         }
-        #expect(throws: MobileSyncFrameCodecError.self) {
+        #expect(throws: MobileSyncFrameCodecError.invalidLimit) {
             try MobileSyncFrameCodec.decodeFrames(from: &buffer, maximumFrameByteCount: -1)
         }
         #expect(try MobileSyncFrameCodec.decodeFrames(from: &buffer) == [Data("x".utf8)])

@@ -144,10 +144,6 @@
    "MessagesLabSidebar": 1
   },
   "precondition": {
-   "CMUXMobileCore": 14,
-   "CmuxIrohTransport": 15,
-   "CmuxMobileSSH": 1,
-   "CmuxMobileShellModel": 3,
    "CmuxNextSettings": 2,
    "CmuxNextSidebar": 1
   },
