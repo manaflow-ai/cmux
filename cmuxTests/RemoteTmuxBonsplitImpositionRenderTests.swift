@@ -1627,18 +1627,57 @@ import Testing
         withExtendedLifetime(host) {}
     }
 
+    /// Invalid or stale probes cannot consume the initial sizing opportunity.
+    @Test func firstWindowlessClaimRejectsInvalidAndReplacedProbes() throws {
+        let (mirror, connection, _, probe) = try makeDisplayChangeMirror(mounted: false)
+        probe.initialDisplayScale = 2
+        mirror.hostProbeView = probe
+        probe.setFrameSize(.zero)
+        mirror.refreshContainerSizeFromHost(probe, initialScale: 2)
+        #expect(mirror.containerSizePt == nil)
+        #expect(connection.lastWindowSizes[0] == nil)
+        let stale = MirrorHostProbeView()
+        stale.mirror = mirror
+        stale.initialDisplayScale = 2
+        stale.setFrameSize(CGSize(width: 1200, height: 900))
+        #expect(mirror.containerSizePt == nil)
+        probe.setFrameSize(CGSize(width: 900, height: 700))
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        #expect(mirror.containerScale == 2)
+        #expect(connection.lastWindowSizes[0] != nil)
+    }
+
+    /// Height-only changes must update rows without changing columns.
+    @Test func probeHeightShrinkAndGrowthRefreshTheClaim() async throws {
+        let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
+        defer { window.orderOut(nil) }
+        let original = try #require(connection.lastWindowSizes[0])
+        probe.setFrameSize(CGSize(width: 900, height: 480))
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let shorter = try #require(connection.lastWindowSizes[0])
+        #expect(shorter.0 == original.0 && shorter.1 < original.1)
+        #expect(mirror.containerSizePt?.height == 480)
+        probe.setFrameSize(CGSize(width: 900, height: 700))
+        await drainDisplayChangeCallbacks()
+        mirror.performSizingPassNow()
+        let taller = try #require(connection.lastWindowSizes[0])
+        #expect(taller.0 == original.0 && taller.1 == original.1)
+        #expect(mirror.containerSizePt?.height == 700)
+    }
+
     private func drainDisplayChangeCallbacks() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async { continuation.resume() }
         }
     }
 
-    /// AppKit can deliver the final region after its screen notification.
-    /// The region itself must refresh sizing without another notification.
-    @Test func lateProbeGeometryRefreshesWithoutAnotherDisplayNotification() async throws {
+    /// Final geometry may arrive after an earlier sizing pass has settled.
+    /// The region itself must refresh the claim.
+    @Test func lateProbeGeometryRefreshesAfterAnEarlierSizingPass() async throws {
         let (mirror, connection, window, probe) = try makeDisplayChangeMirror()
         defer { window.orderOut(nil) }
-        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
         await drainDisplayChangeCallbacks()
         mirror.performSizingPassNow()
 
@@ -1717,7 +1756,6 @@ import Testing
         mirror.isVisibleForSizing = false
         let smallerRegion = CGSize(width: 560, height: 410)
         probe.setFrameSize(smallerRegion)
-        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
         await drainDisplayChangeCallbacks()
         mirror.performSizingPassNow()
         let hiddenClaim = try #require(connection.lastWindowSizes[0])
@@ -1749,7 +1787,6 @@ import Testing
         probe.viewDidChangeBackingProperties()
         await drainDisplayChangeCallbacks()
         #expect(mirror.containerSizePt == originalRegion)
-        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
         await drainDisplayChangeCallbacks()
         #expect(mirror.containerSizePt == originalRegion)
         withExtendedLifetime(connection) {}

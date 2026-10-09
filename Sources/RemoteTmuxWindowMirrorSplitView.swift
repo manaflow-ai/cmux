@@ -130,27 +130,28 @@ struct RemoteTmuxWindowMirrorSplitView: View {
 /// geometry diagnostics.
 final class MirrorHostProbeView: NSView {
     weak var mirror: RemoteTmuxWindowMirror?
+    var initialDisplayScale: CGFloat?
     /// Region changes can finish after a display change or outside live resize.
     /// AppKit's actual frame supplies the measurement, without a queue delay.
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        mirror?.noteHostProbeGeometry(self)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 
     override func setBoundsSize(_ newSize: NSSize) {
         super.setBoundsSize(newSize)
-        mirror?.noteHostProbeGeometry(self)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 
     override func layout() {
         super.layout()
-        mirror?.noteHostProbeGeometry(self)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 
     /// A scale-only display move does not change the region's point size.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        mirror?.refreshContainerSizeFromHost()
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 
     /// The probe backs the whole mirror region, including the sub-cell
@@ -182,7 +183,7 @@ final class MirrorHostProbeView: NSView {
             return
         }
         mirror?.hostProbeView = self
-        mirror?.noteHostProbeGeometry(self)
+        mirror?.refreshContainerSizeFromHost(self, initialScale: initialDisplayScale)
     }
 }
 
@@ -192,33 +193,27 @@ private struct MirrorHostProbe: NSViewRepresentable {
     func makeNSView(context: Context) -> MirrorHostProbeView {
         let view = MirrorHostProbeView()
         view.mirror = mirror
+        view.initialDisplayScale = context.environment.displayScale
         mirror.hostProbeView = view
         return view
     }
 
     func updateNSView(_ nsView: MirrorHostProbeView, context: Context) {
         nsView.mirror = mirror
+        nsView.initialDisplayScale = context.environment.displayScale
         mirror.hostProbeView = nsView
-        mirror.noteHostProbeGeometry(nsView)
+        mirror.refreshContainerSizeFromHost(nsView, initialScale: nsView.initialDisplayScale)
     }
 }
 
 extension RemoteTmuxWindowMirror {
-    /// Reveal and topology changes sample the current host instead of replaying
-    /// a SwiftUI measurement captured before a display move.
-    func refreshContainerSizeFromHost() {
-        guard let probe = hostProbeView else { return }
-        // This can run inside SwiftUI/AppKit layout. Later frame and layout
-        // callbacks deliver final geometry without recursively forcing layout.
-        noteHostProbeGeometry(probe)
-    }
-
-    /// Only the registered, attached probe can deliver geometry. Repeated
-    /// AppKit callbacks share the model's accepted or pending measurement.
-    func noteHostProbeGeometry(_ probe: NSView) {
-        guard hostProbeView === probe, let window = probe.window else { return }
+    /// Sample the current probe; an unmounted probe may seed its first size
+    /// using the representable's scale. Attached windows supply live scale.
+    func refreshContainerSizeFromHost(_ source: NSView? = nil, initialScale: CGFloat? = nil) {
+        guard let probe = source ?? hostProbeView, hostProbeView === probe else { return }
+        guard let scale = probe.window?.backingScaleFactor
+            ?? (containerSizePt == nil ? initialScale : nil) else { return }
         let size = probe.bounds.size
-        let scale = window.backingScaleFactor
         let latestSize = pendingOversizedReading?.size ?? pendingContainerSizePt ?? containerSizePt
         let latestScale = pendingOversizedReading?.scale ?? pendingContainerScale ?? containerScale
         guard latestSize != size || latestScale != scale else { return }
