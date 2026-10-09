@@ -624,6 +624,9 @@ public final class BrowserReplFrameGate {
             return value
         }
         let key = key(frame, webView)
+        // The policy the checks below judge under; one set while they wait
+        // in WebKit refuses the dispatch (``dispatchRefusal``).
+        let generation = policyGeneration
         // An opaque document's origin and place do not tell it from the
         // next opaque document the frame shows (a frame keeps its id when
         // it navigates): so its makers are read again on every call, never
@@ -652,13 +655,30 @@ public final class BrowserReplFrameGate {
             bound[Self.placeArgument] = expected.place
             bound[Self.localArgument] = expected.local ?? NSNull()
             bound[Self.opaqueArgument] = expected.opaque ?? NSNull()
-            let value = try await webView.browserReplCallAsyncJavaScript(
-                Self.documentCheck + Self.scoped(body),
-                arguments: bound,
-                in: frame.info,
-                contentWorld: contentWorld,
-                userGesture: userGesture
-            )
+            // The checks above awaited WebKit; the tab, the policy and the
+            // approved document are judged again in the turn WebKit gets
+            // the script, so a script never runs where the session's
+            // authority ended meanwhile (the result check after it only
+            // discards a result).
+            var refusal: BrowserReplDriverError?
+            let approved = expected
+            let value: Any?
+            do {
+                value = try await webView.browserReplCallAsyncJavaScript(
+                    Self.documentCheck + Self.scoped(body),
+                    arguments: bound,
+                    in: frame.info,
+                    contentWorld: contentWorld,
+                    userGesture: userGesture,
+                    onlyIf: { [self] in
+                        refusal = dispatchRefusal(approved, frame: frame, generation: generation, in: webView)
+                        return refusal == nil
+                    }
+                )
+            } catch {
+                if let refusal { throw refusal }
+                throw error
+            }
             guard value as? String == Self.movedMarker else {
                 // An opaque document whose URL tells nothing (about:srcdoc,
                 // a sandboxed about:blank) may have been made by a
@@ -682,6 +702,28 @@ public final class BrowserReplFrameGate {
             expected = current
         }
         throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) kept navigating; try again once it has loaded")
+    }
+
+    /// Why a script checked against `document` under the policy of
+    /// `generation` may not be dispatched now, or nil: the session may no
+    /// longer use the tab (``checkTab(in:)``), its policy was set since, or
+    /// the policy now blocks the document. Called in the main-actor turn
+    /// WebKit gets the script.
+    private func dispatchRefusal(_ document: BrowserReplFrameDocument, frame: BrowserReplFrame, generation: Int, in webView: WKWebView) -> BrowserReplDriverError? {
+        do {
+            try checkTab(in: webView)
+        } catch let error as BrowserReplDriverError {
+            return error
+        } catch {
+            return BrowserReplDriverError(code: "cancelled", message: "\(error)")
+        }
+        if let reason = blockReason(document.withMakers(frame: frame.info, in: webView), in: webView) {
+            return blocked(frame, document: document, reason: reason)
+        }
+        if policyGeneration != generation {
+            return BrowserReplDriverError(code: "stale", message: "the session's domain policy changed while frame \(frame.frameID) was checked, so the script was not run; run it again")
+        }
+        return nil
     }
 
     /// Throws `blocked` when a frame of the tab that the authority refuses
