@@ -9,6 +9,21 @@ private final class FakeLink: FrameLink {
 }
 
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameSchedulerTests {
+    /// A client whose fixed scheduler was freed used to trap (unowned capture) when it
+    /// activated; it now ticks on the app scheduler, as a view client without a window does.
+    @Test func aClientOfAFreedSchedulerActivatesOnTheAppScheduler() {
+        func orphan() -> FrameClient {
+            let scheduler = FrameScheduler.testing(ledger: WakeupLedger(), makeLink: { _ in FakeLink() })
+            return FrameClient(owner: "orphan", on: scheduler) { _ in false }
+        }
+        let client = orphan()
+        client.activate()
+        #expect(client.isActive)
+        #expect(FrameScheduler.app.activeClients.contains("orphan"))
+        client.deactivate()
+        #expect(!client.isActive)
+    }
+
     @Test func linkRunsOnlyWhileAClientIsActive() {
         let link = FakeLink()
         let scheduler = FrameScheduler.testing(ledger: WakeupLedger(), makeLink: { _ in link })
