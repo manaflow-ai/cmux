@@ -158,6 +158,7 @@ export function CompareView({
   experiment,
   variant,
   env,
+  tune,
   compare,
   room,
   onCompare,
@@ -166,6 +167,8 @@ export function CompareView({
   experiment: GalleryExperiment;
   variant: string;
   env: GalleryEnv;
+  /** The edited tunables (router.tsx ShellSearch `tune`): every arm runs with them. */
+  tune?: string;
   compare: CompareState;
   room: { width: number; height: number };
   /** Writes the compare state into the URL (`replace` for progress the viewer did not click). */
@@ -354,7 +357,7 @@ export function CompareView({
             run={run}
             arm={arm}
             experiment={experiment}
-            src={`frame.html?${frameQuery({ entry: entry.id, variant }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`}
+            src={`frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`}
             frame={frame}
             scale={scale}
             picked={compare.pick === arm}

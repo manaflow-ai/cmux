@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
-/// 2): the current profile's initial in a `SidebarStyle.avatarDiameter`
-/// circle, centered on the rows' glyph column, then a small chevron that
+/// 2): the current profile's initial (signed in: the cmux user's picture,
+/// else their initials) in a `SidebarStyle.avatarDiameter` circle, centered on the rows' glyph column, then a small chevron that
 /// says a click opens a menu. It draws inside a `SidebarItemRowView`, which
 /// owns the hover pill, the click and accessibility.
 final class SidebarAvatarView: NSView {
@@ -30,20 +30,34 @@ final class SidebarAvatarView: NSView {
         return NSRect(x: circleFrame.maxX + SidebarStyle.avatarChevronGap, y: (bounds.height - size) / 2, width: size, height: size)
     }
 
+    /// The avatar's picture, decoded; nil draws the initial.
+    static func picture(_ avatar: SidebarAvatar?) -> NSImage? {
+        avatar?.imageData.flatMap(NSImage.init(data:)).flatMap { $0.isValid ? $0 : nil }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let avatar else { return }
         performWithTheme {
             let circle = circleFrame
+            drawChevron(tint: isStrong ? Palette.textPrimary : Palette.textSecondary)
+            if let picture = Self.picture(avatar) {
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(ovalIn: circle).addClip()
+                picture.draw(in: circle, from: .zero, operation: .sourceOver, fraction: isStrong ? 1 : 0.85, respectFlipped: true, hints: nil)
+                NSGraphicsContext.restoreGraphicsState()
+                return
+            }
             let colored = avatar.color != nil
             let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.textPrimary.withAlphaComponent(isStrong ? 0.24 : 0.16)
             fill.setFill()
             NSBezierPath(ovalIn: circle).fill()
             let text = colored ? Palette.textOnPrimary : (isStrong ? Palette.textPrimary : Palette.textSecondary)
-            let font = NSFont.systemFont(ofSize: SidebarStyle.avatarDiameter * 0.56, weight: .semibold)
+            // Two initials ("LL") take a smaller size to fit the circle.
+            let scale: CGFloat = avatar.initial.count > 1 ? 0.44 : 0.56
+            let font = NSFont.systemFont(ofSize: SidebarStyle.avatarDiameter * scale, weight: .semibold)
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
             let size = avatar.initial.size(withAttributes: attributes)
             avatar.initial.draw(at: NSPoint(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2), withAttributes: attributes)
-            drawChevron(tint: isStrong ? Palette.textPrimary : Palette.textSecondary)
         }
     }
 

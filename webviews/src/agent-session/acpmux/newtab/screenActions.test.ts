@@ -17,9 +17,9 @@ test("the page's chat and shell command start in the folder the tab inherited", 
   actions.onShell("git status");
   await Promise.resolve();
   expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/old" }]);
-  // `!cmd` leaves for a chat that runs it; no terminal tab replaces the page.
-  expect(calls).toContainEqual(["runShell", "git status", "/src/old"]);
-  expect(calls.some((call) => (call as unknown[])[0] === "tab.open")).toBe(false);
+  // `!cmd` leaves for a terminal tab that runs it in the inherited folder.
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: true, cwd: "/src/old" }]);
+  expect(calls.some((call) => (call as unknown[])[0] === "runShell")).toBe(false);
 });
 
 test("a local file uses the file opener and a URL uses the browser", () => {

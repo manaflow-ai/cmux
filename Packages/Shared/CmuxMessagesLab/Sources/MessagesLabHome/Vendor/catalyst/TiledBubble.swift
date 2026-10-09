@@ -11,7 +11,7 @@ enum TiledBubble {
     static let linesPerTile = 16
     /// Glyph overflow above and below a tile's line slots (emoji, diacritics).
     static let overflow: CGFloat = 12
-    static let emptyImage: CGImage = WideBitmap.make(size: CGSize(width: 1, height: 1), scale: 1, opaque: false) { _ in }
+    static let emptyImage: CGImage? = WideBitmap.make(size: CGSize(width: 1, height: 1), scale: 1, opaque: false) { _ in }
 
     static func applies(_ spec: RowSpec) -> Bool { LongText.isLongRow(spec) }
 
@@ -21,14 +21,14 @@ enum TiledBubble {
         let body = cell.tiled ?? TiledBody()
         cell.tiled = body
         body.attach(cell)
-        body.set(spec: spec, row: p, layout: LongTextStore.shared.layout(t, width: spec.width), cell: cell)
+        body.set(spec: spec, row: p, layout: LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId), cell: cell)
         cell.bitmap.contents = emptyImage
         cell.bitmap.isHidden = true
         body.update(cell)
     }
 
     /// Draw one tile: lines [chunk*16, chunk*16+16) of a block, unclipped, at their baselines.
-    static func render(_ bl: BlockLayout, chunk: Int, outgoing: Bool, width: CGFloat, scale: CGFloat) -> CGImage {
+    static func render(_ bl: BlockLayout, chunk: Int, outgoing: Bool, width: CGFloat, scale: CGFloat) -> CGImage? { // cmux: nil when allocation fails
         let lh = Fixture.lineHeight
         let size = CGSize(width: width, height: CGFloat(linesPerTile) * lh + 2 * overflow)
         return WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
@@ -37,6 +37,10 @@ enum TiledBubble {
     }
     /// The tile's lines into `ctx`, the tile's top at y `top` (checks draw tiles and the whole in one context).
     static func draw(_ bl: BlockLayout, chunk: Int, outgoing: Bool, in ctx: CGContext, top: CGFloat) {
+        if let md = bl.md {
+            MarkdownLong.drawTile(md, lines: bl.lineCount, chunk: chunk, outgoing: outgoing, in: ctx, top: top)
+            return
+        }
         let lh = Fixture.lineHeight
         let attr = bl.attributed(outgoing: outgoing)
         let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
@@ -50,6 +54,13 @@ enum TiledBubble {
             CTLineDraw(l, ctx)
             ctx.restoreGState()
         }
+    }
+
+    /// The cache key of tile `chunk` of block `b`.
+    static func tileKey(_ layout: LongTextLayout, block b: Int, chunk: Int, outgoing: Bool, scale: CGFloat, palette: Int) -> TileCache.Key {
+        let k = layout.key(b)
+        return TileCache.Key(lineage: k.lineage, start: k.start, end: k.end, final: k.final, column: k.column, chunk: chunk,
+                             outgoing: outgoing, scale: scale, palette: palette, md: k.md)
     }
 
     static let tileQueue: OperationQueue = {
@@ -66,16 +77,16 @@ enum TiledBubble {
 enum BubbleSlices {
     static let cap: CGFloat = 32, pad: CGFloat = 24, vpad: CGFloat = 8
     private static var cache: [String: CGImage] = [:]
-    static func image(bodyWidth: CGFloat, phase: CGFloat, outgoing: Bool, tail: Bool, scale: CGFloat) -> CGImage {
+    static func image(bodyWidth: CGFloat, phase: CGFloat, outgoing: Bool, tail: Bool, scale: CGFloat) -> CGImage? { // cmux: nil when allocation fails
         let k = "\(bodyWidth)|\(phase)|\(outgoing)|\(tail)|\(scale)"
         if let i = cache[k] { return i }
         if cache.count > 64 { cache.removeAll() }
         let w = (ceil((bodyWidth + 2 * pad + 1) * scale)) / scale
         let size = CGSize(width: w, height: 2 * cap + 2 * vpad)
-        let img = WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
+        guard let img = WideBitmap.make(size: size, scale: scale, opaque: false, { ctx in
             UIColor.black.setFill()
             BubblePath.make(body: CGRect(x: pad + phase, y: vpad, width: bodyWidth, height: 2 * cap), outgoing: outgoing, tail: tail).fill()
-        }
+        }) else { return nil }
         cache[k] = img
         return img
     }
@@ -95,6 +106,7 @@ final class TileCache {
     struct Key: Hashable {
         var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat
         var chunk: Int; var outgoing: Bool; var scale: CGFloat; var palette: Int
+        var md: Bool = false
         var slot: Slot { Slot(lineage: lineage, start: start, chunk: chunk) }
     }
     struct Slot: Hashable { var lineage: Int; var start: Int; var chunk: Int }
@@ -138,6 +150,8 @@ final class TiledBody {
     private var live: [TileCache.Key: CALayer] = [:]
     private var pool: [CALayer] = []
     private var pending: [TileCache.Key: Operation] = [:]
+    /// Live tiles that show their slot's previous pixels until their own image arrives.
+    private var stalePixels = Set<TileCache.Key>()
     private(set) var layout: LongTextLayout?
     private var row: PartRow?
     private var spec: RowSpec?
@@ -177,7 +191,7 @@ final class TiledBody {
     /// without a row change.
     func refresh(_ cell: RowCell) {
         guard let spec, let row, case let .text(t, _) = row.part else { return }
-        let l = LongTextStore.shared.layout(t, width: spec.width)
+        let l = LongTextStore.shared.layout(t, width: spec.width, message: row.ref.messageId)
         guard l !== layout else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         set(spec: spec, row: row, layout: l, cell: cell)
@@ -201,7 +215,7 @@ final class TiledBody {
         guard spec != nil || container.superlayer != nil else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (_, l) in live { l.contents = nil; l.isHidden = true; pool.append(l) }
-        live.removeAll()
+        live.removeAll(); stalePixels.removeAll()
         for (_, op) in pending { op.cancel() }
         pending.removeAll()
         container.isHidden = true
@@ -209,7 +223,7 @@ final class TiledBody {
         cell.fillContainer.backgroundColor = nil
         cell.fillGradient.isHidden = false
         cell.bitmap.isHidden = false
-        if cell.bitmap.contents as AnyObject? === TiledBubble.emptyImage as AnyObject { cell.bitmap.contents = nil }
+        if let empty = TiledBubble.emptyImage, cell.bitmap.contents as AnyObject? === empty as AnyObject { cell.bitmap.contents = nil } // cmux
         CATransaction.commit()
         spec = nil; row = nil; layout = nil
     }
@@ -235,14 +249,18 @@ final class TiledBody {
         }
         let x0 = floor((body.minX - BubbleSlices.pad) * s) / s
         let phase = body.minX - BubbleSlices.pad - x0
-        let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s)
-        let ih = CGFloat(img.height) / s
-        shape.contents = img
-        shape.contentsScale = s
-        // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
-        shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
-        shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
-                             height: body.height + ih - 2 * BubbleSlices.cap)
+        // cmux: a slice image that could not be allocated leaves the bubble outline undrawn.
+        if let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+            let ih = CGFloat(img.height) / s
+            shape.contents = img
+            shape.contentsScale = s
+            // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
+            shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
+            shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
+                                 height: body.height + ih - 2 * BubbleSlices.cap)
+        } else {
+            shape.contents = nil
+        }
         container.contentsScale = s
         configureFold(p, layout: layout, scale: s)
         configureDecorations(p, spec: spec, scale: s)
@@ -320,7 +338,7 @@ final class TiledBody {
         guard key != bandKey else { return }
         bandKey = key
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
-        defer { if let img = band.contents { TiledBody.bandImages[key] = (img as! CGImage); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
+        defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
@@ -355,6 +373,10 @@ final class TiledBody {
         }
 
         let s = Fixture.renderScale, palette = Fixture.paletteGeneration
+        let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette)
+        if layout.tileHint.map({ $0.outgoing != hint.outgoing || $0.width != hint.width || $0.scale != hint.scale || $0.palette != hint.palette }) ?? true {
+            layout.tileHint = hint
+        }
         // Segments: text lines shown at a display offset in a parent layer. Full: one. Folded:
         // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
         var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
@@ -379,9 +401,7 @@ final class TiledBody {
                 let c0 = max(0, (wantA - first) / n), c1 = max(c0, (min(wantB, first + count) - 1 - first) / n)
                 for c in c0...c1 where first + c * n < first + count {
                     let a = first + c * n
-                    let k = TileCache.Key(lineage: layout.index.lineage, start: layout.index.starts[b], end: layout.index.starts[b + 1],
-                                          final: layout.index.isFinal(b), column: layout.column, chunk: c, outgoing: row.outgoing,
-                                          scale: s, palette: palette)
+                    let k = TiledBubble.tileKey(layout, block: b, chunk: c, outgoing: row.outgoing, scale: s, palette: palette)
                     let r = CGRect(x: body.minX - origin.x, y: textTop + seg.shift + CGFloat(a) * lh - TiledBubble.overflow - origin.y,
                                    width: body.width, height: CGFloat(n) * lh + 2 * TiledBubble.overflow)
                     wanted.append((k, r, a < visB && a + min(n, count - c * n) > visA, b, seg.parent))
@@ -397,12 +417,18 @@ final class TiledBody {
             stale[k.slot] = l
         }
         for (k, op) in pending where !wantedKeys.contains(k) { op.cancel(); pending[k] = nil; TiledStats.tilesCancelled += 1 }
+        stalePixels.formIntersection(wantedKeys)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         var mainTiles = 0
         for (k, r, visible, blk, parent) in wanted {
             if let l = live[k] {
                 if l.superlayer !== parent { parent.addSublayer(l) }
                 if l.frame != r { l.frame = r }
+                // Still the previous pixels of its slot: the cache (a published tail) or the queue replaces them.
+                if stalePixels.contains(k) {
+                    if let img = TileCache.shared.get(k) { l.contents = img; stalePixels.remove(k) }
+                    else if pending[k] == nil, layout.isExact(blk) { enqueue(k, layout: layout, block: blk, width: r.width, visible: visible) }
+                }
                 continue
             }
             let old = stale.removeValue(forKey: k.slot)
@@ -412,18 +438,23 @@ final class TiledBody {
             l.contentsScale = s
             live[k] = l
             if let img = TileCache.shared.get(k) { l.contents = img; continue }
+            // A slot that still shows its previous pixels keeps them until the replacement is drawn.
+            // A streamed tail block that is not measured yet keeps its old tiles (its new lines are not
+            // laid out: the publish brings the count and the tiles together).
+            if old?.contents != nil { stalePixels.insert(k) } else { stalePixels.remove(k) }
+            if LongText.offMainTail, old?.contents != nil, !layout.isExact(blk) { continue }
             // Visible and inside the per-frame draw budget (also in transactions: a message
             // that arrives must not cost a frame; the rest arrives from the tile queue).
             // Only when the block's line breaks are known: Core Text measurement never runs on main.
-            // At most one tile per frame on main (about 1.5 ms): the rest come from the queue.
+            // At most two tiles per frame on main (about 1.5 ms each): the rest come from the queue.
             // A slot that still shows its previous pixels (streaming tail, new width) waits for the queue.
-            if visible, old?.contents == nil, mainTiles == 0, TiledBody.noMainTiles == 0, RowCell.mainDrawBudgetLeft(), let bl = BlockLayoutCache.shared.get(layout.key(blk)) {
+            if visible, old?.contents == nil, mainTiles < (LongText.offMainTail ? 2 : 1), TiledBody.noMainTiles == 0, RowCell.mainDrawBudgetLeft(), let bl = layout.cachedBlockLayout(blk) {
                 mainTiles += 1
                 let t0 = CACurrentMediaTime()
                 let img = TiledBubble.render(bl, chunk: k.chunk, outgoing: k.outgoing, width: r.width, scale: s)
                 RowCell.mainDrawSpent += CACurrentMediaTime() - t0
                 TiledStats.tilesMain += 1
-                TileCache.shared.put(k, img)
+                if let img { TileCache.shared.put(k, img) } // cmux: an unallocated tile stays blank
                 l.contents = img
                 continue
             }
@@ -450,7 +481,7 @@ final class TiledBody {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (_, l) in live { l.contents = nil; l.isHidden = true; pool.append(l) }
         CATransaction.commit()
-        live.removeAll()
+        live.removeAll(); stalePixels.removeAll()
         for (_, op) in pending { op.cancel() }
         pending.removeAll()
     }
@@ -464,9 +495,10 @@ final class TiledBody {
             DispatchQueue.main.async { [weak self] in
                 TiledStats.tilesAsync += 1
                 guard k.palette == Fixture.paletteGeneration, k.scale == Fixture.renderScale else { return }
-                TileCache.shared.put(k, img)
+                if let img { TileCache.shared.put(k, img) } // cmux: an unallocated tile stays blank
                 guard let self else { return }
                 self.pending[k] = nil
+                self.stalePixels.remove(k)
                 if let l = self.live[k] {
                     CATransaction.begin(); CATransaction.setDisableActions(true)
                     l.contents = img

@@ -10,6 +10,7 @@
 #include <mutex>
 
 #include "agent_url_policy.h"
+#include "auth_callback_policy.h"
 #include "context_proxy_policy.h"
 #include "include/cef_parser.h"
 #include "shim_internal.h"
@@ -37,6 +38,18 @@ std::map<std::string, ContextProxy>& proxies() {
 
 std::map<int, int>& guards() {
   static std::map<int, int> map;
+  return map;
+}
+
+struct AuthCallback {
+  std::string scheme;
+  std::string host;
+  std::string path;
+};
+
+// UI thread only (set by the host, read in OnBeforeBrowse).
+std::map<int, AuthCallback>& auth_callbacks() {
+  static std::map<int, AuthCallback> map;
   return map;
 }
 
@@ -138,6 +151,13 @@ bool NavigationRefusedForAgent(int browser_id, const std::string& url) {
 
 void ForgetNavigationGuard(int browser_id) {
   guards().erase(browser_id);
+  auth_callbacks().erase(browser_id);
+}
+
+bool NavigationIsAuthCallback(int browser_id, const std::string& url) {
+  auto it = auth_callbacks().find(browser_id);
+  if (it == auth_callbacks().end()) return false;
+  return IsAuthCallback(url, it->second.scheme, it->second.host, it->second.path);
 }
 
 // UI thread: applies the proxy of `cache_path` to its request context.
@@ -201,6 +221,15 @@ int cmux_shim_context_proxy_state(const char* profile_cache_path) {
   std::lock_guard<std::mutex> lock(proxy_mutex());
   auto it = proxies().find(profile_cache_path);
   return it == proxies().end() ? 0 : it->second.state;
+}
+
+void cmux_shim_set_auth_callback(int browser_id, const char* scheme, const char* https_host, const char* https_path) {
+  std::string s = scheme ? scheme : "", host = https_host ? https_host : "", path = https_path ? https_path : "";
+  if (s.empty() && host.empty()) {
+    auth_callbacks().erase(browser_id);
+  } else {
+    auth_callbacks()[browser_id] = AuthCallback{s, host, path};
+  }
 }
 
 void cmux_shim_set_navigation_guard(int browser_id, int mode) {

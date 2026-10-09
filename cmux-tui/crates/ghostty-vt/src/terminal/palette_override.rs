@@ -344,13 +344,11 @@ impl PaletteCommand {
                             | "visual_bell"
                             | "second_transparent_background"
                     );
-                let value = std::str::from_utf8(trim_ascii_spaces(value)).ok();
-                let accepted = recognized
-                    && value.is_some_and(|value| {
-                        value.is_empty() || value == "?" || parse_color(value).is_some()
-                    });
-                if accepted {
-                    let value = value.expect("accepted Kitty color value must be valid UTF-8");
+                let accepted = std::str::from_utf8(trim_ascii_spaces(value)).ok().filter(|value| {
+                    recognized
+                        && (value.is_empty() || *value == "?" || parse_color(value).is_some())
+                });
+                if let Some(value) = accepted {
                     self.kitty_request_count += 1;
                     self.color_changed |= value != "?";
                     if value.is_empty()

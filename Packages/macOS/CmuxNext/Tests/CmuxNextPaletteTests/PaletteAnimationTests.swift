@@ -7,7 +7,7 @@ import Testing
 /// The palette scales in and out about its own center,
 /// never about an edge. AppKit gives a view's backing layer
 /// an anchor point of (0, 0), so a transform must pivot explicitly.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .paletteRanker)
 struct PaletteAnimationTests {
     /// Where `transform` (as the layer's sublayerTransform) draws `point`,
     /// in the layer's bounds coordinates: Core Animation applies it about

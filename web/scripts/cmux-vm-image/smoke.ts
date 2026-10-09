@@ -28,6 +28,7 @@ import { GUEST_DIR, TMP_LEFTOVERS } from "./bake";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
+import { HOST_CLI } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -211,7 +212,7 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "sshd-ca-only-loopback", effective.code === 0 && sshd.length === 0, sshd.join("\n") || "policy and loopback listen ok");
   const cert = await run(vm, sshdCertSmokeCommand(DEVBOX_WORK_USER), 120_000);
   check(report, "sshd-cert-login", cert.code === 0, cert.stdout.trim() || cert.stderr.slice(-300));
-  const probe = await run(vm, `/usr/local/bin/bun /opt/cmux/guest/vm-agent.ts --probe-activity`, 60_000);
+  const probe = await run(vm, `${HOST_CLI} cloud probe-activity`, 60_000);
   const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
   check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
   const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);

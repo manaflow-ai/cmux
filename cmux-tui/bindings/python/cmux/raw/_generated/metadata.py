@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089'
+IR_SHA256 = '18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d'
 
 
 @dataclass(frozen=True)
@@ -309,6 +309,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'chief-inspect': CommandMetadata(
+        'chief-inspect',
+        'local-admin',
+        12,
+        'chief-inspect-v1',
+        ('local-admin',),
+        None,
+        {
+            'path': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
         },
     ),
     'clear-history': CommandMetadata(
@@ -2403,6 +2415,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'include': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(

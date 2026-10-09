@@ -15,7 +15,7 @@ Resume after the Oct 4 reset. Branch for stage B code: `backend-home-routes` (of
 4. Lane 15 security follow-ups: per-account phone link limits (5/day, 2 numbers/day) with one uniform answer; link page rules (home-messaging.md section 19); SendBlue fetch-by-handle before acting on a webhook; relink notice to the previous account.
 5. Stage-A P3 leftovers: readInbox checks installActive; inbox prune slack; bind entity only after auth.
 
-Stage C (after B): MailerDO (wrangler tag v8) and the mail path for `mail.security_notice`; FeedDO accepts feed.post notices from UserDO; AddressDO sends (vCard first, text after SENT/DELIVERED, allow list fail-closed, HOME_INVITES_SEND kill switch, every staging send logged and reported).
+Stage C (after B): the mail path for `mail.security_notice` (no MailerDO class: the owner's outbox drain sends through Resend, cx-44j.2); FeedDO accepts feed.post notices from the owner's UserDO; AddressDO sends (vCard first, text after SENT/DELIVERED, allow list fail-closed, HOME_INVITES_SEND kill switch, every staging send logged and reported).
 
 Other open items: shared teams after stage C (plan in enterprise.md); verify the OIDC callback's Stack server calls on staging the next time auth changes; Effect 4.0.0 bump after 2026-10-08; integrations gateway after stage C.
 
@@ -54,7 +54,7 @@ New projection tables that search reads need the same GRANT.
    the backend:apply-migrations gate; a test proves the Drizzle schema equals today's database
    (introspect the scratch Postgres after all migrations and diff); raw SQL only where Drizzle is
    poor (home.search). Starts after conversation.import and the chief records (both done).
-2. Stage C: MailerDO (tag at landing), AddressDO sends (vCard first, allow list fail-closed, kill
+2. Stage C: security mail through the outbox drain (done, no MailerDO), AddressDO sends (vCard first, allow list fail-closed, kill
    switch, logged staging sends), invite limits, lane 15 phone-link rules, and
    `install.enroll_local` (the daemon enrolls as its own install per ownership-v2, with a
    narrowed grant: read and mutate-own on its own host objects, no send-external, money or

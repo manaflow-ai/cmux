@@ -105,14 +105,21 @@ public struct BrowserSourceDetector: Sendable {
     /// The cookie database of a Chromium profile (`Network/Cookies` since
     /// Chromium 96, `Cookies` before).
     public static func chromiumCookieFile(_ profile: URL) -> URL? {
+        #if CMUX_NO_BROWSER_DATA_IMPORT
+        return nil
+        #else
         for name in ["Network/Cookies", "Cookies"] {
             let url = profile.appending(path: name)
             if FileManager.default.fileExists(atPath: url.path) { return url }
         }
         return nil
+        #endif
     }
 
     static func chromiumAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
+        #if CMUX_NO_BROWSER_DATA_IMPORT
+        return [:]
+        #else
         let files = browser.source?.files
         func present(_ name: String?) -> Bool { name.map { FileManager.default.fileExists(atPath: profile.appending(path: $0).path) } ?? false }
         let sessions = profile.appending(path: "Sessions")
@@ -126,9 +133,13 @@ public struct BrowserSourceDetector: Sendable {
             .passwords: !present(files?.passwords ?? "Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
+        #endif
     }
 
     static func firefoxAvailability(_ profile: URL, browser: ImportBrowser) -> [ImportDataKind: DataAvailability] {
+        #if CMUX_NO_BROWSER_DATA_IMPORT
+        return [:]
+        #else
         func present(_ name: String) -> Bool { FileManager.default.fileExists(atPath: profile.appending(path: name).path) }
         let places: DataAvailability = present("places.sqlite") ? .available : .absent
         let refuse = browser.refusesSessionData
@@ -141,12 +152,25 @@ public struct BrowserSourceDetector: Sendable {
             .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
             // Firefox keeps passwords in logins.json, sealed with the NSS key store key4.db.
-            .passwords: session(FirefoxLoginReader.hasLogins(profile) ? .available : present("logins.json") ? .unsupported(.exportFromSource) : .absent),
+            .passwords: session(firefoxPasswords(profile, present: present("logins.json"))),
             .cookies: session(present("cookies.sqlite") ? .available : .absent),
         ]
+        #endif
+    }
+
+    static func firefoxPasswords(_ profile: URL, present: Bool) -> DataAvailability {
+        #if CMUX_NO_PASSWORD_IMPORT
+        // The cx-f58x notary test build has no Firefox password reader.
+        return present ? .unsupported(.exportFromSource) : .absent
+        #else
+        return FirefoxLoginReader.hasLogins(profile) ? .available : present ? .unsupported(.exportFromSource) : .absent
+        #endif
     }
 
     static func safariAvailability(_ directory: URL, cookies: URL?) -> [ImportDataKind: DataAvailability] {
+        #if CMUX_NO_BROWSER_DATA_IMPORT
+        return [:]
+        #else
         func state(_ url: URL) -> DataAvailability {
             switch FileAccess.probe(url) {
             case .readable: .available
@@ -160,5 +184,6 @@ public struct BrowserSourceDetector: Sendable {
             .cookies: cookies.map(state) ?? .absent,
             .passwords: .unsupported(.exportFromSource),
         ]
+        #endif
     }
 }

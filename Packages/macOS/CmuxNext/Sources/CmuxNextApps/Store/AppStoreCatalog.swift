@@ -19,7 +19,7 @@ public nonisolated struct BundledAppStoreCatalog: AppStoreCatalog {
 
     public func search(query: String, category: String?) async throws -> [AppStoreListing] {
         listings.filter { listing in
-            (category == nil || listing.categories.contains(category!)) && listing.matches(query)
+            (category.map { listing.categories.contains($0) } ?? true) && listing.matches(query)
         }
     }
 

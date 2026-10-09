@@ -42,6 +42,11 @@ nonisolated enum HomeEngineStrings {
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
     }
+    static var runsElsewhere: String {
+        String(localized: "home.engine.runsElsewhere",
+               defaultValue: "This Chief runs on a paired server, not on this Mac. Its harness and model are set on that server.",
+               table: "Home", bundle: .module)
+    }
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }

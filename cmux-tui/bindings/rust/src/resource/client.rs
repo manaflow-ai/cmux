@@ -992,7 +992,7 @@ fn random_stream_id() -> Result<StreamId> {
     StreamId::parse(value)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;

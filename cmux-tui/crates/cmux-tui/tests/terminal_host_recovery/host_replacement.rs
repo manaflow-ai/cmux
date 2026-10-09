@@ -280,7 +280,7 @@ fn a_replaced_host_is_readopted_after_a_daemon_restart() {
 #[test]
 fn a_terminal_whose_shell_died_with_its_host_is_not_replaced() {
     let _exclusive = exclusive_process_test();
-    let harness = RecoveryHarness::start("host-and-shell-killed");
+    let harness = RecoveryHarness::start_without_respawn("host-and-shell-killed");
     let shell = start_shell(&harness, "both");
     wait_for_daemon_custody(&harness, true);
     kill_shell_then_host(&shell.record_path, &shell.record);

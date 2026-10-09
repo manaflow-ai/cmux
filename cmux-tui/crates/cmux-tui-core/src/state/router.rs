@@ -101,11 +101,7 @@ fn state_error(error: anyhow::Error) -> ResourceError {
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+    request.mutation().map_err(resource_operation_error)
 }
 
 fn ensure_session(mux: &Mux, selectors: &ResourceSelectors) -> Result<(), ResourceError> {

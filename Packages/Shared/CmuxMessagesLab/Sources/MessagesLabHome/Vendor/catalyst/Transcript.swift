@@ -519,7 +519,7 @@ final class RowCell: UICollectionViewCell {
     deinit {
         RowCell.destroyed += 1
         if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
-            FileHandle.standardError.write(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").data(using: .utf8)!)
+            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // cmux: no force unwrap
         }
     }
 
@@ -686,7 +686,7 @@ final class RowCell: UICollectionViewCell {
             let t0 = CACurrentMediaTime()
             let img = RowBitmaps.render(spec)
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
-            RowBitmaps.shared.insert([(spec, img)])
+            if let img { RowBitmaps.shared.insert([(spec, img)]) } // cmux: an unallocated bitmap is not cached
             RowCell.syncRenders += 1
             Reclaimer.release(bitmap.contents)
             MediaPlaceholder.clear(bitmap)
@@ -738,7 +738,9 @@ final class RowCell: UICollectionViewCell {
         guard let spec else { return }
         let img: CGImage
         if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
-            img = RowBitmaps.render(spec)
+            // cmux: a bitmap that could not be allocated is not shown (BitmapFailure logged it).
+            guard let rendered = RowBitmaps.render(spec) else { return }
+            img = rendered
             RowBitmaps.shared.insert([(spec, img)])
             RowCell.syncRenders += 1
         }
@@ -830,12 +832,12 @@ final class RowCell: UICollectionViewCell {
             mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
         }
         let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
-        let img: CGImage
+        let img: CGImage?
         if let cached = Self.badgeGlyphs[key] { img = cached } else {
             img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
             }
-            Self.badgeGlyphs[key] = img
+            Self.badgeGlyphs[key] = img // cmux: an unallocated glyph is not cached (nil)
         }
         glyph.contents = img
         glyph.contentsScale = Fixture.renderScale

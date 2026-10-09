@@ -2911,6 +2911,11 @@ describe("acpmux new chat", () => {
       expect(dom.window.document.querySelector(".acpmux-scroll")).toBeNull();
       await show(snapshot({ cwd: "/Users/me" }));
       expect(hero()).toBe("What should we build?");
+      // A folderless workspace's private agent-home folder is never named by its UUID.
+      await show(
+        snapshot({ cwd: "/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481" }),
+      );
+      expect(hero()).toBe("What should we build?");
       // Between a session's reset and its attach there is no summary yet.
       await show(snapshot({ summary: false }));
       expect(hero()).toBeUndefined();
@@ -2939,6 +2944,10 @@ describe("acpmux new chat", () => {
     expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
+    expect(
+      projectName("/Users/me/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481"),
+    ).toBeUndefined();
+    expect(projectName("/Users/me/Library/Application Support/cmux/agent-home/home/")).toBeUndefined();
   });
 });
 
@@ -3040,8 +3049,12 @@ describe("acpmux tool runs", () => {
       const summary = dom.window.document.querySelector<HTMLButtonElement>(".cv-tool.is-toggle")!;
       expect(texts()).toEqual(["Read files, ran a command"]);
       expect(summary.getAttribute("aria-expanded")).toBe("false");
+      expect(summary.getAttribute("aria-controls")).toBeNull();
       await act(async () => summary.click());
       expect(summary.getAttribute("aria-expanded")).toBe("true");
+      const detailsId = summary.getAttribute("aria-controls");
+      expect(detailsId).toBeTruthy();
+      expect(dom.window.document.getElementById(detailsId!)).not.toBeNull();
       expect(texts()).toEqual(["Read files, ran a command", "Read upload.ts", "Search for retry", "Run bun test"]);
     } finally {
       await act(async () => root.unmount());
@@ -3132,6 +3145,12 @@ describe("acpmux shell calls", () => {
       );
       const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle")];
       await act(async () => rows.forEach((row) => row.click()));
+      expect(
+        rows.every((row) => {
+          const id = row.getAttribute("aria-controls");
+          return Boolean(id && dom.window.document.getElementById(id));
+        }),
+      ).toBe(true);
       const shell = dom.window.document.querySelector(".cv-shell");
       expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
       expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
@@ -3272,6 +3291,9 @@ describe("acpmux edit diffs", () => {
       expect(card?.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
       expect(card?.querySelector(".cv-edit-diff__body")?.children.length).toBe(1);
       expect(toggles()[0]!.getAttribute("aria-expanded")).toBe("true");
+      const detailsId = toggles()[0]!.getAttribute("aria-controls");
+      expect(detailsId).toBeTruthy();
+      expect(document.getElementById(detailsId!)?.querySelector(".cv-edit-diff")).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();

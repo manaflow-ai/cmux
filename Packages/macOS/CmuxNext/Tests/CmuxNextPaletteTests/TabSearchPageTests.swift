@@ -7,7 +7,7 @@ import Testing
 /// The Search Tabs page in the palette model: open tabs above recently
 /// closed ones, Return focuses or reopens, Cmd-W closes the row and keeps
 /// the palette open with the next row selected.
-@Suite struct TabSearchPageTests {
+@Suite(.paletteRanker) struct TabSearchPageTests {
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
 
     func open(_ source: MockTabSearchSource, query: String = "", style: TabSearchStyle = .recent) -> PaletteModel {

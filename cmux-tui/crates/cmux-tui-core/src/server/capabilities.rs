@@ -12,6 +12,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.serves_agent_session_attach() {
+        capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
@@ -122,6 +126,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
+        chief_inspect::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

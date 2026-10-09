@@ -5,6 +5,11 @@ public struct ControlPaneInfo: Sendable, Hashable {
     public var selectedTabID: String?
     public var tabs: [ControlTabInfo]
     public var tabGroups: [ControlTabGroupInfo]
+    /// App-only page tabs the pane's strip lists and its daemon does not
+    /// hold (the App Store, Settings pages). `snapshot.get` lists them in
+    /// `tabs` with kind `page`; targets, counts and Search Tabs read the
+    /// daemon's `tabs` only (bd cx-5xsi).
+    public var pageTabs: [ControlPageTabInfo] = []
 
     public init(id: String, handle: String, name: String? = nil, selectedTabID: String? = nil,
                 tabs: [ControlTabInfo] = [], tabGroups: [ControlTabGroupInfo] = []) {
@@ -50,6 +55,10 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var browserProfileID: String?
     /// An agent chat tab's acpmux session (`agent-session-tabs-v1`); nil for other tabs.
     public var agentSessionID: String?
+    /// A page tab's internal page (`app-store`, `settings`): a store page
+    /// tab (`page-tabs-v1`) the daemon lists as a conversation. `snapshot.get`
+    /// reports its kind as `page`. Nil for other tabs.
+    public var page: String?
 
     public init(id: String, surface: String, kind: String, title: String, name: String? = nil, terminalID: String? = nil,
                 columns: Int? = nil, rows: Int? = nil, cwd: String? = nil, url: String? = nil, gitBranch: String? = nil,

@@ -95,6 +95,82 @@ pub fn cache_pieces(text: &str) -> Vec<&str> {
     pieces
 }
 
+/// Lines per cache block (spec 3.3, gist 3c190e0): the view goes in blocks
+/// of 4 lines; one cache mark sits on the last whole block and one on the
+/// request's end. Anthropic stores entries only at marks and looks back up to
+/// 20 blocks from a mark for an earlier one, so the next call finds this
+/// mark and pays only for the lines after it.
+pub const BLOCK_LINES: usize = 4;
+
+/// Byte offsets in `text` (a rendered view: `<chat>`, one line per part,
+/// `</chat>`) just after every `BLOCK_LINES` lines of the view: after the
+/// header line and lines 4, 8, 12, ... A cut depends only on the bytes
+/// before it, so an unchanged prefix keeps its cuts from call to call.
+pub fn block_cuts(text: &str) -> Vec<usize> {
+    let mut cuts = Vec::new();
+    let mut lines = 0usize;
+    for (byte, ch) in text.char_indices() {
+        if ch == '\n' {
+            // The first newline ends the `<chat>` header.
+            if lines > 0 && lines.is_multiple_of(BLOCK_LINES) && byte + 1 < text.len() {
+                cuts.push(byte + 1);
+            }
+            lines += 1;
+        }
+    }
+    cuts
+}
+
+/// Blocks the API looks back from a cache mark for an earlier entry: a mark
+/// more than this many blocks past the last request's mark finds nothing,
+/// and the request writes the whole prefix again.
+pub const LOOKBACK_BLOCKS: usize = 20;
+
+/// How many blocks a turn's mark may move past the last turn's mark: inside
+/// `LOOKBACK_BLOCKS`, with room for the blocks Claude Code adds.
+pub const MARK_REACH: usize = 16;
+
+/// The piece of `block_pieces(view)` that carries the request's one mark, or
+/// None when the view has no whole block. It is the last whole block, unless
+/// `prev` (the view's text up to and including the last request's marked
+/// piece) is still a prefix of `view` ending on a block cut and the last
+/// whole block lies more than `MARK_REACH` pieces past it: then the mark
+/// goes `MARK_REACH` pieces past it, so this request reads the last one's
+/// entry and writes the next one in reach. A turn that adds hundreds of view
+/// lines (a long tool run) then costs the new lines once, not the whole view.
+pub fn mark_piece(view: &str, prev: Option<&str>) -> Option<usize> {
+    let pieces = block_pieces(view);
+    let last = pieces.len().checked_sub(2)?;
+    let Some(prev) = prev.filter(|p| !p.is_empty() && view.starts_with(p)) else {
+        return Some(last);
+    };
+    let mut end = 0;
+    for (k, piece) in pieces[..=last].iter().enumerate() {
+        end += piece.len();
+        if end == prev.len() {
+            return Some(last.min(k + MARK_REACH));
+        }
+        if end > prev.len() {
+            break;
+        }
+    }
+    Some(last)
+}
+
+/// `text` cut at its `block_cuts`: every piece but the last is a whole
+/// block (the first with the header), the last holds the rest and the
+/// closing tag. The mark goes on the second to last piece, when there is one.
+pub fn block_pieces(text: &str) -> Vec<&str> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    for cut in block_cuts(text) {
+        pieces.push(&text[start..cut]);
+        start = cut;
+    }
+    pieces.push(&text[start..]);
+    pieces
+}
+
 /// Why `zoom` refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ZoomError {

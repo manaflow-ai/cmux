@@ -45,6 +45,19 @@ struct AppStorePagesTests {
         #expect(pages.model(for: "b") != nil)
     }
 
+    /// Closing the tab inside a Remove's undo window still removes the app: the user asked for a
+    /// remove, and a closed tab has no Undo left to show.
+    @Test func closingTheTabCommitsAPendingRemove() async throws {
+        let (pages, registry) = await pages()
+        _ = pages.makeView(for: "a")
+        let model = try #require(pages.model(for: "a"))
+        try await model.install("cmux/github-prs")
+        await model.requestRemove("cmux/github-prs")
+        #expect(registry.app("cmux/github-prs")?.isInstalled == true)
+        pages.tabClosed("a")
+        #expect(await eventually { await MainActor.run { registry.app("cmux/github-prs")?.isInstalled == false } })
+    }
+
     @Test func showSelectsAListing() async {
         let (pages, _) = await pages()
         _ = pages.makeView(for: "a")

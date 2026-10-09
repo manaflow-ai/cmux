@@ -196,7 +196,7 @@ fn home_refuses_every_close_path() {
             Some(&key),
             None,
             None,
-            &WorkspaceMutation::new("raw-close-home", "test").unwrap(),
+            &WorkspaceMutation::daemon("raw-close-home", "test").unwrap(),
         )
         .expect_err("raw close-workspace closed the home workspace");
     assert_eq!(crate::state::home_error_code(&raw).as_deref(), Some("home_not_closable"));
@@ -207,7 +207,7 @@ fn home_refuses_every_close_path() {
             Some(&key),
             None,
             None,
-            &WorkspaceMutation::new("batch-close-home", "test").unwrap(),
+            &WorkspaceMutation::daemon("batch-close-home", "test").unwrap(),
         )
         .expect_err("close-workspace end_terminals closed the home workspace");
     assert_eq!(crate::state::home_error_code(&batch).as_deref(), Some("home_not_closable"));

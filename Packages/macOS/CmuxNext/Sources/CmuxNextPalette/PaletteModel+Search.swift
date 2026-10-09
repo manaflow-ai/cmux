@@ -85,9 +85,11 @@ extension PaletteModel {
             // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
             // and holding the page would keep its providers alive after the palette moved on.
             let queryItems = page.queryItems
+            // The superseded search ranks nothing if it has not started (its result is stale anyway).
+            searchTask?.cancel()
             searchTask = Task { [weak self, weak state] in
-                await searcher.install(entries: request.entries, version: request.version)
                 let result = await searcher.search(
+                    entries: request.entries, version: request.version,
                     query: request.query, generation: searchID, sectionOrders: request.orders,
                     frecency: request.frecency, now: request.now, showsRecent: request.recent,
                     keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst

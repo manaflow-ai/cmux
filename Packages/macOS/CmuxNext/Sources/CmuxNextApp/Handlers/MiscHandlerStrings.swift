@@ -20,7 +20,10 @@ enum MiscHandlerStrings {
     static var omnibarToggle: String { String(localized: "handlers.misc.unavailable.omnibarToggle", defaultValue: "The address bar cannot be hidden yet.", table: "MiscHandlers", bundle: .module) }
     static var browserHistory: String { String(localized: "handlers.misc.unavailable.browserHistory", defaultValue: "cmux-next keeps no browser history store yet.", table: "MiscHandlers", bundle: .module) }
     static var browserToggle: String { String(localized: "handlers.misc.unavailable.browserToggle", defaultValue: "The cmux browser is always on in cmux-next; there is no setting to turn it off yet.", table: "MiscHandlers", bundle: .module) }
-    static var linkTarget: String { String(localized: "handlers.misc.unavailable.linkTarget", defaultValue: "Link context menus do not pass a link to actions yet.", table: "MiscHandlers", bundle: .module) }
+    static var defaultBrowserIsCmux: String {
+        String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module)
+    }
+    static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
     static var sectionScreenshot: String { String(localized: "handlers.misc.unavailable.sectionScreenshot", defaultValue: "Section screenshots need a selection overlay that is not built yet.", table: "MiscHandlers", bundle: .module) }
     static var agentChat: String { String(localized: "handlers.misc.unavailable.agentChat", defaultValue: "Agent chat views are not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var agentTeams: String { String(localized: "handlers.misc.unavailable.agentTeams", defaultValue: "The Claude and Codex Teams launcher is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
@@ -37,6 +40,7 @@ enum MiscHandlerStrings {
     static var markUnread: String { String(localized: "handlers.misc.failed.markUnread", defaultValue: "The daemon cannot mark a notification unread.", table: "MiscHandlers", bundle: .module) }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
+    static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
     static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }

@@ -43,6 +43,24 @@ import Testing
         #expect(TerminalStatusBanner.text(for: .connected, hostLoss: .hostEnded, strings: missing) == nil)
     }
 
+    /// cx-0tgl LA: the banner names who ended the host, so an external
+    /// killer is visible at once; a process end shows no cause.
+    @Test func theBannerNamesTheRecordedCause() {
+        let cause = TerminalHostLossCause(signal: "SIGTERM", senderPid: 9, senderName: "bash")
+        #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, cause: cause, strings: missing)
+                == "Terminal lost: its host process ended · SIGTERM from bash (pid 9)")
+        let gone = TerminalHostLossCause(signal: "SIGTERM", senderPid: 9, panicked: true)
+        #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, cause: gone, strings: missing)
+                == "Terminal lost: its host process ended · SIGTERM from pid 9 · the host had panicked")
+        #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, cause: TerminalHostLossCause(),
+                                          strings: missing) == "Terminal lost: its host process ended")
+        #expect(TerminalStatusBanner.text(for: .exited, cause: cause, strings: missing) == "Process exited")
+        #expect(TerminalStatusBanner.text(for: .connected, hostLoss: .hostEnded, cause: cause, strings: missing) == nil)
+        let japanese = ModuleResourceBundle.terminal.localization("ja")
+        #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, cause: cause, strings: japanese)
+                == "ターミナルが失われました: ホストプロセスが終了しました · bash（pid 9）からの SIGTERM")
+    }
+
     @Test func theJapaneseTableIsRead() {
         let japanese = ModuleResourceBundle.terminal.localization("ja")
         #expect(TerminalStatusBanner.text(for: .exited, hostLoss: .hostEnded, strings: japanese)

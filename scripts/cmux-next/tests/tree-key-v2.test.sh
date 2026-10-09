@@ -17,6 +17,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
@@ -140,5 +141,20 @@ sha=$(awk '{print $1}' "$cdn/tree/$v1/cmux-tui-aarch64-apple-darwin.sha256")
 printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
 commit=$(resolve) || fail "resolve-commit through v1 failed:" "$(cat "$TMP/resolve.err")"
 grep -qxF "resolved cmux-tui tree $v1 (v1 fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the v1 fallback:" "$(cat "$TMP/resolve.err")"
+
+# MACOS-CROSS-COMPILE-ON-LINUX: the Mac and the Linux builder give
+# byte-different macOS binaries, so the builder switch and the Linux recipe
+# are key inputs. A fallback to the other builder never reuses a tree.
+before=$(key --version v2)
+mkdir -p "$src/scripts/ci/macos-stubs"
+printf 'linux\n' > "$src/scripts/ci/cmux-tui-darwin-builder"
+git_q -C "$src" add scripts/ci/cmux-tui-darwin-builder
+git_q -C "$src" commit -m builder
+[[ "$(key --version v2)" != "$before" ]] || fail "switching the macOS builder kept the tree key"
+before=$(key --version v2)
+echo "changed stub" > "$src/scripts/ci/macos-stubs/Security.tbd"
+git_q -C "$src" add scripts/ci/macos-stubs/Security.tbd
+git_q -C "$src" commit -m stubs
+[[ "$(key --version v2)" != "$before" ]] || fail "a framework stub change kept the tree key"
 
 printf 'tree-key-v2 tests: ok\n'

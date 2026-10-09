@@ -829,16 +829,25 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. */
+/* Copy under an answer; the row's height is reserved. A long failure note (a gateway 503) wraps
+ * and grows the row instead of overflowing a fixed 28px box, which cut its first and last lines. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  min-height: 28px;
   margin-left: -4.5px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
+}
+.cv-turn-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-turn-action-group:empty {
+  display: none;
 }
 .cv-iconbtn {
   all: unset;
@@ -852,6 +861,11 @@ pre.cv-math-source {
   color: var(--cv-text-muted);
   cursor: pointer;
 }
+.cv-iconbtn--compact {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
 .cv-iconbtn:hover {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
@@ -864,6 +878,18 @@ pre.cv-math-source {
 }
 .cv-turn-summary {
   margin-left: 4.5px;
+}
+.cv-turn-summary,
+.cv-turn-time {
+  flex: none;
+  white-space: nowrap;
+}
+.cv-turn-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
@@ -1262,6 +1288,43 @@ pre.cv-math-source {
 .acpmux-turn-preview-load:focus-visible {
   outline: 1.5px solid var(--agent-muted);
   outline-offset: 1px;
+}
+
+/* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
+.acpmux-render-card {
+  position: relative;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--agent-page-bg);
+  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+}
+.acpmux-render-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 6px 4px 12px;
+  box-shadow: inset 0 -1px 0 var(--agent-border);
+}
+.acpmux-render-card-head .acpmux-review-changes {
+  height: 24px;
+}
+.acpmux-render-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-render-card-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
 }
 
 /* A message that could not be drawn (MessageBoundary.tsx): a note over its plain source text. */

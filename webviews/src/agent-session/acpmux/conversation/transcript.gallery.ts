@@ -43,6 +43,13 @@ const MATH = [
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
 ].join("\n");
 
+const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
+const WEB_VIDEO_REPLY = [
+  "Yes. The recording attached to the PR shows all six login tests passing:",
+  "",
+  WEB_VIDEO,
+].join("\n");
+
 const BUILD_CHART = [
   "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
   "",
@@ -196,7 +203,7 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000 }),
+        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
       ]),
     },
     "github-references": {
@@ -309,6 +316,17 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-long": {
+      note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.5, {
+          status: "failed",
+          error:
+            "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2945s). This is a server-side issue, usually temporary. Try again in a moment. If it persists, check your inference gateway (100.89.225.106:31415).",
+        }),
+      ]),
+    },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
       snapshot: chat([
@@ -408,6 +426,27 @@ export default agentPaneEntry({
         ),
         assistant("All six login tests pass; the recording is ready to attach.", 3.6),
         summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "web-video": {
+      note: "A GitHub attachment alone on its line: with images.remote = click (the default) it shows its site and Load video.",
+      chipHost: { media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "web-video-loaded": {
+      note: "The same reply with images.remote = always: the host fetched the attachment and the copy plays inline.",
+      chipHost: {
+        policy: { remoteImages: "always" as const },
+        media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
       ]),
     },
     "vega-lite-chart": {

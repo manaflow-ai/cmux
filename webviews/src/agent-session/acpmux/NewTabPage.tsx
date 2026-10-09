@@ -225,6 +225,8 @@ type Props = {
   onEditShortcut?(kind: TabKind): void;
   onImport?(): void;
   onBrowseProject?(): void;
+  /// Opens the host's Integrate a harness flow (`palette.addHarness`).
+  onAddHarness?(): void;
   now?: number;
 };
 
@@ -250,6 +252,7 @@ export function NewTabPage({
   onEditShortcut,
   onImport,
   onBrowseProject,
+  onAddHarness,
   inputToken,
   onInputReady,
 }: Props) {
@@ -528,6 +531,11 @@ export function NewTabPage({
         {onImport && (
           <button type="button" className="acpmux-newtab-all" onClick={onImport}>
             {t("newtab.importAndSync")}
+          </button>
+        )}
+        {onAddHarness && (
+          <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
+            {t("newtab.addHarness")}
           </button>
         )}
       </div>

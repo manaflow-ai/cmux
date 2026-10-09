@@ -13,6 +13,12 @@ const OSC52_READ: &[u8] = b"\x1b]52;c;?\x07";
 const REFUSED: &[u8] = b"\x1b]52;c;\x07";
 const GRANTED_HI: &[u8] = b"\x1b]52;c;aGk=\x07";
 
+/// Real time bounds only how long a helper waits for another thread to act
+/// (a reply, a frame, a timer wait), never what the test asserts about the
+/// read's timeout: that runs on [`FakeClock`]. The bound is generous, so a
+/// thread that starts late under full-suite load is not a failure.
+const SAFETY_BOUND: Duration = Duration::from_secs(30);
+
 /// Time moves only through `advance`; the timer wakes on `notify_timer`.
 /// Every timer wait is recorded (the timeout it asked for, `None` when no
 /// read is open), so a test can see what the timer decided without sleeping.
@@ -38,12 +44,16 @@ impl FakeClock {
 
     /// Blocks until a timer wait after the first `from` ones matches.
     fn await_wait(&self, from: usize, matches: impl Fn(Option<Duration>) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + SAFETY_BOUND;
         let mut waits = self.waits.lock().unwrap();
         while !waits[from..].iter().any(|wait| matches(*wait)) {
-            let left = deadline
-                .checked_duration_since(Instant::now())
-                .expect("the timer never went to the expected wait");
+            let left = deadline.checked_duration_since(Instant::now()).unwrap_or_else(|| {
+                panic!(
+                    "the timer never went to the expected wait within {SAFETY_BOUND:?}; \
+                         waits after #{from}: {:?}",
+                    &waits[from..]
+                )
+            });
             waits = self.waited.wait_timeout(waits, left).unwrap().0;
         }
     }
@@ -143,7 +153,9 @@ impl Harness {
     }
 
     fn pty_reply(&self) -> Vec<u8> {
-        self.pty.recv_timeout(Duration::from_secs(2)).expect("the parser flushed a PTY reply")
+        self.pty
+            .recv_timeout(SAFETY_BOUND)
+            .unwrap_or_else(|_| panic!("the parser flushed no PTY reply within {SAFETY_BOUND:?}"))
     }
 
     fn assert_pty_quiet(&self) {
@@ -155,14 +167,10 @@ impl Harness {
     fn connect(&self, role: ClientRole, rights: CapabilityRights) -> UnixStream {
         let token = match role {
             ClientRole::Admin => self.host.owner_token,
-            _ => self
-                .host
-                .capabilities
-                .mint(self.host.terminal_id, rights, Duration::from_secs(5))
-                .unwrap(),
+            _ => self.host.capabilities.mint(self.host.terminal_id, rights, SAFETY_BOUND).unwrap(),
         };
         let (server_stream, mut client) = UnixStream::pair().unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        client.set_read_timeout(Some(SAFETY_BOUND)).unwrap();
         let server_host = self.host.clone();
         thread::spawn(move || {
             let _ = serve_client(server_host, server_stream);
@@ -354,12 +362,71 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     h.host.clipboard.notify_timer();
     assert_eq!(h.pty_reply(), REFUSED);
 
-    // The late answer is stale; the slot is free for the next read.
+    // The late answer is stale: once the host has handled it, the next PTY
+    // reply is the status report, not a second clipboard answer.
     reply(&mut owner, request.token, Some(b"hi"));
-    h.assert_pty_quiet();
+    round_trip(&mut owner);
+    h.output(b"\x1b[5n");
+    assert_eq!(h.pty_reply(), b"\x1b[0n", "the stale answer reached the PTY");
+    // The slot is free for the next read.
     h.output(OSC52_READ);
     let next = next_clipboard_request(&mut owner);
     assert_ne!(next.token, request.token);
+}
+
+/// A clock that, each time the broker reads it, records whether the owner
+/// could already see the read request.
+struct OwnerProbeClock {
+    now: Instant,
+    owner_inbox: Mutex<Receiver<Frame>>,
+    request_visible_at_read: Mutex<Vec<bool>>,
+}
+
+impl ClipboardClock for OwnerProbeClock {
+    fn now(&self) -> Instant {
+        let visible = self.owner_inbox.lock().unwrap().try_recv().is_ok();
+        self.request_visible_at_read.lock().unwrap().push(visible);
+        self.now
+    }
+
+    fn wait_timeout<'a>(
+        &self,
+        _changed: &Condvar,
+        _state: MutexGuard<'a, ClipboardReadState>,
+        _timeout: Duration,
+    ) -> MutexGuard<'a, ClipboardReadState> {
+        unreachable!("no timer runs in this test")
+    }
+}
+
+/// The sixty seconds start before the owner can see the read. Otherwise a
+/// clock step between the owner receiving the request and the host reading
+/// the clock moves the deadline later than the owner was told.
+#[test]
+fn a_read_takes_its_deadline_before_the_owner_can_see_it() {
+    let (tap_sender, owner_inbox) = mpsc_channel();
+    let clock = Arc::new(OwnerProbeClock {
+        now: Instant::now(),
+        owner_inbox: Mutex::new(owner_inbox),
+        request_visible_at_read: Mutex::new(Vec::new()),
+    });
+    let clipboard = ClipboardReads::new(clock.clone());
+    let term = Mutex::new(Terminal::new(80, 24, 0, Callbacks::default()).unwrap());
+    let (socket, _peer) = UnixStream::pair().unwrap();
+    clipboard.register_owner(&term, 7, HostTap::new(tap_sender, Arc::new(socket), usize::MAX));
+    (clipboard.callback())(ClipboardReadRequest {
+        token: 1,
+        location: ClipboardLocation::Standard,
+    });
+    clipboard.dispatch(&mut term.lock().unwrap(), &Mutex::new(()));
+    assert_eq!(clipboard.open_token_for_test(), Some(1));
+    let reads = clock.request_visible_at_read.lock().unwrap().clone();
+    assert!(
+        !reads.is_empty() && reads.iter().all(|visible| !visible),
+        "the host read its clock for the deadline after the owner could see the request: {reads:?}"
+    );
+    let sent = clock.owner_inbox.lock().unwrap().try_recv().expect("the owner was asked");
+    assert_eq!(sent.kind, MessageKind::ClipboardReadRequest);
 }
 
 #[test]
@@ -439,7 +506,7 @@ fn a_closed_newer_owner_falls_back_to_the_older_one() {
     let mut older = h.owner();
     let newer = h.owner();
     newer.shutdown(std::net::Shutdown::Both).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + SAFETY_BOUND;
     while h.host.clipboard.owner_count_for_test() != 1 {
         assert!(Instant::now() < deadline, "the host never dropped the closed owner");
         thread::sleep(Duration::from_millis(1));
@@ -609,7 +676,7 @@ fn fake_owner_host(
     record: TerminalHostRecord,
     grant: fn(CapabilityRights) -> CapabilityRights,
 ) -> anyhow::Result<CapabilityRights> {
-    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+    stream.set_read_timeout(Some(SAFETY_BOUND))?;
     let hello_frame = read_required_frame(&mut stream, "owner hello")?;
     let version = hello_frame.version;
     let hello = ClientHello::decode(&hello_frame.payload)?;
@@ -674,7 +741,7 @@ fn connect_to_fake_host(
     let attachment = connect_record_at_version(
         record,
         record_path.clone(),
-        Duration::from_secs(1),
+        SAFETY_BOUND,
         protocol_version,
         true,
         daemon,

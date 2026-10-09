@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextSettings
 import Darwin
 import Foundation
+import Observation
 import os
 import Synchronization
 
@@ -56,7 +57,9 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
 /// starts, and the helper is stopped when Computer Use turns off and when the app quits.
+/// `state` is observable: Computer Use Setup follows it.
 @MainActor
+@Observable
 final class ComputerUseHelperDaemon {
     enum State: Equatable {
         case off
@@ -69,25 +72,31 @@ final class ComputerUseHelperDaemon {
     static let shared = ComputerUseHelperDaemon()
 
     private(set) var state: State = .off
-    let socketPath: String
-    let stateDirectory: URL
-    private let identity: CuaHelperIdentity
-    private let candidates: @Sendable () -> [URL]
-    private let launcher: any ComputerUseHelperLaunching
-    private let published = Mutex<[String: String]>([:])
-    private var agentToken: String?
-    private var hostToken: String?
-    private var generation = 0
-    private var observation: Task<Void, Never>?
+    @ObservationIgnored let socketPath: String
+    @ObservationIgnored let stateDirectory: URL
+    @ObservationIgnored private let identity: CuaHelperIdentity
+    @ObservationIgnored private let candidates: @Sendable () -> [URL]
+    @ObservationIgnored private let launcher: any ComputerUseHelperLaunching
+    @ObservationIgnored private let manifestReader: CuaHelperManifestReader
+    @ObservationIgnored private let ownerPID: pid_t
+    @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    @ObservationIgnored private var agentToken: String?
+    @ObservationIgnored private var hostToken: String?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var observation: Task<Void, Never>?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
          launcher: any ComputerUseHelperLaunching = WorkspaceHelperLauncher(),
+         manifestReader: CuaHelperManifestReader = .shared,
+         ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory()) {
         self.identity = identity
         self.candidates = candidates
         self.launcher = launcher
+        self.manifestReader = manifestReader
+        self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
     }
@@ -140,13 +149,19 @@ final class ComputerUseHelperDaemon {
             state = .unavailable
             return
         }
+        // The helper's parent is launchd (LaunchServices), so it outlives a
+        // crash of this app unless it watches this pid. Older helpers may
+        // reject an unknown flag: pass it only when the manifest lists it.
+        let capabilities = await manifestReader.capabilities(of: helper)
+        guard current == generation, !Task.isCancelled else { return }
+        let owner = capabilities.contains(CuaHelperManifestReader.ownerPIDCapability) ? ownerPID : nil
         guard prepareDirectories() else {
             state = .unavailable
             return
         }
         let agent = Self.makeToken()
         let host = Self.makeToken()
-        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath),
+        let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
         guard current == generation else {
             if let pid { launcher.terminate(pid) }
@@ -181,8 +196,11 @@ final class ComputerUseHelperDaemon {
         stop()
     }
 
-    nonisolated static func arguments(socketPath: String) -> [String] {
+    /// `serve` argv: the socket path and this app's pid only, never a token
+    /// (argv is visible to every local user; tokens go in the environment).
+    nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
         ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "0"]
+            + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
 
     /// The helper's environment: no CMUX_CUA_SOCKET_AUTHORIZED_ROOT_* (agents

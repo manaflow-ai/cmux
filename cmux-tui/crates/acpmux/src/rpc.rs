@@ -178,6 +178,9 @@ pub mod method {
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
     pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
+    /// A new dashboard token, served at once (`hub/web_token.rs`); unix
+    /// socket only.
+    pub const MUX_WEB_TOKEN_ROTATE: &str = "_acpmux/web_token_rotate";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
@@ -211,6 +214,8 @@ pub mod method {
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Fork a session through its latest completed turn (`server/fork_through.rs`).
+    pub const ACP_SESSION_FORK: &str = "acp.session.fork";
     /// Folder trust (`crate::trust`): the agents' levels for a folder and
     /// acpmux's own decision; `set` records the decision, never the agents' files.
     pub const ACP_TRUST_GET: &str = "acp.trust.get";

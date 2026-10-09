@@ -468,9 +468,13 @@ class PathRoutingStructure(unittest.TestCase):
         time window; nightly.yml's own concurrency group coalesces them: the running build
         finishes and only the newest pending one runs next."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        run = jobs["request-nightly-next"]["steps"][0]["run"]
-        self.assertIn("-f promote_nightly_next_sha=", run)
-        self.assertNotIn("promote_nightly_next_debounce=true", run)
+        run = "\n".join(step.get("run", "") for step in jobs["request-nightly-next"]["steps"])
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh", run)
+        # Behavior (requests only a green commit with a published tree) is covered by
+        # scripts/cmux-next/tests/request-nightly-next.test.sh.
+        script = (WORKFLOW.parents[2] / "scripts/cmux-next/request-nightly-next.sh").read_text(encoding="utf-8")
+        self.assertIn("-f promote_nightly_next_sha=", script)
+        self.assertNotIn("promote_nightly_next_debounce=true", script)
         nightly = yaml.safe_load((WORKFLOW.parent / "nightly.yml").read_text(encoding="utf-8"))
         group = nightly["concurrency"]["group"]
         self.assertIn("github.ref_name == 'main' && 'nightly-shared' || github.ref_name", group)
@@ -672,7 +676,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "swift-test"])
+                                           "request-nightly-next", "swift-test"])
 
 
 

@@ -4,7 +4,7 @@
 # is build output (gitignored; scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-pages-web.sh          # rebuild every page
-#   scripts/cmux-next/build-pages-web.sh --check  # fail if the committed strings are stale or a page does not build
+#   scripts/cmux-next/build-pages-web.sh --check  # build into a temp dir only (fails on stale committed strings)
 #   scripts/cmux-next/build-pages-web.sh --out DIR  # build every page into DIR/<page>/
 #
 # Absorbed from the Settings lead's build-settings-web.sh (branch feat-cmux-next-settings-react).
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog chief-inspector"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -38,10 +38,10 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-if [ "$MODE" = "--check" ]; then
-  bun scripts/pages/gen-strings.mjs --check
-else
-  bun scripts/pages/gen-strings.mjs
+# The strings tables are committed: a build checks them and never writes them (cx-t3e5).
+if ! bun scripts/pages/gen-strings.mjs --check; then
+  echo "error: generated file is stale; run gen-strings and commit: bun webviews/scripts/pages/gen-strings.mjs" >&2
+  exit 1
 fi
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a

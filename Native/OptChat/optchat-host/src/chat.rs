@@ -75,6 +75,10 @@ pub struct Status {
     /// Nodes with a model call running or waiting to retry.
     pub busy: Vec<NodeId>,
     pub failures: Vec<Failure>,
+    /// Failing nodes turns no longer wait for (a repeating request error).
+    pub stuck: Vec<NodeId>,
+    /// Every stuck node was built since the last one got stuck.
+    pub recovered: bool,
     pub fatal: Option<String>,
     pub closed: bool,
 }
@@ -222,6 +226,9 @@ impl OptChat {
                 store,
                 appended: 0,
                 failing: BTreeMap::new(),
+                stuck: Default::default(),
+                recovered: false,
+                tries: BTreeMap::new(),
                 closed: false,
                 fatal: None,
                 reports: Vec::new(),
@@ -233,6 +240,7 @@ impl OptChat {
             system: config.prompt.text(&config.agent),
             retry: config.retry,
             reporter: config.reporter.clone(),
+            flight: Default::default(),
         });
         let mut st = shared.lock();
         drive(&shared, &mut st);
@@ -317,8 +325,42 @@ impl OptChat {
         if let Some(e) = &st.fatal {
             return Err(Error::Fatal(e.clone()));
         }
-        let done = match st.store.append(&messages, state) {
-            Ok(done) => done,
+        // Spec 3.2 (gist 3c190e0): the view is saved with the message, in
+        // its own transaction, so a crash right after it never replays the
+        // message into a view the live chat did not have. The memory after
+        // each count of fresh messages is computed first (node sizes come
+        // from the store; the new lines are unbuilt), and the transaction
+        // writes the checkpoint of the count it actually logged (a keyed
+        // message already in the log is not logged again).
+        let mut after = Vec::with_capacity(messages.len() + 1);
+        {
+            let st = &*st;
+            let mut m = st.memory.clone();
+            after.push(m.clone());
+            for _ in 0..messages.len() {
+                m.append_in(&st.store);
+                after.push(m.clone());
+            }
+        }
+        let checkpoints: Vec<String> = after
+            .iter()
+            .map(|m| db::checkpoint::encode(&m.checkpoint()))
+            .collect();
+        let done = match st.store.append(&messages, |done| {
+            let fresh = done.fresh.iter().filter(|f| **f).count();
+            let mut writes = state(done);
+            if fresh > 0 {
+                writes.push((
+                    db::checkpoint::CHECKPOINT_KEY.to_owned(),
+                    Some(checkpoints[fresh].clone()),
+                ));
+            }
+            writes
+        }) {
+            Ok(done) => {
+                crate::fault::fault("append:after-commit");
+                done
+            }
             Err(e) => {
                 st.set_fatal(format!("writing messages: {e}"));
                 self.shared.changed.notify_all();
@@ -327,17 +369,13 @@ impl OptChat {
             }
         };
         {
-            let st = &mut *st;
-            for (id, fresh) in done.ids.iter().zip(&done.fresh) {
-                if *fresh {
-                    let in_memory = st.memory.append_in(&st.store);
-                    debug_assert_eq!(*id, in_memory);
-                    st.appended += 1;
-                }
-            }
-            if st.appended >= db::checkpoint::EVERY {
-                st.save_checkpoint();
-            }
+            let fresh = done.fresh.iter().filter(|f| **f).count();
+            debug_assert_eq!(
+                done.ids.iter().zip(&done.fresh).filter(|(_, f)| **f).map(|(i, _)| *i).next_back(),
+                (fresh > 0).then(|| after[fresh].len() - 1)
+            );
+            st.memory = after.swap_remove(fresh);
+            st.appended = 0;
         }
         drive(&self.shared, &mut st);
         self.shared.unlock(st);
@@ -418,8 +456,18 @@ impl OptChat {
 
     /// Blocks until every view line is a summary (section 6), woken on every
     /// change. False if canceled, timed out, shut down or stopped by a failed write.
+    /// A view line whose node is stuck (its call fails with a request error
+    /// that repeats on every try) does not hold the turn: the turn reads it
+    /// unbuilt (`PLACEHOLDER`, which `zoom` opens) rather than wait forever.
     pub fn settle(&self, cancel: Option<&Cancel>, timeout: Option<Duration>) -> bool {
-        self.wait(cancel, timeout, |st| st.memory.settled())
+        self.wait(cancel, timeout, |st| {
+            st.memory.settled()
+                || st
+                    .memory
+                    .view()
+                    .iter()
+                    .all(|p| st.memory.is_built(*p) || st.stuck.contains(p))
+        })
     }
 
     /// Blocks until the compactor has nothing running or waiting to retry and
@@ -536,6 +584,8 @@ impl OptChat {
                     error: error.clone(),
                 })
                 .collect(),
+            stuck: st.stuck.iter().copied().collect(),
+            recovered: st.recovered,
             fatal: st.fatal.clone(),
             closed: st.closed,
         }

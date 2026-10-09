@@ -11,6 +11,10 @@ import AppKit
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
+    /// cmux: a small translucent capsule behind the pill, always shown, so
+    /// its title reads over the rows when the header has no band
+    /// (HeaderFade.swift). Clear until `setPillBacking(_:)`.
+    let pillBacking = NSView()
     var title: String = "" { didSet { if title != oldValue { applyTitle() } } }
     /// The avatar's monogram (the conversation's other participant).
     var initials: String = "" { didSet { if initials != oldValue { avatar.image = PaneHeaderView.avatarImage(initials, light: light) } } }
@@ -30,6 +34,8 @@ final class PaneHeaderView: NSView {
         super.init(frame: frame)
         avatar.imageScaling = .scaleProportionallyUpOrDown
         addSubview(avatar)
+        pillBacking.wantsLayer = true
+        addSubview(pillBacking)
         // HeaderBar's pill, as configured there.
         pill.bezelStyle = .glass
         pill.borderShape = .capsule
@@ -48,10 +54,32 @@ final class PaneHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
 
-    /// Only the controls take clicks; the rest of the header shows the rows.
+    /// The name pill takes its clicks; the rest of the header is the header
+    /// itself: a click on the avatar opens the contact (as the pill does),
+    /// and the empty space drags the window (cmux: Messages' header is its
+    /// toolbar, so a drag there moves the window; the scroll view starts
+    /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        return pill.frame.contains(p) && !pill.isHidden ? pill : nil
+        if pill.frame.contains(p) && !pill.isHidden { return pill }
+        return bounds.contains(p) ? self : nil
+    }
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    /// The header acts on the first click, as the pill (an `NSButton`)
+    /// and a native titlebar do: in a window that is not key (an inactive
+    /// app, a background window) `NSWindow.sendEvent` passes a first click
+    /// on only to a view that accepts it, so without this the avatar's
+    /// click made the window key and never reached `mouseDown` (cx-3x9t).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// The avatar opens the contact; elsewhere AppKit's window drag (with its
+    /// snapping and Spaces behavior), not a move loop.
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if !avatar.isHidden, avatar.frame.contains(p) { onContact(); return }
+        window?.performDrag(with: event)
     }
 
     override func layout() {
@@ -61,6 +89,9 @@ final class PaneHeaderView: NSView {
         let w = HeaderBar.pillWidth(title)
         let h = PaneHeaderView.pillHeight
         pill.frame = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
+        pillBacking.frame = pill.frame
+        pillBacking.layer?.cornerRadius = h / 2
+        pillBacking.isHidden = pill.isHidden
     }
 
     private func applyTitle() {
@@ -74,6 +105,11 @@ final class PaneHeaderView: NSView {
     }
 
     @objc private func contactClicked() { onContact() }
+
+    /// cmux: the pill's capsule color (translucent); nil leaves it clear.
+    func setPillBacking(_ color: NSColor?) {
+        pillBacking.layer?.backgroundColor = color?.cgColor
+    }
 
     /// A monogram on the header's avatar disc (white 253, as HeaderView
     /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home

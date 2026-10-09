@@ -103,6 +103,27 @@ private let pairingScheme = CmxPairingURLScheme(
     }
 }
 
+/// `decodeURL(_:now:)` carries `now` to the decoder through a `userInfo` key built from a
+/// literal; a payload that expired before the real clock but not before `now` decodes.
+@Test func pairingPayloadURLDecodeValidatesAgainstTheGivenDate() throws {
+    #expect(MobileSyncPairingPayload.validationDateUserInfoKey != nil)
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "mac-1",
+      "host": "100.64.1.2",
+      "port": 49831,
+      "expires_at": "1970-01-01T00:16:40Z",
+      "transport": "tailscale"
+    }
+    """
+    let url = try #require(URL(string: "cmux-ios://pair?v=1&payload=\(base64URLEncode(Data(json.utf8)))"))
+
+    let decoded = try MobileSyncPairingPayload.decodeURL(url, now: Date(timeIntervalSince1970: 999))
+
+    #expect(decoded.expiresAt == Date(timeIntervalSince1970: 1_000))
+}
+
 @Test func pairingPayloadDirectDecodeRejectsExpiredPayloads() throws {
     let json = """
     {

@@ -137,14 +137,27 @@ cd "$ROOT/webviews"
 # The lockfile may have changed since node_modules was installed (a merge, a
 # branch switch); a bundle built with other dependencies differs.
 bun install --frozen-lockfile >/dev/null
-# The strings tables are inputs of the pane and page bundles (and still
-# committed): bring them up to date before the key is taken.
-bun scripts/pages/gen-strings.mjs >/dev/null
+# The strings tables are inputs of the pane and page bundles and are still
+# committed. A build never writes a tracked file (cx-t3e5): a fleet or
+# nx-remote build that regenerated them would ship sources no commit holds.
+# A stale committed table fails the build; regenerate and commit it.
+if ! bun scripts/pages/gen-strings.mjs --check; then
+  echo "error: generated file is stale; run gen-strings and commit: bun webviews/scripts/pages/gen-strings.mjs (or scripts/cmux-next/regenerate-web-bundles.sh)" >&2
+  exit 1
+fi
 cd "$ROOT"
 
 if [ -z "$OUT_ROOT" ] && [ "$MODE" = build ] && current; then
   echo "web bundles are current ($(cut -c1-12 "$STAMP"))"
   exit 0
+fi
+
+# The memory inspector page is committed too (optchat-chief compiles it in with
+# include_str!). An in-tree build checks it and never rewrites it; an
+# --out-root build writes its own copy under the output root.
+if [ -z "$OUT_ROOT" ] && ! "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --check; then
+  echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
+  exit 1
 fi
 
 out() {
@@ -157,7 +170,10 @@ rm -f "$STAMP"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
 "$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
-"$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
+# In-tree, the committed page was checked above.
+if [ -n "$OUT_ROOT" ]; then
+  "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
+fi
 
 if [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

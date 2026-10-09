@@ -64,8 +64,9 @@ struct SelState: Equatable {
 /// The display string of a part for selection and copy: text parts are their text, every
 /// other part is one atomic unit (length 1) that copies as a placeholder (SELECTION.md).
 enum SelText {
-    static func length(_ part: Part) -> Int {
-        if case let .text(t, _) = part { return (t as NSString).length }
+    /// Markdown text parts count in their DISPLAY string (MarkdownStore `Markdown.displayText`).
+    static func length(_ part: Part, message: ID? = nil) -> Int {
+        if case let .text(t, _) = part { return ((Markdown.displayText(t, message: message) ?? t) as NSString).length }
         return 1
     }
     static func isText(_ part: Part) -> Bool { if case .text = part { return true }; return false }
@@ -75,7 +76,7 @@ enum SelText {
     static var audio: String { String(localized: "selection.copy.audio", defaultValue: "[Audio Message]") }
     static var contact: String { String(localized: "selection.copy.contact", defaultValue: "[Contact]") }
     /// "[Attachment: %@]"
-    static var attachmentFormat: String { String(localized: "selection.copy.attachment", defaultValue: "[Attachment: %@]") }
+    static var attachmentFormat: String { String(localized: "selection.copy.attachment", defaultValue: "[File: %@]") }
     /// "[Location: %@]"
     static var locationFormat: String { String(localized: "selection.copy.location", defaultValue: "[Location: %@]") }
     static var location: String { String(localized: "selection.copy.locationBare", defaultValue: "[Location]") }
@@ -107,6 +108,8 @@ enum SelText {
 /// text-local, the protocol's is body-local.
 struct ShortTextGeometry: RowTextGeometry {
     let tl: TextLayout
+    /// Drawing attributes per text (a drag asks for line geometry every frame).
+    static let attrCache: NSCache<NSString, NSAttributedString> = { let c = NSCache<NSString, NSAttributedString>(); c.countLimit = 512; return c }()
     private var text: String { tl.text }
     private var lines: [TextLayout.Line] { tl.lines }
     var length: Int { (text as NSString).length }
@@ -117,7 +120,12 @@ struct ShortTextGeometry: RowTextGeometry {
     }
     /// Line i's CTLine with the drawing attributes (kern included: caret x matches the glyphs).
     func ctLine(_ i: Int) -> CTLine {
-        let attr = tl.attributed(color: .white, linkColor: .white)
+        let attr: NSAttributedString
+        let key = (tl.runs.isEmpty ? tl.text : tl.text + "\u{0}\(tl.runs.hashValue)") as NSString
+        if let a = Self.attrCache.object(forKey: key) { attr = a } else {
+            attr = tl.attributed(color: .white, linkColor: .white)
+            Self.attrCache.setObject(attr, forKey: key)
+        }
         return CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
     }
     func offset(at p: CGPoint) -> Int {
@@ -125,6 +133,27 @@ struct ShortTextGeometry: RowTextGeometry {
         if y < 0 { return x <= 0 ? 0 : offsetInLine(0, x: x) }
         if y >= CGFloat(lines.count) * Fixture.lineHeight { return length }
         return offsetInLine(min(lines.count - 1, Int(floor(y / Fixture.lineHeight))), x: x)
+    }
+    /// The character UNDER a body-local point (AppKit's characterIndex: a double-click on the
+    /// right half of a glyph is still that glyph), not the nearest caret position.
+    func characterIndex(at p: CGPoint) -> Int {
+        let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
+        guard y >= 0, y < CGFloat(lines.count) * Fixture.lineHeight else { return offset(at: p) }
+        let i = min(lines.count - 1, Int(floor(y / Fixture.lineHeight)))
+        let r = lines[i].range
+        guard r.length > 0 else { return r.location }
+        let ct = ctLine(i)
+        let ns = text as NSString
+        // The composed character whose glyph span holds x (both directions: RTL runs too).
+        var j = r.location
+        while j < NSMaxRange(r) {
+            let c = ns.rangeOfComposedCharacterSequence(at: j)
+            let a = CTLineGetOffsetForStringIndex(ct, c.location - r.location, nil)
+            let b = CTLineGetOffsetForStringIndex(ct, min(r.length, NSMaxRange(c) - r.location), nil)
+            if x >= min(a, b) && x < max(a, b) { return c.location }
+            j = NSMaxRange(c)
+        }
+        return offsetInLine(i, x: x)
     }
     private func offsetInLine(_ i: Int, x: CGFloat) -> Int {
         let r = lines[i].range
@@ -166,7 +195,7 @@ struct ShortTextGeometry: RowTextGeometry {
 struct LongTextGeometry: RowTextGeometry {
     let layout: LongTextLayout
     let folded: Bool
-    var length: Int { layout.index.u16Starts.last ?? 0 }
+    var length: Int { layout.selectionLength }
     private var lh: CGFloat { Fixture.lineHeight }
     /// Folded: text line of a text-local display y, and the display shift of the tail.
     private var tailFirst: Int { max(LongTextFold.headLines, layout.totalLines - LongTextFold.tailLines) }
@@ -207,11 +236,11 @@ struct LongTextGeometry: RowTextGeometry {
         var (s, base) = block(offset)
         var p = SelWords.paragraph(in: s, at: offset - base)
         // A paragraph may run past its block: join the next blocks until a newline.
-        var b = layout.index.block(u16: offset)
+        var b = layout.selectionBlockIndex(offset)
         var end = NSMaxRange(p) + base
         while NSMaxRange(p) == s.length, s.length > 0, s.character(at: s.length - 1) != 10, b + 1 < layout.blockCount {
             b += 1
-            s = layout.index.blockString(b); base = layout.index.u16Starts[b]
+            s = layout.selectionString(b); base = layout.index.selStarts[b]
             p = SelWords.paragraph(in: s, at: 0)
             end = base + NSMaxRange(p)
         }
@@ -219,8 +248,7 @@ struct LongTextGeometry: RowTextGeometry {
         return NSRange(location: start, length: end - start)
     }
     private func block(_ offset: Int) -> (NSString, Int) {
-        let b = layout.index.block(u16: max(0, min(offset, max(0, length - 1))))
-        return (layout.index.blockString(b), layout.index.u16Starts[b])
+        return layout.selectionBlock(offset)
     }
     func link(at p: CGPoint) -> String? { nil }
     func pasteboardItems(_ r: NSRange) -> [(type: String, data: Data)] { [] }
@@ -233,7 +261,7 @@ extension PartRow {
         if let g = markdownGeometry { return g }
         if let text { return ShortTextGeometry(tl: text) }
         guard case let .text(t, _) = part else { return nil }
-        let l = LongTextStore.shared.layout(t, width: width)
+        let l = LongTextStore.shared.layout(t, width: width, message: ref.messageId)
         return LongTextGeometry(layout: l, folded: LongTextFold.isFolded(ref.messageId, l))
     }
 }
@@ -279,7 +307,7 @@ enum SelectionLook {
 /// Deleted and unsent messages are skipped.
 enum SelectionCopy {
     /// `isAttachment`: a file part (photo, video, audio, file): an empty line in the plain text.
-    struct Piece: Equatable { var seq: Int; var sender: ID; var text: String; var isText: Bool; var isAttachment = false }
+    struct Piece: Equatable { var seq: Int; var sender: ID; var text: String; var isText: Bool; var isAttachment = false; var fileName = "" }
 
     /// Pieces of the selection from messages `msgs` (seq, message) in order.
     static func pieces(_ sel: SelState, _ msgs: [(Int, Message)]) -> [Piece] {
@@ -287,14 +315,16 @@ enum SelectionCopy {
         for (seq, m) in msgs where seq >= sel.lo.seq && seq <= sel.hi.seq {
             guard m.deletedAt == nil, m.retractedAt == nil else { continue }
             for (pi, part) in m.parts.enumerated() {
-                let len = SelText.length(part)
+                let len = SelText.length(part, message: m.id)
                 guard let r = sel.range(seq: seq, part: pi, length: len) else { continue }
                 if case let .text(t, _) = part {
-                    out.append(Piece(seq: seq, sender: m.senderId, text: (t as NSString).substring(with: r), isText: true))
+                    // Offsets are in the display string (markdown: no markers, tables as TSV).
+                    let shown = Markdown.displayText(t, message: m.id) ?? t
+                    out.append(Piece(seq: seq, sender: m.senderId, text: (shown as NSString).substring(with: r), isText: true))
                 } else {
-                    var isFile = false
-                    if case .attachment = part { isFile = true }
-                    out.append(Piece(seq: seq, sender: m.senderId, text: SelText.placeholder(part), isText: false, isAttachment: isFile))
+                    var isFile = false, name = ""
+                    if case let .attachment(a) = part { isFile = true; name = a.fileName }
+                    out.append(Piece(seq: seq, sender: m.senderId, text: SelText.placeholder(part), isText: false, isAttachment: isFile, fileName: name))
                 }
             }
         }
@@ -324,8 +354,27 @@ enum SelectionCopy {
         guard pieces.count > 1 else {
             return NSAttributedString(string: pieces.first?.text ?? "", attributes: [.font: Fixture.bodyFont])
         }
-        let s = lines(pieces, names: names).map { run in run.map { $0.1 ? "\u{FFFC}" : $0.0 }.joined(separator: "\n") }.joined(separator: "\n\n")
-        return NSAttributedString(string: s)
+        // Messages: an attachment is a real text attachment in the RTFD (a file wrapper named
+        // as the file), on its own line.
+        let a = NSMutableAttributedString()
+        var last: ID?
+        for p in pieces {
+            if p.sender != last {
+                if a.length > 0 { a.append(NSAttributedString(string: "\n\n")) }
+                a.append(NSAttributedString(string: String(format: SelText.senderFormat, names(p.sender))))
+                last = p.sender
+            }
+            a.append(NSAttributedString(string: "\n"))
+            if p.isAttachment {
+                let w = FileWrapper(regularFileWithContents: Data(count: 1))
+                w.preferredFilename = p.fileName.isEmpty ? "attachment" : p.fileName
+                let t = NSTextAttachment(); t.fileWrapper = w   // UIKit has no init(fileWrapper:)
+                a.append(NSAttributedString(attachment: t))
+            } else {
+                a.append(NSAttributedString(string: "\t" + p.text))
+            }
+        }
+        return a
     }
 }
 
@@ -335,7 +384,8 @@ extension SelText {
 
 extension SelectionLook {
     /// An attachment's line in the plain text: empty, as Messages (its rich text carries the image).
-    /// Set `placeholders` to write "[Photo]" and the like instead (SELECTION.md, decision).
-    static var placeholders = false
-    static func attachmentPlain(_ placeholder: String) -> String { placeholders ? placeholder : "" }
+    /// Decided 2026-10-07: an attachment copies as a localized placeholder ("\t[Photo]",
+    /// "\t[File: name]"); `placeholders = false` gives Messages' empty line.
+    static var placeholders = true
+    static func attachmentPlain(_ placeholder: String) -> String { placeholders ? "\t" + placeholder : "" }
 }

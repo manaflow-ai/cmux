@@ -4,7 +4,9 @@ use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
 mod patch_apply;
 use patch_apply::decorate_snapshot_result;
-pub(crate) use patch_apply::{apply_resource_patch, apply_resource_patch_unrecorded};
+pub(crate) use patch_apply::{
+    apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
+};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -994,20 +996,14 @@ impl WorkspaceRegistry {
                     .context("stored agent projection is not valid JSON")?;
                 if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
                     let stored_result_json = canonical_json(&existing_value)?;
-                    tx.execute(
-                        "INSERT INTO resource_mutations(
-                           origin, idempotency_key, operation, fingerprint, result_json,
-                           committed_revision
-                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                        params![
-                            mutation.origin,
-                            mutation.id,
-                            OPERATION,
-                            fingerprint,
-                            stored_result_json,
-                            i64::try_from(previous_revision)
-                                .context("resource revision exceeds SQLite range")?,
-                        ],
+                    insert_resource_mutation(
+                        &tx,
+                        mutation,
+                        OPERATION,
+                        &fingerprint,
+                        &stored_result_json,
+                        i64::try_from(previous_revision)
+                            .context("resource revision exceeds SQLite range")?,
                     )?;
                     prune_resource_mutations(&tx)?;
                     tx.commit()?;
@@ -1066,18 +1062,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1151,18 +1142,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1256,18 +1242,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            OPERATION,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -1461,6 +1442,7 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
+        let started = std::time::Instant::now();
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1510,7 +1492,9 @@ impl WorkspaceRegistry {
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
         }
-        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let applying = std::time::Instant::now();
+        let (patch, prune) = apply_resource_patch_timed(&tx, patch, sqlite_revision)?;
+        let (apply, patch) = (applying.elapsed().saturating_sub(prune), &patch);
         let mut result = result.clone();
         decorate_snapshot_result(&tx, operation, &mut result)?;
         let written;
@@ -1528,19 +1512,15 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
+        let journaling = std::time::Instant::now();
         append_resource_journal_record(
             &tx,
             revision,
@@ -1552,8 +1532,17 @@ impl WorkspaceRegistry {
             &result,
             deltas,
         )?;
+        let journal = journaling.elapsed();
         prune_resource_mutations(&tx)?;
         tx.commit()?;
+        self.resource_projection_stats().committed(crate::diagnostics::CommitSpans {
+            total: started.elapsed(),
+            prune,
+            apply,
+            journal,
+            written: patch.changes.len(),
+            journaled: deltas.as_array().map_or(0, Vec::len),
+        });
         Ok((ResourcePatchCommit { revision, result, replayed: false }, workspace_revision))
     }
 
@@ -1647,18 +1636,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-            ],
+        insert_resource_mutation(
+            &tx,
+            mutation,
+            operation,
+            &fingerprint,
+            &result_json,
+            sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -2319,6 +2303,21 @@ pub(crate) fn complete_terminal_close_patch(
     let mut deltas = deltas.clone();
     let changes =
         deltas.as_array_mut().context("terminal close resource deltas are not an array")?;
+    // Sets, not scans: a batch end of N terminals checks N tombstones against
+    // a patch of O(N) changes (nx-scale 1b).
+    let mut tombstoned = patch
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, .. } => Some(public_id.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut deleted = changes
+        .iter()
+        .filter(|change| change["kind"] == "delete" && change["resource"] == "terminal")
+        .filter_map(|change| change["id"].as_str().map(str::to_string))
+        .collect::<HashSet<_>>();
 
     for (terminal_id, expected_incarnation) in terminals {
         let Some(public_id) = transaction
@@ -2333,25 +2332,13 @@ pub(crate) fn complete_terminal_close_patch(
             continue;
         };
         let public_id = TerminalPublicId::parse(public_id)?;
-        let has_tombstone = patch.changes.iter().any(|change| {
-            matches!(
-                change,
-                ResourceChange::TombstoneTerminal { public_id: candidate, .. }
-                    if candidate == &public_id
-            )
-        });
-        if !has_tombstone {
+        if tombstoned.insert(public_id.clone()) {
             patch.changes.push(ResourceChange::TombstoneTerminal {
                 public_id: public_id.clone(),
                 expected_incarnation: expected_incarnation.clone(),
             });
         }
-        let has_delete_delta = changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(public_id.as_str())
-        });
-        if !has_delete_delta {
+        if deleted.insert(public_id.as_str().to_string()) {
             changes.push(json!({
                 "kind": "delete",
                 "sequence": changes.len(),

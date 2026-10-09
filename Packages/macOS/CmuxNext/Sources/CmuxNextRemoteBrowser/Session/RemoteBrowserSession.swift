@@ -156,7 +156,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
             // host messages and control requests included) until it closes.
             let main = CFRunLoopGetMain()
             CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [nativeUI] in
-                // crash-allow: CFRunLoopGetMain blocks run on the main thread
+                // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 MainActor.assumeIsolated { nativeUI.showMenu(token: token, menu: menu) }
             }
             CFRunLoopWakeUp(main)

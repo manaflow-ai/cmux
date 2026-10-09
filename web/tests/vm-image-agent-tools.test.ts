@@ -77,7 +77,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
   test("the default bake's daemon unit is unchanged; --agent-tools adds the tool dir and the browser host the daemon supervises", () => {
     const plain = daemonUnit();
     expect(plain).not.toContain("CMUX_AGENT_TOOLS_BIN_DIR");
-    expect(plain).not.toContain("CMUX_BROWSER_HOST");
+    expect(plain).not.toContain("CMUX_BROWSER_HOST_BIN");
+    expect(plain).not.toContain("CMUX_BROWSER_HOST_CHROMIUM");
     const env = agentToolsDaemonEnv(lock);
     const browser = rolesManifest(lock).roles.browser;
     const host = browser.programs.find((p) => p.name === "cmux-browser-host")!;
@@ -137,7 +138,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const source = readSource(new URL("../scripts/cmux-vm-image/agent-tools-probe.ts", import.meta.url), "utf8");
     for (const word of ["claude-token-file", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "anthropic-oauth"]) expect(source).not.toContain(word);
     const base = ["bun", "probe.ts", "--snapshot", "sh-1", "--tag", "t"];
-    expect(probeOptionsFromArgv(base)).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: expect.any(String) });
+    const parsed = probeOptionsFromArgv(base);
+    expect({ ...parsed, outDir: typeof parsed.outDir }).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: "string" });
     for (const flag of ["--claude-token-file", "--token-file", "--credentials", "--anthropic-key-file"]) expect(() => probeOptionsFromArgv([...base, flag, "/x"])).toThrow();
   });
 

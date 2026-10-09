@@ -12,11 +12,11 @@ struct DockColumnCapabilityTests {
     @Test func dockActionsRefuseWithTheMissingCapability() {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(!services.daemon.supports("dock-columns-v1"))
-        let reason = "needs daemon capability dock-columns-v1"
         for id: ActionID in ["column.dock", "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
                    "column.float", "column.undock", "tab.moveToNewDockColumn"] {
-            #expect(services.registry.unavailableReason(for: id) == reason, "\(id)")
-            #expect(ActionBindingCoverageTests.run(services, id.rawValue) == .refused(reason), "\(id)")
+            let reason = services.registry.unavailableReason(for: id)
+            #expect(reason.map(CapabilityRefusalTests.gateReasons.contains) == true, "\(id): \(reason ?? "nil")")
+            #expect(ActionBindingCoverageTests.run(services, id.rawValue) == .refused(reason ?? ""), "\(id)")
         }
     }
 }

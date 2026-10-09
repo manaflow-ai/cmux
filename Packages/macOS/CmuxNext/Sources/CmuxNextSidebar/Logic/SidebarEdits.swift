@@ -18,10 +18,13 @@ public nonisolated enum SidebarEdits {
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
         case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
-             .openUpdateLink, .tryTip, .dismissTip, .layout, .toggleLayoutSection, .dropOnLayoutSection:
+             .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
+             .dropOnLayoutSection, .groupEditorEnded:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
+        case let .setGroupIcon(id, icon):
+            return mutateGroup(id, in: &sections) { $0.icon = icon.flatMap { WorkspaceIcon.parse($0) } }
         case let .closeGroup(id):
             return closeGroup(id, in: &sections)
         case let .reorder(ids, position):
@@ -234,7 +237,8 @@ public nonisolated enum SidebarEdits {
             if !sections.contains(where: { $0.id == .pinned }) {
                 sections.insert(SidebarSection(kind: .pinned, nodes: []), at: 0)
             }
-            let s = sections.firstIndex(where: { $0.id == .pinned })!
+            // Inserted above when missing, so it is found.
+            guard let s = sections.firstIndex(where: { $0.id == .pinned }) else { return false }
             let moving = Set(ordered)
             let remaining = sections[s].nodes.count(where: { node in
                 if case let .workspace(ws) = node { return !moving.contains(ws.id) }
@@ -246,7 +250,9 @@ public nonisolated enum SidebarEdits {
         let pinnedIDs = Set(sections[pinnedIndex].workspaces.map(\.id))
         let unpinning = ordered.filter { pinnedIDs.contains($0) }
         var changed = false
-        let byMachine = Dictionary(grouping: unpinning) { workspace($0, in: sections)!.machineID }
+        // Every pinned id resolves to its workspace; one that does not stays where it is.
+        let located = unpinning.compactMap { id in workspace(id, in: sections).map { (id: id, machine: $0.machineID) } }
+        let byMachine = Dictionary(grouping: located, by: \.machine).mapValues { $0.map(\.id) }
         for (machine, machineIDs) in byMachine.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             changed = reorder(machineIDs, to: DropPosition(section: .machine(machine), index: 0), in: &sections) || changed
         }

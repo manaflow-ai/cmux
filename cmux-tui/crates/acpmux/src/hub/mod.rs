@@ -6,6 +6,7 @@
 
 mod adoption;
 mod catalog_reload;
+mod cursor_ext;
 mod fork;
 mod handoff;
 mod harness_view;
@@ -53,11 +54,14 @@ pub mod rules;
 mod transfer;
 mod turns;
 mod warm;
+mod xai;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
+mod web_token;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
+pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -152,6 +156,11 @@ pub struct PromptOptions {
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,
+    /// A steer that must not become a queued prompt
+    /// (`_meta.acpmux.steerOnly`): refused (`steer.unavailable`) when the
+    /// session cannot steer now (no running turn, or an agent that does not
+    /// steer).
+    pub steer_only: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -245,6 +254,8 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// The token the web listener checks now (`web_token.rs`).
+    pub web_token: WebToken,
 }
 
 impl Hub {
@@ -290,6 +301,7 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            web_token: WebToken::new(String::new()),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

@@ -1338,6 +1338,28 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsResourceProjection:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
+    commit_apply_us: ServerStatsHistogram
+    commit_journal_us: ServerStatsHistogram
+    commit_prune_us: ServerStatsHistogram
+    commit_us: ServerStatsHistogram
+    commits: int
+    crosscheck_mismatches: int
+    crosschecks: int
+    diff_us: ServerStatsHistogram
+    full_projections: int
+    index_us: ServerStatsHistogram
+    journaled_changes: ServerStatsHistogram
+    projected_changes: ServerStatsHistogram
+    projections: int
+    read_us: ServerStatsHistogram
+    scope_fallbacks: int
+    scoped_projections: int
+    written_changes: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
 class ServerStatsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResult'
     connections: ServerStatsConnections
@@ -1345,6 +1367,7 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2023,6 +2046,21 @@ class BrowserWheelGuardedRequest:
     frame_seq: int
     x_px: float
     y_px: float
+
+
+@dataclass(frozen=True)
+class ChiefInspectRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/request'
+    path: str
+    query: Union[Dict[str, str], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ChiefInspectResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-inspect/result'
+    status: int
+    body: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    error: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3573,7 +3611,7 @@ class SendKeyRequest:
 @dataclass(frozen=True)
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
-    pass
+    include: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4999,6 +5037,7 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsResourceProjection',
     'ServerStatsResult',
     'SetCellPixelsResult',
     'SetSizeCountsResult',
@@ -5072,6 +5111,8 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'ChiefInspectRequest',
+    'ChiefInspectResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',

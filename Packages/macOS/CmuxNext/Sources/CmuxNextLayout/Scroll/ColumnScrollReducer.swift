@@ -12,8 +12,8 @@ nonisolated extension ColumnScrollState {
     public mutating func reduce(_ event: ColumnScrollEvent) -> ColumnScrollEffects {
         var effects = ColumnScrollEffects()
         switch event {
-        case let .sync(strip, focused, source, animated, reveals):
-            sync(strip, focused: focused, source: source, reveals: reveals)
+        case let .sync(strip, focused, source, animated, reveals, anchor):
+            sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor)
             finish(animated: animated, into: &effects)
         case let .center(pane, animated):
             guard gesture == nil, let strip, let index = strip.index(ofPane: pane) else { return effects }
@@ -79,7 +79,7 @@ nonisolated extension ColumnScrollState {
         effects.needsFrames = spring.value != spring.target || spring.velocity != 0
     }
 
-    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool) {
+    private mutating func sync(_ new: ColumnStrip, focused: PaneID?, source: ColumnFocusSource, reveals: Bool, anchor anchorOverride: ColumnID?) {
         let old = strip
         let oldPane = focusedPane
         let oldColumn = focusedColumn
@@ -100,12 +100,13 @@ nonisolated extension ColumnScrollState {
             return
         }
 
-        // 1. Camera: keep the previously focused column where it is on screen
-        //    across insertions, removals, width and window changes. A reorder (move
-        //    column) keeps the camera itself.
+        // 1. Camera: keep the previously focused column (or the column under
+        //    a resize drag) where it is on screen across insertions, removals,
+        //    width and window changes. A reorder (move column) keeps the camera
+        //    itself.
         var delta: CGFloat = 0
         if new.keepsOrder(of: old) || old.viewportWidth != new.viewportWidth,
-           let anchor = oldColumn,
+           let anchor = anchorOverride ?? oldColumn,
            let before = old.index(of: anchor), let after = new.index(of: anchor) {
             delta = new.columns[after].frame.minX - old.columns[before].frame.minX
         }

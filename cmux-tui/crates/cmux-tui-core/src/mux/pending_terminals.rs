@@ -64,6 +64,21 @@ impl Mux {
     /// Forget the recorded end of a terminal that is gone (closed).
     pub(crate) fn forget_terminal_end(&self, public_id: &str) {
         self.terminal_ends.lock().unwrap().remove(public_id);
+        self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).forget(public_id);
+    }
+
+    /// Remember why a terminal's host was lost, for its tab's `end.cause`.
+    #[cfg(unix)]
+    pub(super) fn record_terminal_loss_cause(&self, public_id: &str, cause: Value) {
+        self.terminal_loss_causes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .record(public_id, cause);
+    }
+
+    /// Causes of host losses, keyed by public terminal id.
+    pub(crate) fn terminal_loss_causes_snapshot(&self) -> HashMap<String, Value> {
+        self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).snapshot()
     }
 
     /// Mark a terminal pending. Takes the registry lock briefly to resolve
@@ -78,13 +93,25 @@ impl Mux {
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
     }
 
-    /// Forget a pending marker. Returns whether one was present.
+    /// Forget a pending marker. Returns whether one was present. A respawn's
+    /// marker stays: only its worker clears it.
     #[cfg(unix)]
     pub(super) fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
         let mut pending = self.pending_terminals.lock().unwrap();
         let before = pending.len();
-        pending.retain(|_, (id, _)| id != terminal_id);
+        pending
+            .retain(|_, (id, marker)| id != terminal_id || *marker == PendingTerminal::Respawning);
         pending.len() != before
+    }
+
+    /// Whether a respawn of `terminal_id` (L2) is under way.
+    #[cfg(unix)]
+    pub(super) fn terminal_is_respawning(&self, terminal_id: &str) -> bool {
+        self.pending_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .any(|(id, marker)| id == terminal_id && *marker == PendingTerminal::Respawning)
     }
 
     /// Remember the typed end of an ended terminal from its durable receipt,
@@ -100,6 +127,15 @@ impl Mux {
             return;
         }
         let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
+        if end["kind"] == "host_lost" {
+            let root = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
+            let root = root.terminal_host_root.clone();
+            self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).restore(
+                root.as_deref(),
+                terminal_id,
+                public_id.as_str(),
+            );
+        }
         self.terminal_ends.lock().unwrap().insert(public_id.as_str().to_string(), end);
     }
 

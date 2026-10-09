@@ -32,8 +32,8 @@ export interface SignOptions {
   readonly signWith?: InstallKey;
 }
 
-/** Every purpose a device signs: enroll and rotate-key (M2), and its own peer map and tunnel config (M3). */
-export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel";
+/** Every purpose a device signs: enroll and rotate-key (M2), its own peer map and tunnel config (M3), and its public IPv6 address. */
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address";
 
 export function signedMessage(fields: {
   readonly purpose: SignedPurpose;
@@ -94,6 +94,18 @@ export async function deviceRequestBody(install: InstallKey, deviceId: string, p
   const nonce = options.nonce ?? freshNonce();
   const message = signedMessage({ purpose, target: deviceId, wgPublicKey: "", installPublicKey: install.publicKey, name: "", signedAt, nonce });
   return { signedAt, nonce, signature: await sign(options.signWith ?? install, message) };
+}
+
+/**
+ * The body of `POST /v1/devices/{deviceId}/signed/address`: the device's
+ * current public IPv6 address (null clears it). The address is the message's
+ * name line (empty when cleared), so the signature covers it.
+ */
+export async function addressBody(install: InstallKey, deviceId: string, publicIpv6: string | null, options: SignOptions = {}) {
+  const signedAt = options.signedAt ?? Date.now();
+  const nonce = options.nonce ?? freshNonce();
+  const message = signedMessage({ purpose: "address", target: deviceId, wgPublicKey: "", installPublicKey: install.publicKey, name: publicIpv6 ?? "", signedAt, nonce });
+  return { publicIpv6, signedAt, nonce, signature: await sign(options.signWith ?? install, message) };
 }
 
 /** SHA-256 hex, as the Worker stores an enrollment code. */

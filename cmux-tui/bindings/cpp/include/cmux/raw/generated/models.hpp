@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "50ad745ac15be0742665d30da5813d864971d0225a7ae64814d1bd2bdf2a3089";
+inline constexpr std::string_view kProtocolIrSha256 = "18f749bf239097c7827ba838fadfb07daad302d1c8beda3e8d2360dc39838d2d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -140,6 +140,7 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
@@ -223,6 +224,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct ChiefInspectRequest;
+struct ChiefInspectResult;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
@@ -1027,6 +1030,24 @@ struct CellPixelSurface {
     friend bool operator==(const CellPixelSurface&, const CellPixelSurface&) = default;
 };
 
+struct ChiefInspectRequest {
+    std::string path{};
+    std::optional<std::map<std::string, std::string, std::less<>>> query{};
+    friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct ChiefInspectResult {
+    Field<JsonValue> body{};
+    Field<std::string> error{};
+    std::uint64_t status{};
+    friend bool operator==(const ChiefInspectResult&, const ChiefInspectResult&) = default;
+};
+
 enum class TerminalKey {
     unidentified,
     backquote,
@@ -1346,11 +1367,6 @@ struct CloseWorkspaceRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CloudConversationChangedEvent {
@@ -3949,13 +3965,36 @@ struct ServerStatsRegistryLock {
 };
 
 struct ServerStatsRequest {
+    Field<std::vector<std::string>> include{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResourceProjection {
+    ServerStatsHistogram commit_apply_us{};
+    ServerStatsHistogram commit_journal_us{};
+    ServerStatsHistogram commit_prune_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t commits{};
+    std::uint64_t crosscheck_mismatches{};
+    std::uint64_t crosschecks{};
+    ServerStatsHistogram diff_us{};
+    std::uint64_t full_projections{};
+    ServerStatsHistogram index_us{};
+    ServerStatsHistogram journaled_changes{};
+    ServerStatsHistogram projected_changes{};
+    std::uint64_t projections{};
+    ServerStatsHistogram read_us{};
+    std::uint64_t scope_fallbacks{};
+    std::uint64_t scoped_projections{};
+    ServerStatsHistogram written_changes{};
+    friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
@@ -5632,6 +5671,12 @@ struct Codec<ServerStatsRegistryLock> {
 };
 
 template <>
+struct Codec<ServerStatsResourceProjection> {
+    static Result<Json> encode(const ServerStatsResourceProjection& value);
+    static Result<ServerStatsResourceProjection> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsResult> {
     static Result<Json> encode(const ServerStatsResult& value);
     static Result<ServerStatsResult> decode(const Json& value);
@@ -6127,6 +6172,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefInspectRequest> {
+    static Result<Json> encode(const ChiefInspectRequest& value);
+    static Result<ChiefInspectRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ChiefInspectResult> {
+    static Result<Json> encode(const ChiefInspectResult& value);
+    static Result<ChiefInspectResult> decode(const Json& value);
 };
 
 template <>

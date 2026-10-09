@@ -98,6 +98,45 @@ pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
         .collect()
 }
 
+/// `workspace.placement.list` as `session/key -> (index, group_id)`.
+pub(super) fn placements_by_id(mux: &Arc<Mux>) -> std::collections::BTreeMap<String, (u64, Value)> {
+    let list = read(mux, "workspace.placement.list", json!({}));
+    list.as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let id = format!(
+                "{}/{}",
+                row["workspace"]["session_id"].as_str().unwrap(),
+                row["workspace"]["workspace_ref"].as_str().unwrap()
+            );
+            (id, (row["index"].as_u64().unwrap(), row["group_id"].clone()))
+        })
+        .collect()
+}
+
+/// The placements a client that rebuilds from `session.events` holds:
+/// `start` with every `workspace_placement` change after `revision` applied.
+pub(super) fn replayed_placements(
+    mux: &Mux,
+    mut start: std::collections::BTreeMap<String, (u64, Value)>,
+    revision: u64,
+) -> std::collections::BTreeMap<String, (u64, Value)> {
+    for change in changes_after(mux, revision) {
+        if change["resource"] != "workspace_placement" {
+            continue;
+        }
+        let id = change["id"].as_str().unwrap().to_string();
+        if change["kind"] == "state_delete" {
+            start.remove(&id);
+        } else {
+            let value = &change["value"];
+            start.insert(id, (value["index"].as_u64().unwrap(), value["group_id"].clone()));
+        }
+    }
+    start
+}
+
 pub(super) fn revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
@@ -1091,7 +1130,7 @@ fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
         "collapsed_groups": {},
     });
     mux.put_frontend_projection(
-        &WorkspaceMutation::new("seed-windows", "cmux-next").unwrap(),
+        &WorkspaceMutation::daemon("seed-windows", "cmux-next").unwrap(),
         "cmux-next",
         "personal",
         "windows",
@@ -1422,7 +1461,7 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
         },
         None,
         None,
-        &WorkspaceMutation::local("state-test"),
+        &WorkspaceMutation::daemon_local("state-test"),
     )
     .unwrap();
     assert!(changes_after(&mux, before).iter().any(|change| {

@@ -31,7 +31,9 @@ describe("resize", { timeout: 60_000 }, () => {
     const { machine } = await createdAndBound(x)
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.resize", { machine, size: { cpu: 1 } })))).toMatchObject({ t: "reject", code: "cloud.size.grow_only" })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.resize", { machine, size: { cpu: 64 } })))).toMatchObject({ t: "reject", code: "cloud.size.locked" })
-    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.resize", { machine, size: { cpu: 4 } })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    // An install's resize waits for the person's approval (G8, cx-wb5.65); an agent is refused.
+    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.machine.resize", { machine, size: { cpu: 4 } })))).toMatchObject({ t: "reject", code: "approval.pending" })
+    expect(reply(await x.stub.submit(x.team, { ...installOf(x.p), agent: "agent_00000000000000000001" }, frame("cloud.machine.resize", { machine, size: { cpu: 4 } })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
     reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.resize", { machine, size: { disk_mb: 32768 } })))).toMatchObject({ t: "reject", code: "cloud.machine.not_running" })
     // cpu and memory may grow while paused (they apply on resume).

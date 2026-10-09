@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 
+use crate::Actor;
 use crate::mux::*;
 use crate::state::commit::{StateEffects, workspace_identity};
 use crate::state::prelude::*;
@@ -192,7 +193,7 @@ impl Mux {
                 Some((workspace.id, terminals))
             });
             let Some((slot, terminals)) = target else { continue };
-            if !self.close_workspace(slot) {
+            if !self.close_workspace_as(&Actor::Daemon, slot) {
                 eprintln!("cmux-tui: could not close ephemeral workspace {workspace_id}");
                 continue;
             }
@@ -212,7 +213,7 @@ impl Mux {
                         None,
                         None,
                         None,
-                        &WorkspaceMutation::local("cmux-tui-ephemeral"),
+                        &WorkspaceMutation::daemon_local("cmux-tui-ephemeral"),
                     )
                 {
                     eprintln!(

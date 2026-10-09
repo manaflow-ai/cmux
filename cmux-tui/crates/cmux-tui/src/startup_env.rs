@@ -7,7 +7,9 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 
 /// Reads `CMUX_LINK_TOKEN_VERIFIER` into the link's once-only setting and
 /// removes it from the process environment (cloud-client-contract.md 1.7,
-/// G3/G4).
+/// G3/G4). Also takes the brain's tools socket (`CMUX_TUI_CHIEF_TOOLS_SOCKET`,
+/// chief-inspect) the same way, so no shell, agent or hook the daemon spawns
+/// learns the path.
 ///
 /// # Safety
 ///
@@ -18,6 +20,8 @@ use super::{CLOUD_TEMPLATE_ENV, CloudTemplateEnv};
 pub(crate) unsafe fn take_link_token_from_env() {
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { cmux_link::token::take_from_process_env() };
+    // SAFETY: as above.
+    unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
 }
 
 /// cmux-link and its token verifier exist only on unix; nothing to take.
@@ -27,7 +31,10 @@ pub(crate) unsafe fn take_link_token_from_env() {
 /// No requirement on these targets; `unsafe` keeps the call site identical
 /// on every platform.
 #[cfg(not(unix))]
-pub(crate) unsafe fn take_link_token_from_env() {}
+pub(crate) unsafe fn take_link_token_from_env() {
+    // SAFETY: forwarded from this function's own contract (see # Safety).
+    unsafe { cmux_tui_core::server::take_chief_tools_socket_from_env() };
+}
 
 /// Read the Cloud template settings and remove them from this process's
 /// environment, so no terminal host, shell, agent, or plugin it spawns

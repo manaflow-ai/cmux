@@ -61,7 +61,6 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
-            "openLinkInDefaultBrowser",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
@@ -99,8 +98,7 @@ nonisolated extension ActionSurfaceCatalog {
             "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "increaseWorkspaceTerminalFontSize",
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
-            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
+            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",
@@ -123,7 +121,7 @@ nonisolated extension ActionSurfaceCatalog {
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
         ],
         .minimalMenu: [
-            "space.newWindow", "space.newWorkspace", "space.clearIcon", "space.setDefaults", "browserProfile.clearSpaceDefault",
+            "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",

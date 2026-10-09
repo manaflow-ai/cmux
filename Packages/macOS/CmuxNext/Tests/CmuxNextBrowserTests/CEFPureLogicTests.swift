@@ -8,6 +8,15 @@ import Testing
         #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications"])
     }
 
+    /// The code-sign clone protects running helpers during an update; its
+    /// cleanup helper exits by itself after quit (cx-dj33).
+    @Test func codeSignCloneStaysEnabled() {
+        for bundle in ["com.cmuxterm.app", "com.cmuxterm.app.debug.x"] {
+            let switches = CEFSwitches.current(forkAPIVersion: 2, bundleIdentifier: bundle, environment: [:])
+            #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") && $0.contains("MacAppCodeSignClone") })
+        }
+    }
+
     @Test func stockCEFHasNoTabbedWindows() {
         let switches = CEFSwitches(forkAPIVersion: 0, useMockKeychain: false, loadExtensions: [])
         #expect(!switches.arguments.contains("cmux-tabbed-windows"))
@@ -22,8 +31,9 @@ import Testing
         #expect(switches.useMockKeychain)
         #expect(switches.loadExtensions == ["/tmp/a", "/tmp/b"])
         #expect(switches.arguments.contains("load-extension=/tmp/a,/tmp/b"))
-        // Passing --disable-features would replace Chromium's own default
-        // list (GlicActorUi, ...) and crash in ActorUiContentsContainerController.
+        // The shim merges disable-features into CEF's own list (GlicActorUi,
+        // ...; CEFShim/src/command_line_switches.h); replacing that list
+        // crashes in ActorUiContentsContainerController. cmux adds none.
         #expect(!switches.arguments.contains { $0.hasPrefix("disable-features") })
     }
 
