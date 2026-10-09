@@ -180,3 +180,15 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Hosted test runs build the workspace crates for test executables. Keep those
+# crates at a light optimization level so test compilation stays bounded while
+# preserving optimized code for third-party dependencies. Line tables retain
+# useful file and line locations without carrying full DWARF through the test
+# binaries.
+[profile.test]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+opt-level = 3
