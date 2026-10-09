@@ -307,10 +307,10 @@ impl Projects {
 
     /// The user's edit of a project's overlay.
     pub(crate) fn update(&mut self, path: &str, edit: &OverlayEdit) -> Result<(), ProjectReject> {
-        if let Some(Some(name)) = &edit.rename {
-            if name.trim().is_empty() || name.len() > MAX_NAME_BYTES || name.contains('\0') {
-                return Err(ProjectReject::InvalidName("name must be 1 to 256 bytes".into()));
-            }
+        if let Some(Some(name)) = &edit.rename
+            && (name.trim().is_empty() || name.len() > MAX_NAME_BYTES || name.contains('\0'))
+        {
+            return Err(ProjectReject::InvalidName("name must be 1 to 256 bytes".into()));
         }
         let project = self
             .by_path
