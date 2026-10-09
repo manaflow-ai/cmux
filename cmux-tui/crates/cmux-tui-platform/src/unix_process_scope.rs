@@ -89,13 +89,13 @@ struct ScopeRegistration {
     _marker_fd: Arc<OwnedFd>,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     track_before_finalization: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     final_scan_gate: Option<FinalScanTestGate>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 struct FinalScanTestGate {
     reached: mpsc::SyncSender<()>,
@@ -103,7 +103,7 @@ struct FinalScanTestGate {
     used: Arc<std::sync::atomic::AtomicBool>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl FinalScanTestGate {
     fn pause_once(&self) {
         if self.used.swap(true, std::sync::atomic::Ordering::AcqRel) {
@@ -162,11 +162,11 @@ pub struct UnixProcessScope {
     tracked: Arc<Mutex<TrackedProcesses>>,
     tracker: Option<ScopeTracker>,
     terminated: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     track_before_finalization: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     final_scan_gate: Option<FinalScanTestGate>,
-    #[cfg(all(test, target_os = "linux"))]
+    #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
     kernel_group_fence: bool,
 }
 
@@ -323,11 +323,11 @@ impl UnixProcessScope {
             tracked: Arc::new(Mutex::new(TrackedProcesses::default())),
             tracker: None,
             terminated: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             track_before_finalization: true,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             final_scan_gate: None,
-            #[cfg(all(test, target_os = "linux"))]
+            #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
             kernel_group_fence: true,
         })
     }
@@ -367,9 +367,9 @@ impl UnixProcessScope {
     pub fn configure(&self, command: &mut Command) {
         command.env(PROCESS_SCOPE_ENV, &self.marker);
         let marker_fd = self._marker_fd.as_raw_fd();
-        #[cfg(all(test, target_os = "linux"))]
+        #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
         let kernel_group_fence = self.kernel_group_fence;
-        #[cfg(all(not(test), target_os = "linux"))]
+        #[cfg(all(not(any(test, feature = "test-support")), target_os = "linux"))]
         let kernel_group_fence = true;
         // SAFETY: the closure calls only async-signal-safe syscalls between
         // fork and exec and does not allocate.
@@ -442,19 +442,17 @@ impl UnixProcessScope {
             _marker_fd: Arc::clone(&self._marker_fd),
             root,
             tracked: self.tracked.clone(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             track_before_finalization: self.track_before_finalization,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             final_scan_gate: self.final_scan_gate.clone(),
         })?;
         self.tracker = Some(ScopeTracker { registration, registry });
         Ok(())
     }
 
-    #[cfg(all(test, target_os = "linux"))]
-    pub(crate) fn final_scan_gate_for_test(
-        &mut self,
-    ) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+    #[cfg(all(any(test, feature = "test-support"), target_os = "linux"))]
+    pub fn final_scan_gate_for_test(&mut self) -> (mpsc::Receiver<()>, mpsc::SyncSender<()>) {
         let (reached, reached_receiver) = mpsc::sync_channel(1);
         let (resume, resume_receiver) = mpsc::sync_channel(1);
         self.track_before_finalization = false;
@@ -807,7 +805,7 @@ impl ProcessScopeTracker {
                             .map(|scope| (scope, progress.snapshots, progress.matches));
                     }
                 }
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 if let Some((scope, _, _)) = completed.as_ref()
                     && let Some(gate) = scope.final_scan_gate.as_ref()
                 {
@@ -851,11 +849,11 @@ impl ProcessScopeTracker {
 }
 
 fn scope_tracks_before_finalization(_scope: &ScopeRegistration) -> bool {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     {
         _scope.track_before_finalization
     }
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     {
         true
     }
