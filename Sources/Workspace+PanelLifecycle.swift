@@ -560,6 +560,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearProgramStatusPanel(panelId: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)

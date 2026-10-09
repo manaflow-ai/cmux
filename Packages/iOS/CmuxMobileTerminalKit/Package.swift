@@ -31,7 +31,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileTerminalKitTests",
-            dependencies: ["CmuxMobileTerminalKit"],
+            dependencies: ["CmuxMobileTerminalKit", "CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
