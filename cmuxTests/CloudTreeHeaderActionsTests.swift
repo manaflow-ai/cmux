@@ -179,6 +179,58 @@ struct CloudTreeHeaderActionsTests {
         #expect(tree.outline.selectedRow == rowIndex)
     }
 
+    @Test("Hover refresh uses window coordinates when leaving for the create control")
+    func hoverRefreshDoesNotOffsetPointerByWindowOrigin() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+        let window = HoverLocationWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 620),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        defer { window.contentView = nil }
+        let host = NSHostingView(rootView: Color.clear)
+        window.contentView = host
+        fixture.container.autoresizingMask = []
+        fixture.container.frame = NSRect(x: 19, y: 120, width: 340, height: 220)
+        host.addSubview(fixture.container)
+        let createControl = NSView(frame: NSRect(x: 19, y: 80, width: 340, height: 26))
+        host.addSubview(createControl)
+        host.layoutSubtreeIfNeeded()
+        fixture.container.layoutSubtreeIfNeeded()
+
+        let row = tree.devicesSection
+        let rowRect = tree.outline.rect(ofRow: tree.outline.row(forItem: row))
+        let rowPoint = tree.outline.convert(NSPoint(x: rowRect.midX, y: rowRect.midY), to: nil)
+        let createPoint = createControl.convert(
+            NSPoint(x: createControl.bounds.midX, y: createControl.bounds.midY), to: nil
+        )
+        // Position the window so a second screen-to-window conversion would
+        // incorrectly map the sibling control onto this row.
+        window.setFrameOrigin(NSPoint(x: createPoint.x - rowPoint.x, y: createPoint.y - rowPoint.y))
+        let menu = try Self.controls(in: tree.cell(for: row))
+
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+        window.pointerInWindow = createPoint
+        tree.exit()
+        #expect(menu.alphaValue == 0)
+
+        window.pointerInWindow = rowPoint
+        tree.outline.updateTrackingAreas()
+        #expect(menu.alphaValue == 1)
+        window.pointerInWindow = createPoint
+        tree.outline.layout()
+        #expect(menu.alphaValue == 0)
+    }
+
+    /// A window-space pointer without moving the machine's real cursor or focus.
+    private final class HoverLocationWindow: NSWindow {
+        var pointerInWindow = NSPoint(x: -1, y: -1)
+        override var mouseLocationOutsideOfEventStream: NSPoint { pointerInWindow }
+        override var isKeyWindow: Bool { true }
+    }
+
     /// Hovered header actions stay in the accessibility tree with their roles.
     @Test("Hovered header actions stay in the accessibility tree with their labels")
     func fadedHeaderActionsStayAccessible() async throws {
