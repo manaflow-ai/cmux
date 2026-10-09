@@ -93,7 +93,11 @@ struct AgentSessionList: View {
                     }
                     ForEach(sessions) { session in
                         Button { open(session.id) } label: {
-                            AgentSessionRow(session: session, harness: directory.harness(session.harness))
+                            // Relative times refresh on a 30 s tick.
+                            TimelineView(.periodic(from: .now, by: 30)) { context in
+                                AgentSessionRow(session: session, harness: directory.harness(session.harness),
+                                                now: context.date, unread: AgentReadState.shared.isUnread(session))
+                            }
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
@@ -156,6 +160,9 @@ struct AgentSessionList: View {
 struct AgentSessionRow: View {
     var session: AgentSession
     var harness: Harness?
+    var now: Date = Date()
+    /// Unread as the user sees it (`AgentReadState`), not the host's raw count.
+    var unread: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -163,11 +170,11 @@ struct AgentSessionRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(session.title)
-                        .font(.body.weight(session.unread > 0 ? .semibold : .medium))
+                        .font(.body.weight(unread ? .semibold : .medium))
                         .foregroundStyle(.cn(\.textPrimary))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    Text(AgentFormat.relative(session.updatedAt))
+                    Text(AgentFormat.relative(session.updatedAt, now: now))
                         .font(.subheadline)
                         .foregroundStyle(.cn(\.textTertiary))
                         .monospacedDigit()
@@ -207,7 +214,7 @@ struct AgentSessionRow: View {
         case .error:
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.cn(\.danger)).padding(.top, 2)
         default:
-            if session.unread > 0 {
+            if unread {
                 Circle().fill(.cn(\.ink)).frame(width: 9, height: 9).padding(.top, 6)
             }
         }
@@ -219,7 +226,7 @@ struct AgentSessionRow: View {
         case .waiting: "Waiting for approval"
         case .error: "Error"
         case .closed: "Closed"
-        default: session.unread > 0 ? "Unread" : "Idle"
+        default: unread ? "Unread" : "Idle"
         }
     }
 }

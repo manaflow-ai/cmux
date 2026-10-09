@@ -290,6 +290,7 @@ struct OutputBlock: View {
 struct DiffView: View {
     var diff: FileDiff
     var showsHeader = true
+    @State private var width: CGFloat = 0
 
     var body: some View {
         let lines = LineDiff(old: diff.oldText ?? "", new: diff.newText).lines
@@ -307,10 +308,13 @@ struct DiffView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines) { line in DiffLineView(line: line) }
+                    ForEach(lines) { line in DiffLineView(line: line, minWidth: width) }
                 }
+                // Rows fill to the widest row (and at least the card width).
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.vertical, 6)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
         .background(.cn(\.fillHover), in: .rect(cornerRadius: 12))
         .clipShape(.rect(cornerRadius: 12))
@@ -319,6 +323,8 @@ struct DiffView: View {
 
 struct DiffLineView: View {
     var line: LineDiff.Line
+    /// The card width: +/− bands span the whole row even when lines are short.
+    var minWidth: CGFloat = 0
 
     var body: some View {
         switch line.kind {
@@ -336,7 +342,7 @@ struct DiffLineView: View {
                     .padding(.trailing, 14)
             }
             .font(AgentType.monoSmall)
-            .frame(minHeight: 18, alignment: .leading)
+            .frame(minWidth: minWidth, minHeight: 18, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background)
         }

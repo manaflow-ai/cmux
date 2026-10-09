@@ -55,6 +55,16 @@ struct AgentChatScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { sessionMenu } }
             .task { await model.listen() }
+            // A session on screen is read: it never shows an unread dot while
+            // visible, and what arrived while watching stays read afterwards.
+            .onAppear { AgentReadState.shared.beginViewing(model.sessionId) }
+            .onDisappear {
+                if let s = model.session { AgentReadState.shared.markSeen(s.id, at: s.updatedAt) }
+                AgentReadState.shared.endViewing(model.sessionId)
+            }
+            .onChange(of: model.session?.updatedAt) { _, at in
+                if let at { AgentReadState.shared.markSeen(model.sessionId, at: at) }
+            }
             .task(id: connection.generation) { await model.reload() }
             .alert("Rename session", isPresented: $renaming) {
                 TextField("Title", text: $renameText)
