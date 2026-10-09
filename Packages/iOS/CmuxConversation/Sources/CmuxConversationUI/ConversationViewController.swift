@@ -124,8 +124,10 @@ public final class ConversationViewController: UIViewController {
     var composerDropConstraint: NSLayoutConstraint?
     /// Height of the docked keyboard when fully shown, from its notifications.
     var dockedKeyboardHeight: CGFloat = 0
-    /// Set by the layout pass in which the keyboard rose.
-    var keyboardRoseThisPass = false
+    /// Top edge of the keyboard's latest end frame, in view coordinates.
+    var keyboardEndTop: CGFloat = .greatestFiniteMagnitude
+    /// The composer's bottom edge after the last keyboard-following pass.
+    var lastComposerBottom: CGFloat = 0
     var effects = ConversationEffectsState()
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
@@ -189,7 +191,7 @@ public final class ConversationViewController: UIViewController {
         view.addLayoutGuide(composerBase)
         let composerBottom = composerBase.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
         composerBottomConstraint = composerBottom
-        let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: Self.composerDrop(keyboardProgress: 0))
+        let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: ConversationKeyboardPinGeometry.restDrop)
         composerDropConstraint = drop
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -274,7 +276,6 @@ public final class ConversationViewController: UIViewController {
         super.viewDidLayoutSubviews()
         followKeyboardProgress()
         updateInsets()
-        keyboardRoseThisPass = false
         // A full field stops 3.3 pt below the header's bottom edge, just under
         // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
         let fieldBottom = composerContainer.frame.maxY - 4
@@ -323,11 +324,9 @@ public final class ConversationViewController: UIViewController {
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
         if !collectionView.isTracking, hasPositionedInitially {
-            if isPinnedToBottom, keyboardRoseThisPass, bottom > old.bottom {
-                // Messages moves a pinned transcript to its final place in
-                // the keyboard's first frame; only the composer rides it up.
-                UIView.performWithoutAnimation { collectionView.contentOffset = bottomOffset }
-            } else if isPinnedToBottom {
+            if isPinnedToBottom {
+                // Inside the keyboard's animation, so the newest message
+                // rides the keyboard with the composer, frame by frame.
                 collectionView.contentOffset = bottomOffset
             } else {
                 var offset = collectionView.contentOffset
@@ -339,17 +338,6 @@ public final class ConversationViewController: UIViewController {
             }
         }
         lastBottomInset = bottom
-    }
-
-    /// The composer's offset below its base line, measured on iOS 26
-    /// Messages: at rest the field's bottom sits 28.25 pt above the screen
-    /// bottom (6 pt into the home indicator's safe area); with the keyboard
-    /// up it sits 17.5 pt above the keyboard. In between it moves linearly
-    /// with the keyboard, so the gap closes as the keyboard rises.
-    static func composerDrop(keyboardProgress p: CGFloat) -> CGFloat {
-        let rest: CGFloat = 13.75
-        let docked: CGFloat = -9.5
-        return rest + (docked - rest) * min(1, max(0, p))
     }
 
     /// 0 with the keyboard hidden, 1 when it is fully shown (the share of the
@@ -364,13 +352,36 @@ public final class ConversationViewController: UIViewController {
         return min(1, (rest - top) / travel)
     }
 
-    /// Applies the keyboard's progress to the composer in the same layout
-    /// pass (and so the same animation) that moves the keyboard guide.
-    private func followKeyboardProgress() {
+    /// The finger's location while it drags the transcript over a shown
+    /// keyboard (an interactive dismissal moves the keyboard with it).
+    private var keyboardDragLocation: CGFloat? {
+        guard collectionView.isTracking, keyboardEndTop < view.bounds.maxY - view.safeAreaInsets.bottom - 0.5 else { return nil }
+        return collectionView.panGestureRecognizer.location(in: view).y
+    }
+
+    /// Applies the keyboard's position to the composer in the same layout
+    /// pass (and so the same animation) that moves the keyboard guide; during
+    /// an interactive dismissal, on every finger move.
+    func followKeyboardProgress() {
         // A drawer in the keyboard's place keeps the composer on its base line.
         let p = photoDrawer == nil ? keyboardProgress : 0
-        let drop = photoDrawer == nil ? Self.composerDrop(keyboardProgress: p) : 0
-        if p > composer.keyboardProgress { keyboardRoseThisPass = true }
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: guideTop, restingGuideTop: restingGuideTop,
+            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation
+        )
+        let drop: CGFloat
+        if photoDrawer != nil {
+            drop = 0
+        } else if let keyboardTop {
+            drop = ConversationKeyboardPinGeometry.drop(keyboardTop: keyboardTop, guideTop: guideTop, restingGuideTop: restingGuideTop)
+        } else {
+            // The finger let go and UIKit already moved the guide: hold the
+            // composer where it was until the keyboard's animation starts.
+            drop = lastComposerBottom - (guideTop + (composerBottomConstraint?.constant ?? -4))
+        }
+        defer { lastComposerBottom = composerContainer.frame.maxY }
         guard composerDropConstraint?.constant != drop || composer.keyboardProgress != p else { return }
         composerDropConstraint?.constant = drop
         composer.keyboardProgress = p
@@ -384,6 +395,23 @@ public final class ConversationViewController: UIViewController {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if let end, end.height > 0 { self.dockedKeyboardHeight = end.height }
+            }
+        }
+        center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated {
+                guard let self, let end, let window = self.view.window else { return }
+                let screen = window.screen.coordinateSpace
+                let frame = self.view.convert(end, from: screen)
+                self.keyboardEndTop = frame.height > 0 ? frame.minY : self.view.bounds.maxY
+                // UIKit posts this inside the keyboard's animation. Ending an
+                // interactive dismissal moves the guide there but lays out
+                // later, outside it; laying out now lets the composer and
+                // transcript ride the keyboard's remaining curve instead of
+                // jumping (and leaves the composer at rest when the guide did
+                // not move because the finger was already past the safe area).
+                self.view.setNeedsLayout()
+                self.view.layoutIfNeeded()
             }
         }
     }
@@ -975,6 +1003,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // The finger drags the keyboard below the safe area, where the guide
+        // stops reporting it; the composer follows the finger there.
+        if keyboardDragLocation != nil { followKeyboardProgress() }
         if scrollView.isTracking || scrollView.isDecelerating {
             isPinnedToBottom = isNearBottom(tolerance: 44)
         }
