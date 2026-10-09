@@ -39116,7 +39116,11 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle)
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
                             && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
@@ -39141,7 +39145,11 @@ export default {
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
                         lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
-                        updateLastNotificationStatus: !(rebuiltFromStoredSummary && mapped?.agentLifecycle == .idle)
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
                             && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,

@@ -565,6 +565,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
         )
 
+        // An empty notification may rebuild the last display summary while
+        // the background task is still running. That presentation-only event
+        // must preserve the idle completion marker used to recognize the next
+        // real turn boundary.
+        let rebuiltSummary = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification"}"#
+        )
+        XCTAssertFalse(rebuiltSummary.timedOut, rebuiltSummary.stderr)
+        XCTAssertEqual(rebuiltSummary.status, 0, rebuiltSummary.stderr)
+        XCTAssertEqual(rebuiltSummary.stdout, "{}\n")
+
+        let storeURL = root.appendingPathComponent("antigravity-hook-sessions.json", isDirectory: false)
+        let rebuiltJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let rebuiltSessions = try XCTUnwrap(rebuiltJSON["sessions"] as? [String: Any])
+        let rebuiltSession = try XCTUnwrap(rebuiltSessions[sessionId] as? [String: Any])
+        XCTAssertEqual(rebuiltSession["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(rebuiltSession["runtimeStatus"] as? String, "running")
+        XCTAssertEqual(rebuiltSession["lastNotificationStatus"] as? String, "idle")
+
         let missingFullyIdleSessionId = "\(sessionId)-missing-fully-idle"
         let missingFullyIdleStart = runAntigravityHook(
             "session-start",
