@@ -16,6 +16,14 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
     public var hidesBottom: Bool { self == .bottom || self == .both }
 }
 
+/// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
+/// (Leo 2026-10-06).
+public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
+    case none
+    /// A header per folder: the front tab's working directory.
+    case folder
+}
+
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
@@ -40,6 +48,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
     public var showProjects = true
+    /// The Projects menu's Group By (`sidebar.groupBy`).
+    public var groupBy: SidebarGroupBy = .none
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true

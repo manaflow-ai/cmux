@@ -33,6 +33,12 @@ nonisolated struct RustRowKey: Codable {
             id = nil
             section = RustSectionID(value)
             workspace = nil
+        case let .folder(value, _):
+            // Never sent: `RustRow.resolvable` leaves folder headers out.
+            kind = "folder"
+            id = nil
+            section = RustSectionID(value)
+            workspace = nil
         }
     }
 
@@ -77,6 +83,15 @@ nonisolated struct RustRowKey: Codable {
 }
 
 nonisolated struct RustRow: Codable {
+    /// The rows the drop resolver reads: Group by Folder's headers are
+    /// labels only (no drop target), so they stay out.
+    static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
+        rows.compactMap { row in
+            if case .folder = row.key { return nil }
+            return RustRow(row)
+        }
+    }
+
     var key: RustRowKey
     var y: Double
     var height: Double

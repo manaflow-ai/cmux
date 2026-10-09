@@ -185,7 +185,17 @@ export function installMessageMenuReporter(
 function selectionAt(doc: Document, target: Element | null): string | undefined {
   const selection = doc.getSelection();
   if (!target || !selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
-  if (target.closest?.('[contenteditable]:not([contenteditable="false"]), textarea, input')) return undefined;
-  if (!selection.getRangeAt(0).intersectsNode(target)) return undefined;
+  const editable = '[contenteditable]:not([contenteditable="false"]), textarea, input';
+  if (target.closest?.(editable)) return undefined;
+  const range = selection.getRangeAt(0);
+  // A range can cross from the transcript into the composer. Reporting it would offer Quote in
+  // Reply / Ask About This with text the user did not select from the message, so reject any
+  // selection whose endpoint is in an editable field just like a right-click in that field.
+  const endpointIsEditable = (node: Node | null) => {
+    const element = node?.nodeType === 1 ? (node as Element) : node?.parentElement;
+    return Boolean(element?.closest?.(editable));
+  };
+  if (endpointIsEditable(selection.anchorNode) || endpointIsEditable(selection.focusNode)) return undefined;
+  if (!range.intersectsNode(target)) return undefined;
   return selection.toString().trim() || undefined;
 }

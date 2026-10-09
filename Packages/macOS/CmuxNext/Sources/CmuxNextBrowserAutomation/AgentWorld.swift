@@ -65,6 +65,9 @@ enum AgentWorld {
         controller.addUserScript(WKUserScript(source: loadStateSource, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: hostWorld))
         controller.add(handler, contentWorld: hostWorld, name: loadStateHandler)
+        controller.addUserScript(WKUserScript(source: PageConsole.source, injectionTime: .atDocumentStart,
+                                              forMainFrameOnly: false, in: .page))
+        controller.add(handler, contentWorld: .page, name: PageConsole.handler)
         if let agentBundle {
             let source = agentMarker + agentBundle
             controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
@@ -76,7 +79,9 @@ enum AgentWorld {
     /// (there is no per-world removal API).
     static func uninstall(from controller: WKUserContentController) {
         controller.removeScriptMessageHandler(forName: loadStateHandler, contentWorld: hostWorld)
-        let keep = controller.userScripts.filter { $0.source != loadStateSource && !$0.source.hasPrefix(agentMarker) }
+        controller.removeScriptMessageHandler(forName: PageConsole.handler, contentWorld: .page)
+        let ours = [loadStateSource, PageConsole.source]
+        let keep = controller.userScripts.filter { !ours.contains($0.source) && !$0.source.hasPrefix(agentMarker) }
         guard keep.count != controller.userScripts.count else { return }
         controller.removeAllUserScripts()
         keep.forEach(controller.addUserScript)
