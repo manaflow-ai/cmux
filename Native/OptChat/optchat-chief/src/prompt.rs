@@ -198,6 +198,66 @@ pub const SPAWN_CWD_DESCRIPTION: &str = "The directory the subagents work in, on
 pub const TELL_DESCRIPTION: &str =
     "Send a message to a running subagent; it reaches it after its current step.";
 
+/// How long a cache entry lives after its last read: Anthropic's two TTLs.
+/// Every mark of one request has the same TTL (the API refuses a 1h mark
+/// after a 5m one, and Claude Code places marks before and after ours).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CacheTtl {
+    FiveMinutes,
+    OneHour,
+}
+
+impl CacheTtl {
+    /// `5m` or `1h` (the settings and env spelling).
+    pub fn parse(text: &str) -> Option<CacheTtl> {
+        match text.trim() {
+            "5m" => Some(CacheTtl::FiveMinutes),
+            "1h" => Some(CacheTtl::OneHour),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CacheTtl::FiveMinutes => "5m",
+            CacheTtl::OneHour => "1h",
+        }
+    }
+
+    /// The `cache_control` of a mark: the API's default TTL is 5 minutes,
+    /// so a 5m mark carries no `ttl`.
+    pub fn cache_control(self) -> Value {
+        match self {
+            CacheTtl::FiveMinutes => json!({"type": "ephemeral"}),
+            CacheTtl::OneHour => json!({"type": "ephemeral", "ttl": "1h"}),
+        }
+    }
+}
+
+/// Whether a failed turn's error is the API refusing a mark's TTL: a
+/// 1-hour mark after a 5-minute one ("a ttl='1h' cache_control block must
+/// not come after a ttl='5m' cache_control block"), or a route that takes
+/// no `ttl` at all.
+pub fn is_ttl_refused_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("cache_control") && lower.contains("ttl")
+}
+
+/// Our one mark in a cached layout: the view piece it sits on
+/// (`optchat_core::mark_piece`) and its TTL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub piece: usize,
+    pub ttl: CacheTtl,
+}
+
+impl Mark {
+    /// The mark on the last whole block of `context`, None when it has none.
+    pub fn last_whole(context: &str, ttl: CacheTtl) -> Option<Mark> {
+        optchat_core::mark_piece(context, None).map(|piece| Mark { piece, ttl })
+    }
+}
+
 /// A prompt in the cached layout: the session's system prompt and the user
 /// blocks.
 #[derive(Clone, Debug, PartialEq)]
@@ -210,18 +270,32 @@ pub struct CachedPrompt {
 /// (spec 3.3, gist 3c190e0): `system` is the session's system prompt as is
 /// (the same text for turns and compactions); the view follows in blocks of
 /// 4 lines, the last whole block carrying the one `cache_control` marker
-/// when `marker`; then `tail`. Claude Code puts its own breakpoints on the
-/// system prompt and the last messages (three of the API's four), so one
-/// marker is all a request may add. A block cut depends only on the lines
-/// before it, so the next call has a boundary at this marker, within the
-/// API's 20-block lookback from its own.
+/// when `marker` (5 minutes); then `tail`. See `cached_layout_marked`.
 pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> CachedPrompt {
+    let mark = marker
+        .then(|| Mark::last_whole(context, CacheTtl::FiveMinutes))
+        .flatten();
+    cached_layout_marked(system, context, tail, mark)
+}
+
+/// The cached layout with our one mark on piece `mark.piece` of the view's
+/// blocks, with its TTL. Claude Code puts its own breakpoints on the system
+/// prompt and the request's end (three of the API's four), so one mark is
+/// all a request may add. A block cut depends only on the lines before it,
+/// so the next call has a boundary at this mark; `optchat_core::mark_piece`
+/// keeps the next call's mark within the API's 20-block lookback of it.
+pub fn cached_layout_marked(
+    system: &str,
+    context: &str,
+    tail: &str,
+    mark: Option<Mark>,
+) -> CachedPrompt {
     let text = |t: &str| json!({"type": "text", "text": t});
     let pieces = optchat_core::block_pieces(context);
     let whole = pieces.len() - 1;
     let mut blocks: Vec<Value> = pieces.into_iter().map(text).collect();
-    if marker && whole > 0 {
-        blocks[whole - 1]["cache_control"] = json!({"type": "ephemeral"});
+    if let Some(mark) = mark.filter(|m| m.piece < whole) {
+        blocks[mark.piece]["cache_control"] = mark.ttl.cache_control();
     }
     blocks.push(text(tail));
     CachedPrompt {

@@ -910,6 +910,10 @@ pub fn compactor_settings() -> Value {
         "hooks": {},
         "disableAllHooks": true,
         "disableBundledSkills": true,
+        // The same TTL as the node's own 5-minute mark: the API refuses a
+        // 5m mark before a 1h one, and Claude Code may pick 1h on a
+        // subscription.
+        "promptCacheTtl": "5m",
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
     })

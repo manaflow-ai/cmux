@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
-use crate::prompt::{cached_layout, turn_blocks};
+use crate::prompt::{CacheTtl, Mark, cached_layout_marked, is_ttl_refused_error, turn_blocks};
 use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
@@ -40,6 +40,10 @@ impl Brain {
             self.settings.engine.clone(),
             self.interrupt.clone(),
             self.marker_refused.clone(),
+        );
+        let (ttl_refused, session_dir) = (
+            self.ttl_refused.clone(),
+            self.settings.session_dir.clone(),
         );
         let spawned = std::thread::Builder::new()
             .name("turn".into())
@@ -125,7 +129,39 @@ impl Brain {
                             .blocks
                             .iter()
                             .any(|b| b.get("cache_control").is_some());
+                        let one_hour = start.blocks.iter().any(|b| {
+                            b.get("cache_control") == Some(&CacheTtl::OneHour.cache_control())
+                        });
                         match &outcome.error {
+                            // The route takes no 1-hour TTL: the same turn
+                            // again at 5 minutes (Claude Code's own marks
+                            // too), and later turns go at 5 minutes.
+                            Some(e) if one_hour && is_ttl_refused_error(e) => {
+                                ttl_refused.store(true, Ordering::SeqCst);
+                                trace.emit(
+                                    "turn.ttl_refused",
+                                    serde_json::json!({"turn": start.key, "ttl": "5m"}),
+                                );
+                                log(&format!(
+                                    "turn {}: the route refused the 1-hour cache TTL ({e}); running the turn again at 5 minutes, and later turns go at 5 minutes (set cache.ttl to try 1h again)",
+                                    start.key
+                                ));
+                                if let Err(e) = crate::session_dir::set_prompt_cache_ttl(
+                                    &session_dir,
+                                    CacheTtl::FiveMinutes,
+                                ) {
+                                    log(&format!("updating the session's promptCacheTtl: {e}"));
+                                }
+                                let mut again = start.clone();
+                                for block in &mut again.blocks {
+                                    if block.get("cache_control").is_some() {
+                                        block["cache_control"] =
+                                            CacheTtl::FiveMinutes.cache_control();
+                                    }
+                                }
+                                again.prompt_id = format!("{}:5m", start.prompt_id);
+                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
+                            }
                             Some(e) if marked && is_marker_limit_error(e) => {
                                 marker_refused.store(true, Ordering::SeqCst);
                                 // The inspector lays this turn out unmarked.
@@ -293,13 +329,31 @@ impl Brain {
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
         let marker = !self.marker_refused.load(Ordering::SeqCst);
+        let ttl = self.turn_cache_ttl();
+        // Our one mark: the last whole block of the view, held within the
+        // API's lookback of the last turn's mark (optchat_core::mark_piece).
+        let mut mark = None;
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
-                let layout = cached_layout(
+                mark = marker
+                    .then(|| optchat_core::mark_piece(&view.text, self.last_mark.as_deref()))
+                    .flatten()
+                    .map(|piece| Mark { piece, ttl });
+                self.last_mark = mark.map(|m| {
+                    optchat_core::block_pieces(&view.text)[..=m.piece].concat()
+                });
+                // Claude Code's own marks take the same TTL: the API refuses
+                // a 1h mark after a 5m one.
+                if let Err(e) =
+                    crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl)
+                {
+                    (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
+                }
+                let layout = cached_layout_marked(
                     &self.settings.system_text,
                     &view.text,
                     &texts.join("\n\n"),
-                    marker,
+                    mark,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
@@ -332,7 +386,12 @@ impl Brain {
         // from the trace (inspect.rs): the cached layout and its marker, or
         // the view's pieces then the messages.
         let mut layout = if system_prompt.is_some() {
-            serde_json::json!({"kind": "cached", "marker": marker})
+            serde_json::json!({
+                "kind": "cached",
+                "marker": mark.is_some(),
+                "mark": mark.map(|m| m.piece),
+                "ttl": ttl.as_str(),
+            })
         } else {
             serde_json::json!({"kind": "blocks"})
         };
@@ -611,6 +670,19 @@ impl Brain {
             }),
         );
         self.prev_view = Some(view.to_owned());
+    }
+
+    /// The cache TTL of this turn on the Claude Code path:
+    /// `OPTCHAT_CACHE_TTL`, else the Chief's `cache.ttl`, else 1 hour; 5
+    /// minutes once a route refused 1 hour.
+    fn turn_cache_ttl(&self) -> CacheTtl {
+        if self.ttl_refused.load(Ordering::SeqCst) {
+            return CacheTtl::FiveMinutes;
+        }
+        self.settings
+            .cache_ttl
+            .or(self.chief.cache_ttl)
+            .unwrap_or(CacheTtl::OneHour)
     }
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux

@@ -848,6 +848,14 @@ fn start(
     // calls for Claude models with 429 (it serves Claude Code clients), so
     // the native engine needs an endpoint that takes API calls
     // (OPTCHAT_ANTHROPIC_BASE_URL plus a key). Checked live on 2026-10-04.
+    // OPTCHAT_CACHE_TTL (5m or 1h) over the Chief's cache.ttl setting.
+    let cache_ttl_env = env("OPTCHAT_CACHE_TTL").and_then(|v| {
+        let ttl = crate::prompt::CacheTtl::parse(&v);
+        if ttl.is_none() {
+            log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
+        }
+        ttl
+    });
     let engine = match engine_choice.as_deref() {
         Some("native") => {
             let native_config = NativeConfig {
@@ -868,9 +876,15 @@ fn start(
                 base_url
             ));
             let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
+            // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
+            // says otherwise (read at host start).
+            let native_ttl = cache_ttl_env
+                .or(crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).cache_ttl)
+                .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
             Engine::Native(Arc::new(
                 Native::new(native_config, Arc::new(model), optchat_host::RETRY)
-                    .with_trace(trace.clone()),
+                    .with_trace(trace.clone())
+                    .with_cache_ttl(native_ttl),
             ))
         }
         None | Some("acpmux") => {
@@ -915,6 +929,7 @@ fn start(
         codex_preset,
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
+        cache_ttl: cache_ttl_env,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

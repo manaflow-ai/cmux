@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{Tools, cached_layout, claude_md, system_text, turn_blocks};
+use optchat_chief::prompt::{
+    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
+};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -104,7 +106,16 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     );
     assert_eq!(
         *blocks,
-        cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
+        cached_layout_marked(
+            &claude_md(None),
+            &view,
+            "where is project 7?",
+            Some(Mark {
+                piece: t.len() - 3,
+                ttl: CacheTtl::OneHour
+            })
+        )
+        .blocks
     );
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
