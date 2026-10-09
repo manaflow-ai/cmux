@@ -550,7 +550,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
 }
 
 fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let columns = super::journal_extensions::table_columns(transaction, "session_journal")?;
+    let columns = journal_extensions::table_columns(transaction, "session_journal")?;
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
     }
