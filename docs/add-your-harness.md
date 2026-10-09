@@ -5,10 +5,29 @@ You can add any other harness, for example your company's internal agent, with o
 No cmux code changes and no restart: cmux reloads the file when it changes, and the harness
 appears in the model picker.
 
-The fastest path is to let an agent do it: open the command palette, run **Add Harness…**
-(or **Integrate a harness** on the New Tab page). That starts a chat that runs
+The fastest path is to let an agent do it: open the command palette, run **Integrate a Harness
+with an Agent…** (or **Integrate a harness** on the New Tab page). That starts a chat that runs
 `cmux harness guide` and follows it: it writes the profile, runs the doctor and fixes what the
 doctor reports. The rest of this page is the same information for people.
+
+## Every way in
+
+All of these run the same daemon operations, so a profile added in one place shows in all of them.
+
+| Where | Add | Check | Remove |
+| --- | --- | --- | --- |
+| Settings > Agents > Agent Harnesses | **Add Agent…**: a tab for the ACP Registry (one click per agent) and a tab for a custom command | **Check** on a row: each doctor step with its fix | **Remove** on your own profiles, then **Undo** |
+| Model picker | the **+** at the bottom of the harness rail opens Settings > Agents > Add | | |
+| Command palette (Cmd-Shift-P) | **Add ACP Agent…**, **Add Agent from ACP Registry…** | **Check Agent…** | **Remove Agent…**, **Restore Removed Agent** |
+| CLI (app actions) | `cmux agent harness add --arg command=acme-agent` or `--arg registry=goose` | `cmux agent harness doctor --arg id=acme` | `cmux agent harness remove --arg id=acme`, `cmux agent harness restore` |
+| MCP (`cmux mcp serve`) | `app_agent_harness_add` | `app_agent_harness_doctor` | `app_agent_harness_remove`, `app_agent_harness_restore` |
+| acpmux CLI (no app needed) | `cmux harness add`, `cmux harness add ID --registry` | `cmux harness doctor ID` | delete the file |
+
+Secrets never pass through Settings or the app actions: a custom command names env keys, the
+profile reads each from the Keychain item of the same name (`keychain:KEY`), and
+`cmux harness secret set ID KEY` stores the value. Remove moves your profile file aside; Undo (or
+`cmux agent harness restore`) puts it back. Built-in, managed and cmux.json harnesses cannot be
+removed there.
 
 ## The loop
 
