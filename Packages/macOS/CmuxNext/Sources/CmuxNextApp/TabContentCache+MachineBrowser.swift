@@ -42,6 +42,15 @@ extension TabContentCache {
         leaveAppPage(key, to: target)
     }
 
+    /// Open on <machine>: the tab's page becomes its machine's browser page
+    /// at the address it shows now.
+    func openOnMachine(_ key: String, machine: String) {
+        let current = browsers[key]?.tab.state.url
+        let record = MachineBrowserRecord(machine: machine, initialURL: current)
+        guard let page = makeMachinePage(record, key: key, engine: .webkit, profile: browserProfile?(key) ?? .default) else { return }
+        swapPage(key, with: page)
+    }
+
     /// A session-local tab (no daemon record) opened on a machine.
     func machinePage(key: String, url: URL?, profile: BrowserProfileID) -> MachineBrowserPageTab? {
         guard let record = url.flatMap(MachineBrowserRecord.init(url:)),

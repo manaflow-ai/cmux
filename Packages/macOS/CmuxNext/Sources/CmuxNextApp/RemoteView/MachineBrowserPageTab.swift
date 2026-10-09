@@ -174,6 +174,10 @@ nonisolated enum MachineBrowserStrings {
     static var thisMac: String {
         String(localized: "remote.machineBrowser.thisMac", defaultValue: "This Mac", table: "Remote", bundle: .module)
     }
+    /// The This Mac chip's menu item.
+    static func openOn(_ machine: String) -> String {
+        String(format: String(localized: "remote.machineBrowser.openOn", defaultValue: "Open on %@", table: "Remote", bundle: .module), machine)
+    }
     static var retry: String {
         String(localized: "remote.machineBrowser.retry", defaultValue: "Retry", table: "Remote", bundle: .module)
     }

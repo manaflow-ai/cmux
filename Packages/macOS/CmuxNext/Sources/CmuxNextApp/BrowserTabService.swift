@@ -30,6 +30,10 @@ final class BrowserTabService {
     var daemonForTab: @MainActor (TabModel) -> DaemonService
     /// Every daemon, local first (tab lookups by id).
     var daemons: @MainActor () -> [DaemonService]
+    /// Whether a machine's browser host is available now (cached; slice 2
+    /// installs and finds hosts). None is yet, so a new tab in a machine's
+    /// workspace opens on this Mac (`BrowserPlacement`).
+    var browserHostAvailable: @MainActor (String) -> Bool = { _ in false }
     /// A machine's name for the user (`MachineRegistry.machineName`).
     var machineName: @MainActor (DaemonService) -> String = { $0.machineID }
     /// Shows `text` on the page of `daemon`'s tab on `surface` when that page

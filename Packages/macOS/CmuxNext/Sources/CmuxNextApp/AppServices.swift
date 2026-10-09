@@ -267,6 +267,7 @@ final class AppServices {
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
             onboarding.cookiePrompt.attach(entry)
+            attachMachineBadgeMenu(entry)
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

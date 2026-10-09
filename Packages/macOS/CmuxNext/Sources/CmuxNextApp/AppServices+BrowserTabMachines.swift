@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import Foundation
@@ -31,6 +33,30 @@ extension AppServices {
             }
         }
         return nil
+    }
+
+    /// The This Mac chip's menu: Open on <machine> (`browser.openOnMachine`).
+    func machineBadgeMenu(key: String) -> NSMenu? {
+        guard let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return nil }
+        let name = machines.machineName(daemon.machineID) ?? daemon.machineID
+        guard let item = registry.makeMenuItem(for: "browser.openOnMachine") else { return nil }
+        item.title = MachineBrowserStrings.openOn(name)
+        let menu = NSMenu()
+        menu.addItem(item)
+        return menu
+    }
+
+    /// `browser.openOnMachine`: the tab's page moves to its machine (the
+    /// machine browser page: running there, or why not yet).
+    func openTabOnMachine(key: String) -> Bool {
+        guard let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return false }
+        cache.openOnMachine(key, machine: daemon.machineID)
+        return true
+    }
+
+    func attachMachineBadgeMenu(_ entry: BrowserEntry) {
+        guard let key = entry.chrome.addressBar.tabKey else { return }
+        entry.chrome.addressBar.machineBadgeMenu = { [weak self] in self?.machineBadgeMenu(key: key) }
     }
 
     func wireBrowserTabMachines() {

@@ -38,6 +38,14 @@ extension AppActions {
         // A machine browser tab that is not ready: this Mac's page in its place (cx-2cob).
         registry.bind("browser.openLocally", isEnabled: { chrome()?.tab is MachineBrowserPageTab },
                       invoke: { (chrome($0)?.tab as? MachineBrowserPageTab)?.openLocally() })
+        // This Mac's tab in a machine's workspace: its page on the machine (the This Mac chip's menu).
+        registry.bind("browser.openOnMachine", isEnabled: {
+            guard let chrome = chrome(), !(chrome.tab is MachineBrowserPageTab), let key = chrome.addressBar.tabKey else { return false }
+            return services.daemon(ofBrowserTab: key)?.isLocal == false
+        }, invoke: { invocation in
+            guard let key = chrome(invocation)?.addressBar.tabKey else { return }
+            _ = services.openTabOnMachine(key: key)
+        })
         // Site settings of the site that blocked the newest download (the
         // blocked-download notice's button, without the mouse).
         registry.bind("browser.download.openBlockedSiteSettings", isEnabled: { services.cache.pageRequests.canOpenLatestBlockedSiteSettings },

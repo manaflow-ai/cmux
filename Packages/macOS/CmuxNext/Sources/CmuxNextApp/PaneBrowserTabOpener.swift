@@ -60,7 +60,8 @@ struct PaneBrowserTabOpener {
         // (cx-2cob, decided 2026-10-09): its record names the machine; the
         // page says when it is not ready and offers Open Locally Instead.
         let placement = child == nil && inherited == nil
-            ? BrowserPlacement.resolve(isLocal: daemon.isLocal, machine: daemon.machineID) : .local
+            ? BrowserPlacement.resolve(isLocal: daemon.isLocal, machine: daemon.machineID,
+                                       hostAvailable: services.cache.browserTabs.browserHostAvailable(daemon.machineID)) : .local
         let url = placement.address(for: url)
         let onMachine = MachineBrowserRecord.matches(url)
         let requested = onMachine ? nil : requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)

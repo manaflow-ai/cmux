@@ -52,14 +52,17 @@ nonisolated struct MachineBrowserRecord: Hashable, Sendable {
 }
 
 /// Where a new browser tab of a pane runs (cx-2cob design, decided
-/// 2026-10-09): this Mac for this Mac's panes, the pane's machine for
-/// another machine's panes.
+/// 2026-10-09): this Mac for this Mac's panes; the pane's machine for
+/// another machine's panes while that machine's browser host is available
+/// (a cached check, never a wait on the key press). Otherwise this Mac's
+/// tab, which says so with the This Mac omnibar chip; the chip's menu
+/// offers Open on <machine>.
 nonisolated enum BrowserPlacement: Equatable, Sendable {
     case local
     case machine(String)
 
-    static func resolve(isLocal: Bool, machine: String) -> BrowserPlacement {
-        isLocal ? .local : .machine(machine)
+    static func resolve(isLocal: Bool, machine: String, hostAvailable: Bool) -> BrowserPlacement {
+        isLocal || !hostAvailable ? .local : .machine(machine)
     }
 
     /// The address a new tab opens: on a machine, its record with `url` as

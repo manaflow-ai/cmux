@@ -53,6 +53,16 @@ nonisolated enum BrowserChromeActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], requires: [.browserFocused], targets: [.tab],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenus: [ActionSurfaceCatalog.p(.browserPage, .navigate, 5)])
             ),
+            // This Mac's tab in a machine's workspace: run its page on the
+            // machine (the This Mac chip's menu, cx-2cob).
+            ActionDescriptor(
+                id: "browser.openOnMachine",
+                title: String(localized: "action.browser.openOnMachine", defaultValue: "Open on Machine", bundle: .module),
+                keywords: ["browser", "remote", "machine", "cloud", "ssh", "run there"],
+                category: .browser, symbol: "server.rack",
+                surfaces: [.palette], requires: [.browserFocused], targets: [.tab],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
+            ),
             // Shift-Cmd-G is Find Previous in every Mac browser. Elsewhere the
             // chord stays Group Selected Workspaces: this binding needs a
             // browser focused, so it wins only there (specificity rule).
