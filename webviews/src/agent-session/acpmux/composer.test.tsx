@@ -557,6 +557,35 @@ describe("acpmux composer slash menu", () => {
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
     });
 
+    test("a pasted image previews before its bytes finish reading and can be cancelled", async () => {
+      await render(snapshot());
+      const file = png();
+      let finish!: (bytes: ArrayBuffer) => void;
+      Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)) });
+      const create = URL.createObjectURL;
+      const revoke = URL.revokeObjectURL;
+      const revoked: string[] = [];
+      URL.createObjectURL = () => "blob:pending-image";
+      URL.revokeObjectURL = (url) => revoked.push(url);
+      try {
+        await paste([file]);
+        expect(dom.window.document.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe("blob:pending-image");
+        await type("Describe this image");
+        await key("Enter");
+        expect(sent).toEqual([]);
+        await act(async () => dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click());
+        await act(async () => finish(new Uint8Array([0x89, 0x50]).buffer));
+        expect(dom.window.document.querySelector(".acpmux-attachment")).toBeNull();
+        expect(revoked).toEqual(["blob:pending-image"]);
+        await key("Enter");
+        expect(sent).toEqual(["Describe this image"]);
+        expect(sentAttachments).toEqual([[]]);
+      } finally {
+        URL.createObjectURL = create;
+        URL.revokeObjectURL = revoke;
+      }
+    });
+
     test("+ Attach files opens the file chooser, and the chosen files become chips", async () => {
       await render(snapshot());
       await ready();
