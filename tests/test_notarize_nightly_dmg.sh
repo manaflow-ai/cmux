@@ -472,13 +472,15 @@ text = open(sys.argv[1]).read()
 job = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [A-Za-z0-9_-]+:\n)", text, re.S)
 assert job, "no build-sign-notarize-nightly job"
 job = job.group(1)
-job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+# Timeouts may be `${{ <notary test> && 200 || 80 }}`: the first value is the
+# cx-f58x notary test's, the last one every other build's. Check both pairs.
+job_timeouts = [int(v) for v in re.findall(r"\b(\d+)\b", re.search(r"^    timeout-minutes: (.+)$", job, re.M).group(1))]
 step = re.search(r"- name: Notarize app ticket through final DMG\n(.*?)(?=\n      - name:)", job, re.S)
 assert step, "no notarize step"
 step = step.group(1)
-step_timeout = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)
+step_timeout = re.search(r"^        timeout-minutes: (.+)$", step, re.M)
 assert step_timeout, "the notarize step needs its own timeout-minutes"
-step_timeout = int(step_timeout.group(1))
+step_timeouts = [int(v) for v in re.findall(r"\b(\d+)\b", step_timeout.group(1))]
 wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (.+)$", step, re.M)
 assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
 # `${{ <nightly-next> && '20m' || '40m' }}`: the last value is main's and RC's.
@@ -488,9 +490,9 @@ assert waits, f"no wait in {wait.group(1)!r}"
 # nothing published. A healthy submission returns in minutes; wait 40m.
 # Published nightly-next waits less: it hands a slow one to its next run.
 assert waits[-1] >= 40, f"the {waits[-1]}m notary wait gives up before Apple usually finishes a stalled DMG"
-wait = max(waits)
-assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
-assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
+for wait, step_timeout, job_timeout in ((max(waits), max(step_timeouts), max(job_timeouts)), (waits[-1], step_timeouts[-1], job_timeouts[-1])):
+    assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
+    assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
 PY
 then
   echo "FAIL: the notarize step and job timeouts must clearly exceed the notary wait" >&2

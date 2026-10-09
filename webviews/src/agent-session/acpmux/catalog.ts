@@ -92,6 +92,18 @@ export function harnessCatalogKey(clientId: number, cwd?: string) {
   return cwd ? (["acpmux", "harnesses", clientId, cwd] as const) : (["acpmux", "harnesses", clientId] as const);
 }
 
+/// The catalog of a direct client follows the daemon: each `_acpmux/harnesses_changed` (a profile
+/// written, live model lists refreshed in the background) marks this client's catalog queries
+/// (every chat folder's) stale, so an open picker re-reads `_acpmux/harnesses` and `_acpmux/models`
+/// at once. Event-driven: no polling, no reconnect.
+export function followHarnessChanges(
+  client: { onHarnessesChanged?: () => void },
+  queryClient: QueryClient,
+  clientId: number,
+): void {
+  client.onHarnessesChanged = () => void queryClient.invalidateQueries({ queryKey: harnessCatalogKey(clientId) });
+}
+
 /// Whether a folder profile from `folder` applies to a chat in `cwd` (the folder or inside it).
 export function profileCovers(folder: string, cwd: string | undefined): boolean {
   if (!cwd) return false;

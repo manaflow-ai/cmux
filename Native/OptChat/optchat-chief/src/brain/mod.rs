@@ -186,6 +186,8 @@ pub enum EngineRequest {
         harness: Option<String>,
         model: Option<String>,
         effort: Option<String>,
+        speed: Option<String>,
+        compactor_speed: Option<String>,
     },
 }
 
@@ -241,6 +243,9 @@ pub struct Settings {
     pub agent_gap: Duration,
     /// Longest a turn may run (None: no limit).
     pub turn_limit: Option<Duration>,
+    /// A turn with no harness event for this long ends with a typed error
+    /// and runs once again (`OPTCHAT_CHIEF_TURN_IDLE_MIN`, default 10).
+    pub turn_idle_limit: Option<Duration>,
     pub engine: Engine,
     /// The turn sessions' acpmux preset on a Claude harness, whose system
     /// prompt each turn sets (the cached layout); None on another harness.
@@ -335,6 +340,8 @@ enum Source {
     Note,
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
+    /// The note that resumes a turn a host stop cut (`HostState::resumes`).
+    Resume { remote: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -473,7 +480,7 @@ impl Brain {
         stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
         let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
-        let brain = Brain {
+        let mut brain = Brain {
             chat,
             agents,
             settings,
@@ -527,6 +534,20 @@ impl Brain {
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
         };
+        // Each cut turn runs again first, on the reference client's note;
+        // its messages are in the log already and are not logged again.
+        let resumes = brain.state.resumes.clone();
+        for resume in resumes {
+            brain.queue.push_back(Queued {
+                text: recover::RESUMED.to_owned(),
+                source: Source::Resume {
+                    remote: resume.remote,
+                },
+                images: Vec::new(),
+                conversation: resume.conversation,
+                logged: false,
+            });
+        }
         brain.save();
         // The compactor's first nodes take the turns' TTL too.
         brain.turn_cache_ttl();
@@ -946,16 +967,11 @@ impl Brain {
     }
 }
 
-/// A turn's reply key: `turn:optchat:<first new message id>:<its stamp>`.
-/// Ids start again at 0 after a memory reset or a restored backup, while the
-/// owner keeps every key it saw, so the id alone would collide (and the
-/// owner would refuse or silently replay the reply). The millisecond stamp
-/// of message `first` tells the two apart.
-fn reply_key(chat: &OptChat, first: u64) -> String {
-    reply_key_at(first, &chat.stamp(first).unwrap_or_default())
-}
-
-/// `reply_key` from message `first`'s stored date `stamp`.
+/// A turn's reply key: `turn:optchat:<first new message id>:<its stamp>`,
+/// from message `first`'s stored date `stamp`. Ids start again at 0 after a
+/// memory reset or a restored backup, while the owner keeps every key it
+/// saw, so the id alone would collide (and the owner would refuse or
+/// silently replay the reply). The millisecond stamp tells the two apart.
 fn reply_key_at(first: u64, stamp: &str) -> String {
     let stamp: String = stamp.chars().filter(char::is_ascii_digit).collect();
     format!("turn:optchat:{first}:{stamp}")

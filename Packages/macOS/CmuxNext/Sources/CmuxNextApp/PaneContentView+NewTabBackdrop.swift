@@ -29,7 +29,7 @@ extension PaneContentView {
     func dropBackdrop(keeping view: NSView?) {
         frost?.removeFromSuperview()
         frost = nil
-        if let underlay, underlay !== view, underlay.superview === contentHost { underlay.removeFromSuperview() }
+        if let underlay, underlay !== view, underlay.superview === contentHost { retire(underlay) }
         underlay = nil
     }
 

@@ -29,7 +29,7 @@ public struct BrowserPageService: Sendable {
             .async("browser.page.state") { call in
                 let tab = try Self.tab(call)
                 let state = try await Self.run(engine, .state, tab)
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 result["url"] = state["url"] ?? .string(tab.url ?? "about:blank")
                 result["title"] = state["title"] ?? ""
                 result["profile"] = .string(tab.browserProfileID ?? "default")
@@ -50,7 +50,7 @@ public struct BrowserPageService: Sendable {
                 if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
                     throw ControlError(code: "js_error", message: thrown)
                 }
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 result["value"] = value["value"] ?? .null
                 return .object(result)
             },
@@ -66,7 +66,7 @@ public struct BrowserPageService: Sendable {
                 if let error = value["error"]?.stringValue {
                     throw ControlError(code: "not_found", message: error)
                 }
-                var result = Self.base(tab)
+                var result: [String: JSONValue] = Self.base(tab)
                 for key in ["snapshot", "title", "url", "ready_state", "refs", "text"] { result[key] = value[key] ?? .null }
                 return .object(result)
             },
@@ -89,7 +89,7 @@ public struct BrowserPageService: Sendable {
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
-            var result = Self.base(tab)
+            var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
         }

@@ -105,6 +105,22 @@ public final class RemoteBrowserTab: BrowserTab {
         state = next
     }
 
+    // MARK: Failure
+
+    /// Why the tab shows no page (the session's failure), or nil.
+    public private(set) var failure: RemoteBrowserFailure?
+
+    /// Shows `message` in the page area and a "Not Connected" title, so a
+    /// refused or hostless tab is never a blank tab (cx-erey).
+    public func showFailure(_ failure: RemoteBrowserFailure, message: String) {
+        self.failure = failure
+        var next = state
+        next.title = RemoteBrowserStrings.failureTitle
+        next.phase = .finished
+        state = next
+        pane.view.showFailure(message)
+    }
+
     // MARK: BrowserTab
 
     public func load(_ url: URL) { channel.load(url) }

@@ -280,15 +280,16 @@ extension PaneController {
     /// (``NewTabPage/open(in:seed:)``).
     func newTabPage(seed: AgentPaneSeedSource? = nil) { NewTabPage.open(in: self, seed: seed) }
 
-    /// Focus Location Bar: a browser tab's address bar; the field of a new tab
-    /// page already showing; anywhere else a new tab page, whose field takes
-    /// the keyboard. ⌃L stays the terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; the omnibar of a new tab
+    /// page already showing (cx-e2aa; its field when it shows none); anywhere
+    /// else a new tab page, whose field takes the keyboard. ⌃L stays the
+    /// terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
         if case .browser = currentContent {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
         } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            services.agentTabs.view(for: key)?.focusLocation()
+            if let view = services.agentTabs.view(for: key), !NewTabOmnibar.focus(in: view) { view.focusLocation() }
         } else {
             newTabPage()
         }
@@ -386,7 +387,7 @@ extension NewTabPage {
                 : ChromiumInternalURL(typed: text)?.url ?? resolver.commitTypoFix(for: text) ?? resolver.destination(for: request.text)?.url
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
-            if services.cache.browserTabs.isAvailable() == true {
+            if services.cache.browserTabs.isAvailable(in: pane.pane) {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.

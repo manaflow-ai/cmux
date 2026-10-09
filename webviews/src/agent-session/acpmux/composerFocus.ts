@@ -37,11 +37,13 @@ export function routesToComposer(event: KeyLike, target: Element | null): boolea
   return true;
 }
 
-/// What has the page's focus, for automation (chat_state): `composer`, `none`, or
+/// What has the page's focus, for automation (chat_state): `composer` (the prompt), `none`, or
 /// `tag#id.class` of the focused element.
 export function focusedArea(element: Element | null): string {
   if (!element || element === element.ownerDocument?.body) return "none";
-  if (element.closest(".acpmux-composer-box")) return "composer";
+  // The prompt itself; a control in the composer's bar (a picker's search) reports as itself.
+  if (element.closest(".acpmux-composer-box") && element.closest("[contenteditable='true'], .acpmux-md-field"))
+    return "composer";
   const id = element.id ? `#${element.id}` : "";
   const className =
     typeof element.className === "string" && element.className ? `.${element.className.split(/\s+/)[0]}` : "";

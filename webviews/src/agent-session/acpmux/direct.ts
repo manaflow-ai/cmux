@@ -501,6 +501,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
+  /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
+  /// followHarnessChanges).
+  onHarnessesChanged?: () => void;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -735,6 +739,7 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -1713,6 +1718,12 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
+  /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
+  async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
+    await this.adoptChat(adopt);
+    return this.adopted;
+  }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
@@ -1917,7 +1928,9 @@ const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticke
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 /// A prompt acpmux refused because the session's folder has no Trust answer (`trust_gate.rs`).
 export function isTrustRefusal(error: unknown): boolean {
-  return trustRefusal(error) !== undefined;
+  // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  return reason === "trust.pending" || reason === "trust.untrusted";
 }
 
 /// What a trust refusal names: its reason and the folder acpmux asks about.
@@ -1926,10 +1939,9 @@ export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: 
 export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
 
 export function trustRefusal(error: unknown): TrustRefusal | undefined {
-  const fields = error as { reason?: unknown; cwd?: unknown } | null;
-  const reason = fields?.reason;
-  if (reason !== "trust.pending" && reason !== "trust.untrusted") return undefined;
-  return { reason, ...(typeof fields?.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
+  if (!isTrustRefusal(error)) return undefined;
+  const fields = error as { reason: TrustRefusal["reason"]; cwd?: unknown };
+  return { reason: fields.reason, ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
 }
 
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {

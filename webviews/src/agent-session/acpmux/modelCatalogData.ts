@@ -10,7 +10,7 @@ import { agentBrand } from "../shared/agentBrands.generated";
 // page), the user's cmux.json `agentPane.models`, and what acpmux reports it can run. The picker
 // reads only `PickerCatalog`; it never matches model ids itself.
 
-export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type ModelStatus = "preview" | "deprecated";
 
 export type ModelInfo = {
@@ -120,7 +120,7 @@ export const BUNDLED_MODEL_CATALOG: ModelCatalog = {
   delivery: "bundled",
 };
 
-const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 /** A host payload when it is a schema 1 catalog, else undefined (the page keeps what it has). */
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
@@ -488,10 +488,14 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
   const effort = options.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts = effort?.options
+  const offered = effort?.options
     ?.map((choice) => choice.value)
     .filter((value): value is EffortValue => EFFORT_ORDER.includes(value as EffortValue));
-  const fast = options.some((option) => option.id === "fast" || option.id === "fast_mode");
+  // An adapter can list one set for every model (Claude Code's): the model's own levels bound it.
+  const narrowed =
+    offered && model.efforts.length > 0 ? offered.filter((value) => model.efforts.includes(value)) : offered;
+  const efforts = narrowed && narrowed.length > 0 ? narrowed : offered;
+  const fast = options.some((option) => option.id === "fast" || option.id === "fast_mode" || option.id === "fast-mode");
   return {
     ...model,
     ...(efforts && efforts.length > 0 ? { efforts } : {}),
