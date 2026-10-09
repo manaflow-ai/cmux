@@ -249,6 +249,31 @@ test("browserAuth.request: submit presses only a submit control of the fields' o
   assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
 });
 
+// r37 whole#3: the submit control pressed after the sheet is the element
+// checked before it, with the same form and submission attributes. A page
+// that swaps the button for a look-alike, or points the checked one at
+// another action, while the sheet is up gets no press.
+test("browserAuth.request: after the sheet only the submit element checked before it is pressed, unchanged", async () => {
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  const pageEval = (call, params, source) => call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [], awaitPromise: true });
+  const changes = [
+    `() => { const b = document.querySelector("#f button"); const n = document.createElement("button"); n.type = "submit"; n.textContent = "Sign in"; n.addEventListener("click", (e) => { e.preventDefault(); document.getElementById("out").textContent = "replacement pressed"; }); b.replaceWith(n); return true; }`,
+    `() => { const b = document.querySelector("#f button"); b.setAttribute("formaction", "https://elsewhere.example/collect"); b.addEventListener("click", (e) => { e.preventDefault(); document.getElementById("out").textContent = "retargeted pressed"; }); return true; }`,
+    `() => { const f = document.getElementById("f"); f.setAttribute("action", "https://elsewhere.example/collect"); f.querySelector("button").addEventListener("click", (e) => { e.preventDefault(); document.getElementById("out").textContent = "form retargeted pressed"; }); return true; }`,
+  ];
+  for (const change of changes) {
+    await s.run('await page.goto("https://login.example/")');
+    globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, { meanwhile: ({ params, call }) => pageEval(call, params, change) });
+    assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: "#f button" } })`), { status: "submission_failed" }, change);
+    assert.equal(await s.value('page.locator("#out").textContent()'), "", change);
+  }
+  // Unchanged, the checked button is pressed.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: "#f button" } })`), { status: "submitted" });
+  assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
+});
+
 // r15 tabs#2: the sheet shows only what cmux verified. The agent's labels
 // (and the page's title) are not shown; each field is labeled by the
 // credential kind the app's bind found on the bound element itself.
