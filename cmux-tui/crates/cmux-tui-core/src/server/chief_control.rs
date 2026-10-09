@@ -43,6 +43,18 @@ pub(super) fn handle(
     request: ParsedResourceRequest,
     writer: &MessageWriter,
 ) -> bool {
+    handle_with(mux, client, request, writer, None)
+}
+
+/// [`handle`] with the brain's tools socket given (tests); `None` is the
+/// configured one.
+pub(super) fn handle_with(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: ParsedResourceRequest,
+    writer: &MessageWriter,
+    socket: Option<std::path::PathBuf>,
+) -> bool {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if let Err(error) = require_owner(mux, client) {
@@ -51,7 +63,7 @@ pub(super) fn handle(
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
     let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
-        let answer = ask(operation, &line, None);
+        let answer = ask(operation, &line, socket.as_deref());
         send_resource_response(
             &thread_writer,
             reply_id,

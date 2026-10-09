@@ -7,7 +7,7 @@ use std::os::unix::net::UnixListener;
 use std::sync::Mutex as StdMutex;
 
 use super::super::*;
-use super::{ask, require_owner, result, tool_line};
+use super::{ask, handle_with, require_owner, result, tool_line};
 
 fn writer() -> MessageWriter {
     MessageWriter::new(QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None })
@@ -115,4 +115,62 @@ fn a_brain_refusal_keeps_its_code_and_text() {
     let error =
         ask(ResourceOperation::ChiefStop, &json!({"tool":"stop"}), Some(missing)).unwrap_err();
     assert_eq!(error.details["reason"], "unavailable");
+}
+
+/// Runs `operation` through the origin gate's parse and `handle_with` on
+/// `client`, with the fake brain at `socket`; the response line.
+fn call(mux: &Arc<Mux>, client: u64, operation: &str, socket: &Path) -> Value {
+    let (writer, outbound) = tests::captured_writer();
+    let mut line = json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":operation,
+                          "params":{"machine":"current","session":"current"}});
+    if operation != "chief.engine.get" {
+        line["idempotency_key"] = json!("k1");
+    }
+    let line = line.to_string();
+    let actor = crate::workspace_registry::Actor::local_user();
+    let request = crate::resource_router::parse_resource_request_as(&line, actor).unwrap();
+    assert!(handle_with(mux, client, request, &writer, Some(socket.to_owned())));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(line) = outbound.try_pop() {
+            return serde_json::from_str(&line).unwrap();
+        }
+        assert!(Instant::now() < deadline, "no response within 5 s");
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn an_agent_bound_connection_reaches_nothing_and_the_owner_reaches_the_brain() {
+    let mux = Mux::new_for_test("chief-control-gate", crate::SurfaceOptions::default());
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let token = handle_command(
+        &mux,
+        owner,
+        serde_json::from_value(json!({"cmd":"conversation-agent-token","participant":"agent_mux"}))
+            .unwrap(),
+        &writer(),
+    )
+    .unwrap()["token"]
+        .clone();
+    let agent = mux.control_clients.register(ClientTransport::Unix, writer());
+    handle_command(
+        &mux,
+        agent,
+        serde_json::from_value(
+            json!({"cmd":"conversation-bind","participant":"agent_mux","token":token}),
+        )
+        .unwrap(),
+        &writer(),
+    )
+    .unwrap();
+    let (_dir, sock, seen) = brain(json!({"stopped": true}));
+    for operation in ["chief.stop", "chief.engine.set", "chief.engine.get"] {
+        let refused = call(&mux, agent, operation, &sock);
+        assert_eq!(refused["error"]["code"], "origin.forbidden", "{operation}: {refused}");
+    }
+    assert!(seen.lock().unwrap().is_empty(), "nothing reached the brain");
+    let stopped = call(&mux, owner, "chief.stop", &sock);
+    assert_eq!(stopped["result"]["value"]["stopped"], true, "{stopped}");
+    assert_eq!(seen.lock().unwrap().as_slice(), [json!({"tool":"stop"})]);
 }
