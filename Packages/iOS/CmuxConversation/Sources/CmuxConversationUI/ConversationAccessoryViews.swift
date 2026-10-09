@@ -24,7 +24,10 @@ final class ConversationAvatarView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    private(set) var initials = ""
+
     func configure(initials: String, colorHex: String?) {
+        self.initials = initials
         label.text = initials
         guard let colorHex else {
             gradient.colors = ConversationTheme.monogramGradient.map(\.cgColor)
