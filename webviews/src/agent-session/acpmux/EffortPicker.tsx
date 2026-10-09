@@ -50,12 +50,10 @@ export function EffortPicker({
         <span className="flex items-center gap-1.5">
           <span className="acpmux-menu-label">{choice.name}</span>
           {choice.hint && (
-            <span className="rounded border-[0.5px] border-edge px-1 text-[11px] leading-4 text-dim">
-              {choice.hint}
-            </span>
+            <span className="rounded border-[0.5px] border-edge px-1 text-caption text-dim">{choice.hint}</span>
           )}
         </span>
-        {choice.description && <span className="text-[12px] leading-4 text-dim">{choice.description}</span>}
+        {choice.description && <span className="text-detail text-dim">{choice.description}</span>}
       </span>
     </MenuRadioItem>
   );

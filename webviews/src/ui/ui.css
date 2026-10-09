@@ -186,8 +186,8 @@
   background: color-mix(in srgb, var(--ui-surface) 96%, var(--ui-fg));
   border: 1px solid var(--ui-line);
   color: var(--ui-fg);
-  font-size: var(--text-detail);
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   box-shadow: 0 2px 10px color-mix(in srgb, black 14%, transparent);
   pointer-events: none;
 }
