@@ -75,3 +75,35 @@ describe("a setting row's context menu", () => {
   });
 });
 
+// cx-64hi (nxdog77-v1): the Theme page's own rows (Match System Appearance, the theme pickers, the
+// app theme) opened no menu, unlike every other setting title. They offer the same menu for the
+// setting they edit.
+describe("the Theme page rows' context menu", () => {
+  async function openThemeMenu(rendered: Rendered, row: string): Promise<HTMLElement> {
+    const title = rendered.container.querySelector(`[data-theme-row="${row}"] .row-title`);
+    if (!title) throw new Error(`no theme row ${row}`);
+    await act(async () => {
+      title.dispatchEvent(
+        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    const menu = document.querySelector<HTMLElement>("[role=menu]");
+    if (!menu) throw new Error(`no menu opened on theme row ${row}`);
+    return menu;
+  }
+
+  test.each([
+    ["match", "appearance.theme"],
+    ["single", "appearance.theme"],
+    ["app", "appearance.appTheme"],
+  ])("the %s row copies %s", async (row, key) => {
+    page = await renderPage({ path: "/settings/theme" });
+    const menu = await openThemeMenu(page, row);
+    expect([...menu.querySelectorAll("[role=menuitem]")].map((button) => button.textContent)).toEqual([
+      "Copy Setting Key",
+      "Reset to Default",
+    ]);
+    await click(item(menu, "Copy Setting Key")!);
+    expect(page.provider.clipboard).toBe(key);
+  });
+});
