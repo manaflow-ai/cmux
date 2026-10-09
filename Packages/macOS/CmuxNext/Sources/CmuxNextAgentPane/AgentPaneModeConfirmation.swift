@@ -10,10 +10,10 @@ public nonisolated enum AgentPaneModeConfirmation: Equatable, Sendable, CustomSt
     /// Whether the user confirms it on the native sheet. Permission modes and Fast mode never do.
     public var needsSheet: Bool {
         switch self {
-        case .mode: false
+        case .mode: return false
         case .option(let id, _):
             let normalized = id.replacingOccurrences(of: "_", with: "-").lowercased()
-            !["fast", "fast-mode"].contains(normalized)
+            return !["fast", "fast-mode"].contains(normalized)
         }
     }
 
