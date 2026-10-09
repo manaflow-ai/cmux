@@ -32,7 +32,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// The signals a host records and survives: every catchable signal whose
@@ -79,6 +79,8 @@ pub(crate) const MAX_RECORDED_SIGNALS: usize = 32;
 struct Slot {
     signal: AtomicI32,
     sender_pid: AtomicI32,
+    /// The sender's real user id: still true after the sender exited.
+    sender_uid: AtomicU32,
     at_ms: AtomicI64,
     /// Set last by the handler: the slot is complete.
     ready: AtomicI32,
@@ -88,6 +90,7 @@ static SLOTS: [Slot; MAX_RECORDED_SIGNALS] = [const {
     Slot {
         signal: AtomicI32::new(0),
         sender_pid: AtomicI32::new(0),
+        sender_uid: AtomicU32::new(u32::MAX),
         at_ms: AtomicI64::new(0),
         ready: AtomicI32::new(0),
     }
@@ -145,6 +148,20 @@ fn act_on_service_manager_stop() {
     }
 }
 
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid }
+}
+
+/// The sender's real user id from an `SA_SIGINFO` record.
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd")))]
+unsafe fn siginfo_uid(info: *mut libc::siginfo_t) -> u32 {
+    // SAFETY: the caller passes the kernel's non-null siginfo.
+    unsafe { (*info).si_uid() }
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
 unsafe fn errno_location() -> *mut libc::c_int {
     // SAFETY: returns this thread's errno slot.
@@ -168,6 +185,7 @@ extern "C" fn record_signal(
         let errno = errno_location();
         let saved = *errno;
         let sender = if info.is_null() { 0 } else { (*info).si_pid() };
+        let sender_uid = if info.is_null() { u32::MAX } else { siginfo_uid(info) };
         if honors(signal, sender) {
             SERVICE_STOP.store(true, Ordering::Release);
         }
@@ -179,6 +197,7 @@ extern "C" fn record_signal(
             let at_ms = now.tv_sec.saturating_mul(1000) + now.tv_nsec / 1_000_000;
             slot.signal.store(signal, Ordering::Relaxed);
             slot.sender_pid.store(sender, Ordering::Relaxed);
+            slot.sender_uid.store(sender_uid, Ordering::Relaxed);
             slot.at_ms.store(at_ms, Ordering::Relaxed);
             slot.ready.store(1, Ordering::Release);
         }
@@ -239,8 +258,9 @@ pub(crate) fn install() -> anyhow::Result<()> {
             {
                 return;
             }
-            flush();
+            // A service-manager stop first: naming senders reads /proc.
             act_on_service_manager_stop();
+            flush();
         }
     })?;
     // SAFETY: a zeroed sigaction with a valid SA_SIGINFO handler and an
@@ -268,6 +288,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
 /// Name the breadcrumb file once the host knows its identity, and write any
 /// signal recorded before that.
 pub(crate) fn set_breadcrumb_path(path: PathBuf, terminal_id: String, incarnation: String) {
+    super::host_crash::install(path.with_extension("crash"), &terminal_id, &incarnation);
     let _ = BREADCRUMBS.set(Breadcrumbs { path, terminal_id, incarnation });
     flush();
 }
@@ -285,12 +306,21 @@ fn flush() {
         if slot.ready.load(Ordering::Acquire) == 0 {
             break;
         }
+        let sender_pid = slot.sender_pid.load(Ordering::Relaxed);
+        let at_ms = slot.at_ms.load(Ordering::Relaxed);
+        let sender_uid = slot.sender_uid.load(Ordering::Relaxed);
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
             "signal": slot.signal.load(Ordering::Relaxed),
-            "sender_pid": slot.sender_pid.load(Ordering::Relaxed),
-            "at_ms": slot.at_ms.load(Ordering::Relaxed),
+            "sender_pid": sender_pid,
+            // Who sent it (cx-0tgl LA), read while the sender usually still
+            // runs: an external killer is named in the loss line.
+            "sender": u32::try_from(sender_pid).ok().and_then(|pid| {
+                crate::process_identity::describe_sender(pid, u64::try_from(at_ms).unwrap_or(0))
+            }),
+            "sender_uid": (sender_uid != u32::MAX).then_some(sender_uid),
+            "at_ms": at_ms,
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),

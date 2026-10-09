@@ -62,10 +62,9 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
-    /// The window opened at launch, before the saved state loaded: it shows
-    /// the connecting state outside the registry, then becomes the frontmost
-    /// restored window (or the window of the first workspaces). Nil once it
-    /// is registered.
+    /// The window opened at launch before the saved state loaded: it shows the connecting state
+    /// outside the registry, then becomes the frontmost restored window (or the window of the
+    /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
@@ -322,6 +321,7 @@ final class WindowManager {
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
+        if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         controller.teardown()

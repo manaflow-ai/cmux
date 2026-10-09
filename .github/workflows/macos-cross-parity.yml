@@ -1,0 +1,186 @@
+name: macOS cross-compile parity
+
+# MACOS-CROSS-COMPILE-ON-LINUX drift guard. While scripts/ci/cmux-tui-darwin-builder
+# says linux, the cmux-tui artifacts publish Linux-built macOS binaries and no
+# per-commit job compares them with a Mac build. This workflow does, whenever
+# the cross recipe, the Rust toolchain, Cargo.lock or ghostty-next changes, and
+# daily (GitHub runs schedules from the default branch only, so the daily run
+# starts once this file is on main): it builds the macOS
+# targets on macOS runners (the reference), builds them again on Linux without
+# an Apple SDK, runs the Mach-O parity (scripts/ci/macho_parity.py, the
+# libghostty-vt check and the framework stub coverage), and runs every x86_64
+# binary of both builds on an Intel Mac (scripts/ci/macos-cross-runtime-check.sh).
+# A difference fails the run. It publishes nothing and holds no credentials.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "scripts/ci/macos-cross.sh"
+      - "scripts/ci/macos_stubs.py"
+      - "scripts/ci/macho_weaken.py"
+      - "scripts/ci/macho_parity.py"
+      - "scripts/ci/macos-cross-runtime-check.sh"
+      - "scripts/ci/macos-stubs/**"
+      - "cmux-tui/rust-toolchain.toml"
+      # New framework imports (Cargo.lock) fail the Linux link loudly; a
+      # ghostty-next bump can change libghostty-vt's compiler_rt.
+      - "cmux-tui/Cargo.lock"
+      - "ghostty-next"
+      - ".github/workflows/macos-cross-parity.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-cross-parity-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # The Mac reference: the build job of cmux-tui artifacts with the Mac builder.
+  mac-build:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      target_set: macos
+      darwin_builder: mac
+
+  linux-build:
+    name: build on Linux and compare (no Apple SDK)
+    needs: [mac-build]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Unit-test the parity verdict and the stub tools
+        run: |
+          python3 tests/test_ci_macho_parity.py
+          python3 tests/test_ci_macos_stubs.py
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install macOS Rust targets
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Download the Mac-built references
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: "*-apple-darwin"
+          path: ${{ runner.temp }}/macos-cross/ref
+          merge-multiple: true
+
+      - name: Build on Linux (no Apple SDK)
+        run: |
+          set -euo pipefail
+          sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
+          ./scripts/ci/macos-cross.sh toolchain "$sdk"
+          ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
+          ./scripts/ci/macos-cross.sh vt
+          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
+
+      - name: Compare with the Mac builds
+        run: |
+          set -uo pipefail
+          status=0
+          report="$RUNNER_TEMP/macos-cross-parity.txt"
+          ./scripts/ci/macos-cross.sh parity-hosts > "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-vt >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh stubs-check >> "$report" 2>&1 || status=1
+          ./scripts/ci/macos-cross.sh parity-bins >> "$report" 2>&1 || status=1
+          cat "$report"
+          { echo "### macOS cross-compile parity: ${GITHUB_SHA}"; echo '```'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the parity reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-parity
+          path: ${{ runner.temp }}/macos-cross/reports/
+          if-no-files-found: warn
+
+      - name: Upload the Linux-built macOS binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/macos-cross/linux/
+          if-no-files-found: warn
+          retention-days: 7
+
+  runtime-x86_64:
+    name: run-time check (Intel)
+    needs: [linux-build]
+    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Download the Linux-built macOS binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos-cross-binaries
+          path: ${{ runner.temp }}/linux
+
+      - name: Download the Mac-built references
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: "*-x86_64-apple-darwin"
+          path: ${{ runner.temp }}/mac
+          merge-multiple: true
+
+      - name: Run the Linux-built binaries beside the Mac-built ones
+        run: |
+          set -o pipefail
+          status=0
+          ./scripts/ci/macos-cross-runtime-check.sh "$RUNNER_TEMP/linux" "$RUNNER_TEMP/mac" | tee "$RUNNER_TEMP/runtime.txt" || status=$?
+          { echo "### macOS cross-compile run-time check (x86_64): ${GITHUB_SHA}"; echo '```'; cat "$RUNNER_TEMP/runtime.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

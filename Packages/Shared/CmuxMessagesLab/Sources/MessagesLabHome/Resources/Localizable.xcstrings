@@ -7081,127 +7081,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[مرفق: %@]"
+            "value": "[ملف: %@]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Prilog: %@]"
+            "value": "[Datoteka: %@]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Bilag: %@]"
+            "value": "[Fil: %@]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Anhang: %@]"
+            "value": "[Datei: %@]"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[Attachment: %@]"
+            "value": "[File: %@]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Archivo adjunto: %@]"
+            "value": "[Archivo: %@]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Pièce jointe : %@]"
+            "value": "[Fichier : %@]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Allegato: %@]"
+            "value": "[File: %@]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[添付ファイル: %@]"
+            "value": "[ファイル: %@]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[ឯកសារភ្ជាប់: %@]"
+            "value": "[ឯកសារ: %@]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[첨부 파일: %@]"
+            "value": "[파일: %@]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Vedlegg: %@]"
+            "value": "[Fil: %@]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Załącznik: %@]"
+            "value": "[Plik: %@]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Anexo: %@]"
+            "value": "[Arquivo: %@]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Вложение: %@]"
+            "value": "[Файл: %@]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[ไฟล์แนบ: %@]"
+            "value": "[ไฟล์: %@]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Eklenti: %@]"
+            "value": "[Dosya: %@]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Вкладення: %@]"
+            "value": "[Файл: %@]"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[Tệp đính kèm: %@]"
+            "value": "[Tệp: %@]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[附件：%@]"
+            "value": "[文件：%@]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "[附件：%@]"
+            "value": "[檔案：%@]"
           }
         }
       }

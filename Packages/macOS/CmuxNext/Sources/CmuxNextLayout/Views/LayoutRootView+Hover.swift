@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hover (cx-ww20): each screen view owns the hover of its
 /// handles and recomputes it from the pointer and the current frames. The
@@ -35,10 +36,11 @@ extension LayoutRootView {
 
     #if DEBUG
     /// DEBUG (`debug.mouse`): the synthesized pointer of `window` (window
-    /// coordinates; nil: outside the window), then every layout in the window
-    /// recomputes its hover from it.
+    /// coordinates; nil: outside the window), shared with every chrome hover
+    /// (`PointerHover`, which recomputes them), then every layout in the
+    /// window recomputes its divider hover from it.
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
-        LayoutViewContext.debugPointers[ObjectIdentifier(window)] = .some(point)
+        PointerHover.setDebugPointer(point, in: window)
         var stack: [NSView] = window.contentView.map { [$0] } ?? []
         while let view = stack.popLast() {
             if let root = view as? LayoutRootView { root.refreshDividerHover() } else { stack.append(contentsOf: view.subviews) }

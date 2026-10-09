@@ -96,8 +96,9 @@ struct SecondaryWindowS22Tests {
     }
 
     /// With no main window, the App Store makes no window of its own (S22).
-    /// A user's request waits, and the first window that shows a workspace
-    /// shows the App Store there (its top page), as Settings waits.
+    /// A user's request waits, and the first window that opens shows the
+    /// App Store as its top page, before any pane mounts (a window that comes
+    /// back on Home mounts none).
     @Test func withNoWindowTheAppStoreWaitsForAWindowAndShowsThere() async throws {
         let services = try await Self.services()
         let windowsBefore = NSApp.windows.count
@@ -106,7 +107,8 @@ struct SecondaryWindowS22Tests {
 
         services.daemon.store.apply(snapshot: try BrowserTabTests.tree())
         let workspace = try #require(services.daemon.store.workspaces.first)
-        let (window, _) = try await Self.mainWindow(services, workspace: workspace)
+        let window = try #require(services.windows.openWindow(workspaces: [workspace.id]))
+        services.windows.didActivate(window)
         await BrowserTabTests.settle { window.shownTopPage == .page(.appStore) }
         #expect(window.shownTopPage == .page(.appStore), "the waiting request shows the App Store")
     }
@@ -128,5 +130,65 @@ struct SecondaryWindowS22Tests {
         let key = try #require(services.pages.keys(of: .appStore).first, "the waiting request opens the tab")
         #expect(Self.holds(pane, key))
         #expect(window.shownTopPage == pageBefore, "automation never changes the view")
+    }
+
+    /// The real app (s22w-v1): Close All Windows, then App Store brought a
+    /// window back, but the request went to the closed window, which
+    /// `WindowManager.active` still returned as the last active one. A
+    /// closed window is never the active window; the App Store tab opens in
+    /// the window that is open.
+    @Test func aClosedWindowIsNeverTheActiveWindow() async throws {
+        let services = try await Self.services()
+        services.daemon.store.apply(snapshot: try Self.twoWorkspaceTree())
+        let workspaces = services.daemon.store.workspaces
+        try #require(workspaces.count == 2)
+        let (closed, _) = try await Self.mainWindow(services, workspace: workspaces[0])
+        services.keyWindowSource = { nil }
+        closed.window?.close()
+        #expect(!services.windows.controllers.contains { $0 === closed })
+        #expect(services.windows.active !== closed, "a closed window is not the active window")
+
+        // A window that opens behind (never key, never activated) holds the tab.
+        let open = try #require(services.windows.openWindow(workspaces: [workspaces[1].id]))
+        await BrowserTabTests.settle { open.content != nil }
+        let content = try #require(open.content)
+        let paneID = LayoutPaneIDFixture.id(try #require(workspaces[1].screens.first?.panes.first))
+        await BrowserTabTests.settle { content.panes[paneID] != nil }
+        if content.panes[paneID] == nil { _ = content.makeContentView(for: paneID) }
+        let pane = try #require(content.panes[paneID])
+        #expect(services.windows.active === open)
+        #expect(services.registry.perform("appStore.show", invocation: ActionInvocation(origin: .cli)))
+        await BrowserTabTests.settle { !services.pages.keys(of: .appStore).isEmpty }
+        let key = try #require(services.pages.keys(of: .appStore).first)
+        #expect(Self.holds(pane, key), "the App Store tab opened in the open window")
+    }
+
+    /// bd cx-beg1, the restored-app path: the user closes the only window,
+    /// then runs App Store (palette or key, no window). The closed window
+    /// comes back (`reopenOrCreateWindow`) and shows the App Store as its top
+    /// page, the same view a user run gets with a window open; no tab is
+    /// left behind. Automation in the same state reopens nothing it shows:
+    /// its tab stays in the background (`automationWithNoWindow...`).
+    @Test func aUserRunAfterCloseAllWindowsReopensTheWindowOnTheAppStore() async throws {
+        let services = try await Self.services()
+        services.windows.restoreWhenLoaded()
+        services.daemon.store.apply(snapshot: try Self.twoWorkspaceTree())
+        await BrowserTabTests.settle {
+            !services.windows.registry.isLaunching && services.windows.restored && services.windows.controllers.first?.content != nil
+        }
+        let first = try #require(services.windows.controllers.first)
+        let windowID = first.state.id
+        services.keyWindowSource = { nil }
+        first.window?.close()
+        #expect(services.windows.controllers.isEmpty)
+        #expect(services.registry.perform("appStore.show", invocation: ActionInvocation()))
+        let reopened = try #require(services.windows.controllers.first, "the closed window came back")
+        #expect(reopened.state.id == windowID)
+        await BrowserTabTests.settle { reopened.shownTopPage == .page(.appStore) }
+        #expect(reopened.shownTopPage == .page(.appStore), "the App Store shows and has the window")
+        #expect(services.windows.active === reopened)
+        #expect(services.pages.keys(of: .appStore).isEmpty, "no background App Store tab")
+        #expect(!services.apps.isStoreWaiting)
+        for controller in services.windows.controllers { controller.window?.close() }
     }
 }

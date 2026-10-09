@@ -19,6 +19,9 @@ cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
+cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
+cmux script repl [--timeout MS]
+cmux script types
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -65,6 +68,25 @@ waits at most 3 seconds for the run to answer `cmux.op.cancelled`, prints
 then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
 second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
 taken effect; retry it with the same `--idempotency-key`.
+
+`script run` runs JavaScript in a sandboxed script session of the session
+daemon (`script-run`; plans/cmux-next/scripting-runtime.md) and prints the
+value of its last expression statement: nothing for null, a string as is,
+other values as JSON (compact JSON for every value with `--json`). `KEY=VALUE`
+words and `--args JSON` become `cmux.args`. Console output arrives as
+`script-log` events before the answer and is printed as it comes (info and
+debug on stdout, warn and error on stderr; all on stderr with `--json`). A
+script calls ops through the global `cmux` with the rights of the calling
+connection, only ops the daemon owns, and has no network, filesystem or
+process access. An error exits 1 with its `error_code` (an op's own code, or
+`script.error`, `script.timeout`, `script.memory`, `script.cpu`,
+`script.host`); a usage error or a TypeScript file exits 2; Ctrl-C sends
+`cancel-request` for the running cell and exits 130. `script repl` keeps one
+session across lines (one line per cell; a line that ends with `\`
+continues), prints each value, and opens a new session when a cell ended its
+session. `script types` prints the TypeScript declarations of the `cmux`
+global. Connections bound to an agent, and remote connections, answer
+`script.forbidden`.
 
 `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
@@ -431,10 +453,17 @@ git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
+conversation list                                             (cmux-tui only)
+conversation <conv_id> get [--tail <0..500>]
+conversation <conv_id> history --before-seq <n> --limit <1..500>
+conversation search <words>... [--limit <1..100>]
+conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
+conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list
-pairing request <selector> respond <accept|reject>
+pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
 projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
@@ -522,6 +551,28 @@ results relative to `search_root`, the folder searched; `root` is the
 repository top level.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
+
+`conversation` maps one verb to each `conversation.*` operation of the local
+conversation owner (resource-api-v2.md, "Conversations"); it is a
+`cmux-tui` scope only, and the conversation operations are not MCP tools,
+because MCP clients act as the local user. `send` takes its idempotency key
+from `--idempotency-key` or a random one; the key is the message's
+`client_msg_id`. `events` prints one item per line with `--jsonl`.
+
+`chief` is the chat with the person's Chief over the same operations: it
+selects the Chief conversation (the oldest one with participant `agent_mux`),
+reads `conversation.events`, and sends with `conversation.send` as the
+person, so Home and the CLI show the same messages live. With `-p <text>`, or
+with text on stdin, it sends one message, prints the Chief's reply (live from
+its `draft` items when stdout is a terminal, else only the posted messages,
+or each as a JSON line with `--json`) and exits 0 when the turn that answers
+the message ends; `--timeout` exits 124. On a terminal it opens an inline
+chat: finished messages go into the terminal's scrollback, the live reply and
+the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
+Ctrl+D quits, `/help` lists the commands. It refuses a socket under
+`~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
+Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
+timeout.
 
 `git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
 `git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw

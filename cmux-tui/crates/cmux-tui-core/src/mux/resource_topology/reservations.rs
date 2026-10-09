@@ -20,7 +20,7 @@ fn stored_reservation_mutation(
     let actor = stored
         .get("mutation_actor")
         .and_then(Value::as_str)
-        .map_or(crate::Actor::Legacy, crate::Actor::from_wire);
+        .map_or(Actor::Legacy, Actor::from_wire);
     WorkspaceMutation::new(field("mutation_id")?, field("mutation_origin")?, actor)
 }
 

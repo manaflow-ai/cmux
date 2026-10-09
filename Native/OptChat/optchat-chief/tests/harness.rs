@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use common::*;
 use optchat_chief::brain::Settings;
 use optchat_chief::fold::{Usage, answer_usage};
-use optchat_chief::prompt::{Tools, cached_layout, claude_md, system_text, turn_blocks};
+use optchat_chief::prompt::{
+    CacheTtl, Mark, Tools, cached_layout_marked, claude_md, system_text, turn_blocks,
+};
 use optchat_core::Kind;
 use serde_json::{Value, json};
 
@@ -97,13 +99,23 @@ fn a_claude_turn_marks_the_last_whole_four_line_block_of_the_view() {
     assert_eq!(markers(blocks), vec![t.len() - 3]);
     let marked = &t[t.len() - 3];
     assert_eq!(marked.lines().count(), optchat_core::BLOCK_LINES);
+    // A 1-hour mark on the Claude Code path (tests/turn_cache.rs).
     assert_eq!(
         blocks[t.len() - 3]["cache_control"],
-        json!({"type": "ephemeral"})
+        json!({"type": "ephemeral", "ttl": "1h"})
     );
     assert_eq!(
         *blocks,
-        cached_layout(&claude_md(None), &view, "where is project 7?", true).blocks
+        cached_layout_marked(
+            &claude_md(None),
+            &view,
+            "where is project 7?",
+            Some(Mark {
+                piece: t.len() - 3,
+                ttl: CacheTtl::OneHour
+            })
+        )
+        .blocks
     );
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
@@ -338,6 +350,7 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
         env: Default::default(),
         instructions: None,
         tools: Tools::Cli(paths.bin.join("chief").display().to_string()),
+        user_env: Default::default(),
     };
     optchat_chief::session_dir::write(&paths, &setup).unwrap();
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
@@ -425,7 +438,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
-        optchat_chief::compactor::Slots::new(optchat_core::JOBS),
+        optchat_chief::compactor::Slots::new(optchat_chief::compactor::COMPACTOR_SESSIONS),
     );
     let request = optchat_host::CompactRequest {
         node: optchat_host::NodeId::new(0, 0),
@@ -611,6 +624,168 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None
     );
+}
+
+/// A plain `claude` turn signs in with the user's own Claude login. That
+/// login is found through the user's Claude home: with `CLAUDE_CONFIG_DIR`
+/// pointed at an empty directory, Claude Code reports `loggedIn: false`
+/// (checked 2026-10-08 with `claude auth status`), so an isolated turn
+/// preset must not set it. Isolation stays: no auto-memory, no CLAUDE.md
+/// files (the preset's system prompt carries the instructions), and the
+/// session directory's project settings (no hooks, denied tools).
+#[test]
+fn an_isolated_claude_turn_keeps_the_users_login() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    for harness in ["claude", "claude-sr"] {
+        let preset = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        assert!(
+            !preset.env.contains_key("CLAUDE_CONFIG_DIR"),
+            "{harness}: {:?}",
+            preset.env
+        );
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+        assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+        assert_eq!(preset.system_prompt.as_deref(), Some("SYS"));
+    }
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert!(
+        !codex.env.contains_key("CLAUDE_CONFIG_DIR"),
+        "{:?}",
+        codex.env
+    );
+}
+
+/// The reference's Claude Code path: Chief turns and compactor nodes load
+/// no user settings, user MCP servers, user skills or slash commands
+/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// Code 2.1.287: a user MCP server and a user skill leave the session's
+/// init, the session directory's .mcp.json and denied tools stay).
+/// Subagents keep the user's environment: they do real work.
+#[test]
+fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{subagent_preset, turn_preset};
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let isolated = ["--setting-sources", "project", "--disable-slash-commands"];
+    for harness in ["claude", "claude-sr"] {
+        let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        // An allowlist of built-ins (checked on Claude Code 2.1.287: the
+        // session's init lists exactly these and the Chief's MCP tools), so
+        // a built-in a later Claude Code adds is not offered to a turn.
+        assert_eq!(
+            turn.args,
+            [
+                "--setting-sources",
+                "project",
+                "--disable-slash-commands",
+                "--tools",
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+            ],
+            "{harness}"
+        );
+    }
+    for preset in
+        optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude)
+    {
+        for word in isolated {
+            assert!(
+                preset.args.iter().any(|a| a == word),
+                "{}: {:?}",
+                preset.name,
+                preset.args
+            );
+        }
+    }
+    let sub = subagent_preset(
+        &paths,
+        &home,
+        "optchat-sub-x".into(),
+        "claude",
+        Family::Claude,
+        true,
+        "SUB",
+        &Default::default(),
+    );
+    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
+}
+
+/// A turn that loads no user setting source still gets the env of the
+/// user's Claude Code settings (the user's API route, for one: a Mac whose
+/// subrouter route lives only in ~/.claude/settings.json). The session's own
+/// env wins over it.
+#[test]
+fn the_session_settings_carry_the_users_settings_env() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, settings_json, user_settings_env};
+    let dir = tempfile::tempdir().unwrap();
+    let claude_home = dir.path().join("claude-home");
+    std::fs::create_dir_all(&claude_home).unwrap();
+    std::fs::write(
+        claude_home.join("settings.json"),
+        r#"{"env": {"ANTHROPIC_BASE_URL": "http://router:31415", "PATH": "/user/bin", "N": 3}, "hooks": {}}"#,
+    )
+    .unwrap();
+    let user_env = user_settings_env(&claude_home);
+    assert_eq!(
+        user_env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+        Some("http://router:31415")
+    );
+    assert!(!user_env.contains_key("N"), "string values only");
+    assert!(user_settings_env(&dir.path().join("none")).is_empty());
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: [("PATH".to_owned(), "/ours".to_owned())].into(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env,
+    };
+    let settings = settings_json(&setup, &paths, &[]);
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
+    assert_eq!(
+        settings["env"]["PATH"],
+        format!("{}:/ours", paths.bin.display()),
+        "the session's own env wins"
+    );
+}
+
+/// The session's project settings may hold the user's settings env (an
+/// API token among it): both settings files are the user's alone (0600);
+/// the copy happens only on a macOS host (the user's own Mac, never a Linux
+/// VM or dev backend image) and `OPTCHAT_COPY_USER_ENV=0` turns it off.
+#[test]
+fn the_session_settings_files_are_private_and_the_copy_is_gated() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, copy_user_env_allowed, write};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        cmux_mcp: None,
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+    };
+    write(&paths, &setup).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let file = paths.session.join(".claude").join(name);
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{name}: {mode:o}");
+    }
+    assert!(!copy_user_env_allowed(Some("0")));
+    assert_eq!(copy_user_env_allowed(None), cfg!(target_os = "macos"));
+    assert_eq!(copy_user_env_allowed(Some("1")), cfg!(target_os = "macos"));
 }
 
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run

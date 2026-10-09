@@ -6,7 +6,7 @@ import Testing
 /// main thread on every open, so it must not do per-action work the open
 /// does not need: target lists (every workspace, tab, pane) are read only
 /// when the user runs an action that asks for one.
-@Suite struct PaletteOpenCostTests {
+@Suite(.paletteRanker) struct PaletteOpenCostTests {
     final class CountingTargets: PaletteTargetSource {
         var calls = 0
         func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {

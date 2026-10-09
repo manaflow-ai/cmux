@@ -19,5 +19,7 @@ refuse "ends with '.'" "CmuxNextAppTests."
 refuse "ends with '.'" "CmuxNextAgentPaneTests,CmuxNextAppTests."
 refuse "ends with '/'" "CmuxNextAppTests.SomeSuite/"
 refuse "test filters such as" "CmuxNextAppTests,,CmuxNextPagesTests"
+# Crash program phase 3: an unknown sanitizer is refused before any build.
+CMUX_SWIFT_SANITIZE=memory refuse "CMUX_SWIFT_SANITIZE must be" "CmuxNextAppTests"
 if [ "$fails" -ne 0 ]; then exit 1; fi
 echo "package-test-lane suite args: ok"

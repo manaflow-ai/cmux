@@ -4,17 +4,22 @@ import type { AcpmuxSnapshot } from "./model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
+  url: "https://cmux.test/agent-pane",
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  localStorage: dom.window.localStorage,
   // The prompt is a Milkdown (ProseMirror) editor.
   Node: dom.window.Node,
   getSelection: dom.window.getSelection.bind(dom.window),
@@ -28,6 +33,8 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
+const { ImageViewerContext } = await import("./conversation/imageViewerContext");
+const { readPersistedDraft, writePersistedDraft } = await import("./composerDraft");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
 const { webKitPress } = await import("./popoverTriggerTesting");
@@ -58,6 +65,8 @@ describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   let sentAttachments: { name: string; kind: string }[][];
+  let imported: string[];
+  let owned: { name: string; args?: string }[];
   const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
@@ -101,6 +110,12 @@ describe("acpmux composer slash menu", () => {
             sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
           },
           onStop: () => {},
+          onImportFile: (file: File) => {
+            imported.push(file.name);
+          },
+          onCmuxCommand: (command, args) => {
+            owned.push({ name: command.name, args });
+          },
         }),
       ),
     );
@@ -110,6 +125,8 @@ describe("acpmux composer slash menu", () => {
   beforeEach(() => {
     sent = [];
     sentAttachments = [];
+    imported = [];
+    owned = [];
     root = createRoot(dom.window.document.getElementById("root")!);
   });
   afterEach(async () => {
@@ -130,6 +147,28 @@ describe("acpmux composer slash menu", () => {
     expect(menu()).toBeNull();
     await type("say /com");
     expect(menu()).toBeNull();
+  });
+
+  test("a cmux-owned /import opens the transcript picker instead of sending to the agent", async () => {
+    await render(snapshot([{ name: "import", description: "Import a chat", hint: "JSONL file", source: "cmux" }]));
+    await type("/import");
+    await key("Enter");
+    expect(sent).toEqual([]);
+    expect(textarea().value).toBe("");
+    const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-import-input")!;
+    const file = new dom.window.File(["{}"], "chat.jsonl", { type: "application/json" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    expect(imported).toEqual(["chat.jsonl"]);
+  });
+
+  test("a cmux-owned /continue stays local instead of sending to the agent", async () => {
+    await render(snapshot([{ name: "continue", description: "", hint: "<harness>", source: "cmux" }]));
+    await type("/continue codex");
+    await key("Enter");
+    expect(sent).toEqual([]);
+    expect(owned).toEqual([{ name: "continue", args: "codex" }]);
+    expect(textarea().value).toBe("");
   });
 
   test("arrows move the selection and Enter writes the command without sending", async () => {
@@ -518,6 +557,53 @@ describe("acpmux composer slash menu", () => {
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
     });
 
+    // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): the image chip could not be opened and
+    // drew as an empty dark square.
+    const renderWithViewer = async (opened: [string, string][]) => {
+      await act(async () =>
+        root.render(
+          createElement(
+            ImageViewerContext.Provider,
+            { value: (src: string, alt: string) => opened.push([src, alt]) },
+            createElement(Composer, {
+              snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: true } } },
+              chips: () => null,
+              onSend: () => {},
+              onStop: () => {},
+            }),
+          ),
+        ),
+      );
+      await ready();
+    };
+
+    test("clicking an image chip opens it in the chat's image viewer", async () => {
+      const opened: [string, string][] = [];
+      await renderWithViewer(opened);
+      await paste([png()]);
+      const open = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Open image shot.png"]');
+      expect(open).not.toBeNull();
+      await act(async () => open!.click());
+      expect(opened).toEqual([["data:image/png;base64,iVBORw==", "shot.png"]]);
+      // Removing is its own control and opens nothing.
+      await act(async () =>
+        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click(),
+      );
+      expect(opened).toHaveLength(1);
+    });
+
+    test("an image the pane cannot draw shows its name, never an empty square", async () => {
+      await renderWithViewer([]);
+      await paste([png()]);
+      const image = dom.window.document.querySelector(".acpmux-attachment img")!;
+      expect(image).not.toBeNull();
+      await act(async () => image.dispatchEvent(new dom.window.Event("error")));
+      const chip = dom.window.document.querySelector(".acpmux-attachment")!;
+      expect(chip.querySelector("img")).toBeNull();
+      expect(chip.textContent).toContain("shot.png");
+      expect(chip.querySelector('[aria-label="Remove shot.png"]')).not.toBeNull();
+    });
+
     test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
       await act(async () =>
         root.render(
@@ -553,15 +639,16 @@ describe("acpmux composer slash menu", () => {
 
 describe("acpmux composer draft", () => {
   test("an inherited draft fills an empty prompt once and is not sent", async () => {
-    const root = createRoot(dom.window.document.getElementById("root")!);
+    let root = createRoot(dom.window.document.getElementById("root")!);
     const sent: string[] = [];
-    const render = async (draft?: string) => {
+    const render = async (draft?: string, sessionId?: string) => {
       await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: snapshot(),
             chips: () => null,
             draft,
+            sessionId,
             onSend: (text: string) => {
               sent.push(text);
             },
@@ -583,6 +670,43 @@ describe("acpmux composer draft", () => {
     await act(async () => typeInto(prompt, "mine"));
     await render("another");
     expect(prompt.value).toBe("mine");
+    await act(async () => root.unmount());
+  });
+
+  test("restores an unsent prompt for the same agent session after the page remounts", async () => {
+    const sessionId = "session-with-a-draft";
+    writePersistedDraft(sessionId, "");
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    const sent: string[] = [];
+    const render = async () => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: (text: string) => {
+              sent.push(text);
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+    };
+
+    await render();
+    await act(async () => typeInto(promptField(), "keep this across relaunch"));
+    await act(async () => root.render(null));
+    await render();
+    expect(promptField().value).toBe("keep this across relaunch");
+    await act(async () => {
+      promptField().element.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(sent).toEqual(["keep this across relaunch"]);
+    expect(readPersistedDraft(sessionId)).toBeUndefined();
     await act(async () => root.unmount());
   });
 });

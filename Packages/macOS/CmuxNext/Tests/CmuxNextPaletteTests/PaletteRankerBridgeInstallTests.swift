@@ -5,7 +5,7 @@ import Testing
 /// The bridge sends an index's entries to JavaScriptCore once per version: a keystroke on the same
 /// index sends only the query (the encode and parse of 2,000 entries were most of a keystroke's
 /// 19 ms). Results are the same as sending the entries every time.
-@Suite struct PaletteRankerBridgeInstallTests {
+@Suite(.paletteRanker) struct PaletteRankerBridgeInstallTests {
     @Test func entriesAreInstalledOncePerVersionWithTheSameResults() throws {
         let index = PaletteSearchIndex(items: PaletteBenchmarkTests.makeItems(count: 300))
         let other = PaletteSearchIndex(items: Array(PaletteBenchmarkTests.makeItems(count: 300).reversed()))

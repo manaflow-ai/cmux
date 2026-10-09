@@ -11,7 +11,8 @@ enum PersonalSidebar {
     /// the room's groups in order. With `personal-mixed-order-v1` on the
     /// home session each group shows at its `top_index` among the loose
     /// workspaces instead (`mixedSections`). Empty groups show under the
-    /// home session's section only, so each group appears once.
+    /// home session's section only, so each group appears once; an empty
+    /// group being deleted (`PersonalStore.endingGroups`) does not show.
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [SidebarSection] {
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return daemon.store.sidebarSections }
@@ -28,7 +29,9 @@ enum PersonalSidebar {
         var sections = [SidebarSection(group: nil, workspaces: ordered.filter { group($0).map { !known.contains($0) } ?? true })]
         for candidate in groups {
             let members = ordered.filter { group($0) == candidate.id }
-            if !members.isEmpty || isHome { sections.append(SidebarSection(group: candidate, workspaces: members)) }
+            if !members.isEmpty || isHome && !personal.endingGroups.contains(candidate.id) {
+                sections.append(SidebarSection(group: candidate, workspaces: members))
+            }
         }
         return sections
     }
@@ -65,7 +68,8 @@ enum PersonalSidebar {
         var loose: [WorkspaceModel] = []
         func emit(_ group: WorkspaceGroupModel) {
             let members = ordered.filter { rows[rowKey($0)]?.group == group.id }
-            guard !members.isEmpty || keepsEmptyGroups else { return }
+            // A group being deleted for losing its last member stays hidden (PersonalGroupLife.commit).
+            guard !members.isEmpty || keepsEmptyGroups && !personal.endingGroups.contains(group.id) else { return }
             if !loose.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
             loose = []
             sections.append(SidebarSection(group: group, workspaces: members))

@@ -21,6 +21,13 @@ final class MarkdownStore: @unchecked Sendable {
 
     func showsSource(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return source.contains(id) }
     func setShowsSource(_ id: ID, _ on: Bool) { lock.lock(); if on { source.insert(id) } else { source.remove(id) }; lock.unlock() }
+    /// cmux: a message's text is plain unless the host marks it Markdown (only an agent's
+    /// text is Markdown; a person's shows as typed). Plain is the default, so a message the
+    /// host has not seen (the reducer's local send, measured before the owner's echo) never
+    /// takes the Markdown engine. The host marks a message before it is measured.
+    private var markdownIDs = Set<ID>()
+    func isPlain(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return !markdownIDs.contains(id) }
+    func setPlain(_ id: ID, _ on: Bool) { lock.lock(); if on { markdownIDs.remove(id) } else { markdownIDs.insert(id) }; lock.unlock() }
 
     func document(_ text: String) -> MDDocument {
         lock.lock()
@@ -70,10 +77,17 @@ extension Markdown {
     /// message shown as source.
     static func layout(_ text: String, message: ID?, width: CGFloat) -> MarkdownLayout? {
         guard enabled, mightContain(text), !LongText.isLong(text) else { return nil }
-        if let message, MarkdownStore.shared.showsSource(message) { return nil }
+        if let message, MarkdownStore.shared.showsSource(message) || MarkdownStore.shared.isPlain(message) { return nil }
         let doc = MarkdownStore.shared.document(text)
         guard doc.isRich else { return nil }
         return MarkdownLayoutEngine.layout(doc, source: text, maxWidth: Metrics(width: width).maxTextWidth)
+    }
+
+    /// The display string of a text part (what selection offsets index and Copy returns), or nil
+    /// when the part takes the plain path (then the source is the display string). Independent of
+    /// the width (only line breaks depend on it); thread safe; block layouts are cached.
+    static func displayText(_ text: String, message: ID?) -> String? {
+        layout(text, message: message, width: Fixture.windowWidth)?.plain
     }
 
     /// Measure-key salt: a message shown as source is a new measurement.

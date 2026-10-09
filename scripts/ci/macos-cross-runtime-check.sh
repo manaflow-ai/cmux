@@ -10,8 +10,9 @@
 #   `scripts/ci/macos-cross.sh fetch-refs` writes the Mac set.
 #
 # Per binary of this Mac's architecture: LC_BUILD_VERSION platform/minos and
-# the linked dylibs equal the Mac build's (otool), the ad-hoc signature is
-# valid (codesign --verify --strict), and `version`/`--version` print the same
+# the linked dylibs equal the Mac build's (otool), the signature state matches
+# (arm64: a valid ad-hoc signature; x86_64: unsigned, like ld64's output), and
+# `version`/`--version` print the same
 # text. Then cmux-tui/scripts/smoke-remote-release.sh runs the Linux-built
 # daemon (start, trusted Unix RPC, capabilities). Exit 1 on any difference.
 set -euo pipefail
@@ -60,7 +61,13 @@ for name in cmux-tui cmux-tui-hook cmux-tui-acpmux cmux-relay chatmux-relay \
   cp "$linux" "$WORK/$name.linux" && cp "$mac" "$WORK/$name.mac" && chmod +x "$WORK/$name".*
   problems=()
   [[ "$(load_info "$WORK/$name.linux")" == "$(load_info "$WORK/$name.mac")" ]] || problems+=("load commands or dylibs differ")
-  codesign --verify --strict "$WORK/$name.linux" 2>/dev/null || problems+=("signature invalid")
+  # ld64 signs arm64 executables ad hoc and leaves x86_64 ones unsigned; the
+  # Linux build must be in the same state: valid where the Mac one is signed.
+  if codesign --verify --strict "$WORK/$name.mac" 2>/dev/null; then
+    codesign --verify --strict "$WORK/$name.linux" 2>/dev/null || problems+=("signature invalid")
+  elif codesign -d "$WORK/$name.linux" 2>/dev/null; then
+    problems+=("signed although the Mac build is not")
+  fi
   # The stamps are the same source commit, so the version text must match.
   if [[ "$name" != cmux-tui-app-host && "$name" != cmux-tui-cloud-server ]] \
      && [[ "$(version_of "$name" "$WORK/$name.linux")" != "$(version_of "$name" "$WORK/$name.mac")" ]]; then
@@ -69,7 +76,7 @@ for name in cmux-tui cmux-tui-hook cmux-tui-acpmux cmux-relay chatmux-relay \
   if ((${#problems[@]})); then
     echo "FAIL $name-$TARGET: ${problems[*]}"; status=1
   else
-    echo "PASS $name-$TARGET: runs; minos, dylibs and signature match the Mac build"
+    echo "PASS $name-$TARGET: runs; minos, dylibs, signature state and version match the Mac build"
   fi
 done
 

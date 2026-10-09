@@ -872,6 +872,8 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 mod chats;
+mod fork_through;
+pub use fork_through::FORK_OPERATIONS;
 mod harness_enable;
 pub mod local_app;
 pub mod peer_auth;

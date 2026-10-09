@@ -1540,7 +1540,8 @@ jobs:
     needs: [tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.publish-tree.result == 'success') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    # One fetch of the branch's recent history plus a jobs lookup per candidate.
+    timeout-minutes: 15
     permissions:
       # actions: read finds the Release compile; actions: write dispatches
       # main's promote-nightly-next.

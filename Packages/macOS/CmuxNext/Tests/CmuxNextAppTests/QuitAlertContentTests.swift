@@ -2,7 +2,7 @@
 import Testing
 
 /// The quit question (R96, R138, #17501): one cmux dialog, "Quit cmux?"
-/// with one sentence per fact and no program list; Keep Sessions Running
+/// with one status per line and no program list; Keep Sessions Running
 /// (default), Cancel, and Quit Everything beside them, never a second step;
 /// four buttons did not fit the dialog, so End Everything is the menu's.
 struct QuitAlertContentTests {
@@ -15,7 +15,7 @@ struct QuitAlertContentTests {
     @Test func runningProgramsAskOnceWithEveryChoice() {
         let content = QuitAlertContent.main(Self.prompt(running: 3))
         #expect(content.title == "Quit cmux?")
-        #expect(content.lines == ["Your 12 terminals keep running in the background.", "3 programs are running."])
+        #expect(content.lines == ["3 programs are running."])
         #expect(content.buttons == [.keep, .cancel, .confirmQuitEverything])
         #expect(content.showsSuppression)
         #expect(!content.message.contains("vim"))
@@ -23,26 +23,25 @@ struct QuitAlertContentTests {
 
     @Test func oneTerminalAndOneProgramReadInTheSingular() {
         let content = QuitAlertContent.main(Self.prompt(terminals: 1, running: 1))
-        #expect(content.lines.prefix(2) == ["Your 1 terminal keeps running in the background.", "1 program is running."])
+        #expect(content.lines == ["1 program is running."])
     }
 
-    /// Agents in a turn are not a warning: they keep running and reattach.
-    @Test func workingAgentsSayTheyKeepRunning() {
+    /// Agents in a turn are a status, not a warning: they keep running and reattach.
+    @Test func workingAgentsAreCounted() {
         let content = QuitAlertContent.main(Self.prompt(terminals: 0, agentsInTurn: 2))
-        #expect(content.lines == ["Agents still working: 2. They keep running and reattach when you reopen cmux."])
+        #expect(content.lines == ["Agents still working: 2."])
     }
 
-    @Test func incognitoAndRemoteNotesAppearOnlyWhenRelevant() {
+    @Test func incognitoLineAppearsOnlyWhenRelevant() {
         let content = QuitAlertContent.main(Self.prompt(running: 2, incognito: ["npm"], remote: true))
-        #expect(content.lines.count == 4)
-        #expect(content.lines[2] == QuitStrings.incognitoCloses)
-        #expect(content.lines[3] == "Sessions on other machines are not affected.")
+        #expect(content.lines == ["2 programs are running.", QuitStrings.incognitoCloses])
         #expect(!content.message.contains("npm"))
     }
 
     @Test func onlyIncognitoTerminalsAskQuitOrCancel() {
         let content = QuitAlertContent.main(Self.prompt(terminals: 0, incognito: ["vim"], choice: false))
         #expect(content.title == ConfirmationStrings.quitIncognitoTitle)
+        #expect(content.lines.isEmpty)
         #expect(content.buttons == [.quit, .cancel])
         #expect(!content.showsSuppression)
     }

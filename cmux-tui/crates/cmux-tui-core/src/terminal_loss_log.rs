@@ -19,6 +19,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::terminal_end::TerminalEnd;
+use crate::terminal_loss_cause::{cause_summary, cause_text, crash_path, read_crash};
 
 /// File name of the loss log in the session state directory.
 pub(crate) const LOSS_LOG_FILE: &str = "terminal-losses.jsonl";
@@ -30,9 +31,11 @@ pub(crate) fn signals_path(record_path: &Path) -> PathBuf {
     record_path.with_extension("signals")
 }
 
-/// Remove a host's signal breadcrumbs (its terminal ended and was recorded).
+/// Remove a host's signal breadcrumbs and crash sidecar (its terminal ended
+/// or its host was replaced, and that was recorded).
 pub(crate) fn remove_signals(record_path: &Path) {
     let _ = fs::remove_file(signals_path(record_path));
+    let _ = fs::remove_file(crash_path(record_path));
 }
 
 fn read_signals(record_path: &Path, incarnation: Option<&str>) -> Vec<serde_json::Value> {
@@ -52,15 +55,6 @@ fn read_signals(record_path: &Path, incarnation: Option<&str>) -> Vec<serde_json
     signals
 }
 
-/// Why a host ended, from the signals it recorded.
-fn end_cause(signals: &[serde_json::Value]) -> &'static str {
-    if signals.iter().any(|line| line.get("signal").is_some()) {
-        "host ended after recorded signals (the host survives these; a later uncatchable end followed)"
-    } else {
-        "no catchable signal recorded: SIGKILL, a crash, or memory pressure"
-    }
-}
-
 /// The loss line for a host-lost terminal; `None` for any other end.
 pub(crate) fn loss_line(
     record_path: &Path,
@@ -73,39 +67,68 @@ pub(crate) fn loss_line(
         return None;
     }
     let signals = read_signals(record_path, incarnation);
-    let cause = end_cause(&signals);
+    let crash = read_crash(record_path, incarnation);
     Some(serde_json::json!({
         "at_ms": at_ms,
         "terminal_id": terminal_id,
         "incarnation": incarnation,
         "end": end.wire_json(),
-        "cause": cause,
+        "cause": cause_text(&signals, crash.as_ref()),
+        "summary": cause_summary(&signals, crash.as_ref()),
         "signals": signals,
+        "crash": crash,
     }))
 }
 
-/// Append the loss of `terminal_id` to the session's loss log and remove the
-/// host's breadcrumbs. Best effort: a failure never affects the exit commit.
+/// Append the loss of `terminal_id` to the session's loss log. The host's
+/// breadcrumbs (signals, last panic) are removed on every end, so a later
+/// incarnation never inherits them. Best effort: a failure never affects the
+/// exit commit. Returns the loss's structured cause (tab `end.cause`).
 pub(crate) fn record_host_loss(
     record_path: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
     end: &TerminalEnd,
-) {
+) -> Option<serde_json::Value> {
     let at_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis())
         .unwrap_or_default();
-    let Some(line) = loss_line(record_path, terminal_id, incarnation, end, at_ms) else {
-        return;
-    };
-    eprintln!("cmux-tui: terminal {terminal_id} lost its host: {line}");
+    let line = loss_line(record_path, terminal_id, incarnation, end, at_ms);
+    remove_signals(record_path);
+    let line = line?;
+    eprintln!("cmux-tui: terminal {terminal_id} lost its host: {}", line["cause"]);
     if let Some(log) =
         record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
     {
         append_rotating(&log, &line);
     }
-    remove_signals(record_path);
+    line.get("summary").filter(|summary| !summary.is_null()).cloned()
+}
+
+/// The structured cause of the last loss of each terminal in the loss log
+/// next to the record directory `root` (the current file, then the rotated
+/// one), so an owner that restarts still names it on the dead tab.
+pub(crate) fn logged_summaries(
+    root: &Path,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut summaries = std::collections::HashMap::new();
+    let Some(dir) = root.parent() else { return summaries };
+    let log = dir.join(LOSS_LOG_FILE);
+    for path in [log.with_extension("jsonl.1"), log] {
+        let Ok(text) = fs::read_to_string(&path) else { continue };
+        for line in
+            text.lines().filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        {
+            if let (Some(id), Some(summary)) = (
+                line.get("terminal_id").and_then(serde_json::Value::as_str),
+                line.get("summary").filter(|summary| summary.is_object()),
+            ) {
+                summaries.insert(id.to_string(), summary.clone());
+            }
+        }
+    }
+    summaries
 }
 
 /// Append the replacement of a dead host by a new host on the same running
@@ -123,9 +146,11 @@ pub(crate) fn record_host_replaced(
         .map(|elapsed| elapsed.as_millis())
         .unwrap_or_default();
     let signals = read_signals(record_path, Some(incarnation));
-    let cause = end_cause(&signals);
+    let crash = read_crash(record_path, Some(incarnation));
+    let cause = cause_text(&signals, crash.as_ref());
     let line = serde_json::json!({
         "at_ms": at_ms,
+        "crash": crash,
         "event": "host_replaced",
         "terminal_id": terminal_id,
         "incarnation": incarnation,
@@ -134,7 +159,7 @@ pub(crate) fn record_host_replaced(
         "cause": cause,
         "signals": signals,
     });
-    eprintln!("cmux-tui: terminal {terminal_id} got a replacement host: {line}");
+    eprintln!("cmux-tui: terminal {terminal_id} got a replacement host: {cause}");
     if let Some(log) =
         record_path.parent().and_then(Path::parent).map(|dir| dir.join(LOSS_LOG_FILE))
     {
@@ -198,6 +223,39 @@ pub(crate) fn record_terminal_respawned(
         .unwrap_or_default();
     let line = respawn_line(terminal_id, incarnations, cause, prefilled, at_ms);
     eprintln!("cmux-tui: terminal {terminal_id} respawned: {line}");
+    if let Some(log) = root.parent().map(|dir| dir.join(LOSS_LOG_FILE)) {
+        append_rotating(&log, &line);
+    }
+}
+
+/// Append that this owner daemon got termination signal `signal` from
+/// `sender_pid` (cx-0tgl LA), with the sender's name and parent, so an
+/// external stop of the owner is named. `root` is the terminal-host record
+/// directory.
+pub(crate) fn record_daemon_signal(
+    root: &Path,
+    signal: i32,
+    (sender_pid, sender_uid): (i32, Option<u32>),
+    uptime_ms: u128,
+) {
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let sender = u32::try_from(sender_pid).ok().and_then(|pid| {
+        crate::process_identity::describe_sender(pid, u64::try_from(at_ms).unwrap_or(u64::MAX))
+    });
+    let line = serde_json::json!({
+        "at_ms": at_ms,
+        "event": "daemon_signal",
+        "daemon_pid": std::process::id(),
+        "daemon_uptime_ms": uptime_ms,
+        "signal": signal,
+        "sender_pid": sender_pid,
+        "sender_uid": sender_uid,
+        "sender": sender,
+    });
+    eprintln!("cmux-tui: owner daemon stopping on signal {signal} from pid {sender_pid}");
     if let Some(log) = root.parent().map(|dir| dir.join(LOSS_LOG_FILE)) {
         append_rotating(&log, &line);
     }

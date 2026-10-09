@@ -139,6 +139,46 @@ pub(crate) fn insert_resource_mutation(
     )
 }
 
+/// Which older ledger [`insert_keyed_mutation`] writes: both share one shape.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum KeyedLedger {
+    /// `mutations`: the workspace registry.
+    Workspace,
+    /// `terminal_mutations`: terminal lifecycles.
+    Terminal,
+}
+
+/// The one write of a `mutations` or `terminal_mutations` row; it records
+/// the actor (P8 landing 3b) like [`insert_resource_mutation`].
+pub(crate) fn insert_keyed_mutation(
+    connection: &Connection,
+    ledger: KeyedLedger,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+    result_json: &str,
+    committed_revision: i64,
+) -> rusqlite::Result<usize> {
+    let table = match ledger {
+        KeyedLedger::Workspace => "mutations",
+        KeyedLedger::Terminal => "terminal_mutations",
+    };
+    connection.execute(
+        &format!(
+            "INSERT INTO {table}(
+               origin, mutation_id, fingerprint, result_json, committed_revision, actor
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)"
+        ),
+        params![
+            mutation.origin,
+            mutation.id,
+            fingerprint,
+            result_json,
+            committed_revision,
+            mutation.actor.wire(),
+        ],
+    )
+}
+
 /// Forward-only, additive: rows written before the column get `legacy`,
 /// and an older daemon that omits the column on its writes gets `legacy`
 /// too. Probed by table shape, not by schema number, so older builds keep
@@ -156,6 +196,35 @@ pub(crate) fn migrate_add_actor_columns(connection: &Connection) -> anyhow::Resu
                 "ALTER TABLE {table} ADD COLUMN actor TEXT NOT NULL DEFAULT '{LEGACY_ACTOR}';"
             ))?;
         }
+    }
+    // Nullable, no default: a record or segment without one is legacy, and
+    // so is a row of an older ledger (P8 landing 3b) that predates it.
+    for (table, column) in [
+        ("session_journal", "actor"),
+        ("journal_segments", "actors_json"),
+        ("mutations", "actor"),
+        ("terminal_mutations", "actor"),
+        ("projection_mutations", "actor"),
+    ] {
+        add_nullable_column(connection, table, column)?;
+    }
+    Ok(())
+}
+
+/// Adds the nullable text `column` to `table` unless it is there (design D,
+/// landing 2c): an older daemon omits it on its writes, so its rows read
+/// `legacy`. Bookmark schema creation calls it for `bookmark_mutations`.
+pub(crate) fn add_nullable_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> anyhow::Result<()> {
+    let columns = connection
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|name| name == column) {
+        connection.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} TEXT;"))?;
     }
     Ok(())
 }

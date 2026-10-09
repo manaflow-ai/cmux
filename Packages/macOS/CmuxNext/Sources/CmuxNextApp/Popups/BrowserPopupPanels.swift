@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The open popup panels: sized `window.open` popups (OAuth, payment) and
 /// extension popup windows, each a `BrowserPopupPanel` over its opener's
@@ -105,7 +106,8 @@ final class BrowserPopupPanels {
         parentObservers[key] = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: parent, queue: nil
         ) { [weak self, weak parent] _ in
-            MainActor.assumeIsolated {
+            // No queue: inline on main (AppKit posts window notifications there), a hop from anywhere else.
+            MainDelivery().run {
                 guard let self else { return }
                 for entry in self.entries.values where entry.parent === parent { entry.panel.close() }
             }
@@ -138,8 +140,9 @@ final class BrowserPopupPanels {
             // A panel has no tab to select, no chrome for notices or an
             // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab, .download:
-            // A download joins the App's list through the opener's tab.
+        case .openURL, .adoptTab, .download, .openLocalFile:
+            // A download joins the App's list through the opener's tab, and a
+            // handed-off file opens in the opener's pane.
             return false
         }
         return true

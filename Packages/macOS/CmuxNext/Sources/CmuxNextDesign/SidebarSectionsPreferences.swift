@@ -29,11 +29,19 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var pinnedBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
+    /// `sidebar.groupByComputer`: one workspace section per computer, each
+    /// under its header. Off (the default) shows one list of workspaces with
+    /// no computer headers; a workspace of another computer names it on its
+    /// second line.
+    public var groupsByComputer = false
     /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
     /// the name, the user's icon and the unread/attention mark only
     /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
     public var workspaceRow = WorkspaceRowPreferences.defaults
-    /// Whether the device-wide Chats section is shown in the sidebar.
+    /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
+    public var showProjects = true
+    /// Whether the device-wide Chats section is shown in the sidebar; its
+    /// header's Hide Section turns it off.
     public var showChats = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.

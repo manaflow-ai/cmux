@@ -29,6 +29,8 @@ parser.add_argument("--capture", action="store_true",
                     help="save screenshots through the agent capture helper's daemon (scripts/agent-capture-helper.sh start)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cookie-prompt-live-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--launch-backdrop", action="store_true",
+                    help="launch with a backdrop painting already set and capture the Did you know card first (nxdog76)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -168,7 +170,7 @@ def config(background=None):
     settle(2.0)
 
 
-write(CONFIG, "{}\n")
+write(CONFIG, (json.dumps({"appearance": {"background": "wheat-field-with-cypresses"}}) if opts.launch_backdrop else "{}") + "\n")
 EMPTY_GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
@@ -182,20 +184,41 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    if opts.launch_backdrop:
+        # The card first built over a painting set at launch drew empty (nxdog76).
+        for mode in ["dark", "light"]:
+            rpc("debug.appearance", {"mode": mode})
+            rpc("debug.updater", {"action": "tip"})
+            settle(2.0)
+            capture(f"tip-card-launch-backdrop-{mode}")
+        config(None)
     # A recovered-draft toast from an earlier run of this tag would hold the card back (and cover it).
     for draft in rpc("debug.filepages").get("drafts") or []:
         rpc("debug.filepages", {"restore": draft["id"]})
     wait_for(lambda: not rpc("debug.filepages").get("toasts"), "no window toast before the check", 15)
     state = prompt("reset")
-    check(state.get("shown_on") == [] and not state.get("never_show"), f"fresh state: {state}")
+    # A tab restored from an earlier run may already show the card (its page finished at launch).
+    check(not state.get("never_show") and not state.get("imported") and not state.get("snoozed_until"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
     print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
+    # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
+    rpc("action.run", {"action": "palette.toggleTabPin"})
+    deadline = time.monotonic() + 5
+    toasts = None
+    while not toasts and time.monotonic() < deadline:  # bounded wait; a missing toast is a SKIP, not a failure
+        toasts = rpc("debug.filepages").get("toasts")
+        time.sleep(0.2)
+    if not toasts:
+        print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
     print("omnibar_type:", json.dumps(typed)[:300], flush=True)
+    if toasts:
+        settle(1.5)
+        capture("browser-card-over-toast")
     shown = wait_for(lambda: prompt().get("shown_on"), "the card appears when the page finishes", 60)
     state = prompt()
     check(bool(shown), f"the card showed by itself on the finished page: {state}")
@@ -234,12 +257,15 @@ try:
     state = prompt("answer", choice="never")
     check(state.get("never_show") is True, f"Don't Show Again ends it: {state}")
     prompt("reset")
+    shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import Cookies", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
     print("onboarding after Import Cookies:", json.dumps(onboarding)[:600], flush=True)
     check(onboarding.get("step") == "importData", f"Import Cookies opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
     check(kinds == ["cookies"], f"only cookies checked: {kinds}")
+    target = onboarding.get("merge_target")
+    check(target is not None, f"Import Cookies from the card imports into the profile of tab {shown_tab}: merge_target={target}")
     settle()
     capture("import-step-cookies")
     rpc("debug.onboarding", {"action": "close"})

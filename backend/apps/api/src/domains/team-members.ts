@@ -72,6 +72,19 @@ export interface RowsWithScan extends RowReader {
 export const listMembers = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<Member>; next: string | null } =>
   page(Object.values(s.members ?? {}).map((m) => [m.user, m] as const), rows?.scanFrom?.<Member>(TABLE_MEMBER, after, limit + 1) ?? [], after, limit)
 
+/** The owner with the smallest user id (deterministic), or undefined; scans at most `maxPages` pages. */
+export const firstOwner = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, maxPages = 50): string | undefined => {
+  let after: string | undefined
+  for (let i = 0; i < maxPages; i++) {
+    const { items, next } = listMembers(s, rows, after, 200)
+    const owner = items.find((m) => m.role === "owner")
+    if (owner) return owner.user
+    if (!next) return undefined
+    after = next
+  }
+  return undefined
+}
+
 /** One page of hosts by host id (keyset). */
 export const listHosts = (s: LegacyTeamMaps, rows: RowsWithScan | undefined, after: string | undefined, limit: number): { items: Array<HostRecord>; next: string | null } =>
   page(Object.values(s.hosts ?? {}).map((h) => [h.id, h] as const), rows?.scanFrom?.<HostRecord>(TABLE_HOST, after, limit + 1) ?? [], after, limit)

@@ -35,7 +35,9 @@ extension BrowserChromeView {
     /// Shows `offer` at the bottom of the page, replacing an offer already
     /// shown. Child-window (Chromium) pages draw above the chrome; the card
     /// is one of their occlusion rects, so it shows over them too.
-    public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
+    /// `aboveToast` lifts it over the window's toast stack (a toast shows now).
+    public func showCookieImportOffer(_ offer: BrowserCookieImportOffer, aboveToast: Bool = false,
+                                      onChoice: @escaping (BrowserCookieImportChoice) -> Void) {
         if let shown = currentCookieImportCard { remove(shown) }
         let card = BrowserCookieImportCard(offer: offer)
         card.onChoice = { [weak self, weak card] choice in
@@ -46,13 +48,16 @@ extension BrowserChromeView {
         let inset = BrowserMetrics.overlayInset
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
+            card.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset - (aboveToast ? Self.toastClearance : 0)),
             card.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: inset),
         ])
         card.alphaValue = 0
         Motion.animate(.fadeIn, in: card) { card.animator().alphaValue = 1 }
         needsLayout = true
     }
+
+    /// Room the window's toast stack takes at the bottom: one toast and its gaps.
+    static var toastClearance: CGFloat { BrowserMetrics.findBarHeight + BrowserMetrics.overlayInset * 2 }
 
     /// Closes the offer, if one is shown.
     public func hideCookieImportOffer() {

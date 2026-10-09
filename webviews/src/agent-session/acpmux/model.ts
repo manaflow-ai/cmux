@@ -343,6 +343,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
   if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // The render card: its 36px head over the frame before it reports a height, and 6px below.
+  if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -547,7 +549,8 @@ import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
-import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
+import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

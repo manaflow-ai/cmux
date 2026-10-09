@@ -46,4 +46,26 @@ import Testing
         model.importer.toggle(.bookmarks)
         #expect(model.importer.kinds == [.cookies, .bookmarks])
     }
+
+    /// cx-lsgf: Import Cookies on the card imports into the profile of the tab that showed it,
+    /// so the card's "stay signed in" holds there; any other opening keeps one new profile per source.
+    @Test func aCardPresetImportsIntoTheTabsProfileAndOtherOpeningsDoNot() async throws {
+        let services = MockOnboardingServices()
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [profile("Default", browser: .chrome)])]
+        let model = OnboardingModel(services: services, start: .importData)
+        let tabProfile = "0b6f3c2e-6a51-4d1f-9a3e-2f6b1c9d7e40"
+        model.importer.preset(kinds: [.cookies], into: tabProfile)
+        model.importer.detect()
+        await settle { model.importer.phase == .ready }
+        #expect(model.importer.mergeTarget == tabProfile)
+        model.importer.start()
+        await settle { model.importer.summary != nil }
+        let plan = try #require(services.plans.first)
+        #expect(plan.mergeTarget == tabProfile, "the cookies go into the tab's own profile")
+
+        model.importer.resetTarget()
+        #expect(model.importer.mergeTarget == nil)
+        #expect(model.importer.plan.mergeTarget == nil, "an import opened elsewhere makes one profile per source again")
+    }
 }
+

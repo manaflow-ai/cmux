@@ -275,7 +275,7 @@ cmd_parity_bins() {
 cmd_stubs_check() {
   local refs=()
   for n in "${BIN_NAMES[@]}"; do for t in "${TARGETS[@]}"; do refs+=("$XC_ROOT/ref/$n-$t"); done; done
-  python3 "$repo_root/scripts/ci/macos_stubs.py" check "$STUBS_DIR" "${refs[@]}"
+  MACOS_STUBS_SYSTEM_TBD="$SYSROOT/usr/lib/libSystem.tbd" python3 "$repo_root/scripts/ci/macos_stubs.py" check "$STUBS_DIR" "${refs[@]}"
 }
 
 cmd_vt() {

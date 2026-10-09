@@ -118,6 +118,8 @@ public nonisolated struct BrowserExtensionInfo: Hashable, Sendable, Identifiable
 
 /// Chrome Web Store pages for extensions.
 extension URL {
-    public static let browserExtensionWebStore = URL(string: "https://chromewebstore.google.com/category/extensions")!
-    public static let browserExtensionManagement = URL(string: "chrome://extensions")!
+    // Literals a test parses; /dev/null stands in rather than a trap.
+    public static let browserExtensionWebStore = URL(string: "https://chromewebstore.google.com/category/extensions")
+        ?? URL(fileURLWithPath: "/dev/null")
+    public static let browserExtensionManagement = URL(string: "chrome://extensions") ?? URL(fileURLWithPath: "/dev/null")
 }

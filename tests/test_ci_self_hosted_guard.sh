@@ -1007,6 +1007,7 @@ check_no_github_hosted_runners() {
     # Compare-only x86_64 run-time check of the Linux-built macOS binaries
     # (continue-on-error, so a billing block cannot stop CI).
     "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1752,6 +1753,7 @@ check_background_macos_lane() {
   local -a hosted_exceptions=(
     # Compare-only x86_64 run-time check of the Linux-built Mac binaries.
     "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
   )
   local failed=0 probe
 

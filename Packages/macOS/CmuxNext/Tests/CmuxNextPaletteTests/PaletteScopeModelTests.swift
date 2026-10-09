@@ -4,7 +4,7 @@ import Testing
 /// The palette model on the scope reducer: chips, Backspace to the root,
 /// prefix and keyword entry, drill into a row's actions, and a root that
 /// is built only when shown.
-@Suite struct PaletteScopeModelTests {
+@Suite(.paletteRanker) struct PaletteScopeModelTests {
     final class Log {
         var events: [String] = []
         var rootBuilds = 0

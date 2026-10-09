@@ -167,7 +167,10 @@ public actor IrxControlPlaneClient {
                     throw ReceiveTimeout()
                 }
                 defer { group.cancelAll() }
-                return try await group.next()!
+                // Both children either return or throw, so an empty group cannot happen;
+                // treat it as a closed connection rather than trapping.
+                guard let message = try await group.next() else { throw IrxConnectionError.closed(nil) }
+                return message
             }
         } catch is ReceiveTimeout {
             task.cancel(with: .goingAway, reason: nil)

@@ -38,7 +38,9 @@ public nonisolated enum DropResolver {
     /// rows inside a group, a group drag) the card's leading edge decides
     /// (nxdog30: a row makes way once the card covers half of it).
     /// `centreY`/`leadingY` are base-layout y values, nil inside the gap.
-    /// Returns nil when neither point can decide (keep the last target).
+    /// Returns nil when neither point can decide, or when the centre is in the
+    /// open gap and the leading edge finds no slot the rows can take (keep the
+    /// last target).
     public static func resolveDrag(centreY: CGFloat?, leadingY: CGFloat?, payload: DragPayload, base: SidebarLayout,
                                    sections: [SidebarSection], ungroupedFirst: Bool = false) -> (target: DropTarget?, probe: DragProbe)? {
         let band = ontoBand
@@ -52,7 +54,13 @@ public nonisolated enum DropResolver {
             }
         }
         guard let leadingY else { return nil }
-        return (resolve(y: leadingY, payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst, onto: off), .leadingEdge)
+        let target = resolve(y: leadingY, payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst, onto: off)
+        // The centre inside the open gap: that gap is the drop the list shows.
+        // The leading edge moves it only to a slot the dragged rows can take;
+        // over rows they cannot join (another computer's, right above in one
+        // list, cx-hzpd) the gap holds instead of refusing the drop.
+        if target == nil, centreY == nil { return nil }
+        return (target, .leadingEdge)
     }
 
     public static func resolveTabDrop(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?) -> SidebarTabDrop? {

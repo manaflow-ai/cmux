@@ -202,6 +202,14 @@ public final class SidebarContainerView: NSView {
         model.width = value
     }
 
+    /// The width animation lays the sidebar out each frame and a hide ends
+    /// it: views slide or hide under a still pointer, and hover follows
+    /// (cx-3wu5).
+    override public func layout() {
+        super.layout()
+        PointerHover.refresh(in: window)
+    }
+
     /// Sets every constraint and visibility for the model without animating.
     private func snap() {
         targetWidth = model.displayWidth
@@ -241,6 +249,7 @@ public final class SidebarContainerView: NSView {
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
             self.panel.isHidden = true
+            PointerHover.refresh(in: self.window)
         })
     }
 }
@@ -257,7 +266,9 @@ final class SidebarResizeHandle: NSView {
 
     var onDrag: ((Phase) -> Void)?
     private(set) var isDragging = false { didSet { updateLine() } }
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false { didSet { updateLine() } }
+    private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
 
@@ -286,6 +297,7 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
     @available(*, unavailable)
@@ -322,16 +334,18 @@ final class SidebarResizeHandle: NSView {
         needsLayout = true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    func setHovered(_ hovered: Bool) { isHovered = hovered }
+
+    /// Hidden with the sidebar under a still pointer: no exit comes.
+    override func viewDidHide() {
+        super.viewDidHide()
+        pointerHover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-
-    func setHovered(_ hovered: Bool) { isHovered = hovered }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        pointerHover?.refresh()
+    }
 
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0

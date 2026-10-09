@@ -612,7 +612,9 @@ impl JournalIngressSender {
     ) -> Result<(), JournalIngressTrySendError> {
         debug_assert!(matches!(
             &event,
-            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+            JournalIngressEvent::TerminalOutput { .. }
+                | JournalIngressEvent::TerminalResize { .. }
+                | JournalIngressEvent::TerminalOutputGap { .. }
         ));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         let _admission = self.state.enqueue_admission.lock().unwrap();

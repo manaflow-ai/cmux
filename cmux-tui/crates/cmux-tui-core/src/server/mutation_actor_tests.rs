@@ -189,3 +189,53 @@ fn a_replayed_close_keeps_the_first_receipt_actor() {
     let actor = registry.connection.query_row(sql, [], |row| row.get::<_, String>(0));
     assert_eq!(actor.ok().as_deref(), Some("user:user_local"));
 }
+
+/// The actor of the newest effect receipt: a legacy `new-workspace` makes a
+/// terminal, so it runs as an effectful creation with a receipt.
+fn newest_legacy_actor(mux: &Arc<Mux>) -> Option<String> {
+    let registry = mux.workspace_registry.lock().unwrap();
+    let sql = "SELECT actor FROM resource_effect_receipts ORDER BY rowid DESC LIMIT 1";
+    registry.connection.query_row(sql, [], |row| row.get::<_, String>(0)).ok()
+}
+
+/// A legacy line's reply: the dispatcher may answer on another thread.
+fn send_legacy(mux: &Arc<Mux>, conn: &Conn, request: &Value) -> Value {
+    assert!(handle_connection_message(
+        mux,
+        conn.client,
+        &request.to_string(),
+        &conn.writer,
+        &conn.scheduler
+    ));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(message) = conn.outbound.try_pop() {
+            let reply: Value = serde_json::from_str(&message).unwrap();
+            if reply["id"] == request["id"] {
+                return reply;
+            }
+            continue;
+        }
+        assert!(Instant::now() < deadline, "no reply to {request}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A legacy control command records the actor of its connection, never the
+/// daemon (P8 landing 3a); `new-workspace` stands for the ordinary topology ops.
+#[test]
+fn a_legacy_topology_command_records_its_connection_actor() {
+    let mux = mux("actor-legacy");
+    let plain = connect(&mux);
+    let reply = send_legacy(&mux, &plain, &json!({"id": 1, "cmd": "new-workspace", "name": "a"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(newest_legacy_actor(&mux).as_deref(), Some("user:user_local"));
+    let websocket = connect_websocket(&mux);
+    let reply =
+        send_legacy(&mux, &websocket, &json!({"id": 2, "cmd": "new-workspace", "name": "b"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(newest_legacy_actor(&mux).as_deref(), Some("peer:websocket"));
+}
+
+#[path = "mutation_actor_legacy_tests.rs"]
+mod legacy;

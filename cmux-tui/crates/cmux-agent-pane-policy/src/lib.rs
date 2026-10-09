@@ -24,6 +24,11 @@
 //!   `AcpmuxPaneSessions` (`add`, `sent`, `observe`, `holdsSource`), the host
 //!   calls it with what the pane sent and the daemon answered, and decides the
 //!   click's scope credit; the session folders (`observeFolder`) stay here;
+//! - feeding [`gesture::PermissionOptions`] every daemon frame (`observe`):
+//!   it tells a deny from an allow and a question from a tool permission (only
+//!   a question's `_acpmux/permission_respond` may carry `answers`; the shared
+//!   bounds are in `policy.json` `question_answers`, with Swift's Codex wrapper
+//!   exception recorded as `swift_gap` in the parity fixture);
 //! - gesture tickets, records and the mode confirmation sheet
 //!   (`AgentPaneUserGestures`, `AgentPaneModeConfirmation`), and the folder
 //!   harness sheet (`confirmHarnessEnable`: the user's Enable, the confirmed

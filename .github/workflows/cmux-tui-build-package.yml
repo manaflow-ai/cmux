@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all or macos-arm64"
+        description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
         required: false
         default: all
         type: string
@@ -180,6 +180,8 @@ jobs:
           target_set = os.environ["TARGET_SET"]
           if target_set == "all":
               selected = targets
+          elif target_set == "macos":
+              selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
               selected = [
                   target for target in targets

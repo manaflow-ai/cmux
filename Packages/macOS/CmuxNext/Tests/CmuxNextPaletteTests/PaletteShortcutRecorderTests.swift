@@ -9,7 +9,7 @@ import Testing
 /// have cmd+k, edit keyboard shortcut. must handle edge cases like
 /// conflicts").
 @MainActor
-@Suite struct PaletteShortcutRecorderTests {
+@Suite(.paletteRanker) struct PaletteShortcutRecorderTests {
     final class Editor: PaletteShortcutEditing {
         var saves: [[ShortcutChange]] = []
         var restores: [(ActionID, [ActionID])] = []

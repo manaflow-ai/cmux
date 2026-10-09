@@ -1,3 +1,4 @@
+use crate::Actor;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ use cmux_layout_reducer::LayoutOpKind;
 mod batch_close;
 mod column_update;
 mod emptied_workspace;
+mod end_terminals_batch;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
@@ -1163,6 +1165,7 @@ impl Mux {
 
     pub(super) fn commit_ordinary_tab_selection(
         self: &Arc<Self>,
+        actor: &Actor,
         selectors: ResourceSelectors,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint = json!({
@@ -1175,7 +1178,7 @@ impl Mux {
             selectors,
             false,
             None,
-            &WorkspaceMutation::daemon_local("cmux-tui"),
+            &WorkspaceMutation::local("cmux-tui", actor.clone()),
             &fingerprint,
         )
     }
@@ -1465,20 +1468,22 @@ impl Mux {
 
     /// Move a live placement without spawning replacement content. New/empty
     /// workspace layout and source removal commit together before live state changes.
-    pub fn move_tab_to_workspace(
+    pub fn move_tab_to_workspace_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
-        self.move_tab_to_workspace_placed(surface, workspace, None, None, None)
+        self.move_tab_to_workspace_placed(actor, surface, workspace, None, None, None)
     }
 
     /// Move a tab into a new workspace created in the same transaction,
     /// optionally in a sidebar group and at a final index among that
     /// section's members (groups partition the workspace order), named `name`
     /// (else the default `workspace-N`). Returns the new workspace.
-    pub fn move_tab_to_new_workspace(
+    pub fn move_tab_to_new_workspace_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         group: Option<String>,
         index: Option<usize>,
@@ -1490,7 +1495,7 @@ impl Mux {
                 "unknown workspace group {group}"
             );
         }
-        self.move_tab_to_workspace_placed(surface, None, group, index, name)?;
+        self.move_tab_to_workspace_placed(actor, surface, None, group, index, name)?;
         self.with_state(|state| {
             state
                 .pane_of(surface)
@@ -1502,6 +1507,7 @@ impl Mux {
 
     fn move_tab_to_workspace_placed(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
         group: Option<String>,
@@ -1528,7 +1534,10 @@ impl Mux {
                     .map(|pane| (pane.id, pane.tabs.len())))
             })?;
             if let Some((pane, index)) = target {
-                anyhow::ensure!(self.move_tab(surface, pane, index), "tab could not be moved");
+                anyhow::ensure!(
+                    self.move_tab_as(actor, surface, pane, index),
+                    "tab could not be moved"
+                );
                 return Ok(());
             }
         }
@@ -1536,7 +1545,7 @@ impl Mux {
             workspace.is_some() || !self.workspaces_are_provider_managed(),
             "managed workspace creation is not supported by tab moves"
         );
-        let mutation = WorkspaceMutation::daemon_local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
             "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
@@ -2689,7 +2698,11 @@ impl Mux {
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
                 }
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error)
                         if error
@@ -3707,7 +3720,11 @@ impl Mux {
                     .unwrap()
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
-                let result = match self.execute_resource_topology_effect(operation, &intent) {
+                let result = match self.execute_resource_topology_effect(
+                    &mutation.actor,
+                    operation,
+                    &intent,
+                ) {
                     Ok(result) => result,
                     Err(error) => {
                         #[cfg(test)]
@@ -3896,7 +3913,8 @@ impl Mux {
             self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
         if let Some(workspace) = workspace {
             anyhow::ensure!(
-                self.close_workspace_at_revision_for_resource_effect(workspace)?.is_some(),
+                self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
+                    .is_some(),
                 "interrupted staged workspace {public_id} disappeared during rollback"
             );
         }
@@ -4197,6 +4215,7 @@ impl Mux {
 
     fn execute_resource_topology_effect(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: ResourceOperation,
         intent: &Value,
     ) -> anyhow::Result<Value> {
@@ -4229,7 +4248,7 @@ impl Mux {
                 let target =
                     self.effect_slots(&path)?.workspace.context("workspace disappeared")?;
                 anyhow::ensure!(
-                    self.close_workspace_at_revision_for_resource_effect(target)?.is_some(),
+                    self.close_workspace_at_revision_for_resource_effect(actor, target)?.is_some(),
                     "workspace disappeared"
                 );
                 Ok(json!({}))
