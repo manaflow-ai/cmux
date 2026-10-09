@@ -4,11 +4,11 @@ import Foundation
 /// Owns the Mac process assertion used by the phone's Keep Mac Awake control.
 /// The assertion token never crosses the link and is released when this host
 /// run is torn down.
-public final class MobileCaffeineController: MobileCaffeineControl, @unchecked Sendable {
+@MainActor public final class MobileCaffeineController: MobileCaffeineControl {
     private let lock = NSLock()
     private var activity: (any NSObjectProtocol)?
 
-    public init() {}
+    nonisolated public init() {}
 
     public func status() async -> Bool { statusSync() }
 
