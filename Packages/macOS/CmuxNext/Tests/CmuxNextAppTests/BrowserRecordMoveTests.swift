@@ -27,7 +27,7 @@ struct BrowserRecordMoveTests {
         store.apply(snapshot: try Self.tree(pane: 3, tab: Self.tab))
         let browserTabs = try #require(services.cache.browserTabs)
         var sent: [(SurfaceID, BrowserRecordUpdate)] = []
-        browserTabs.update = { surface, update in
+        browserTabs.update = { _, surface, update in
             sent.append((surface, update))
             return true
         }
@@ -77,7 +77,7 @@ struct BrowserRecordAsyncPageTests {
         store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: BrowserRecordMoveTests.tab))
         let browserTabs = try #require(cache.browserTabs)
         var sent: [(SurfaceID, BrowserRecordUpdate)] = []
-        browserTabs.update = { surface, update in
+        browserTabs.update = { _, surface, update in
             sent.append((surface, update))
             return true
         }
