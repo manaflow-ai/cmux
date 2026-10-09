@@ -950,9 +950,11 @@ resolve_newest_published_tree() {
   for same_path in ${same_paths[@]+"${same_paths[@]}"}; do
     tip_blobs+=("$(git rev-parse -q --verify "HEAD:$same_path" 2>/dev/null || echo missing)")
   done
-  # A depth-1 CI checkout holds no window; deepen once (best effort).
+  # A depth-1 CI checkout holds no window; deepen once (best effort). Only
+  # this commit's history: a bare `fetch --deepen` deepens every branch of
+  # origin, which outlasted path routing's 5 minutes (#18698).
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
-    git fetch -q --deepen="$limit" origin 2>/dev/null \
+    git fetch -q --no-tags --deepen="$limit" origin "$tip" 2>/dev/null \
       || echo "warning: could not deepen the shallow checkout; searching the history it has" >&2
   fi
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-tree.XXXXXX")"
