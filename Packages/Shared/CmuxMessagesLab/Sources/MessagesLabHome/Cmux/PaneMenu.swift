@@ -125,7 +125,7 @@ extension ChatController {
               let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
         let f = cell.convert(cell.bounds, to: demo)
         let scale = window.backingScaleFactor
-        guard let ctx = CGContext(data: nil, width: Int(f.width * scale), height: Int(f.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
         cell.layer.render(in: ctx)

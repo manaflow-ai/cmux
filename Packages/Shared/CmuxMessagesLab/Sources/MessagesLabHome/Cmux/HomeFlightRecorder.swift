@@ -74,7 +74,7 @@ public struct HomeFlightRecorder {
             guard body.maxY > Fixture.headerHeight, body.minY < view.fieldTop else { continue }
             let g = cell.fillGradient.presentation() ?? cell.fillGradient
             let gr = g.convert(g.bounds, to: root)
-            if !gr.insetBy(dx: -0.5, dy: -0.5).contains(body) { out.append("\(spec.key) body \(Int(body.minY))-\(Int(body.maxY)) fill \(Int(gr.minY))-\(Int(gr.maxY))") }
+            if !gr.insetBy(dx: -0.5, dy: -0.5).contains(body) { out.append("\(spec.key) body \(CrashGuard.int(body.minY))-\(CrashGuard.int(body.maxY)) fill \(CrashGuard.int(gr.minY))-\(CrashGuard.int(gr.maxY))") // crash program }
         }
         return out
     }
