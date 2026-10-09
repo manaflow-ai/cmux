@@ -178,9 +178,14 @@ enum Springs {
     /// device, a script): no morph, no field collapse.
     static var insert: SpringElement { element("transcript.insert") }
     static var bubbleRight: SpringElement { element("bubble.right") }
-    static var bubbleWidth: SpringElement { element("bubble.width") }
+    /// The send morph's width and scale: macOS 27 fits (lossless takes), and the macOS 26 fits
+    /// (the macOS 26 original recording) where `ComposeMetrics.macOS26` says so.
+    static var bubbleWidth: SpringElement { osElement("bubble.width") }
     static var bubbleCenterY: SpringElement { element("bubble.centerY") }
-    static var bubbleScale: SpringElement { element("bubble.scale") }
+    static var bubbleScale: SpringElement { osElement("bubble.scale") }
+    static func osElement(_ name: String) -> SpringElement {
+        ComposeMetrics.macOS26 ? (all[name + ".macOS26"] ?? element(name)) : element(name)
+    }
     static var bubbleOpacity: SpringElement { element("bubble.opacity") }
     static var fieldTop: SpringElement { element("field.top") }
     static var fieldOpacity: SpringElement { element("field.opacity") }

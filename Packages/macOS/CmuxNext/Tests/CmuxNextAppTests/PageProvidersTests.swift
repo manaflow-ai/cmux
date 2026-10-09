@@ -132,11 +132,8 @@ struct PageProvidersTests {
     /// PageWKWebView, never trusted from page script). Script alone cannot replace the clipboard.
     @Test(.requiresPasteboard) func aPageWritesTheClipboardOnlyOnTheUsersGesture() async throws {
         let native = AppPageNativeProvider(services: ActionBindingCoverageTests.boundServices(), page: .history)
-        let pasteboard = NSPasteboard.withUniqueName()
-        defer { pasteboard.releaseGlobally() }
-        native.pasteboard = pasteboard
-        pasteboard.clearContents()
-        pasteboard.setString("mine", forType: .string)
+        var clipboard = ["mine"]
+        native.writeClipboard = { clipboard.append($0) }
         do {
             _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "page script"],
                                       context: PageCallContext(page: PageDescriptor.history.id))
@@ -144,10 +141,10 @@ struct PageProvidersTests {
         } catch let error as PageError {
             #expect(error.code == PageNativeOp.userOnlyCode)
         }
-        #expect(pasteboard.string(forType: .string) == "mine")
+        #expect(clipboard == ["mine"])
 
         _ = try await native.call(PageNativeOp.clipboardWrite, params: ["text": "https://example.com"],
                                   context: PageCallContext(page: PageDescriptor.history.id, userGesture: true))
-        #expect(pasteboard.string(forType: .string) == "https://example.com")
+        #expect(clipboard == ["mine", "https://example.com"])
     }
 }

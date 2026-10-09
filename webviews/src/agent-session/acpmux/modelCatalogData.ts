@@ -301,23 +301,23 @@ function layeredModel(
 }
 
 function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join: Join): PickerHarness {
-  const { catalog, session } = join;
+  const { session } = join;
   const chosen =
     members.find((entry) => entry.id === session?.harness) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];
   const listed = harness.modelSource === "catalog" ? harness.models : [];
-  const models: PickerModel[] = listed.map((model) => {
-    const probe = probedMatch(model, probed);
-    return pickerModel(layeredModel(model, harness.id, probe, join), catalog, probe?.unavailable);
-  });
+  const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
-    if (listed.some((model) => probeMatches(model, probe.id))) continue;
+    if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
+  addSessionModels(models, live, harness.id, listed, join);
+  const current = live?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
+  const offered = foldAliases(models, listed, current);
   return {
     id: harness.id,
     name: harness.name,
@@ -331,7 +331,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(harness.defaultModel ? { defaultModel: harness.defaultModel } : {}),
-    models: live ? models.map((model) => withLiveOptions(model, live)) : models,
+    models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
 }
 
@@ -340,6 +340,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   const models = entry.models
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join))
     .map((probe) => probedModel(probe, entry.id, join));
+  addSessionModels(models, live, entry.id, [], join);
   const declaredBrand = entry.icon ? agentBrand(entry.icon) : undefined;
   const iconUrl = entry.icon && !declaredBrand && isIconFile(entry.icon) ? entry.icon : undefined;
   return {
@@ -353,6 +354,81 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
     models: live ? models.map((model) => withLiveOptions(model, live)) : models,
   };
+}
+
+/**
+ * One catalog model, by its own id. A catalog alias is never used to guess what a harness alias
+ * runs: that depends on the installed harness (Claude Code 2.1.287's `haiku` is Haiku 4.5,
+ * 2.1.295's is Haiku 5.5), so only the harness's own report names an alias (`foldAliases`).
+ */
+function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel[], join: Join): PickerModel {
+  const probe = probed.find((candidate) => candidate.id === model.id);
+  return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
+}
+
+/**
+ * A model the harness reports under an alias and names as a catalog release ("opus" named
+ * "Opus 5.5", from Claude Code's initialize reply) replaces that release's pinned row: one row,
+ * the alias (so a pick follows the harness's newest), with the release's catalog metadata.
+ */
+function foldAliases(models: PickerModel[], listed: HarnessModel[], current?: string): PickerModel[] {
+  // The release the session runs keeps its own row, so the chip's model stays pickable and checked.
+  const listedIds = new Set(listed.map((model) => model.id).filter((id) => id !== current));
+  // release id -> the alias that takes its row (the first alias the harness names as it)
+  const takenBy = new Map<string, PickerModel>();
+  for (const model of models) {
+    if (listedIds.has(model.id)) continue;
+    const release = models.find(
+      (candidate) =>
+        listedIds.has(candidate.id) &&
+        !takenBy.has(candidate.id) &&
+        (candidate.shortName === model.name || candidate.name === model.name),
+    );
+    if (release) takenBy.set(release.id, model);
+  }
+  const aliases = new Set([...takenBy.values()].map((model) => model.id));
+  return models
+    .filter((model) => !aliases.has(model.id))
+    .map((model) => {
+      const alias = takenBy.get(model.id);
+      if (!alias) return model;
+      return {
+        ...model,
+        id: alias.id,
+        ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
+        searchText: `${alias.id} ${model.searchText}`,
+      };
+    });
+}
+
+/**
+ * The harness is the authority: every model the running session's own model option lists (and the
+ * one it runs) is offered, also when neither the catalog nor acpmux's model list has it.
+ */
+function addSessionModels(
+  models: PickerModel[],
+  options: ConfigOptions | undefined,
+  harnessId: string,
+  listed: HarnessModel[],
+  join: Join,
+): void {
+  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
+  if (!option) return;
+  const choices: { id: string; name?: string }[] = (option.options ?? []).map((choice) => ({
+    id: choice.value,
+    name: choice.name || undefined,
+  }));
+  if (option.currentValue) choices.push({ id: option.currentValue });
+  for (const choice of choices) {
+    if (!choice.id || models.some((model) => model.id === choice.id)) continue;
+    if (isHiddenByUser(harnessId, choice.id, join)) continue;
+    const pinned = listed.find((model) => model.id === choice.id);
+    models.push(
+      pinned
+        ? pickerModel(layeredModel(pinned, harnessId, undefined, join), join.catalog)
+        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join),
+    );
+  }
 }
 
 function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: string): PickerModel {
@@ -405,14 +481,6 @@ function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean
 /** A host-served icon file: an http(s) or cmux page URL, or an absolute path the host serves. */
 function isIconFile(icon: string): boolean {
   return /^(?:https?:|cmux-[a-z-]+:)\/\//.test(icon) || icon.startsWith("/");
-}
-
-function probedMatch(model: HarnessModel, probed: AcpmuxModel[]): AcpmuxModel | undefined {
-  return probed.find((probe) => probeMatches(model, probe.id));
-}
-
-function probeMatches(model: HarnessModel, id: string): boolean {
-  return model.id === id || (model.aliases?.includes(id) ?? false);
 }
 
 /** The session's own effort and fast options are the truth for the model it runs. */

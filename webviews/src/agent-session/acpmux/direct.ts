@@ -849,6 +849,16 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// Reads the selected session's durable composer draft from acpmux.
+  readDraft(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId });
+  }
+
+  /// Persists or clears the selected session's composer draft in acpmux.
+  writeDraft(sessionId: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, text });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.

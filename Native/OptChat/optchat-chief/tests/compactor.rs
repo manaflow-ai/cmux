@@ -1789,3 +1789,215 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// Dogfood fc34083d7bfa: a node whose first prompt carries our mark runs
+/// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
+/// long" retries in the same session read nothing from the cache (node
+/// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
+/// ends with our own 5-minute mark, so it reads the previous
+/// request from the cache; the session never holds more than the API's 4
+/// marks (the view mark and at most 3 retry marks; a 4th retry reads the
+/// 3rd's entry unmarked).
+#[test]
+fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "x".repeat(700);
+    let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    // A view with whole 4-line blocks, so the first prompt carries our mark.
+    let mut context = String::from("<chat>\n");
+    for k in 0..12 {
+        context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
+    }
+    context.push_str("</chat>");
+    let request = CompactRequest {
+        node: NodeId::new(0, 12),
+        context,
+        ..request(12)
+    };
+    run_node(&compactor, &request).unwrap();
+    let prompts = agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
+    let marks = |blocks: &[Value]| {
+        blocks
+            .iter()
+            .filter(|b| b.get("cache_control").is_some())
+            .count()
+    };
+    assert_eq!(marks(&prompts[0]), 1, "the view mark");
+    let mut total = 1;
+    for (k, p) in prompts.iter().enumerate().skip(1) {
+        let m = marks(p);
+        if k <= 3 {
+            assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
+            assert!(
+                p.last().unwrap().get("cache_control").is_some(),
+                "on its last block"
+            );
+            // 5 minutes whatever the node's TTL: a retry chain lasts seconds,
+            // a 5m write costs 1.25x the input price against 2x for 1h, and
+            // the API takes a 5m mark after a 1h one (not the reverse).
+            assert_eq!(
+                p.last().unwrap()["cache_control"],
+                json!({"type": "ephemeral"}),
+                "a 5m retry mark"
+            );
+        }
+        total += m;
+    }
+    assert!(total <= 4, "{total} marks in one session");
+}
+
+/// E2 (hq-6d): an exhausted compactor route (the subrouter's 503 with
+/// retry-after) fails over at once to the other route (the user's own
+/// `claude` login) and comes back when the wait ends; no node fails.
+#[test]
+fn an_exhausted_route_fails_over_and_comes_back_after_its_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 1s)"#.into(),
+    );
+    let compactor = compactor(&agents, dir.path()).with_alternate_harness(Some("claude".into()));
+    for i in 1..=2 {
+        assert_eq!(
+            run_node(&compactor, &request(i)).unwrap(),
+            "user: pasted a deploy log"
+        );
+    }
+    let harnesses = |agents: &FakeAgents| -> Vec<String> {
+        agents
+            .inner
+            .lock()
+            .unwrap()
+            .specs
+            .iter()
+            .map(|s| s.harness.clone())
+            .collect()
+    };
+    assert_eq!(
+        harnesses(&agents),
+        ["claude", "claude"],
+        "built on the other route"
+    );
+    agents.inner.lock().unwrap().session_errors.clear();
+    std::thread::sleep(Duration::from_millis(1_200));
+    run_node(&compactor, &request(3)).unwrap();
+    assert_eq!(
+        harnesses(&agents).last().map(String::as_str),
+        Some("claude-sr"),
+        "back on the first route"
+    );
+}
+
+/// E2: a pooled or routed Claude compactor's other route is the user's own
+/// `claude` login, when acpmux has it; `claude` itself and codex have none.
+#[test]
+fn the_other_compactor_route_is_derived() {
+    use optchat_chief::compactor::derived_alternate;
+    let all = [
+        "claude".to_owned(),
+        "claude-sr".to_owned(),
+        "codex".to_owned(),
+    ];
+    assert_eq!(
+        derived_alternate("claude-sr", &all).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        derived_alternate("claude-cr", &all).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(derived_alternate("claude", &all), None);
+    assert_eq!(derived_alternate("codex", &all), None);
+    assert_eq!(
+        derived_alternate("claude-sr", &["claude-sr".to_owned()]),
+        None
+    );
+}
+
+/// E2: an exhausted route never posts the "cannot build summaries" notice
+/// at start; the probe's failure is a quiet wait.
+#[test]
+fn an_exhausted_route_posts_no_probe_notice() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::probe_notice;
+    let exhausted = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, exhausted), None);
+    assert!(probe_notice(CompactRoute::Acpmux, "the compactor model: no login").is_some());
+}
+
+/// E2: a view line held only by an exhausted route (a capacity error) posts
+/// no "cannot summarize" notice: the wait is a quiet status. A request
+/// error still posts one.
+#[test]
+fn a_line_stuck_on_an_exhausted_route_posts_no_notice() {
+    use optchat_chief::brain::stuck_notice;
+    use optchat_host::{Failure, Status};
+    let node = NodeId::new(0, 3);
+    let status = |error: &str| Status {
+        messages: 4,
+        view_lines: 4,
+        view_size: 0,
+        budget: 0,
+        unbuilt: 1,
+        built: 3,
+        busy: vec![node],
+        failures: vec![Failure {
+            node,
+            error: error.to_owned(),
+        }],
+        stuck: vec![node],
+        recovered: false,
+        fatal: None,
+        closed: false,
+    };
+    let exhausted = r#"starting a compactor session: session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    assert_eq!(stuck_notice(&status(exhausted)), None);
+    let bad = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl"}}"#;
+    assert!(stuck_notice(&status(bad)).is_some());
+}
+
+/// E2: each capacity wait of the compactor is one trace event
+/// (`compactor.capacity`: the route, its retry-after, and the route it fails
+/// over to, or null), so the dogfood counts errors by class from traces.
+#[test]
+fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let exhausted = r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), exhausted.into());
+    let trace = optchat_chief::trace::Trace::open(&traces, false).unwrap();
+    let with_alt = compactor(&agents, dir.path())
+        .with_alternate_harness(Some("claude".into()))
+        .with_trace(trace.clone());
+    run_node(&with_alt, &request(1)).unwrap();
+    let without = compactor(&agents, dir.path()).with_trace(trace);
+    assert!(run_node(&without, &request(2)).is_err());
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let capacity: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "compactor.capacity")
+        .collect();
+    assert_eq!(capacity.len(), 2, "{events:?}");
+    assert_eq!(capacity[0]["route"], "claude-sr");
+    assert_eq!(capacity[0]["retry_after_s"], 3596);
+    assert_eq!(capacity[0]["failover"], "claude");
+    assert_eq!(capacity[0]["status"], 503);
+    assert_eq!(capacity[1]["failover"], Value::Null);
+}
