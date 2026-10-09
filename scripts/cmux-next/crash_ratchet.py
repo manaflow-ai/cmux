@@ -39,8 +39,9 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       any; else the module's), or with a `default:` argument, does not count
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
-                      `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
-                      compiler) do not count
+                      `UInt8(ascii:)`, a pure integer literal (`UInt8(0)`, checked by the
+                      compiler) and a string parse with `radix:` (`Int(text, radix: 10)`
+                      returns nil instead of trapping) do not count
     objc_observer     a selector-based NotificationCenter registration `addObserver(<target>, selector:`
                       (the call may span lines). The target method is @objc; when it is also
                       @MainActor, a post off the main thread traps in Swift's dynamic isolation
@@ -135,6 +136,9 @@ def is_bound_value(code, start, end):
     return bool(BOUND_BEFORE.search(code[:start]) and BOUND_AFTER.match(code[end:]))
 
 
+RADIX_ARGUMENT = re.compile(r",\s*radix\s*:")
+
+
 def int_conversion_hits(code):
     """Integer conversions in CODE that can trap. `Int(someString)` returns an optional:
     a conversion followed by `?`/`??` or inside an optional binding is not counted."""
@@ -153,6 +157,8 @@ def int_conversion_hits(code):
         after = code[end:].lstrip() if end else ""
         if after.startswith("?") or (binding and end and is_bound_value(code, match.start(), end)):
             continue
+        if end and RADIX_ARGUMENT.search(code[match.end():end - 1]):
+            continue  # `Int(text, radix: 10)`: the failable string parse, never a trap
         hits += 1
     return hits
 
