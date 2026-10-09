@@ -60,7 +60,7 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   if (!authenticatedToken?.user || !authenticatedToken.team) return new Response("unauthenticated", { status: 401 })
   // A session names a shared team with the `team.<id>` subprotocol; TeamDO confirms the membership (team-select.ts).
   const selected = await selectTeam(env, { ...authenticatedToken, user: authenticatedToken.user, team: authenticatedToken.team }, protocols.find((p) => p.startsWith(TEAM_SUBPROTOCOL_PREFIX))?.slice(TEAM_SUBPROTOCOL_PREFIX.length))
-  if (!selected.ok) return Response.json({ error: { code: selected.code, message: selected.message } }, { status: selected.code === "auth.forbidden" ? 403 : 503 })
+  if (!selected.ok) return Response.json({ error: { code: selected.code, message: selected.message } }, { status: selected.code === "owner.unreachable" ? 503 : 403 })
   const authenticated = selected.principal
   // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
   if (isMachineInstallKind(authenticated.install_kind)) return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
