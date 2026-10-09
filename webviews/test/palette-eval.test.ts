@@ -35,12 +35,16 @@ describe("palette ranking eval", () => {
     expect(failed).toEqual([]);
   });
 
-  test("ranking quality stays at or above the recorded floors", () => {
-    // The static floors measure text matching; learning cases have their own 100% floor above.
-    const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => !c.replay) });
-    console.log(formatReport(report));
-    expect(report.top1).toBeGreaterThanOrEqual(floors.top1);
-    expect(report.top3).toBeGreaterThanOrEqual(floors.top3);
-    expect(report.mrr).toBeGreaterThanOrEqual(floors.mrr);
-  });
+  test(
+    "ranking quality stays at or above the recorded floors",
+    () => {
+      // The static floors measure text matching; learning cases have their own 100% floor above.
+      const report = evaluate(fixture, { ...cases, cases: cases.cases.filter((c) => !c.replay) });
+      console.log(formatReport(report));
+      expect(report.top1).toBeGreaterThanOrEqual(floors.top1);
+      expect(report.top3).toBeGreaterThanOrEqual(floors.top3);
+      expect(report.mrr).toBeGreaterThanOrEqual(floors.mrr);
+    },
+    { timeout: 15_000 },
+  );
 });

@@ -215,6 +215,9 @@ pub struct EgressRule {
     /// The check of a connected peer (a listener exists, so one this host
     /// cannot see refuses).
     connected_services: crate::egress_services::ServiceCheck,
+    /// Whether an address is this machine's own (a local interface): its
+    /// ports get the service check as loopback does.
+    own_addresses: crate::egress_services::OwnAddresses,
     /// Tests: one loopback address that counts as public (a stand-in for
     /// an internet host the test can dial).
     #[cfg(test)]
@@ -234,6 +237,7 @@ impl EgressRule {
             resolver,
             services: crate::egress_services::system_check(),
             connected_services: crate::egress_services::system_connected_check(),
+            own_addresses: crate::egress_services::system_own_addresses(),
             #[cfg(test)]
             test_public: None,
         }
@@ -246,6 +250,16 @@ impl EgressRule {
     ) -> EgressRule {
         self.connected_services = services.clone();
         self.services = services;
+        self
+    }
+
+    /// Replaces the check of this machine's own addresses (tests).
+    #[cfg(test)]
+    pub(crate) fn with_own_addresses(
+        mut self,
+        own: crate::egress_services::OwnAddresses,
+    ) -> EgressRule {
+        self.own_addresses = own;
         self
     }
 
@@ -324,18 +338,25 @@ impl EgressRule {
         Ok(addrs)
     }
 
-    /// Why a loopback address is a cmux service's (crate::egress_services),
-    /// or `None` (also for any address that is not loopback).
+    /// Whether `ip` is this machine's: loopback, the unspecified address
+    /// (which connects to loopback), or one of its interface addresses. A
+    /// connection to any of them reaches the same wildcard listeners.
+    fn is_own(&self, ip: IpAddr) -> bool {
+        is_loopback(ip) || ip.is_unspecified() || (self.own_addresses)(ip)
+    }
+
+    /// Why an address of this machine is a cmux service's
+    /// (crate::egress_services), or `None` (also for any other address).
     pub fn service_refusal(&self, addr: SocketAddr) -> Option<String> {
         let addr = canonical(addr);
-        is_loopback(addr.ip()).then(|| (self.services)(addr)).flatten()
+        self.is_own(addr.ip()).then(|| (self.services)(addr)).flatten()
     }
 
     /// `service_refusal` for the peer of a connection that just succeeded:
     /// a listener exists, so one this host cannot see refuses the port.
     pub fn connected_service_refusal(&self, addr: SocketAddr) -> Option<String> {
         let addr = canonical(addr);
-        is_loopback(addr.ip()).then(|| (self.connected_services)(addr)).flatten()
+        self.is_own(addr.ip()).then(|| (self.connected_services)(addr)).flatten()
     }
 
     /// The rule for a URL's literal host only (an IP, `localhost`, a
