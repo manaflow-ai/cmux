@@ -33,7 +33,7 @@
 }
 
 .ui-positioner {
-  z-index: 50;
+  z-index: var(--layer-dropdown);
   outline: none;
 }
 
