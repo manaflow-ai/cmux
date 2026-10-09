@@ -47,7 +47,7 @@ Proposed CODEOWNERS line (needs Lawrence; CODEOWNERS today covers only `/.github
 | Gap | Effect | Proposed fix | Owner |
 | --- | --- | --- | --- |
 | No push trigger on `images/cmux-vm/**` (vm-image.md 4.11 says there is one) | a lock change is never baked unless someone dispatches | add the path trigger after the key move below | this lane |
-| CI key: `cloud-vm-image-checks` `FREESTYLE_API_KEY` is the shared-account key used by the classic reachability check (account UNVERIFIED by this lane; secret not read) | branch bakes land on the account that serves production | new environment `cmux-next-vm-image-dev` with the cmux-next dev key (`freestyle-cmux-next-dev-20261004.key`); keep `cmuxnp-dev-` names; needs a repo admin to add the secret | Lawrence (secret), this lane (workflow) |
+| CI key: `cloud-vm-image-checks` `FREESTYLE_API_KEY` is the shared-account key used by the classic reachability check (account UNVERIFIED by this lane; secret not read) | branch bakes land on the account that serves production | new environment `cmux-next-vm-image-dev` with the cmux-next dev key (since 2026-10-09 the one dev key, `FREESTYLE_API_KEY` in `~/.secrets/cmux.env`; the retired `freestyle-cmux-next-dev-20261004.key` is the same account); keep `cmuxnp-dev-` names; needs a repo admin to add the secret | Lawrence (secret), this lane (workflow) |
 | `bake.ts` reads the key only from the environment | the key must pass through a shell variable | add `--api-key-file <path>` (read in process, never logged) | this lane |
 | Boot still uses `cmux-devbox-boot` (the classic 1 s metadata poll) | idle CPU and bind latency of today | `cmux host run` (vm-image.md step 2) | session host owner |
 | Store updater, channel manifest signing | no update without rebake | vm-image.md step 3 | this lane + backend |
@@ -217,7 +217,7 @@ Promotion to required only after one green week and the coordinator's OK (same r
 
 ## 10. First dev-only rebake (proposed; not run in this run)
 
-- Name: `cmuxnp-dev-vmimg-auto1-<sha10>` (enforced by `lock.ts` and `guest.ts`). Account: cmux-next dev key (`~/.secrets/freestyle-cmux-next-dev-20261004.key`, passed by path through the new `--api-key-file`). No production snapshot, no manifest change, no default switch (V3).
+- Name: `cmuxnp-dev-vmimg-auto1-<sha10>` (enforced by `lock.ts` and `guest.ts`). Account: cmux-next dev key (then `~/.secrets/freestyle-cmux-next-dev-20261004.key`, now the one dev key in `~/.secrets/cmux.env`, same account; passed by path through the new `--api-key-file`). No production snapshot, no manifest change, no default switch (V3).
 - Lock changes: Chrome runtime libraries, fonts, display packages, ffmpeg (or not, D-A5); `programs`: CfT `chrome` (stage A), `cmux-browser-host`, `cmux-cua` (after P1, P2; if they are not ready, bake the packages and the sshd config without them and record that); `roles` filled.
 - Recipe changes: sshd drop-in and empty CA files (section 5); `cmux.service` `Delegate=yes`; Xauthority dir; no unit enabled at boot except what exists today.
 - Smoke: today's checks plus section 8.
