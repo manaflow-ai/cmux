@@ -462,3 +462,40 @@ fn a_refused_marker_comes_back_after_ten_turns() {
         "turn 11 tries the mark again"
     );
 }
+
+/// The last turn's mark survives a host restart (it is saved with the
+/// turn's messages): the first turn after the restart still marks within
+/// the API's lookback of it, after a long tool run.
+#[test]
+fn the_last_turns_mark_survives_a_restart() {
+    let mut h = claude_harness(None);
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    let before = h.agents.inner.lock().unwrap().prompts[0].clone();
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 1_200, 160);
+    h.connect();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    let after = inner.prompts.last().unwrap();
+    let (ma, mb) = (markers(&before)[0], markers(after)[0]);
+    assert_eq!(texts(&before)[..=ma], texts(after)[..=ma]);
+    assert!(
+        mb >= ma && mb - ma <= 20,
+        "marks {ma} then {mb} across the restart"
+    );
+}

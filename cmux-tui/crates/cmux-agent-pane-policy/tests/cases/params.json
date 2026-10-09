@@ -544,7 +544,8 @@
    "params": {
     "sessionId": 1,
     "permissionId": 1,
-    "optionId": 1
+    "optionId": 1,
+    "answers": 1
    }
   },
   "mode_fields": null,
@@ -827,6 +828,27 @@
     "sha256": "ab"
    }
   },
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond with updatedInput",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "answers": {
+     "Which one?": "B"
+    },
+    "updatedInput": {
+     "x": 1
+    }
+   }
+  },
+  "mode_fields": null,
   "breaks": true
  }
 ]

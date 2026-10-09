@@ -12,9 +12,27 @@
          let ts = CTTypesetterCreateWithAttributedString(attr)
          let len = (text as NSString).length
          var lines: [Line] = []
-@@ -56,6 +59,11 @@
-             if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
-                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
+@@ -40,8 +43,9 @@
+     func attributed(color: UIColor, linkColor: UIColor, kern: CGFloat = Fixture.bodyKern) -> NSAttributedString {
+         let a = NSMutableAttributedString(string: text, attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: kern])
+         for r in runs {
+-            let range = NSRange(location: r.start, length: r.length)
+-            guard NSMaxRange(range) <= a.length else { continue }
++            // cmux: a run that does not fit this text is skipped: negative, or past the end
++            // without overflowing (NSMaxRange of Int.max traps; addAttribute raises NSRangeException).
++            guard let range = Self.range(r.start, r.length, in: a.length) else { continue }
+             var traits: UIFontDescriptor.SymbolicTraits = []
+             for s in r.style ?? [] {
+                 switch s {
+@@ -53,9 +57,15 @@
+                 }
+             }
+             if r.mention != nil { traits.insert(.traitBold) }
+-            if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
+-                a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
++            // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
++            if !traits.isEmpty, let f = HomeFonts.font(Fixture.bodyFont, adding: traits) {
++                a.addAttribute(.font, value: f, range: range)
              }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
@@ -24,7 +42,30 @@
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
              }
-@@ -113,7 +121,13 @@
+@@ -64,6 +74,13 @@
+         return a
+     }
+ 
++    /// cmux: `start..<start+length` as a range when it lies inside a text of
++    /// `count` UTF-16 units, else nil. No arithmetic can overflow.
++    static func range(_ start: Int, _ length: Int, in count: Int) -> NSRange? {
++        guard start >= 0, length >= 0, start <= count, length <= count - start else { return nil }
++        return NSRange(location: start, length: length)
++    }
++
+     /// A line after a hard newline advances as far as a wrapped line, on both
+     /// sides (measured: a received 19-line bubble with 13 newlines is 19 x 16 pt;
+     /// the recording's sent 3-line bubble is 14 + 3 x 16 = 62 pt).
+@@ -89,6 +106,8 @@
+         let i = Int(floor(p.y / Fixture.lineHeight))
+         guard i >= 0, i < lines.count else { return nil }
+         let attr = attributed(color: .white, linkColor: .white)
++        // cmux: lines measured for another text (stale during an edit or a streamed reply) are not read past the end.
++        guard Self.range(lines[i].range.location, lines[i].range.length, in: attr.length) != nil else { return nil }
+         let line = CTLineCreateWithAttributedString(attr.attributedSubstring(from: lines[i].range))
+         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: p.x, y: 0)) + lines[i].range.location
+         return runs.first { $0.link != nil && idx >= $0.start && idx < $0.start + $0.length }?.link
+@@ -113,7 +132,13 @@
      /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
      /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
      /// the width (0.5707 W), wrapped later than Messages below 600 pt.
@@ -39,7 +80,7 @@
      var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
      var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
  }
-@@ -683,7 +697,8 @@
+@@ -683,7 +708,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -49,7 +90,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -695,6 +710,10 @@
+@@ -695,6 +721,10 @@
                  }
              }
              prev = m
@@ -60,7 +101,7 @@
          }
          if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
              rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-@@ -747,7 +766,7 @@
+@@ -747,7 +777,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -69,7 +110,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -766,7 +785,7 @@
+@@ -766,7 +796,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -78,7 +119,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -785,56 +804,58 @@
+@@ -785,56 +815,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  
@@ -92,6 +133,8 @@
 -    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered") }
 -    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message") }
 -    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent") }
+-    static func replies(_ n: Int) -> String {
+-        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
 +    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
 +    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
 +    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
@@ -100,8 +143,7 @@
 +    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
 +    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
 +    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
-     static func replies(_ n: Int) -> String {
--        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
++    static func replies(_ n: Int) -> String {
 +        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
      }
 -    static var location: String { String(localized: "preview.location", defaultValue: "Location") }

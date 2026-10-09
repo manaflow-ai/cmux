@@ -85,7 +85,9 @@ public final class AddressBarView: NSView {
         controller = OmnibarController(
             field: field,
             popup: self,
-            resolver: { [unowned self] in resolver },
+            // Once the view is gone (a controller that outlives it): the engine's plain
+            // resolver, as `suggest` answers `finished`.
+            resolver: { [weak self, suggestionEngine] in self?.resolver ?? suggestionEngine.resolver },
             suggest: { [weak self] request in
                 guard let self else { return OmniboxDelivery.finished }
                 var request = request
@@ -153,7 +155,8 @@ public final class AddressBarView: NSView {
             self?.controller.send(.rowClick(row: row, .init(flags)))
         }
         panel.onHover = { [weak self] row, pointer in self?.controller.send(.rowHover(row: row, pointer: pointer)) }
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)

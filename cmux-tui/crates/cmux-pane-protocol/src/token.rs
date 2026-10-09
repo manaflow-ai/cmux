@@ -117,17 +117,19 @@ pub struct SigningKey {
 
 impl SigningKey {
     /// A key from a 32-byte Ed25519 seed (tests and vectors use a fixed one).
-    pub fn from_seed(seed: &[u8; 32]) -> Self {
-        // A 32-byte seed always yields a key pair.
-        let pair = Ed25519KeyPair::from_seed_unchecked(seed).expect("32-byte Ed25519 seed");
-        Self { pair }
+    /// `ring` rejects only a seed of the wrong length, so this fails only if
+    /// `ring` changes that rule.
+    pub fn from_seed(seed: &[u8; 32]) -> anyhow::Result<Self> {
+        let pair = Ed25519KeyPair::from_seed_unchecked(seed)
+            .map_err(|error| anyhow::anyhow!("Ed25519 seed rejected: {error}"))?;
+        Ok(Self { pair })
     }
 
     /// A fresh random key.
     pub fn generate() -> anyhow::Result<Self> {
         let mut seed = [0u8; 32];
         getrandom::fill(&mut seed).map_err(|error| anyhow::anyhow!("getrandom: {error}"))?;
-        Ok(Self::from_seed(&seed))
+        Self::from_seed(&seed)
     }
 
     /// The 32-byte public key providers verify with.
@@ -240,7 +242,7 @@ mod tests {
 
     #[test]
     fn mint_and_verify() {
-        let key = SigningKey::from_seed(&[7; 32]);
+        let key = SigningKey::from_seed(&[7; 32]).unwrap();
         let token = key.sign(&claims());
         let verifier = Verifier::new(key.public_key(), "cmux.git");
         let origin = Some("http://127.0.0.1:4100");
@@ -253,7 +255,8 @@ mod tests {
         );
         let other = Verifier::new(key.public_key(), "com.acme.diff");
         assert_eq!(other.verify(&token, 1_000, origin), Err(TokenError::WrongAudience));
-        let stranger = Verifier::new(SigningKey::from_seed(&[8; 32]).public_key(), "cmux.git");
+        let stranger =
+            Verifier::new(SigningKey::from_seed(&[8; 32]).unwrap().public_key(), "cmux.git");
         assert_eq!(stranger.verify(&token, 1_000, origin), Err(TokenError::BadSignature));
         let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none","typ":"cmux-cap+jwt"}"#);
         let forged = format!("{header}.{}", token.split_once('.').unwrap().1);
