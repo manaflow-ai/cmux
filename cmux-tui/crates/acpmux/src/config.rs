@@ -612,10 +612,8 @@ impl Config {
                 &which,
                 &|id| cfg.harnesses.contains_key(id),
             );
+            // Never the default: a registry agent runs only when picked.
             cfg.join_discovered(found);
-            if cfg.default_harness.is_none() {
-                cfg.default_harness = cfg.harnesses.keys().next().cloned();
-            }
         }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();

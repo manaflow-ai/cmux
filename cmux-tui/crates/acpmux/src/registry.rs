@@ -120,9 +120,11 @@ impl Registry {
     }
 }
 
+/// A trimmed, bounded string without control characters (no line breaks
+/// that could add keys to a written profile, no terminal escapes).
 fn text(value: &Value, max: usize) -> Option<String> {
     let s = value.as_str()?.trim();
-    (!s.is_empty() && s.len() <= max && !s.contains('\0')).then(|| s.to_owned())
+    (!s.is_empty() && s.len() <= max && !s.chars().any(char::is_control)).then(|| s.to_owned())
 }
 
 fn https(value: &Value) -> Option<String> {
@@ -149,7 +151,18 @@ fn args(value: &Value) -> Option<Vec<String>> {
         .collect()
 }
 
-fn env(value: &Value) -> Option<BTreeMap<String, String>> {
+/// Env keys an agent may set: its own (`<ID>_...`), auto-update switches,
+/// and the few the registry needs that fit neither. Any other key drops the
+/// agent: env is how a registry entry could redirect credentials or load
+/// code into the agent.
+fn env_allowed(id: &str, key: &str) -> bool {
+    let own = format!("{}_", id.to_ascii_uppercase().replace(['-', '.'], "_"));
+    key.starts_with(&own)
+        || key.contains("AUTO_UPDATE")
+        || matches!((id, key), ("vtcode", "VT_ACP_ENABLED" | "VT_ACP_ZED_ENABLED"))
+}
+
+fn env(value: &Value, id: &str) -> Option<BTreeMap<String, String>> {
     let Some(map) = value.as_object() else {
         return value.is_null().then(BTreeMap::new);
     };
@@ -161,6 +174,7 @@ fn env(value: &Value) -> Option<BTreeMap<String, String>> {
             let v = v.as_str()?;
             (ENV_KEY.is_match(k)
                 && !reserved_env(k)
+                && env_allowed(id, k)
                 && v.len() <= MAX_ENV_VALUE_BYTES
                 && !v.contains('\0')
                 && !v.contains("${"))
@@ -169,10 +183,10 @@ fn env(value: &Value) -> Option<BTreeMap<String, String>> {
         .collect()
 }
 
-fn package(value: &Value, pattern: &Regex) -> Option<Package> {
+fn package(value: &Value, pattern: &Regex, id: &str) -> Option<Package> {
     let package = text(&value["package"], 214)?;
     pattern.is_match(&package).then_some(())?;
-    Some(Package { package, args: args(&value["args"])?, env: env(&value["env"])? })
+    Some(Package { package, args: args(&value["args"])?, env: env(&value["env"], id)? })
 }
 
 /// A relative program path inside an archive: no `..`, no absolute path.
@@ -186,7 +200,7 @@ fn archive_cmd(value: &Value) -> Option<String> {
     (!bad).then_some(cmd)
 }
 
-fn binary(value: &Value) -> Option<Binary> {
+fn binary(value: &Value, id: &str) -> Option<Binary> {
     let sha256 = match &value["sha256"] {
         Value::Null => None,
         v => Some(text(v, 64).filter(|s| SHA256.is_match(s))?),
@@ -195,7 +209,7 @@ fn binary(value: &Value) -> Option<Binary> {
         archive: https(&value["archive"])?,
         cmd: archive_cmd(&value["cmd"])?,
         args: args(&value["args"])?,
-        env: env(&value["env"])?,
+        env: env(&value["env"], id)?,
         sha256,
     })
 }
@@ -207,17 +221,17 @@ fn agent(value: &Value) -> Option<Agent> {
     let dist = &value["distribution"];
     let npx = match &dist["npx"] {
         Value::Null => None,
-        v => Some(package(v, &NPX_PACKAGE)?),
+        v => Some(package(v, &NPX_PACKAGE, &id)?),
     };
     let uvx = match &dist["uvx"] {
         Value::Null => None,
-        v => Some(package(v, &UVX_PACKAGE)?),
+        v => Some(package(v, &UVX_PACKAGE, &id)?),
     };
     let mut targets = BTreeMap::new();
     if let Some(map) = dist["binary"].as_object() {
         for (platform, target) in map {
             if PLATFORMS.contains(&platform.as_str()) {
-                targets.insert(platform.clone(), binary(target)?);
+                targets.insert(platform.clone(), binary(target, &id)?);
             }
         }
     }
@@ -238,10 +252,20 @@ fn agent(value: &Value) -> Option<Agent> {
 }
 
 /// Parses a registry body. A bad envelope fails; a bad agent is left out.
-pub fn parse(_bytes: &[u8]) -> Result<Registry, String> {
-    // Red: no agent is read yet.
-    let _ = agent;
-    Ok(Registry::default())
+pub fn parse(bytes: &[u8]) -> Result<Registry, String> {
+    if bytes.len() > MAX_BODY_BYTES {
+        return Err(format!("the registry is above the {MAX_BODY_BYTES} byte limit"));
+    }
+    let value: Value = serde_json::from_slice(bytes).map_err(|e| format!("registry json: {e}"))?;
+    let list = value["agents"].as_array().ok_or("the registry has no agents list")?;
+    let mut seen = std::collections::BTreeSet::new();
+    let agents = list
+        .iter()
+        .take(MAX_AGENTS)
+        .filter_map(agent)
+        .filter(|a| seen.insert(a.id.clone()))
+        .collect();
+    Ok(Registry { agents })
 }
 
 /// Platform keys the registry uses.
@@ -282,34 +306,99 @@ pub fn program_name(cmd: &str) -> Option<String> {
     plain.then(|| base.to_owned())
 }
 
-/// The program an npm package installs, for the agents where the registry
-/// id alone does not say (a global `npm install -g` puts it on PATH). Only
-/// names checked against each package; an unknown package is not looked up.
-fn npm_bin(id: &str) -> Option<&'static str> {
+/// The program an installed agent is, when it is not the registry id
+/// itself: checked against each agent's own package or archive. A registry
+/// entry cannot point acpmux at another program on PATH.
+fn pinned_program(id: &str) -> Option<&'static str> {
     Some(match id {
         "github-copilot-cli" => "copilot",
         "qwen-code" => "qwen",
-        "auggie" => "auggie",
-        "cline" => "cline",
         "factory-droid" => "droid",
         "codebuddy-code" => "codebuddy",
         "qoder" => "qodercli",
+        "mistral-vibe" => "vibe-acp",
+        "cortex-code" => "cortex",
+        "corust-agent" => "corust-agent-acp",
         _ => return None,
     })
 }
 
+/// Programs that never count as an installed agent, whatever the registry
+/// says: shells, interpreters, runners and tools that run other code.
+const NEVER_PROGRAMS: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "dash",
+    "ksh",
+    "csh",
+    "tcsh",
+    "env",
+    "node",
+    "nodejs",
+    "deno",
+    "bun",
+    "python",
+    "python3",
+    "ruby",
+    "perl",
+    "php",
+    "git",
+    "ssh",
+    "curl",
+    "wget",
+    "osascript",
+    "open",
+    "sudo",
+    "su",
+    "npx",
+    "npm",
+    "uv",
+    "uvx",
+    "pip",
+    "pip3",
+    "cmux",
+    "acpmux",
+];
+
+/// True when `program` on PATH may stand for registry agent `id`.
+fn program_is_agent(id: &str, program: &str) -> bool {
+    !NEVER_PROGRAMS.contains(&program) && (program == id || pinned_program(id) == Some(program))
+}
+
+/// Harness ids registry discovery never takes: acpmux's own Claude routes
+/// and the harnesses its PATH discovery already finds by name.
+pub const RESERVED_IDS: &[&str] = &[
+    "claude",
+    "claude-cr",
+    "claude-sr",
+    "codex",
+    "gemini",
+    "opencode",
+    "opencode-v2",
+    "deepseek",
+    "pi",
+    "omp",
+    "prime",
+    "grok",
+    "cursor",
+    "aider",
+];
+
 /// The harness id a registry agent takes: our own id for agents acpmux
-/// already knows under another name, else the registry id with `.` and `_`
-/// made `-` (profile ids are lowercase letters, digits and `-`).
-pub fn harness_id(registry_id: &str) -> String {
-    match registry_id {
-        "codex-acp" => "codex".into(),
-        "pi-acp" => "pi".into(),
-        "grok-build" => "grok".into(),
-        "antigravity-acp" => "antigravity".into(),
-        "claude-acp" => "claude-acp".into(),
-        other => other.replace(['.', '_'], "-"),
-    }
+/// already knows under another name, else the registry id when it is a
+/// valid profile id (lowercase letters, digits and `-`; no rewriting, so two
+/// registry ids never collide on one harness).
+pub fn harness_id(registry_id: &str) -> Option<String> {
+    let id = match registry_id {
+        "codex-acp" => "codex",
+        "pi-acp" => "pi",
+        "grok-build" => "grok",
+        "antigravity-acp" => "antigravity",
+        other => other,
+    };
+    crate::config::profiles::valid_id(id).then(|| id.to_owned())
 }
 
 /// How an agent can start on this machine, best first.
@@ -355,14 +444,16 @@ impl Agent {
         which: &dyn Fn(&str) -> Option<String>,
     ) -> Option<Launch> {
         if let Some(target) = platform.and_then(|p| self.binary.get(p))
-            && let Some(path) = program_name(&target.cmd).and_then(|name| which(&name))
+            && let Some(name) = program_name(&target.cmd).filter(|n| program_is_agent(&self.id, n))
+            && let Some(path) = which(&name)
         {
             let mut argv = vec![path];
             argv.extend(target.args.iter().cloned());
             return Some(Launch::Installed { argv, env: target.env.clone() });
         }
         let npx = self.npx.as_ref()?;
-        let path = which(npm_bin(&self.id)?)?;
+        let program = pinned_program(&self.id).filter(|p| program_is_agent(&self.id, p))?;
+        let path = which(program)?;
         let mut argv = vec![path];
         argv.extend(npx.args.iter().cloned());
         Some(Launch::Installed { argv, env: npx.env.clone() })
@@ -407,22 +498,24 @@ pub fn discovered(
 ) -> BTreeMap<String, HarnessProfile> {
     let mut out = BTreeMap::new();
     for agent in &registry.agents {
-        let id = harness_id(&agent.id);
-        if !crate::config::profiles::valid_id(&id) || taken(&id) || out.contains_key(&id) {
+        let Some(id) = harness_id(&agent.id) else { continue };
+        if RESERVED_IDS.contains(&id.as_str()) || taken(&id) || out.contains_key(&id) {
             continue;
         }
         let Some(Launch::Installed { argv, env }) = agent.installed(platform, which) else {
             continue;
         };
+        let description = format!("{} (ACP Registry {}): {}", agent.name, agent.version, argv[0]);
         out.insert(
-            id,
+            id.clone(),
             HarnessProfile {
                 kind: HarnessKind::Acp,
                 argv,
                 env,
-                description: Some(format!("{} (ACP Registry {})", agent.name, agent.version)),
+                description: Some(description),
                 fallback: None,
-                family: None,
+                // Its own family: never a member of a built-in one.
+                family: Some(id),
                 models: vec![],
                 model: None,
                 effort: None,
@@ -433,11 +526,15 @@ pub fn discovered(
     out
 }
 
-/// The harness ids of the installed agents in the cached registry.
-pub fn installed_ids(home: &Path) -> std::collections::BTreeSet<String> {
+/// The harnesses the cached registry adds, with what each runs: a change
+/// in any of them (not only the ids) reloads the harnesses.
+pub fn installed(home: &Path) -> BTreeMap<String, (Vec<String>, BTreeMap<String, String>)> {
     load_cached(home)
         .map(|reg| {
-            discovered(&reg, platform(), &crate::config::which, &|_| false).into_keys().collect()
+            discovered(&reg, platform(), &crate::config::which, &|_| false)
+                .into_iter()
+                .map(|(id, p)| (id, (p.argv, p.env)))
+                .collect()
         })
         .unwrap_or_default()
 }
@@ -451,7 +548,7 @@ fn toml_string(s: &str) -> String {
 pub fn profile_toml(agent: &Agent, launch: &Launch) -> Option<String> {
     let (argv, env) = launch.argv_env()?;
     let (command, rest) = argv.split_first()?;
-    let id = harness_id(&agent.id);
+    let id = harness_id(&agent.id)?;
     let how = match launch {
         Launch::Installed { .. } => "the installed program".to_owned(),
         Launch::Npx { .. } => "npx, at the registry's pinned version".to_owned(),
@@ -501,10 +598,15 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     if std::fs::read(&path).is_ok_and(|old| old == body) {
         return Ok(false);
     }
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let tmp = dir.join(format!("registry.json.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)
+            .map_err(|e| e.to_string())?;
+    }
+    crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
