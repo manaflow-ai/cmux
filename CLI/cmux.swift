@@ -5143,6 +5143,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateBrowserProfileMutationCommandBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -5449,10 +5454,6 @@ struct CMUXCLI {
         }
 
         try validateSurfaceResumeCommandValueOptionsBeforeSocket(
-            command: command,
-            commandArgs: commandArgs
-        )
-        try validateBrowserProfileMutationCommandBeforeSocket(
             command: command,
             commandArgs: commandArgs
         )

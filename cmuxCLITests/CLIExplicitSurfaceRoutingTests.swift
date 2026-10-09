@@ -98,6 +98,33 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    @Test func browserProfilesRejectMalformedArgumentsBeforeImplicitSocketDiscovery() throws {
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-browser-profile-invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment["CFFIXED_USER_HOME"] = temporaryHome.path
+        environment["HOME"] = temporaryHome.path
+        environment["CMUX_TEST_ISOLATED_SOCKET_DISCOVERY"] = "1"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["browser", "profiles", "list", "--bogus"],
+            environment: environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stderr.contains("unexpected arguments"), Comment(rawValue: result.stderr))
+        #expect(!result.stderr.localizedCaseInsensitiveContains("socket not found"), Comment(rawValue: result.stderr))
+    }
+
     @Test func notifyAcceptsDesktopValueOption() throws {
         // `--desktop true|false` (#14688) must pass argument validation and reach the socket.
         let execution = try runMockCommand(
