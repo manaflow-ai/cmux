@@ -1,8 +1,9 @@
 // The agent pane's native context menu (CmuxNextAgentPane AgentPaneContextMenu) acts on the
 // message under the pointer: on `contextmenu`, before WebKit asks the host for its menu, the page
 // reports that message (its text, an agent reply's Markdown, and its turn's fork point) to the
-// host's `cmuxAgentContextMenu` handler, or null when the pointer is not on a message. The host
-// uses one report for one menu.
+// host's `cmuxAgentContextMenu` handler, or null when the pointer is on neither a message nor an
+// image. On an image that opens on click (`data-open-image`) the report adds `openImage`, and the
+// menu's Open Image clicks it (`openReportedImage`). The host uses one report for one menu.
 import { lexer, type Token } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
@@ -10,6 +11,8 @@ import type { AcpmuxSnapshot } from "../model";
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: number };
+
+type MenuReport = Partial<MessageMenuTarget> & { openImage?: true };
 
 /// Whether a turn can be forked now: acpmux serves forks and the pane is connected (the turn
 /// footer's Fork shows on the same rule).
@@ -98,6 +101,16 @@ export function setMessageMenuSource(next: MessageSource | undefined) {
 
 type Handler = { postMessage(body: unknown): void };
 
+let reportedImage: HTMLElement | undefined;
+
+/// Open Image: opens the image the last report named as its click does; false when it named none.
+export function openReportedImage(): boolean {
+  const image = reportedImage;
+  reportedImage = undefined;
+  image?.click();
+  return Boolean(image);
+}
+
 /// Reports the message under the pointer on every `contextmenu` in `doc` (capture, so a row that
 /// stops the event still reports). Returns the remover.
 export function installMessageMenuReporter(
@@ -109,7 +122,10 @@ export function installMessageMenuReporter(
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
-    handler()?.postMessage((rowId && source?.(rowId)) || null);
+    const message = (rowId && source?.(rowId)) || undefined;
+    reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
+    const body: MenuReport | undefined = reportedImage ? { ...message, openImage: true } : message;
+    handler()?.postMessage(body ?? null);
   };
   doc.addEventListener("contextmenu", report, true);
   return () => doc.removeEventListener("contextmenu", report, true);

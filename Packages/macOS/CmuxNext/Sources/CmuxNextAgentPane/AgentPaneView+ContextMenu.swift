@@ -83,7 +83,14 @@ extension AgentPaneView {
         messageMenuTarget = nil
         AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
-            fork: { [weak self] seq in self?.fork(through: seq) }))
+            fork: { [weak self] seq in self?.fork(through: seq) },
+            openImage: { [weak self] in self?.openReportedImage() }))
+    }
+
+    /// Open Image: the page opens the image it reported as its click does.
+    private func openReportedImage() {
+        model.transport.gestures.record()
+        evaluateScript("window.cmuxAcpmuxActions?.['chat.menu.openImage']?.({});")
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is

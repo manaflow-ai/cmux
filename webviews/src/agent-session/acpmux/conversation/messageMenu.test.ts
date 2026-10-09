@@ -126,7 +126,12 @@ describe("the page's report on contextmenu", () => {
     remove();
     expect(posted).toEqual([
       { openImage: true },
-      { text: "Fixed in main.rs:\n\n- one\n- two", markdown: "Fixed in `main.rs`:\n\n- one\n- two", forkSeq: 41, openImage: true },
+      {
+        text: "Fixed in main.rs:\n\n- one\n- two",
+        markdown: "Fixed in `main.rs`:\n\n- one\n- two",
+        forkSeq: 41,
+        openImage: true,
+      },
       null,
     ]);
     expect(opened).toEqual(["tile", "reply-image"]);
