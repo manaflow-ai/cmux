@@ -17,6 +17,7 @@ import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
+import { HOST_PATH, handleHostWire, handleMobileConfig, handleTurn } from "./mobile-routes.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
@@ -123,6 +124,10 @@ export default {
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
+    const host = url.pathname.match(HOST_PATH)
+    if (host && request.headers.get("Upgrade") === "websocket") return handleHostWire(request, env, host[1]!)
+    if (url.pathname === "/v1/realtime/turn") return handleTurn(request, env)
+    if (url.pathname === "/v1/mobile/config") return handleMobileConfig(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.

@@ -89,6 +89,7 @@ on:
       - "schemas/remote-tab/messages.json"
       - "schemas/remote-tab/scroll-writer.json"
       - "schemas/remote-tab/session.json"
+      - "schemas/remote-desktop/desktop.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/cmux-next/cmux-tui.pin"
       - "skills/cmux-browser/SKILL.md"

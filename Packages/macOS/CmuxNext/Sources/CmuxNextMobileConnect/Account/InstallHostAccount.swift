@@ -39,7 +39,7 @@ public actor InstallHostAccount: MobileLinkHostAccount {
         enrollment = HostEnrollment(transport: transport, clientVersion: clientVersion)
         client = InstallAuthClient(transport: transport, signer: key, sessionToken: sessionToken, stackUser: stackUser,
                                    deviceName: deviceName, clientVersion: clientVersion, record: records.record(for: stackUser),
-                                   registration: .macOS, onRecord: { records.setRecord($0, for: stackUser) })
+                                   profile: .mac, onRecord: { records.setRecord($0, for: stackUser) })
         installSigner = key
         webrtcIdentity = try? MacInstallKeyIdentity(key: key)
     }
