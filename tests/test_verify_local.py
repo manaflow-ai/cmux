@@ -202,6 +202,46 @@ class PreflightTests(unittest.TestCase):
             self.assertIn("INTERRUPTED xcstrings", combined)
             self.assertIn("INTERRUPTED localization", combined)
 
+    def test_submission_interrupt_keeps_submitted_and_unsent_receipts(self):
+        with repo_fixture() as repo:
+            class Future:
+                def __init__(self, item):
+                    self.item = item
+
+                def cancel(self):
+                    return False
+
+                def cancelled(self):
+                    return False
+
+                def result(self):
+                    return ({"id": self.item[0], "phase": self.item[1], "argv": self.item[3],
+                             "status": "passed", "executed": True, "exit_code": 0,
+                             "output_sha256": "fixture", "tests": None, "cancelled": False,
+                             "elapsed_seconds": 0.01}, "")
+
+            class Pool:
+                def __init__(self, **_kwargs):
+                    self.submissions = 0
+
+                def submit(self, _function, item):
+                    if self.submissions:
+                        raise KeyboardInterrupt
+                    self.submissions += 1
+                    return Future(item)
+
+                def shutdown(self, **_kwargs):
+                    pass
+
+            with patch.object(verify, "ThreadPoolExecutor", Pool):
+                result = verify.run(repo, ["xcstrings", "localization"], 5, io.StringIO(), jobs=2)
+            self.assertEqual(
+                [execution["id"] for execution in result["evidence"]["executions"]],
+                ["xcstrings", "localization"],
+            )
+            self.assertEqual(result["evidence"]["executions"][0]["status"], "passed")
+            self.assertEqual(result["evidence"]["executions"][1]["status"], "interrupted")
+
     def test_ctrl_c_skips_remaining_checks(self):
         with repo_fixture() as repo:
             execution = {"id": "xcstrings", "phase": "static_analysis", "argv": [], "tests": None,
