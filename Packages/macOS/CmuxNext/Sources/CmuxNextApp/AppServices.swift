@@ -273,6 +273,7 @@ final class AppServices {
             BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
         }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
+        NewTabOmnibar.services = self
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
