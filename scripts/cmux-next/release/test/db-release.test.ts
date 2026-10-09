@@ -442,3 +442,78 @@ describe("acceptance migration 0009 and the receipt format", () => {
     expect(apply.runId).toBe("gh:4242/1")
   })
 })
+
+describe("design B, D, F, G (third review)", () => {
+  const refusedWith = async (setup: (owner: string) => string, expected: string) => {
+    const w = await world()
+    const s = await w.admin(w.staging)
+    for (const q of setup(w.provider.owner).split(";").filter((x) => x.trim())) await s.query(q)
+    await s.end()
+    expect(await w.run("apply", ...S)).toBe(1)
+    expect(w.errors.at(-1)).toContain(expected)
+  }
+  it("B refuses an owner with BYPASSRLS", () => refusedWith((o) => `ALTER ROLE "${o}" BYPASSRLS`, "bypasses row level security"))
+  it("B refuses an owner in a predefined pg_* role", () => refusedWith((o) => `GRANT pg_read_all_data TO "${o}"`, "is a member of pg_read_all_data"))
+  it("B refuses an owner that can execute a SECURITY DEFINER function outside cmux_vm", () =>
+    refusedWith(() => `CREATE FUNCTION public.sd() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'select 1'`, "can execute SECURITY DEFINER public.sd"))
+  it("B refuses a session whose session_user is not the owner (SET ROLE through the URL)", async () => {
+    const w = await world()
+    const other = `${w.provider.owner}_s`.slice(0, 60)
+    const a = await adminSql()
+    await a.query(`CREATE ROLE "${other}" LOGIN PASSWORD 'pw'; GRANT "${w.provider.owner}" TO "${other}"`)
+    roles.push(other)
+    const u = new URL(dbUrl(w.staging))
+    u.username = other
+    u.password = "pw"
+    u.searchParams.set("options", `-c role=${w.provider.owner}`)
+    w.setEnv("SU_URL", u.toString())
+    expect(await w.run("apply", "--tree", "cmux-vm", "--target", "staging", "--url-env", "SU_URL")).toBe(1)
+    expect(w.errors.at(-1)).toContain("session_user")
+  })
+  it("B production refuses database CREATE after the bootstrap apply", async () => {
+    const w = await world()
+    landed(w)
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(await w.run("apply", ...P)).toBe(0) // bootstrap: the pending set creates the schema
+    addExtra(w)
+    git(w.root, "add", ".")
+    git(w.root, "commit", "-qm", "0009")
+    git(w.root, "push", "-q", "origin", "HEAD:refs/heads/feat-cmux-next")
+    expect(await w.run("apply", ...S)).toBe(0)
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("CREATE on the database")
+  })
+  it("D production reads migration files from git at the verified commit, not from disk", async () => {
+    const w = await world()
+    writeFileSync(join(w.root, ".gitignore"), "workers/cmux-vm/migrations/0010_*.sql\n")
+    landed(w)
+    expect(await w.run("apply", ...S)).toBe(0)
+    writeFileSync(join(w.root, "workers/cmux-vm/migrations/0010_ignored.sql"), "CREATE TABLE cmux_vm.ignored (id text);\n")
+    expect(await w.run("apply", ...P)).toBe(0)
+    expect(await rows(w, w.production)).not.toContain("0010_ignored.sql")
+    expect(readReceipts(w.receipts).filter((r) => r.action === "apply").at(-1)?.what).toContain("from git")
+  })
+  it("F production refuses the test-only compat overrides in the environment", async () => {
+    const w = await world()
+    landed(w)
+    w.setEnv("CMUX_OLD_STAGING_ORIGIN", "http://127.0.0.1:1")
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.at(-1)).toContain("CMUX_OLD_STAGING_ORIGIN")
+  })
+  it("G a production rehearsal whose copy login is not the owner fails", async () => {
+    const w = await world()
+    landed(w)
+    expect(await w.run("apply", ...S)).toBe(0)
+    const stranger = `${w.provider.owner}_g`.slice(0, 60)
+    await (await adminSql()).query(`CREATE ROLE "${stranger}" LOGIN PASSWORD 'pw'`)
+    roles.push(stranger)
+    ;(w.provider as { copyUrl: FakeProvider["copyUrl"] }).copyUrl = async (database, branch) => {
+      const u = new URL(dbUrl(w.provider.dbOf(database, branch)))
+      u.username = stranger
+      u.password = "pw"
+      return u.toString()
+    }
+    expect(await w.run("apply", ...P)).toBe(1)
+    expect(w.errors.join("\n")).toContain(`runs as ${stranger}, not the owner`)
+  })
+})

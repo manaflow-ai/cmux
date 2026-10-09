@@ -193,4 +193,13 @@ describe("promote and roll back", () => {
     expect(await t.run("--channel", "dev", "--var", "TEAM_VM_SNAPSHOT", "--rollback")).toBe(1)
     expect(t.errors.at(-1)).toContain("cmuxnp-dev-vmimg-teamvm3 resolves to nothing")
   })
+
+  it("I a production pointer without a snapshot id cannot promote", async () => {
+    const noId = { ...stg, snapshot_id: "sh-0000000000000000000000000000hr09", names: { production: { snapshot: "cmuxnp-prod-vmimg-hostrun9", snapshot_id: "" } } }
+    const t = setup([noId])
+    t.compat.problems = []
+    t.resolved["cmuxnp-prod-vmimg-hostrun9"] = "sh-x"
+    expect(await t.run("--channel", "production", "--snapshot", noId.snapshot_id)).toBe(1)
+    expect(t.errors.at(-1)).toContain("has no snapshot id")
+  })
 })
