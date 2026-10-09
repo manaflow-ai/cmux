@@ -105,7 +105,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the subagent finishes, the workspace is renamed `✓ a<N> · <task>` (daemon
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
-  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
+  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
+  (daemon `close-workspace` by key, into the closed history) instead of the
+  done mark.
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
@@ -147,8 +150,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-No cache marker is added to a subagent's first message: one spawn's subagents
-start together, so none could read another's entry.
+A Claude spawn of several subagents is single-flight on the shared view: the
+first subagent starts alone, its first message marked at the view's last whole
+block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
+a route refused our marks), and its session told the same TTL
+(`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`, or `FORCE_PROMPT_CACHING_5M=1`), so the API
+never sees a 1h mark after a 5m one. The rest start when its response began
+streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
+later, and read that entry. The trace's `spawn.warm` says whether the first
+spoke and how long the wait took.
 
 ## Engine: harness, model and effort per turn
 

@@ -40,7 +40,7 @@ enum DebugAXFrame {
         }
         var focused: CFTypeRef?
         let focusedFrame = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &focused) == .success
-            ? focused.map { "\(axFrame($0 as! AXUIElement))" } : nil
+            ? focused.flatMap(axElement).map { "\(axFrame($0))" } : nil
         let sizeFirst = params["order"]?.stringValue == "size_position"
         var steps: [JSONValue] = []
         var allInSync = true
@@ -126,13 +126,23 @@ enum DebugAXFrame {
     private static func axFrame(_ element: AXUIElement) -> CGRect {
         var position = CGPoint.zero, size = CGSize.zero
         var value: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success, let value {
-            AXValueGetValue(value as! AXValue, .cgPoint, &position)
+        if AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value) == .success, let value = value.flatMap(axValue) {
+            AXValueGetValue(value, .cgPoint, &position)
         }
-        if AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success, let value {
-            AXValueGetValue(value as! AXValue, .cgSize, &size)
+        if AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value) == .success, let value = value.flatMap(axValue) {
+            AXValueGetValue(value, .cgSize, &size)
         }
         return CGRect(origin: position, size: size)
+    }
+
+    /// The value as an AXUIElement when its CoreFoundation type is one (nil otherwise).
+    private static func axElement(_ value: CFTypeRef) -> AXUIElement? {
+        CFGetTypeID(value) == AXUIElementGetTypeID() ? unsafeDowncast(value, to: AXUIElement.self) : nil
+    }
+
+    /// The value as an AXValue when its CoreFoundation type is one (nil otherwise).
+    private static func axValue(_ value: CFTypeRef) -> AXValue? {
+        CFGetTypeID(value) == AXValueGetTypeID() ? unsafeDowncast(value, to: AXValue.self) : nil
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
