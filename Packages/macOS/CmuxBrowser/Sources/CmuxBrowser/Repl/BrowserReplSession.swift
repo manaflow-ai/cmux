@@ -2270,7 +2270,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// are masked on `eventQueue`, off the JavaScript thread. An event past
     /// `maxEventPayloadBytes` is withheld here, before it is queued: it
     /// holds only the tab it names (read without parsing the payload), and
-    /// its payload is neither kept nor parsed.
+    /// its payload is neither kept nor parsed; a finished download's path
+    /// is read the same way, so its file still becomes readable.
     private func deliverEvent(name: String, payloadJSON: String) {
         let maxBytes = ledger.limits.each(.queuedEventBytes) ?? .max
         let size = payloadJSON.utf8.count
@@ -2279,9 +2280,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         let queuedJSON: String? = oversized ? nil : payloadJSON
         let reserved = name.utf8.count + (oversized ? withheldTarget?.utf8.count ?? 0 : size)
         let admitted = admitEvent(bytes: reserved)
-        let downloadPath = name == "download.finished"
-            ? JSONSerialization.browserReplObject(payloadJSON)["path"] as? String
-            : nil
+        // Read in one bounded pass, never by parsing the payload, which can
+        // be past the per-event limit (``BrowserReplBoundary/eventDownloadPath(_:)``).
+        let downloadPath = name == "download.finished" ? BrowserReplBoundary.eventDownloadPath(payloadJSON) : nil
         guard admitted else {
             if let downloadPath {
                 thread.perform { [weak self] in self?.fileSystem.sandbox.allowReading(downloadPath) }

@@ -240,6 +240,26 @@ extension BrowserReplBoundary {
         }
     }
 
+    /// The longest `path` (as JSON writes it) a `download.finished` event
+    /// names that its session is told it may read.
+    static let maxEventDownloadPathBytes = 64 << 10
+
+    /// The top-level `path` string of a `download.finished` payload, read in
+    /// one bounded pass over its bytes like ``eventTargetId(_:)``: the
+    /// payload is never parsed (it can be past the per-event limit, and a
+    /// refusal reason in it can name a page's long URL). Only the path's
+    /// own JSON string, at most ``maxEventDownloadPathBytes``, is decoded.
+    static func eventDownloadPath(_ payloadJSON: String) -> String? {
+        var json = payloadJSON
+        return json.withUTF8 { bytes in
+            var scanner = BrowserReplEventTargetScanner(bytes: bytes)
+            guard let range = scanner.topLevelStringRange(forKey: "path", maxBytes: maxEventDownloadPathBytes) else { return nil }
+            // The quotes around the value are part of the fragment.
+            let quoted = Data(UnsafeBufferPointer(rebasing: bytes[(range.lowerBound - 1)..<(range.upperBound + 1)]))
+            return (try? JSONSerialization.jsonObject(with: quoted, options: .fragmentsAllowed)) as? String
+        }
+    }
+
     /// Every answer is masked: file contents (`readFile`) as bytes, any
     /// other value (names from `readdir`, paths from `resolve`) and error
     /// messages as JSON. A name or path can hold a value too: a page's
@@ -416,6 +436,30 @@ struct BrowserReplEventTargetScanner {
             if !name.escaped, name.range.count == key.count, bytes[name.range].elementsEqual(key) {
                 guard let value = string(), !value.escaped, value.range.count <= maxBytes else { return nil }
                 return String(decoding: UnsafeBufferPointer(rebasing: bytes[value.range]), as: UTF8.self)
+            }
+            guard skipValue() else { return nil }
+            skipWhitespace()
+            guard take(UInt8(ascii: ",")) else { return nil }
+        }
+    }
+
+    /// The byte range, between its quotes, of the string value of the first
+    /// top-level member named `key`, escapes included; nil past `maxBytes`.
+    mutating func topLevelStringRange(forKey key: String, maxBytes: Int) -> Range<Int>? {
+        let key = Array(key.utf8)
+        skipWhitespace()
+        guard take(UInt8(ascii: "{")) else { return nil }
+        skipWhitespace()
+        if take(UInt8(ascii: "}")) { return nil }
+        while true {
+            skipWhitespace()
+            guard let name = string() else { return nil }
+            skipWhitespace()
+            guard take(UInt8(ascii: ":")) else { return nil }
+            skipWhitespace()
+            if !name.escaped, name.range.count == key.count, bytes[name.range].elementsEqual(key) {
+                guard let value = string(), value.range.count <= maxBytes else { return nil }
+                return value.range
             }
             guard skipValue() else { return nil }
             skipWhitespace()
