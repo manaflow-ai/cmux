@@ -655,7 +655,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
         Family::Claude,
         Some("claude-sonnet-5-5"),
     );
-    assert_eq!(spec.effort.as_deref(), Some("medium"));
+    assert_eq!(spec.effort.as_deref(), Some("high"));
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
@@ -1256,23 +1256,72 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
     assert!(error.message.contains("$imagegen"), "{error:?}");
 }
 
-/// Section 4.2: the reference compactor runs Claude Sonnet at medium effort
-/// ("at low effort it overshot the size limit much more"). acpmux maps
-/// `effort` onto Claude Code's `--effort` and codex's `reasoning_effort`;
-/// a harness of another family keeps its own default.
+/// hq-6d gap 3b: a Claude compactor runs Claude Haiku 5.5 at high effort,
+/// as the reference client does (Haiku overshoots the size limit more often;
+/// the ruler and the "Too long" retry handle it). acpmux maps `effort` onto
+/// Claude Code's `--effort` and codex's `reasoning_effort` (codex keeps
+/// medium: it is not Haiku); a harness of another family keeps its own.
 #[test]
-fn the_compactor_runs_at_medium_effort_like_the_spec() {
+fn a_claude_compactor_runs_haiku_at_high_effort() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let paths = Paths::new(&home);
     for (harness, family, effort) in [
-        ("claude-sr", Family::Claude, Some("medium")),
+        ("claude-sr", Family::Claude, Some("high")),
         ("codex", Family::Codex, Some("medium")),
         ("opencode", Family::Other, None),
     ] {
         let spec = compactor_spec(&paths, &home, harness, family, None);
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+    assert_eq!(Config::default().effort.as_deref(), Some("high"));
+}
+
+/// What Claude Code answers when the account cannot use the model.
+const NO_MODEL: &str = "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it. Run /model to pick a different model.";
+
+/// hq-6d: when the subscription route has no Haiku, the compactor builds
+/// with the turn model from then on, and says so once.
+#[test]
+fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.inner.lock().unwrap().answer_error = Some(NO_MODEL.into());
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let spec = CompactorSpec {
+        model: Some("claude-haiku-5-5".into()),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+        .with_model_fallback(Some("claude-opus-5-5".into()))
+        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    assert_eq!(run_node(&compactor, &request(1)).unwrap(), "user: pasted a deploy log");
+    assert_eq!(run_node(&compactor, &request(2)).unwrap(), "user: pasted a deploy log");
+    let models: Vec<Option<String>> = agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|s| s.model.clone())
+        .collect();
+    assert_eq!(
+        models,
+        vec![
+            Some("claude-haiku-5-5".to_owned()),
+            Some("claude-opus-5-5".to_owned()),
+            Some("claude-opus-5-5".to_owned()),
+        ]
+    );
+    let said = lines
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains("is not available"))
+        .count();
+    assert_eq!(said, 1, "{:?}", lines.lock().unwrap());
 }
 
 /// Single-flight (hq-6d gap 3a): the next node with the same marked prefix

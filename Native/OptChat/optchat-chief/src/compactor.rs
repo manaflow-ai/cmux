@@ -271,6 +271,12 @@ impl AcpmuxCompactor {
         self
     }
 
+    /// The model to build with when the account cannot use `spec.model`
+    /// (None: the harness's default model).
+    pub fn with_model_fallback(self, _model: Option<String>) -> AcpmuxCompactor {
+        self
+    }
+
     /// Logs one line per node: its seconds, prompts and token use.
     pub fn with_log(mut self, log: Log) -> AcpmuxCompactor {
         self.log = Some(log);
