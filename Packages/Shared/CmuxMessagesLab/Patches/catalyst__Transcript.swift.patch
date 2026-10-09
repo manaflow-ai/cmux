@@ -55,7 +55,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -965,6 +968,16 @@
+@@ -997,6 +1000,16 @@
          CATransaction.commit()
      }
  

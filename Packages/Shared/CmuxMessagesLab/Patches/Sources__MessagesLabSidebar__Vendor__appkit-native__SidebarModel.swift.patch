@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
-@@ -301,13 +301,16 @@
+@@ -300,13 +300,16 @@
      /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
      /// catalog, pattern and gray colors are safe).
      static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
@@ -21,7 +21,7 @@
                  dark: dark,
                  name: NSColor.labelColor.cgColor,
                  secondary: NSColor.secondaryLabelColor.cgColor,
-@@ -328,6 +331,7 @@
+@@ -326,6 +329,7 @@
                  bubbleText: dark ? p3(255, 255, 255) : p3(0, 0, 0),
                  typingDot: dark ? p3(150, 150, 154) : p3(142, 142, 147))
          }

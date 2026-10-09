@@ -340,7 +340,10 @@ final class BlockLayout: @unchecked Sendable {
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+            // Long text is untrusted too: only URLs the link policy allows look like links
+            // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
             for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+                guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
             }
         }

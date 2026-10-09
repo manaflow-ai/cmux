@@ -75,7 +75,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 | MarkdownStore, LongText | `isPlain`/`setPlain`: a message is plain unless HomeMapping marks it Markdown (an agent's text without mentions), so a person's text never takes the Markdown engine, also before HomeStore has it (the reducer's local send at the press) |
-| MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
+| MarkdownParser | the image placeholder ("[Image: %@]") reads the package's catalog (`bundle: .module`); its two strings carry all 21 app languages in Localizable.xcstrings |
 | ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
 | Compose, FlightRecorder, SwipeReply, HeaderBar, UIKitNames, ComposeAttachments, Engine, Fixture, Header, Layout, LinkPreviews, LongText, MarkdownParser, Model, Shapes, Springs, TiledBubble, Transcript, WindowView, Sidebar{Drawing,Model,View} | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs; named color spaces and UI fonts through `CrashSafeGraphics`/`SidebarCrashSafe` with stated fallbacks, an optional gradient draws nothing, a fixture that cannot load is an empty conversation |
 
@@ -92,7 +92,13 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-08): every file at 2579028 (285538d plus the LongText tail guard from our crash
+that are wip checkpoints. Current pins (2026-10-08): every file at cd850a3 (2579028 plus f6fa7f5's sidebar without hover: no hover layer,
+tracking area or `palette.hover`, our `showsHover` patch gone; 403024c: a row keeps its old bitmap until the new one lands
+during a live resize or divider drag, and the sidebar's accessibility frames from live geometry; cd850a3: MessagesLab's
+Markdown security rule (`MarkdownLinkPolicy`: only http, https, mailto and `extraSchemes`, for Markdown, plain text, long
+text and link cards, re-checked at click time; no image fetch, `MarkdownImages.provider` or "[Image: alt]"), our interim
+link-policy patch gone. Home sets both before its first parse (`Cmux/HomeMarkdownPolicy.swift`: no extra scheme, images only
+from HomeMedia's attachment pictures). verify-clean 5/5 with the crash ratchet. 2579028 = 285538d plus the LongText tail guard from our crash
 ratchet; 285538d = 7d072dd plus 86c3cb3's sidebar row-text and pinned-dot fixes: those patches are gone), the sidebar's included
 (7d072dd and c7b32bb, verified with verify-clean 5/5: the header avatar stays centred on the pill after a
 resize, and ChromeView's `leadingEdgeIsWindowEdge`; Home hides ChromeView, so it keeps the default;

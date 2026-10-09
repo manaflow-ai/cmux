@@ -16,7 +16,7 @@
      static let codePadX: CGFloat = 8
      /// Space under a scrollable block's content for its scroll indicator.
      static let indicatorRoom: CGFloat = 5
-@@ -480,7 +480,7 @@
+@@ -522,7 +522,7 @@
              let rid = out.regions.count
              let cols = max(1, t.columns)
              let pad = Markdown.cellPadX
@@ -25,7 +25,7 @@
              let all: [[MDText]] = [t.header] + t.rows
              // Column widths: min = widest unbreakable word (capped), max = widest one-line cell.
              var minW = [CGFloat](repeating: 16, count: cols), maxW = [CGFloat](repeating: 16, count: cols)
-@@ -613,8 +613,9 @@
+@@ -655,8 +655,9 @@
                  var traits: UIFontDescriptor.SymbolicTraits = []
                  if s.style.contains(.strong) { traits.insert(.traitBold) }
                  if s.style.contains(.emphasis) { traits.insert(.traitItalic) }

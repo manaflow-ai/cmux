@@ -288,7 +288,6 @@ struct SidebarPalette: Equatable {
     var accent: CGColor
     var selectionActive: CGColor
     var selectionInactive: CGColor
-    var hover: CGColor
     var selectedText: CGColor
     var monogramTop: CGColor
     var monogramBottom: CGColor
@@ -319,7 +318,6 @@ struct SidebarPalette: Equatable {
                 accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
-                hover: NSColor.labelColor.withAlphaComponent(dark ? 0.07 : 0.05).cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
                 monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),

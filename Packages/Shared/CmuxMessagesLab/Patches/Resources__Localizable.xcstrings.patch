@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Resources/Localizable.xcstrings
 +++ b/Sources/MessagesLabHome/Resources/Localizable.xcstrings
-@@ -4,1057 +4,8125 @@
+@@ -4,1091 +4,8387 @@
      "compose.placeholder.reply": {
        "extractionState": "manual",
        "localizations": {
@@ -1148,7 +1148,7 @@
 -        }
 -      }
 -    },
--    "markdown.copied": {
+-    "markdown.image.placeholder": {
 -      "extractionState": "manual",
 -      "localizations": {
 -        "en": {
@@ -1156,7 +1156,7 @@
 +        "nb": {
            "stringUnit": {
 -            "state": "translated",
--            "value": "Copied"
+-            "value": "[Image: %@]"
 +            "state": "needs_review",
 +            "value": "%lld svar"
            }
@@ -1165,9 +1165,57 @@
 +        "pl": {
            "stringUnit": {
 -            "state": "translated",
--            "value": "コピーしました"
+-            "value": "[画像: %@]"
 +            "state": "needs_review",
 +            "value": "Odpowiedzi: %lld"
+           }
+-        }
+-      }
+-    },
+-    "markdown.image.placeholderEmpty": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
++        },
++        "pt-BR": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[Image]"
++            "state": "needs_review",
++            "value": "%lld respostas"
+           }
+         },
+-        "ja": {
++        "ru": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "[画像]"
++            "state": "needs_review",
++            "value": "Ответов: %lld"
+           }
+-        }
+-      }
+-    },
+-    "markdown.copied": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
++        },
++        "th": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "Copied"
++            "state": "needs_review",
++            "value": "การตอบกลับ %lld รายการ"
+           }
+         },
+-        "ja": {
++        "tr": {
+           "stringUnit": {
+-            "state": "translated",
+-            "value": "コピーしました"
++            "state": "needs_review",
++            "value": "%lld Yanıt"
            }
 -        }
 -      }
@@ -1177,21 +1225,21 @@
 -      "localizations": {
 -        "en": {
 +        },
-+        "pt-BR": {
++        "uk": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Copy"
 +            "state": "needs_review",
-+            "value": "%lld respostas"
++            "value": "Відповідей: %lld"
            }
          },
 -        "ja": {
-+        "ru": {
++        "vi": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "コピー"
 +            "state": "needs_review",
-+            "value": "Ответов: %lld"
++            "value": "%lld trả lời"
            }
 -        }
 -      }
@@ -1201,45 +1249,45 @@
 -      "localizations": {
 -        "en": {
 +        },
-+        "th": {
++        "zh-Hans": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Copy Markdown"
 +            "state": "needs_review",
-+            "value": "การตอบกลับ %lld รายการ"
++            "value": "%lld 条回复"
            }
          },
 -        "ja": {
-+        "tr": {
++        "zh-Hant": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Markdownをコピー"
 +            "state": "needs_review",
-+            "value": "%lld Yanıt"
++            "value": "%lld 則回覆"
            }
--        }
--      }
--    },
+         }
+       }
+     },
 -    "markdown.showFormatted": {
--      "extractionState": "manual",
--      "localizations": {
++    "longtext.showAll": {
+       "extractionState": "manual",
+       "localizations": {
 -        "en": {
-+        },
-+        "uk": {
++        "ar": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Show Formatted Text"
 +            "state": "needs_review",
-+            "value": "Відповідей: %lld"
++            "value": "عرض كل الأسطر (%lld)"
            }
          },
 -        "ja": {
-+        "vi": {
++        "bs": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "書式付きテキストを表示"
 +            "state": "needs_review",
-+            "value": "%lld trả lời"
++            "value": "Prikaži sve redove (%lld)"
            }
 -        }
 -      }
@@ -1249,45 +1297,43 @@
 -      "localizations": {
 -        "en": {
 +        },
-+        "zh-Hans": {
++        "da": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Show Markdown Source"
 +            "state": "needs_review",
-+            "value": "%lld 条回复"
++            "value": "Vis alle %lld linjer"
            }
          },
 -        "ja": {
-+        "zh-Hant": {
++        "de": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "Markdownのソースを表示"
 +            "state": "needs_review",
-+            "value": "%lld 則回覆"
++            "value": "Alle %lld Zeilen anzeigen"
            }
-         }
-       }
-     },
+-        }
+-      }
+-    },
 -    "selection.copy.attachment": {
-+    "longtext.showAll": {
-       "extractionState": "manual",
-       "localizations": {
--        "en": {
-+        "ar": {
+-      "extractionState": "manual",
+-      "localizations": {
++        },
+         "en": {
            "stringUnit": {
--            "state": "translated",
+             "state": "translated",
 -            "value": "[File: %@]"
-+            "state": "needs_review",
-+            "value": "عرض كل الأسطر (%lld)"
++            "value": "Show all %lld lines"
            }
          },
 -        "ja": {
-+        "bs": {
++        "es": {
            "stringUnit": {
 -            "state": "translated",
 -            "value": "[ファイル: %@]"
 +            "state": "needs_review",
-+            "value": "Prikaži sve redove (%lld)"
++            "value": "Mostrar las %lld líneas"
            }
 -        }
 -      }
@@ -1297,56 +1343,10 @@
 -      "localizations": {
 -        "en": {
 +        },
-+        "da": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[Audio Message]"
-+            "state": "needs_review",
-+            "value": "Vis alle %lld linjer"
-           }
-         },
--        "ja": {
-+        "de": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[オーディオメッセージ]"
-+            "state": "needs_review",
-+            "value": "Alle %lld Zeilen anzeigen"
-           }
--        }
--      }
--    },
--    "selection.copy.contact": {
--      "extractionState": "manual",
--      "localizations": {
-+        },
-         "en": {
-           "stringUnit": {
-             "state": "translated",
--            "value": "[Contact]"
-+            "value": "Show all %lld lines"
-           }
-         },
--        "ja": {
-+        "es": {
-           "stringUnit": {
--            "state": "translated",
--            "value": "[連絡先]"
-+            "state": "needs_review",
-+            "value": "Mostrar las %lld líneas"
-           }
--        }
--      }
--    },
--    "selection.copy.location": {
--      "extractionState": "manual",
--      "localizations": {
--        "en": {
-+        },
 +        "fr": {
            "stringUnit": {
 -            "state": "translated",
--            "value": "[Location: %@]"
+-            "value": "[Audio Message]"
 +            "state": "needs_review",
 +            "value": "Afficher les %lld lignes"
            }
@@ -1360,6 +1360,40 @@
          "ja": {
            "stringUnit": {
              "state": "translated",
+-            "value": "[オーディオメッセージ]"
+-          }
+-        }
+-      }
+-    },
+-    "selection.copy.contact": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
+-          "stringUnit": {
+-            "state": "translated",
+-            "value": "[Contact]"
+-          }
+-        },
+-        "ja": {
+-          "stringUnit": {
+-            "state": "translated",
+-            "value": "[連絡先]"
+-          }
+-        }
+-      }
+-    },
+-    "selection.copy.location": {
+-      "extractionState": "manual",
+-      "localizations": {
+-        "en": {
+-          "stringUnit": {
+-            "state": "translated",
+-            "value": "[Location: %@]"
+-          }
+-        },
+-        "ja": {
+-          "stringUnit": {
+-            "state": "translated",
 -            "value": "[位置情報: %@]"
 -          }
 -        }
@@ -8846,6 +8880,268 @@
 +          "stringUnit": {
 +            "state": "needs_review",
 +            "value": "[影片]"
++          }
++        }
++      }
++    },
++    "markdown.image.placeholder": {
++      "extractionState": "manual",
++      "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[صورة: %@]"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Slika: %@]"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Billede: %@]"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Bild: %@]"
++          }
++        },
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "[Image: %@]"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Imagen: %@]"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Image: %@]"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Immagine: %@]"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "[画像: %@]"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[រូបភាព: %@]"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[이미지: %@]"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Bilde: %@]"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Obraz: %@]"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Imagem: %@]"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Изображение: %@]"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[รูปภาพ: %@]"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Görüntü: %@]"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Зображення: %@]"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Hình ảnh: %@]"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[图片: %@]"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[圖片: %@]"
++          }
++        }
++      }
++    },
++    "markdown.image.placeholderEmpty": {
++      "extractionState": "manual",
++      "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[صورة]"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Slika]"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Billede]"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Bild]"
++          }
++        },
++        "en": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "[Image]"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Imagen]"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Image]"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Immagine]"
++          }
++        },
++        "ja": {
++          "stringUnit": {
++            "state": "translated",
++            "value": "[画像]"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[រូបភាព]"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[이미지]"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Bilde]"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Obraz]"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Imagem]"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Изображение]"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[รูปภาพ]"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Görüntü]"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Зображення]"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[Hình ảnh]"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[图片]"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "[圖片]"
 +          }
 +        }
 +      }

@@ -23,15 +23,16 @@
                  return o..<(o + q.count)
              }
          }
-@@ -337,14 +340,15 @@
-         let a = NSMutableAttributedString(string: string as String,
-                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
+@@ -339,7 +342,7 @@
          if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
+             // Long text is untrusted too: only URLs the link policy allows look like links
+             // (MarkdownLinkPolicy, shared/MARKDOWN.md Security; same rule as TextParts.linkRuns).
 -            for m in BlockLayout.detector.matches(in: string as String, range: NSRange(location: 0, length: string.length)) {
 +            for m in BlockLayout.detector?.matches(in: string as String, range: NSRange(location: 0, length: string.length)) ?? [] {
+                 guard let url = m.url, MarkdownLinkPolicy.allows(url) else { continue }
                  a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
              }
-         }
+@@ -347,7 +350,8 @@
          drawAttr[outgoing] = a
          return a
      }
@@ -41,7 +42,7 @@
  }
  
  /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
-@@ -818,8 +822,10 @@
+@@ -821,8 +825,10 @@
      /// The layout of a long text at a width. `message`: a message shown as source
      /// (MarkdownStore.showsSource) lays its markdown text out as plain text.
      func layout(_ text: String, width: CGFloat, message: ID? = nil) -> LongTextLayout {
@@ -54,7 +55,7 @@
          let wk = md || !idx.markdown ? width : -width
          lock.lock()
          let id = ObjectIdentifier(idx)
-@@ -873,7 +879,10 @@
+@@ -876,7 +882,10 @@
                 prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p[prev.starts[prev.blockCount - 1]...]), as: UTF8.self)) {
                  let keep = prev.blockCount - 1
                  let from = max(0, prev.starts[keep] - 256)
