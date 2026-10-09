@@ -33,26 +33,31 @@ struct DiffSidecarProcessTests {
         #expect(String(decoding: request, as: UTF8.self) == #"{"method":"x"}"#)
     }
 
-    @Test func aChildThatNeverReportsItsGroupFailsAtStartup() async throws {
+    // The deadline tests run on a ManualClock: a loaded host (32 suite
+    // processes on one Mac) took over a second between the marker and the
+    // reply, so a real 1 s request limit timed out a child that did reply.
+
+    @Test(.timeLimit(.minutes(1))) func aChildThatNeverReportsItsGroupFailsAtStartup() async throws {
         let sidecar = try Self.script("exec sleep 30")
-        var limits = Self.fast
-        limits.startup = .milliseconds(300)
-        await #expect(throws: DiffSidecarError.startFailed) {
-            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits)
-        }
+        let clock = ManualClock()
+        let run = Task { try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast, clock: clock) }
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: Self.fast.startup)
+        await #expect(throws: DiffSidecarError.startFailed) { try await run.value }
     }
 
     /// The deadline stops the child (the real sidecar's whole process group;
     /// a shell script cannot make one, so this checks the child itself).
-    @Test func aMissedDeadlineStopsTheChild() async throws {
+    @Test(.timeLimit(.minutes(1))) func aMissedDeadlineStopsTheChild() async throws {
         // The pid file is written before the ready marker, so it exists before the deadline starts
         // (a loaded run could otherwise stop the child between the marker and the write).
         let sidecar = try Self.script("echo $$ > \"$DIR/child\"\n\(Self.marker)\nexec sleep 30")
-        var limits = Self.fast
-        limits.request = .milliseconds(400)
-        await #expect(throws: DiffSidecarError.timedOut) {
-            try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits)
-        }
+        let clock = ManualClock()
+        let run = Task { try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast, clock: clock) }
+        // The startup deadline, then the request deadline armed at the marker.
+        await clock.sleepers(atLeast: 2)
+        clock.advance(by: Self.fast.request)
+        await #expect(throws: DiffSidecarError.timedOut) { try await run.value }
         let pidText = try String(contentsOf: sidecar.deletingLastPathComponent().appending(path: "child"), encoding: .utf8)
         let pid = try #require(Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)))
         #expect(await Self.becomesTrue { kill(pid, 0) != 0 }, "the child survived")
@@ -61,11 +66,19 @@ struct DiffSidecarProcessTests {
     /// The request deadline runs from the ready marker: a slow start is the
     /// startup limit's to judge. Run 37509955149 timed out a child that had
     /// not yet run its first line, because the request deadline began at launch.
-    @Test func theRequestDeadlineStartsAtTheReadyMarker() async throws {
-        let sidecar = try Self.script("sleep 1.5\n\(Self.marker)\ncat > /dev/null\nprintf 'ok'")
+    @Test(.timeLimit(.minutes(1))) func theRequestDeadlineStartsAtTheReadyMarker() async throws {
+        // The child prints the marker only when the test creates `go`.
+        let sidecar = try Self.script("while [ ! -e \"$DIR/go\" ]; do sleep 0.01; done\n\(Self.marker)\ncat > /dev/null\nprintf 'ok'")
+        let clock = ManualClock()
         var limits = Self.fast
         limits.request = .seconds(1)
-        let reply = try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits)
+        let run = Task { try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits, clock: clock) }
+        await clock.sleepers(atLeast: 1)
+        // Longer than the request limit, shorter than the startup limit: a
+        // request deadline armed at launch would fire here.
+        clock.advance(by: .seconds(4))
+        FileManager.default.createFile(atPath: sidecar.deletingLastPathComponent().appending(path: "go").path, contents: nil)
+        let reply = try await run.value
         #expect(String(decoding: reply, as: UTF8.self) == "ok")
     }
 
@@ -84,7 +97,9 @@ struct DiffSidecarProcessTests {
     }
 
     @Test func cancellingTheCallerStopsTheChild() async throws {
-        let sidecar = try Self.script("\(Self.marker)\necho $$ > \"$DIR/pid\"\nexec sleep 30")
+        // The pid file appears whole (rename): `>` creates it empty before
+        // echo writes, and a test that saw the empty file read no pid.
+        let sidecar = try Self.script("echo $$ > \"$DIR/pid.tmp\" && mv \"$DIR/pid.tmp\" \"$DIR/pid\"\n\(Self.marker)\nexec sleep 30")
         let task = Task { try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: Self.fast) }
         let pidFile = sidecar.deletingLastPathComponent().appending(path: "pid")
         #expect(await Self.becomesTrue { FileManager.default.fileExists(atPath: pidFile.path) })
