@@ -1,0 +1,34 @@
+# Bazel pilot (not adopted): rules_swift port of the CmuxHomeCore SwiftPM package.
+load("@rules_swift//swift:swift_library.bzl", "swift_library")
+load("@rules_swift//swift:swift_test.bzl", "swift_test")
+
+package(default_visibility = ["//visibility:public"])
+
+swift_library(
+    name = "CmuxHomeCore",
+    srcs = glob(["Sources/CmuxHomeCore/**/*.swift"]),
+    module_name = "CmuxHomeCore",
+    copts = ["-swift-version", "6"],
+    deps = ["//Packages/Shared/CmuxAgentQuestion"],
+)
+
+swift_library(
+    name = "CmuxHomeCoreTestSupport",
+    testonly = True,
+    srcs = glob(["Tests/CmuxHomeCoreTestSupport/**/*.swift"]),
+    module_name = "CmuxHomeCoreTestSupport",
+    copts = ["-swift-version", "6"],
+)
+
+swift_test(
+    name = "CmuxHomeCoreTests",
+    # rules_swift symbol-graph discovery emits no main.swift for Swift Testing-only
+    # suites under Xcode 26; //bazel/swift supplies the Swift Testing entry point.
+    discover_tests = False,
+    srcs = glob(["Tests/CmuxHomeCoreTests/**/*.swift"]) + ["//bazel/swift:SwiftTestingMain.swift"],
+    copts = ["-swift-version", "6"],
+    deps = [
+        ":CmuxHomeCore",
+        ":CmuxHomeCoreTestSupport",
+    ],
+)

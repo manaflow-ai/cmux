@@ -1,0 +1,45 @@
+# Bazel pilot (not adopted): rules_swift port of the CmuxAgentQuestion SwiftPM package.
+load("@rules_swift//swift:swift_library.bzl", "swift_library")
+load("@rules_swift//swift:swift_test.bzl", "swift_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# SwiftPM synthesizes `Bundle.module` for `.copy("Fixtures")`; rules_swift does
+# not, so the pilot supplies an accessor that reads the fixtures from runfiles.
+genrule(
+    name = "bundle_accessor",
+    outs = ["BazelBundleAccessor.swift"],
+    cmd = """cat > $@ <<'SWIFT'
+import Foundation
+
+extension Foundation.Bundle {
+    static let module: Bundle = {
+        let env = ProcessInfo.processInfo.environment
+        let rel = "_main/Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion"
+        for root in [env["TEST_SRCDIR"], env["RUNFILES_DIR"]].compactMap({ $$0 }) {
+            if let bundle = Bundle(path: root + "/" + rel) { return bundle }
+        }
+        return Bundle.main
+    }()
+}
+SWIFT
+""",
+)
+
+swift_library(
+    name = "CmuxAgentQuestion",
+    srcs = glob(["Sources/CmuxAgentQuestion/**/*.swift"]) + [":bundle_accessor"],
+    data = glob(["Sources/CmuxAgentQuestion/Fixtures/**"]),
+    module_name = "CmuxAgentQuestion",
+    copts = ["-swift-version", "6"],
+)
+
+swift_test(
+    name = "CmuxAgentQuestionTests",
+    # rules_swift symbol-graph discovery emits no main.swift for Swift Testing-only
+    # suites under Xcode 26; //bazel/swift supplies the Swift Testing entry point.
+    discover_tests = False,
+    srcs = glob(["Tests/CmuxAgentQuestionTests/**/*.swift"]) + ["//bazel/swift:SwiftTestingMain.swift"],
+    deps = [":CmuxAgentQuestion"],
+    copts = ["-swift-version", "6"],
+)

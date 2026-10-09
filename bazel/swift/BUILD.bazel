@@ -1,0 +1,5 @@
+# Bazel pilot: entry point for Swift Testing-only test binaries. rules_swift's
+# symbol-graph test discovery emits no main.swift for suites that contain only
+# Swift Testing @Test functions (Xcode 26.6), so tests set discover_tests=False
+# and link this file, which calls the entry point SwiftPM's runner uses.
+exports_files(["SwiftTestingMain.swift"])

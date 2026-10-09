@@ -1,0 +1,7 @@
+# Bazel pilot, Swift slice. Copied to .bazelrc on the Mac host.
+common --enable_bzlmod
+build --jobs=12
+build --local_resources=cpu=12
+build --macos_minimum_os=14.0
+build --compilation_mode=fastbuild
+test --test_output=errors

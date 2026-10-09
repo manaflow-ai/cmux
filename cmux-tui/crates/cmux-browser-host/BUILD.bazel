@@ -1,0 +1,7 @@
+# Bazel pilot stub: crate_universe needs a package per Cargo.toml.
+exports_files([
+    "js/guide.md",
+    "js/repl-host.js",
+    "js/vendor/acorn.js"
+])
+

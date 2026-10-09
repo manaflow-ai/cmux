@@ -1,0 +1,83 @@
+"""cmux Bazel pilot (not adopted). Generated from bazel/MODULE.bazel.in."""
+
+module(name = "cmux_bazel_pilot", version = "0.0.0")
+
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "rules_cc", version = "0.2.26")
+bazel_dep(name = "rules_rust", version = "0.74.0")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.95.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//cmux-tui:Cargo.lock",
+    manifests = [
+        "//cmux-tui/bindings/rust-daemon-client:Cargo.toml",
+        "//cmux-tui/bindings/rust-sidebar:Cargo.toml",
+        "//cmux-tui/bindings/rust:Cargo.toml",
+        "//cmux-tui/crates/acpmux:Cargo.toml",
+        "//cmux-tui/crates/chatmux-relay:Cargo.toml",
+        "//cmux-tui/crates/cmux-agent-pane-policy:Cargo.toml",
+        "//cmux-tui/crates/cmux-app-host:Cargo.toml",
+        "//cmux-tui/crates/cmux-app-manifest:Cargo.toml",
+        "//cmux-tui/crates/cmux-browser-host:Cargo.toml",
+        "//cmux-tui/crates/cmux-chat-index:Cargo.toml",
+        "//cmux-tui/crates/cmux-chief:Cargo.toml",
+        "//cmux-tui/crates/cmux-cloud-cli:Cargo.toml",
+        "//cmux-tui/crates/cmux-cloud-wire:Cargo.toml",
+        "//cmux-tui/crates/cmux-coderouter:Cargo.toml",
+        "//cmux-tui/crates/cmux-conversation:Cargo.toml",
+        "//cmux-tui/crates/cmux-encode:Cargo.toml",
+        "//cmux-tui/crates/cmux-history:Cargo.toml",
+        "//cmux-tui/crates/cmux-host:Cargo.toml",
+        "//cmux-tui/crates/cmux-layout-reducer:Cargo.toml",
+        "//cmux-tui/crates/cmux-link:Cargo.toml",
+        "//cmux-tui/crates/cmux-local-auth:Cargo.toml",
+        "//cmux-tui/crates/cmux-mobile-core:Cargo.toml",
+        "//cmux-tui/crates/cmux-mobile-ffi:Cargo.toml",
+        "//cmux-tui/crates/cmux-motion:Cargo.toml",
+        "//cmux-tui/crates/cmux-pane-protocol:Cargo.toml",
+        "//cmux-tui/crates/cmux-pty:Cargo.toml",
+        "//cmux-tui/crates/cmux-rd-core:Cargo.toml",
+        "//cmux-tui/crates/cmux-rd-engine:Cargo.toml",
+        "//cmux-tui/crates/cmux-rd-proto:Cargo.toml",
+        "//cmux-tui/crates/cmux-relay:Cargo.toml",
+        "//cmux-tui/crates/cmux-remote-browser:Cargo.toml",
+        "//cmux-tui/crates/cmux-remote-protocol:Cargo.toml",
+        "//cmux-tui/crates/cmux-remote:Cargo.toml",
+        "//cmux-tui/crates/cmux-server-core:Cargo.toml",
+        "//cmux-tui/crates/cmux-server:Cargo.toml",
+        "//cmux-tui/crates/cmux-tasks-core:Cargo.toml",
+        "//cmux-tui/crates/cmux-tasks:Cargo.toml",
+        "//cmux-tui/crates/cmux-terminal-client:Cargo.toml",
+        "//cmux-tui/crates/cmux-terminal-iface:Cargo.toml",
+        "//cmux-tui/crates/cmux-terminal-sizing:Cargo.toml",
+        "//cmux-tui/crates/cmux-theme-tokens:Cargo.toml",
+        "//cmux-tui/crates/cmux-transport:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-cdp:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-cloud-conversations:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-core:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-machine-agent-protocol:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-machine-protocol:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui-platform:Cargo.toml",
+        "//cmux-tui/crates/cmux-tui:Cargo.toml",
+        "//cmux-tui/crates/cmux-unix-socket:Cargo.toml",
+        "//cmux-tui/crates/cmux-wg:Cargo.toml",
+        "//cmux-tui/crates/ghostty-vt-sys:Cargo.toml",
+        "//cmux-tui/crates/ghostty-vt:Cargo.toml",
+        "//cmux-tui/vendor/crossterm:Cargo.toml",
+        "//cmux-tui/vendor/terminput-crossterm:Cargo.toml",
+        "//cmux-tui:Cargo.toml"
+],
+    supported_platform_triples = ["x86_64-unknown-linux-gnu"],
+)
+use_repo(crate, "crates")

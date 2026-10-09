@@ -1,0 +1,7 @@
+"""cmux Bazel pilot, Swift slice (copied to the repo root on the Mac host)."""
+
+module(name = "cmux_bazel_pilot_swift", version = "0.0.0")
+
+bazel_dep(name = "apple_support", version = "2.9.1")
+bazel_dep(name = "rules_swift", version = "4.1.2")
+bazel_dep(name = "platforms", version = "1.1.0")

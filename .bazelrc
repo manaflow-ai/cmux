@@ -1,0 +1,30 @@
+# Bazel pilot (not adopted). Scripts and generator live in bazel/.
+common --enable_bzlmod
+build --jobs=64
+build --local_resources=cpu=64
+build --local_resources=memory=HOST_RAM*.3
+build --incompatible_strict_action_env
+build --@rules_rust//rust/settings:pipelined_compilation=true
+build --compilation_mode=fastbuild
+# Match cargo's dev profile in cmux-tui/Cargo.toml: dependencies opt-level=3,
+# first-party opt-level=1, debuginfo=2, debug assertions and overflow checks.
+build --@rules_rust//rust/settings:extra_rustc_flag=-Copt-level=3
+build --@rules_rust//rust/settings:extra_rustc_flag=-Cdebuginfo=2
+build --@rules_rust//rust/settings:extra_rustc_flag=-Cdebug-assertions=on
+build --@rules_rust//rust/settings:extra_rustc_flag=-Coverflow-checks=on
+build --@rules_rust//rust/settings:per_crate_rustc_flag=//cmux-tui@-Copt-level=1
+# cargo builds build scripts and proc-macros at opt-level 0 without debuginfo.
+build --host_compilation_mode=fastbuild
+build --@rules_rust//rust/settings:extra_rustc_flag=-Clink-arg=-fuse-ld=mold
+build --repo_env=CC=clang
+test --test_output=errors
+try-import %workspace%/.bazelrc.user
+
+# Pilot experiment only: persistent rustc incremental dirs for first-party
+# crates (rules_rust has no incremental support; this is non-hermetic).
+build:incr --@rules_rust//rust/settings:per_crate_rustc_flag=//cmux-tui@-Cincremental=/work/bazel-pilot/rustc-incr
+# Sandboxed paths change per action, which defeats rustc's incremental cache.
+build:incr --strategy=Rustc=local
+# Unsandboxed full compiles collide with the read-only .rmeta from the
+# pipelined metadata action, so the hack also turns pipelining off.
+build:incr --@rules_rust//rust/settings:pipelined_compilation=false

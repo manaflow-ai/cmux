@@ -1,0 +1,7 @@
+node_modules
+web/node_modules
+cmux-tui/target
+ghostty
+ghostty-next/.zig-cache
+ghostty-next/zig-out
+ghostty-next/zig-pkg
