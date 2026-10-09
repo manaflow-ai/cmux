@@ -36,7 +36,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
         return Some(print_usage(
             &global,
-            "--all-sessions is not supported for the composite agents surface; choose one session",
+            "--all-sessions is not supported for the composite agents command; choose one session",
         ));
     }
     if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
