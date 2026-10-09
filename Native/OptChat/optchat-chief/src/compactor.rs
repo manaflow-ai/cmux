@@ -450,6 +450,9 @@ pub struct AcpmuxCompactor {
     spec: CompactorSpec,
     slots: Arc<Slots>,
     live: Mutex<HashMap<NodeId, Live>>,
+    /// Slots a node keeps across its fresh size retry (`retire`): the retry
+    /// is part of the same job, so it never queues behind waiting nodes.
+    held: Mutex<HashMap<NodeId, usize>>,
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
@@ -491,6 +494,7 @@ impl AcpmuxCompactor {
             spec,
             slots,
             live: Mutex::new(HashMap::new()),
+            held: Mutex::new(HashMap::new()),
             prompts: AtomicU64::new(0),
             describes: AtomicU64::new(0),
             stamp: std::time::SystemTime::now()
@@ -757,9 +761,18 @@ impl AcpmuxCompactor {
         let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
         let asked = Instant::now();
-        let acquired = self
-            .slots
-            .acquire((self.warm > 0).then_some(key), foreground);
+        let kept = self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        let acquired = match kept {
+            // A size retry: the slot its first try held.
+            Some(k) => Acquired::Slot(k),
+            None => self
+                .slots
+                .acquire((self.warm > 0).then_some(key), foreground),
+        };
         let slot_wait = asked.elapsed();
         let got = Instant::now();
         let (id, slot, cwd, preset) = match acquired {
@@ -1183,6 +1196,8 @@ impl AcpmuxCompactor {
         // node's counts carry over.
         let old = self.retire(node);
         let reply = self.first_call(request, Some(&last.retry), started);
+        // The retry failed before it opened a session: the slot goes back.
+        self.give_held(node);
         if let Some(old) = old
             && let Some(l) = self
                 .live
@@ -1235,8 +1250,9 @@ impl AcpmuxCompactor {
         self.prompt(request.node, &session, blocks, started)
     }
 
-    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; its
-    /// slot goes back. Its counts, for the next session of the node.
+    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; the
+    /// node keeps its slot for the retry (`held`). Its counts, for the next
+    /// session of the node.
     fn retire(&self, node: NodeId) -> Option<Live> {
         let live = self
             .live
@@ -1249,7 +1265,10 @@ impl AcpmuxCompactor {
         if live.system.is_some() {
             let _ = self.port.set_system_prompt(&live.preset, "");
         }
-        self.slots.give(live.slot);
+        self.held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(node, live.slot);
         Some(live)
     }
 }
@@ -1311,9 +1330,22 @@ impl CompactModel for AcpmuxCompactor {
 }
 
 impl AcpmuxCompactor {
+    /// Gives back the slot `node` kept for a size retry it did not use.
+    fn give_held(&self, node: NodeId) {
+        let kept = self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        if let Some(k) = kept {
+            self.slots.give(k);
+        }
+    }
+
     /// Ends `node`'s session: purges its transcript, gives its slot back
     /// and logs its use.
     fn end_node(&self, node: NodeId) {
+        self.give_held(node);
         let Some(live) = self
             .live
             .lock()
