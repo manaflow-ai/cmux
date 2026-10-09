@@ -61,6 +61,19 @@ impl FakeApp {
                             "" => "new".to_owned(),
                             last => last.to_owned(),
                         };
+                        // As the app does: a new Chromium tab's access
+                        // report goes out before the reply names the tab.
+                        if params["engine"] == "cef" {
+                            let access = Frame::TabAccess {
+                                target_id: target.clone(),
+                                extension_host_access: false,
+                                user_override: false,
+                                extensions: Vec::new(),
+                            };
+                            if write_frame(&mut *thread_writer.lock().unwrap(), &access).is_err() {
+                                break;
+                            }
+                        }
                         Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method, "targetId": target})),
@@ -525,11 +538,8 @@ fn a_cef_tabs_open_with_a_url_navigates_the_blank_tab_through_cdp() {
         })
         .unwrap();
     assert_eq!(open, json!({"engine": "cef"}), "the app opens a blank Chromium tab");
-    let navigations: Vec<Value> = app
-        .cdp_messages("new")
-        .into_iter()
-        .filter(|m| m["method"] == "Page.navigate")
-        .collect();
+    let navigations: Vec<Value> =
+        app.cdp_messages("new").into_iter().filter(|m| m["method"] == "Page.navigate").collect();
     assert_eq!(navigations.len(), 1, "one CDP navigation: {navigations:?}");
     assert_eq!(navigations[0]["params"]["url"], "https://b.test/page");
 }
