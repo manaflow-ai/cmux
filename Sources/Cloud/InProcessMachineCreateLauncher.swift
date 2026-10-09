@@ -46,12 +46,18 @@ enum InProcessMachineCreateLauncher {
                 if let provider = await registry.recordCreatedMachine(summary, attach: attach, scope: scope) {
                     return provider
                 }
-                guard scope == registry.creationScope else { return nil }
+                guard let scope, scope == registry.creationScope else { return nil }
                 _ = await registry.refresh(force: false)
                 return registry.provider(machineID: summary.id)
             },
-            provider: { machineID in registry.provider(machineID: machineID) },
-            refresh: { _ = await registry.refresh(force: false) },
+            provider: { machineID in
+                guard let scope, scope == registry.creationScope else { return nil }
+                return registry.provider(machineID: machineID)
+            },
+            refresh: {
+                guard let scope, scope == registry.creationScope else { return }
+                _ = await registry.refresh(force: false)
+            },
             open: { invocation, provider in
                 let catalog = SurfaceCatalog.shared
                 await provider.refresh()

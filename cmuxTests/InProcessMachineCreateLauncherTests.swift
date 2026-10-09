@@ -17,23 +17,23 @@ struct InProcessMachineCreateLauncherTests {
         let invocation = try #require(InProcessMachineCreateLauncher.parse(arguments: [
             "vm", "new", "--workspace", workspace.uuidString, "--focus", "false"
         ]))
-        let secret = "upstream-private-diagnostic-7b912"
+        let upstreamMessage = "upstream-diagnostic-fixture-7b912"
         let dependencies = InProcessMachineCreateLauncher.Dependencies(
             create: { _, _ in
-                if !created { throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") }
+                if !created { throw VMClientError.httpStatus(503, "{\"message\":\"\(upstreamMessage)\"}") }
                 return VMSummary(id: "created-machine", provider: "freestyle", status: "running", image: "snapshot", createdAt: 1)
             },
             record: { _, _ in nil },
             provider: { _ in nil },
-            open: { _, _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(secret)\"}") }
+            open: { _, _ in throw VMClientError.httpStatus(503, "{\"message\":\"\(upstreamMessage)\"}") }
         )
         let completion = await InProcessMachineCreateLauncher.run(
             invocation, operationID: UUID(), dependencies: dependencies, onOutput: { _ in }
         )
         #expect(!completion.succeeded)
-        #expect(!completion.output.contains(secret))
+        #expect(!completion.output.contains(upstreamMessage))
         let coordinator = MachineCreateCoordinator(notifier: { notice in
-            #expect(!notice.body.contains(secret))
+            #expect(!notice.body.contains(upstreamMessage))
         })
         coordinator.start(MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspace)) { _, _, finish in
             finish(completion)
@@ -42,7 +42,7 @@ struct InProcessMachineCreateLauncherTests {
         let finished = try #require(coordinator.lastFinished)
         switch finished.outcome {
         case .failed(let output), .createdButOpenFailed(_, let output):
-            #expect(!output.contains(secret))
+            #expect(!output.contains(upstreamMessage))
         case .created:
             Issue.record("A failed create or attach must not be reported as ready")
         }
