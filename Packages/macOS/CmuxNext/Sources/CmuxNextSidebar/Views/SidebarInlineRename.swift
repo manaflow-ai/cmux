@@ -110,6 +110,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
             }
             list.reload(animated: false)
         }
+        if case let .group(id) = session.key { list?.model.send(.groupEditorEnded(id)) }
         list?.window?.makeFirstResponder(list)
         onEnded?(byKeyboard)
     }
