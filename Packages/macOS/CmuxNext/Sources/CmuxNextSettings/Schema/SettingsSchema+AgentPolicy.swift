@@ -161,6 +161,7 @@ extension SettingsSchema {
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
+        "history.commandRetentionDays": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
         "feed.github.enabled": .network,

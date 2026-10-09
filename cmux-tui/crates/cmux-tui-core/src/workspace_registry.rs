@@ -6,8 +6,6 @@
 //! same order. Runtime pane/surface ids deliberately never enter this store.
 
 use std::borrow::Cow;
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -719,7 +717,7 @@ pub struct WorkspaceRegistry {
     /// Projection and commit spans for `server-stats`; the mux keeps a clone.
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
-    resource_patch_failures_remaining: Cell<u64>,
+    resource_patch_failures_remaining: std::cell::Cell<u64>,
     #[cfg(test)]
     journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
@@ -2773,7 +2771,7 @@ impl WorkspaceRegistry {
             public_fold: None,
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
-            resource_patch_failures_remaining: Cell::new(0),
+            resource_patch_failures_remaining: std::cell::Cell::new(0),
             #[cfg(test)]
             journal_before_commit: None,
             #[cfg(test)]

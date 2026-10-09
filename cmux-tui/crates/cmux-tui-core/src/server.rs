@@ -755,25 +755,9 @@ enum Command {
         include: Option<Vec<String>>,
     },
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
-    SetTerminalCommandHistory {
-        enabled: bool,
-        #[serde(default)]
-        retention_days: Option<u32>,
-    },
-    ListTerminalCommands {
-        #[serde(default)]
-        after_id: Option<String>,
-        #[serde(default)]
-        limit: Option<u32>,
-    },
-    DeleteTerminalCommands {
-        #[serde(default)]
-        ids: Option<Vec<String>>,
-        #[serde(default)]
-        started_since_ms: Option<String>,
-        #[serde(default)]
-        all: bool,
-    },
+    SetTerminalCommandHistory(command_history::SetParams),
+    ListTerminalCommands(command_history::ListParams),
+    DeleteTerminalCommands(command_history::DeleteParams),
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {
@@ -5318,9 +5302,9 @@ fn handle_command_with_cancellation(
             offset,
             data,
         ),
-        command @ (Command::SetTerminalCommandHistory { .. }
-        | Command::ListTerminalCommands { .. }
-        | Command::DeleteTerminalCommands { .. }) => command_history::handle(mux, client, command),
+        command @ (Command::SetTerminalCommandHistory(_)
+        | Command::ListTerminalCommands(_)
+        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
