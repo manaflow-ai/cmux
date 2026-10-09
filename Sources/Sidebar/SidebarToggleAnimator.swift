@@ -270,7 +270,7 @@ final class SidebarToggleAnimator: ObservableObject {
         let distance = slide.to - slide.from
         let velocity = distance == 0 ? 0 : slide.velocity / distance
         if let view = window.contentView {
-            session.driveTabBars(from: view) { [weak self] time in self?.progress(at: time) }
+            session.driveTabBars(from: view, start: min(1, max(0, slide.from / Double(layout?.width ?? 1)))) { [weak self] time in self?.progress(at: time) }
         }
         for (index, layer) in session.movingLayers.enumerated() {
             let animation = slideSpring(from: slide.from, to: slide.to, velocity: velocity, duration: slide.duration)

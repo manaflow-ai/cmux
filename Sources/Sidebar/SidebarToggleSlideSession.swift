@@ -20,16 +20,28 @@ final class SidebarToggleSlideSession {
     private var tabBarDriver: SidebarSlideTabBarDriver?
 
     /// Lays the panes' tab bars out at the slide's progress every frame
-    /// (`progress` maps a presentation time to 0 hidden ... 1 docked).
-    func driveTabBars(from view: NSView, progress: @escaping (CFTimeInterval) -> Double?) {
+    /// (`progress` maps a presentation time to 0 hidden ... 1 docked), at
+    /// the narrower of this frame's width and the width a few frames on.
+    /// `start` is the slide's first pose, laid out at once (the slide's
+    /// clock starts when its transaction commits, so the clock now runs
+    /// ahead, which only narrows the tabs).
+    func driveTabBars(from view: NSView, start: Double, progress: @escaping (CFTimeInterval) -> Double?) {
         tabBarDriver?.stop()
         guard let paneGlide, !paneGlide.tabBarWidths.isEmpty else { return }
-        paneGlide.layOutTabBars(progress: progress(CACurrentMediaTime()))
+        func widths(at time: CFTimeInterval) -> [Double]? {
+            guard let now = progress(time) else { return nil }
+            return [now, progress(time + Self.tabBarLead) ?? now]
+        }
+        paneGlide.layOutTabBars(progress: [start] + (widths(at: CACurrentMediaTime()) ?? []))
         tabBarDriver = SidebarSlideTabBarDriver(view: view) { [weak paneGlide] time in
-            guard let paneGlide, let value = progress(time) else { return }
+            guard let paneGlide, let value = widths(at: time) else { return }
             paneGlide.layOutTabBars(progress: value)
         }
     }
+
+    /// How far ahead the tab bars look: a frame or two the main thread can
+    /// miss without tabs reaching under the lane.
+    static let tabBarLead: CFTimeInterval = 0.034
 
     /// The panes' rects in both layouts, for per-pane motion.
     struct Panes {

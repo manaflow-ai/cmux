@@ -333,19 +333,26 @@ final class SidebarSlidePaneGlide {
         return false
     }
 
-    /// Lays every tab bar out at its width for `progress` (0 hidden, 1
-    /// docked), or back to its pane's own width with nil.
-    func layOutTabBars(progress: Double?) {
+    /// Lays every tab bar's tabs out at the narrowest of its widths for
+    /// `progress` (0 hidden, 1 docked; this frame's and a little later's),
+    /// or back to its pane's own width with nil. A frame the main thread
+    /// misses then shows a little bar surface before the lane picture,
+    /// never tabs under it.
+    func layOutTabBars(progress: [Double]?) {
         for entry in tabBarWidths {
-            guard let progress else {
+            guard let progress, !progress.isEmpty else {
                 entry.tabBar.slideTabBarWidth = nil
                 continue
             }
-            let width = entry.hidden + (entry.docked - entry.hidden) * CGFloat(progress)
-            entry.tabBar.slideTabBarWidth = (width * 2).rounded() / 2
+            let width = progress.map { entry.hidden + (entry.docked - entry.hidden) * CGFloat($0) }.min() ?? entry.hidden
+            entry.tabBar.slideTabBarWidth = (width * 2).rounded(.down) / 2
         }
-        // Apply now, inside this frame's transaction, not on a later pass.
-        tabBarWidths.forEach { $0.pane.layoutSubtreeIfNeeded() }
+        // Apply now, inside this frame's transaction, not on a later pass:
+        // SwiftUI marks the hosting view for layout on its own schedule.
+        for entry in tabBarWidths {
+            entry.pane.needsLayout = true
+            entry.pane.layoutSubtreeIfNeeded()
+        }
     }
 
     func tearDown(animationKey: String) {

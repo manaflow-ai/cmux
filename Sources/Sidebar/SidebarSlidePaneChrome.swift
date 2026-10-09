@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import QuartzCore
 
 /// The trailing ends of every pane's own chrome, as pictures that ride the
@@ -40,7 +41,11 @@ struct SidebarSlidePaneChrome {
         // whose width Bonsplit fixes; the rest of a pane's chrome is cut at
         // a seam found in its pixels.
         var tabRows: [ObjectIdentifier: ClosedRange<CGFloat>] = [:]
+        var lanes: [ObjectIdentifier: CGFloat] = [:]
         func findTabs(_ view: NSView) {
+            if let tabBar = view as? BonsplitTabBarSlideWidthControlling, let pane = layout.pane(containing: view) {
+                lanes[pane] = tabBar.slideActionLaneWidth
+            }
             if SidebarSlideTabRowCapture.isTabItemRegion(view), !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty,
                let pane = layout.pane(containing: view) {
                 let rect = reference.convert(view.visibleRect, from: view)
@@ -107,9 +112,18 @@ struct SidebarSlidePaneChrome {
                 }
 #endif
                 let isTabBar = tabRows[id].map { abs($0.lowerBound - rows.lowerBound) < 1 && abs($0.upperBound - rows.upperBound) < 1 } ?? false
-                // The tab bar lays itself out live at the pane's moving
-                // width (SidebarSlidePaneGlide.tabBarWidths): no picture.
-                if isTabBar { continue }
+                // The tabs lay themselves out live at the pane's moving
+                // width (SidebarSlidePaneGlide.tabBarWidths) with Bonsplit's
+                // own lane hidden; the lane, whose width Bonsplit reports,
+                // rides the trailing edge as a picture.
+                if isTabBar {
+                    let lane = Int(((lanes[id] ?? 0) * scale).rounded())
+                    if lane > 0, lane < paneRep.pixelsWide,
+                       let band = picture(paneRep, rect: paneRect, rows: 0..<paneRep.pixelsHigh, columns: (paneRep.pixelsWide - lane)..<paneRep.pixelsWide) {
+                        bands[id, default: []].append(band)
+                    }
+                    continue
+                }
                 // A trailing part wider than half the pane is content that
                 // happens to have a gap (text lines, a page), not a bar's
                 // trailing items: it rides with the pane.
