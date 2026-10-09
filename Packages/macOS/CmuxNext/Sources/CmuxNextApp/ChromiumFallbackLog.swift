@@ -21,23 +21,29 @@ final class ChromiumFallbackLog {
     private(set) var count = 0
     /// True once the notice was handed to a tab.
     private(set) var notified = false
-    /// Fallback tabs whose page was not created yet; the first one shown
-    /// takes the notice. Emptied once notified.
-    private var candidates: [SurfaceID: CEFUnavailableReason] = [:]
+    /// Fallback tabs whose page was not created yet, by machine and surface
+    /// (handles are per daemon); the first one shown takes the notice.
+    /// Emptied once notified.
+    private var candidates: [Candidate: CEFUnavailableReason] = [:]
 
-    /// Records a fallback for the tab on `surface` (nil when unknown yet).
-    func record(_ reason: CEFUnavailableReason, source: Source, surface: SurfaceID?) {
+    private struct Candidate: Hashable {
+        let machine: String
+        let surface: SurfaceID
+    }
+
+    /// Records a fallback for the tab on `machine`'s `surface` (nil when unknown yet).
+    func record(_ reason: CEFUnavailableReason, source: Source, machine: String, surface: SurfaceID?) {
         lastReason = reason
         lastSource = source
         count += 1
         guard !notified, let surface else { return }
-        candidates[surface] = reason
+        candidates[Candidate(machine: machine, surface: surface)] = reason
     }
 
-    /// The notice text when `surface` is a fallback tab and no notice was
-    /// shown yet in this process (once).
-    func takeNotice(for surface: SurfaceID) -> String? {
-        guard !notified, let reason = candidates[surface] else { return nil }
+    /// The notice text when `machine`'s `surface` is a fallback tab and no
+    /// notice was shown yet in this process (once).
+    func takeNotice(machine: String, surface: SurfaceID) -> String? {
+        guard !notified, let reason = candidates[Candidate(machine: machine, surface: surface)] else { return nil }
         notified = true
         candidates = [:]
         return Self.notice(for: reason)
