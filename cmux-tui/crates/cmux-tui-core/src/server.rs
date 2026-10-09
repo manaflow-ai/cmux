@@ -18,6 +18,10 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+#[cfg(test)]
+use crate::workspace_registry::TerminalLifecycle;
+#[cfg(test)]
+use base64::Engine;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(test)]
@@ -30,11 +34,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use base64::Engine;
+use ghostty_vt::KittyReplayState;
 #[cfg(test)]
 use ghostty_vt::{KeyAction, Mods, sys};
-use ghostty_vt::{KeyEncoder, KeyInput, KittyReplayState, key_input_from_chord, rows_to_runs};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -55,20 +57,17 @@ use crate::SurfaceRenderFrame;
 #[cfg(test)]
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::browser::{BrowserMouseDispatch, BrowserPointerOwner};
-use crate::browser_provider::{
-    BrowserProviderAuthentication, BrowserProviderRegistration, BrowserProviderSnapshot,
-};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
 use crate::model::{Screen, State, Workspace};
 use crate::mux::ClientSizingIdentity;
-use crate::mux::{DaemonHandoffRequest, clamp_terminal_size};
+use crate::mux::DaemonHandoffRequest;
 use crate::platform::{self, transport};
 #[cfg(test)]
 use crate::resource::BrowserPublicId;
 use crate::resource::{
     ContentPublicId, RequestId as ResourceRequestId, ResourceError, ResourceOperation,
-    StreamPublicId, TabPublicId, TerminalPublicId,
+    StreamPublicId, TerminalPublicId,
 };
 use crate::sizing_policy::{
     TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
@@ -76,15 +75,15 @@ use crate::sizing_policy::{
 };
 use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
 use crate::surface::{AttachLifecycle, ClearHistoryDelivery, ClearHistoryFailure};
-use crate::workspace_registry::TerminalLifecycle;
 use crate::{
-    AgentRecord, AgentSource, AgentState, DefaultColors, Direction, GraphicsStatus, LayoutLeafSpec,
-    LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent, Node,
-    NotificationLevel, NotificationSource, PairingDecision, PaneId, RenderAttachFrame, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, TerminalColors,
-    TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation,
-    ZoomMode, assign_short_ids,
+    AgentRecord, AgentSource, AgentState, Direction, GraphicsStatus, LayoutLeafSpec,
+    LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node, NotificationLevel,
+    NotificationSource, PairingDecision, PaneId, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
+    SplitId, SurfaceId, SurfaceKind, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
+#[cfg(test)]
+use ghostty_vt::KeyInput;
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
@@ -146,7 +145,17 @@ mod remote_entry;
 mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod cmd_attach;
+mod cmd_browser;
+#[cfg(test)]
+use cmd_browser::browser_provider_registration;
+mod cmd_panes;
+mod cmd_profiles;
+mod cmd_screens;
+mod cmd_sizing;
 mod cmd_tabs;
+mod cmd_terminal_io;
+mod cmd_terminals;
 mod cmd_workspaces;
 mod responses;
 mod rows;
@@ -4237,48 +4246,6 @@ fn default_renderer_capability_ttl_ms() -> u64 {
     30_000
 }
 
-fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Result<Value> {
-    let screen = match screen_id {
-        Some(id) => state
-            .workspaces
-            .iter()
-            .flat_map(|ws| ws.screens.iter())
-            .find(|screen| screen.id == id)
-            .ok_or_else(|| anyhow::anyhow!("unknown screen {id}"))?,
-        None => state
-            .workspaces
-            .get(state.active_workspace)
-            .and_then(|ws| ws.active_screen_ref())
-            .ok_or_else(|| anyhow::anyhow!("no active screen"))?,
-    };
-    let mut pane_ids = Vec::new();
-    screen.root.pane_ids(&mut pane_ids);
-    let mut value = json!({
-        "layout": node_json(&screen.root, screen.active_pane),
-        "panes": pane_ids.iter().map(|pane_id| {
-            let surfaces = state
-                .panes
-                .get(pane_id)
-                .map(|pane| pane.tabs.clone())
-                .unwrap_or_default();
-            json!({ "pane": pane_id, "surfaces": surfaces })
-        }).collect::<Vec<_>>(),
-    });
-    if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
-        );
-        if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
-        }
-    }
-    Ok(value)
-}
-
 fn pane_json(
     state: &State,
     id: PaneId,
@@ -4680,30 +4647,6 @@ fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
 }
 
-fn resolve_workspace(
-    mux: &Mux,
-    id: Option<WorkspaceId>,
-    key: Option<&str>,
-) -> anyhow::Result<(WorkspaceId, String)> {
-    mux.with_state(|state| {
-        let by_id = id.and_then(|id| state.workspace_by_id(id));
-        let by_key = key.and_then(|key| state.workspace_by_key(key));
-        let workspace = match (id, key, by_id, by_key) {
-            (None, None, _, _) => anyhow::bail!("workspace or key is required"),
-            (Some(id), None, Some(workspace), _) if workspace.id == id => workspace,
-            (Some(id), None, None, _) => anyhow::bail!("unknown workspace {id}"),
-            (None, Some(key), _, Some(workspace)) if workspace.key == key => workspace,
-            (None, Some(key), _, None) => anyhow::bail!("unknown workspace key {key}"),
-            (Some(_), Some(_), Some(by_id), Some(by_key)) if by_id.id == by_key.id => by_id,
-            (Some(_), Some(_), _, _) => {
-                anyhow::bail!("workspace id and key do not identify the same workspace")
-            }
-            _ => unreachable!("workspace selector cases are exhaustive"),
-        };
-        Ok((workspace.id, workspace.key.clone()))
-    })
-}
-
 fn sidebar_plugin_status_json(status: SidebarPluginStatus) -> Value {
     let retry_after_ms = status.retry_after.map(|duration| duration.as_millis() as u64);
     json!({
@@ -4727,127 +4670,6 @@ fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
-}
-
-fn browser_provider_registration(
-    provider_id: String,
-    endpoint: String,
-    authentication: String,
-    bearer_token: Option<String>,
-    targets: Vec<BrowserProviderTargetRequest>,
-) -> anyhow::Result<BrowserProviderRegistration> {
-    anyhow::ensure!(
-        !provider_id.is_empty()
-            && provider_id.len() <= 128
-            && provider_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"-._:".contains(&byte)),
-        "browser provider id must contain 1..128 ASCII identifier characters"
-    );
-    anyhow::ensure!(endpoint.len() <= 2_048, "browser provider endpoint is too long");
-    let parsed = url::Url::parse(&endpoint).context("invalid browser provider endpoint")?;
-    anyhow::ensure!(parsed.scheme() == "ws", "browser provider endpoint must use ws://");
-    anyhow::ensure!(
-        parsed.username().is_empty() && parsed.password().is_none(),
-        "browser provider endpoint must not contain URL credentials"
-    );
-    anyhow::ensure!(parsed.port().is_some(), "browser provider endpoint must include a port");
-    anyhow::ensure!(
-        parsed.fragment().is_none(),
-        "browser provider endpoint must not have a fragment"
-    );
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("browser provider endpoint must include a host"))?;
-    let loopback = host.eq_ignore_ascii_case("localhost")
-        || host.parse::<std::net::IpAddr>().is_ok_and(|address| address.is_loopback());
-    anyhow::ensure!(
-        loopback,
-        "browser provider endpoint must be loopback; use an authenticated local gateway"
-    );
-
-    let authentication = match authentication.as_str() {
-        "none" => {
-            anyhow::ensure!(
-                bearer_token.is_none(),
-                "bearer_token is only valid with bearer authentication"
-            );
-            BrowserProviderAuthentication::None
-        }
-        "bearer" => {
-            let token = bearer_token
-                .filter(|token| !token.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("bearer authentication requires bearer_token"))?;
-            anyhow::ensure!(
-                token.len() <= 4_096 && token.bytes().all(|byte| byte.is_ascii_graphic()),
-                "browser provider bearer token must contain 1..4096 visible ASCII characters"
-            );
-            BrowserProviderAuthentication::Bearer(token)
-        }
-        other => anyhow::bail!("unsupported browser provider authentication {other:?}"),
-    };
-
-    anyhow::ensure!(targets.len() <= 16_384, "too many browser provider targets");
-    let mut parsed_targets = BTreeMap::new();
-    for target in targets {
-        let tab_id =
-            TabPublicId::parse(target.tab_id).context("invalid browser provider tab_id")?;
-        anyhow::ensure!(
-            !target.target_id.is_empty()
-                && target.target_id.len() <= 512
-                && !target.target_id.chars().any(char::is_control),
-            "browser provider target_id must contain 1..512 non-control characters"
-        );
-        anyhow::ensure!(
-            parsed_targets.insert(tab_id, target.target_id).is_none(),
-            "duplicate browser provider tab_id"
-        );
-    }
-    Ok(BrowserProviderRegistration {
-        provider_id,
-        endpoint: parsed.to_string(),
-        authentication,
-        targets: parsed_targets,
-    })
-}
-
-fn browser_provider_json(snapshot: Option<BrowserProviderSnapshot>) -> Value {
-    let Some(snapshot) = snapshot else {
-        return json!({"available":false,"revision":0,"targets":[]});
-    };
-    let targets = snapshot
-        .targets
-        .into_iter()
-        .map(|(tab_id, target_id)| json!({"tab_id":tab_id,"target_id":target_id}))
-        .collect::<Vec<_>>();
-    json!({
-        "available":true,
-        "provider_id":snapshot.provider_id,
-        "endpoint":snapshot.endpoint,
-        "authentication":snapshot.authentication.name(),
-        "revision":snapshot.revision,
-        "clients":snapshot.clients,
-        "targets":targets,
-    })
-}
-
-fn handle_browser_frame_presented(
-    mux: &Mux,
-    client: u64,
-    surface: SurfaceId,
-    frame_seq: u64,
-) -> anyhow::Result<Value> {
-    if !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
-        anyhow::bail!(
-            "browser frame presentation requires client capability \
-             {GUARDED_BROWSER_POINTER_CAPABILITY}"
-        );
-    }
-    let surface = get_surface(mux, surface)?;
-    require_browser(mux, &surface)?;
-    let owner = mux.control_clients.browser_pointer_owner(client)?;
-    let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
-    Ok(json!({ "accepted": accepted }))
 }
 
 fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
@@ -4887,25 +4709,6 @@ fn agent_json(record: &AgentRecord) -> Value {
         "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
-}
-
-fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 7 || bytes[0] != b'#' {
-        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
-    }
-    let nibble = |b: u8| -> anyhow::Result<u8> {
-        match b {
-            b'0'..=b'9' => Ok(b - b'0'),
-            b'a'..=b'f' => Ok(b - b'a' + 10),
-            b'A'..=b'F' => Ok(b - b'A' + 10),
-            _ => anyhow::bail!("bad color {value:?} (want \"#rrggbb\")"),
-        }
-    };
-    let hex = |idx: usize| -> anyhow::Result<u8> {
-        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
-    };
-    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
 }
 
 fn color_hex(color: Option<Rgb>) -> Option<String> {
@@ -5201,14 +5004,6 @@ fn attach_response(mux: &Mux, surface: SurfaceId, client: u64, lease: Option<Str
     response
 }
 
-fn validate_relay_view(view: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !view.is_empty() && view.len() <= 128 && !view.chars().any(char::is_control),
-        "bad request: view must be 1-128 printable characters"
-    );
-    Ok(())
-}
-
 fn commit_client_attach(
     mux: &Mux,
     client: u64,
@@ -5376,7 +5171,9 @@ fn handle_command_with_cancellation(
             size,
             offset,
             data,
-        } => image_paste::ImagePasteRequest {
+        } => cmd_terminal_io::paste_image(
+            mux,
+            client,
             surface,
             terminal_id,
             lease,
@@ -5386,14 +5183,9 @@ fn handle_command_with_cancellation(
             size,
             offset,
             data,
-        }
-        .handle(mux, client),
+        ),
         Command::SetTerminalCommandHistory { enabled } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("terminal command history requires a trusted local connection");
-            }
-            mux.set_terminal_command_history(enabled);
-            Ok(json!({ "enabled": enabled }))
+            cmd_terminals::set_terminal_command_history(mux, client, enabled)
         }
         Command::ServerStats { include } => {
             if !mux.control_clients.is_unix(client) {
@@ -5401,7 +5193,7 @@ fn handle_command_with_cancellation(
             }
             Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
         }
-        Command::BrowserHostProvider => browser_host_command::run(mux, client),
+        Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -5496,110 +5288,23 @@ fn handle_command_with_cancellation(
             authentication,
             bearer_token,
             targets,
-        } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider registration requires a trusted local connection");
-            }
-            let registration = browser_provider_registration(
-                provider_id,
-                endpoint,
-                authentication,
-                bearer_token,
-                targets,
-            )?;
-            let snapshot = mux.register_browser_provider(client, registration)?;
-            Ok(browser_provider_json(Some(snapshot)))
-        }
-        Command::GetBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider discovery requires a trusted local connection");
-            }
-            Ok(browser_provider_json(mux.browser_provider_snapshot()))
-        }
-        Command::UnregisterBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("browser provider registration requires a trusted local connection");
-            }
-            Ok(json!({"removed":mux.unregister_browser_provider(client)}))
-        }
-        Command::ListTerminals => {
-            let snapshot = mux.terminal_registry_snapshot()?;
-            let terminals = snapshot
-                .terminals
-                .into_iter()
-                .map(|terminal| {
-                    json!({
-                        "terminal_id":terminal.terminal_id,
-                        "workspace_key":terminal.workspace_key,
-                        "terminal_incarnation":terminal.incarnation,
-                        "lifecycle":terminal.lifecycle,
-                        "launch_spec":terminal.launch_spec,
-                        "exit":terminal.exit,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({
-                "registry_id":snapshot.registry_id,
-                "generation":snapshot.generation,
-                "terminal_revision":snapshot.revision,
-                "terminals":terminals,
-            }))
-        }
+        } => cmd_browser::register_browser_provider(
+            mux,
+            client,
+            provider_id,
+            endpoint,
+            authentication,
+            bearer_token,
+            targets,
+        ),
+        Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
+        Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
+        Command::ListTerminals => cmd_terminals::list_terminals(mux),
         Command::TerminalEvents { after_revision } => {
-            let (snapshot, events) = mux.terminal_registry_events_page(after_revision)?;
-            let events = events
-                .into_iter()
-                .map(|event| {
-                    json!({
-                        "terminal_revision":event.revision,
-                        "kind":event.kind,
-                        "terminal_id":event.terminal_id,
-                        "workspace_key":event.workspace_key,
-                        "origin":event.origin,
-                        "mutation_id":event.mutation_id,
-                        "result":event.result,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({
-                "registry_id":snapshot.registry_id,
-                "generation":snapshot.generation,
-                "terminal_revision":snapshot.revision,
-                "events":events,
-            }))
+            cmd_terminals::terminal_events(mux, after_revision)
         }
         Command::SetClientSizing { surface, client: target, enabled, exclusive } => {
-            if exclusive && !enabled {
-                anyhow::bail!("exclusive client sizing must be enabled");
-            }
-            get_surface(mux, surface)?;
-            if exclusive && target.is_none() {
-                mux.use_only_client_size(surface, client).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "client {client} is not attached with a reported size for surface {surface}"
-                    )
-                })?;
-                return Ok(json!({}));
-            }
-            if let Some(target) = target {
-                if exclusive {
-                    mux.use_only_client_size(surface, target).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "client {target} is not attached with a reported size for surface {surface}"
-                        )
-                    })?;
-                } else {
-                    mux.set_client_size_participation(surface, target, enabled).ok_or_else(
-                        || anyhow::anyhow!("client {target} is not attached to surface {surface}"),
-                    )?;
-                }
-            } else if enabled {
-                mux.use_all_client_sizes(surface)
-                    .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
-            } else {
-                anyhow::bail!("client is required when disabling sizing");
-            }
-            Ok(json!({}))
+            cmd_sizing::set_client_sizing(mux, client, surface, target, enabled, exclusive)
         }
         Command::PairingResponse { request, approve } => {
             if !mux.control_clients.is_unix(client) {
@@ -5613,142 +5318,30 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::DetachClient { client: target, by, surface } => {
-            let by = detach_actor(mux, client, by);
-            if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
-                // The view leaves; the connection, its stream and its relay
-                // sub-views stay (docs/shared-terminal-sizing.md).
-                detach_own_view(mux, owner, placement, by);
-                return Ok(json!({"scope": "view"}));
-            }
-            if let DetachClientTarget::Participant(participant) = &target
-                && let Some((relay, placement, Some(view))) = match surface {
-                    Some(surface) => mux.terminal_participant_member_on(surface, participant),
-                    None => mux.terminal_participant_member(participant),
-                }
-            {
-                // A relay sub-view leaves alone; its relay stays attached and
-                // forwards the notice to that leaf only.
-                mux.detach_terminal_sub_view(placement, relay, &view);
-                let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
-                mux.control_clients.send_surface_event(
-                    relay,
-                    placement,
-                    None,
-                    &detached_event_json(placement, &notice, Some(&view)),
-                );
-                return Ok(json!({}));
-            }
-            let target_client = match &target {
-                DetachClientTarget::Client(target) => Some(*target),
-                DetachClientTarget::Participant(participant) => {
-                    target.whole_client().or_else(|| {
-                        mux.terminal_participant_member(participant).map(|member| member.0)
-                    })
-                }
-            };
-            let Some(target_client) = target_client else {
-                match target {
-                    DetachClientTarget::Participant(participant) => {
-                        anyhow::bail!("unknown participant {participant}")
-                    }
-                    DetachClientTarget::Client(target) => anyhow::bail!("unknown client {target}"),
-                }
-            };
-            if target_client == client {
-                if !mux.control_clients.contains(target_client) {
-                    anyhow::bail!("unknown client {target_client}");
-                }
-            } else if !kick_client(mux, target_client, by) {
-                anyhow::bail!("unknown client {target_client}");
-            }
-            Ok(json!({}))
+            cmd_attach::detach_client(mux, client, target, by, surface)
         }
-        Command::SetSizePolicy { surface, workspace, policy } => match (surface, workspace) {
-            (Some(surface), None) => {
-                get_surface(mux, surface)?;
-                let state = mux
-                    .set_terminal_size_policy(surface, policy)
-                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-                Ok(json!({"state": size_state_for_client(mux, client, &state)}))
-            }
-            (None, Some(workspace)) => {
-                mux.set_workspace_size_policy(workspace, policy)?;
-                Ok(json!({}))
-            }
-            _ => anyhow::bail!(
-                "bad request: set-size-policy needs exactly one of surface or workspace"
-            ),
-        },
+        Command::SetSizePolicy { surface, workspace, policy } => {
+            cmd_sizing::set_size_policy(mux, client, surface, workspace, policy)
+        }
         Command::SetSizeCounts { surface, client: target, lease, view, participant, counts } => {
-            get_surface(mux, surface)?;
-            let selectors = usize::from(target.is_some())
-                + usize::from(lease.is_some())
-                + usize::from(view.is_some())
-                + usize::from(participant.is_some());
-            anyhow::ensure!(
-                selectors <= 1,
-                "bad request: set-size-counts takes at most one of client, lease, view or participant"
-            );
-            let participant = if let Some(participant) = participant {
-                participant
-            } else if let Some(view) = view {
-                crate::mux::sub_view_participant_id(client, &view)
-            } else {
-                if let Some(lease) = &lease {
-                    match mux.control_clients.view_lease_status(client, surface, lease)? {
-                        ViewLeaseStatus::Current { .. } => {}
-                        ViewLeaseStatus::Superseded => return Ok(json!({"outcome": "superseded"})),
-                    }
-                }
-                mux.terminal_view_participant_id(surface, target.unwrap_or(client))
-                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?
-            };
-            let changed = mux
-                .set_terminal_size_counts(surface, &participant, counts)
-                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
-            Ok(json!({"outcome": "applied", "changed": changed, "participant": participant}))
+            cmd_sizing::set_size_counts(
+                mux,
+                client,
+                surface,
+                target,
+                lease,
+                view,
+                participant,
+                counts,
+            )
         }
         Command::NoteSizeActivity { surface, view } => {
-            anyhow::ensure!(
-                mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY),
-                "note-size-activity requires client capability {SHARED_SIZING_CAPABILITY}"
-            );
-            get_surface(mux, surface)?;
-            let participant = match view.as_deref() {
-                Some(view) => crate::mux::sub_view_participant_id(client, view),
-                None => mux
-                    .terminal_view_participant_id(surface, client)
-                    .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?,
-            };
-            let changed = mux
-                .note_terminal_activity(surface, client, view.as_deref())
-                .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
-            Ok(json!({"participant": participant, "changed": changed}))
+            cmd_sizing::note_size_activity(mux, client, surface, view)
         }
         Command::ReattachView { surface, counts } => {
-            get_surface(mux, surface)?;
-            let participant = mux.reattach_terminal_own_view(surface, client, counts)?;
-            let state = mux
-                .terminal_size_state(surface)
-                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-            Ok(json!({
-                "participant": participant,
-                "state": size_state_for_client(mux, client, &state),
-            }))
+            cmd_attach::reattach_view(mux, client, surface, counts)
         }
-        Command::GetSizeState { surface } => {
-            get_surface(mux, surface)?;
-            let state = mux
-                .terminal_size_state(surface)
-                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
-            let self_participant = mux
-                .terminal_view_participant_id(surface, client)
-                .filter(|id| state.participant(id).is_some());
-            Ok(json!({
-                "state": size_state_for_client(mux, client, &state),
-                "self_participant": self_participant,
-            }))
-        }
+        Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
         Command::ReloadConfig => {
             mux.request_config_reload()?;
             Ok(json!({
@@ -5808,243 +5401,46 @@ fn handle_command_with_cancellation(
             mux.journal_frontend_event(principal_id, event)?;
             Ok(json!({"committed":true}))
         }
-        Command::ExportLayout { screen } => {
-            mux.with_state(|state| export_layout_json(state, screen))
-        }
+        Command::ExportLayout { screen } => cmd_panes::export_layout(mux, screen),
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
-            let layout = layout_request_to_spec(layout)?;
-            let applied = mux.apply_layout_as(
-                &actor,
-                workspace,
-                name,
-                &layout,
-                optional_surface_size(cols, rows),
-            )?;
-            Ok(json!({
-                "screen": applied.screen,
-                "panes": applied.panes.iter().map(|pane| {
-                    json!({ "pane": pane.pane, "surface": pane.surface })
-                }).collect::<Vec<_>>(),
-            }))
+            cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send { surface, text, bytes, paste } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            if paste {
-                let mut payload = text.unwrap_or_default().into_bytes();
-                if let Some(b64) = bytes {
-                    payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
-                }
-                surface.write_paste(&payload)?;
-            } else {
-                if let Some(text) = text {
-                    surface.write_bytes(text.as_bytes())?;
-                }
-                if let Some(b64) = bytes {
-                    let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                    surface.write_bytes(&raw)?;
-                }
-            }
-            mux.note_terminal_input(surface.id, client);
-            Ok(json!({}))
+            cmd_terminal_io::send(mux, client, surface, text, bytes, paste)
         }
-        Command::ReadScreen { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let text = surface.try_with_terminal(|t| t.viewport_text())??;
-            Ok(json!({ "text": text }))
-        }
+        Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
-            let surface =
-                get_surface(mux, surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
-            require_pty(&surface).map_err(DeliveryClassifiedError::known_not_delivered)?;
-            let fallback_key = fallback_key
-                .map(KeyInput::try_from)
-                .transpose()
-                .map_err(DeliveryClassifiedError::known_not_delivered)?;
-            surface
-                .clear_history_or_encode_key_classified(fallback_key.as_ref())
-                .map_err(DeliveryClassifiedError::from)?;
-            Ok(json!({}))
+            cmd_terminal_io::clear_history(mux, surface, fallback_key)
         }
         Command::ReadScrollback { surface, start, count } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let count = u16::try_from(count).map_err(|_| anyhow::anyhow!("count out of range"))?;
-            let (start, total, epoch, rows) = surface.try_with_terminal(|term| {
-                let total = term.history_rows();
-                let start = start.min(total);
-                let epoch = term.history_epoch();
-                term.styled_history_rows(start, count).map(|rows| (start, total, epoch, rows))
-            })??;
-            let runs = rows_to_runs(&rows);
-            let rows = runs
-                .iter()
-                .enumerate()
-                .map(|(row, runs)| {
-                    json!({
-                        "row": row as u16,
-                        "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({ "rows": rows, "start": start, "total": total, "epoch": epoch }))
+            cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
-            if cancelled() {
-                anyhow::bail!("connection closed while waiting for pattern");
-            }
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
-            let start = Instant::now();
-            let check = || -> anyhow::Result<Option<String>> {
-                let text = surface.try_with_terminal(|t| t.viewport_text())??;
-                Ok(regex.is_match(&text).then_some(text))
-            };
-            if timeout_ms == 0 {
-                if let Some(text) = check()? {
-                    return Ok(json!({
-                        "matched": true,
-                        "text": text,
-                        "elapsed_ms": start.elapsed().as_millis() as u64,
-                    }));
-                }
-                anyhow::bail!("timeout waiting for pattern");
-            }
-            let deadline = start + Duration::from_millis(timeout_ms);
-            let attach = surface.attach_stream()?;
-            // The wait ends on output, the deadline, or the connection
-            // closing; it used to wake every 100 ms to check the last.
-            let interrupt = StreamInterrupt::new();
-            if let Some(cancellation) = cancellation {
-                cancellation.register_interrupt(&interrupt);
-            }
-            attach.stream.wake_on(&interrupt);
-            if let Some(text) = check()? {
-                return Ok(json!({
-                    "matched": true,
-                    "text": text,
-                    "elapsed_ms": start.elapsed().as_millis() as u64,
-                }));
-            }
-            loop {
-                if cancelled() {
-                    anyhow::bail!("connection closed while waiting for pattern");
-                }
-                let now = Instant::now();
-                if now >= deadline {
-                    anyhow::bail!("timeout waiting for pattern");
-                }
-                match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
-                    Ok(_) => {
-                        if let Some(text) = check()? {
-                            return Ok(json!({
-                                "matched": true,
-                                "text": text,
-                                "elapsed_ms": start.elapsed().as_millis() as u64,
-                            }));
-                        }
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if Instant::now() >= deadline {
-                            anyhow::bail!("timeout waiting for pattern");
-                        }
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        anyhow::bail!("timeout waiting for pattern");
-                    }
-                }
-            }
+            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
-            if argv.is_some() && command.is_some() {
-                anyhow::bail!("argv and command are mutually exclusive");
-            }
-            let argv = match (argv, command) {
-                (Some(argv), None) if !argv.is_empty() => argv,
-                (None, Some(command)) if !command.is_empty() => {
-                    vec![platform::default_shell(), "-lc".to_string(), command]
-                }
-                _ => anyhow::bail!("argv or command is required"),
-            };
-            if new_workspace && pane.is_some() {
-                anyhow::bail!("pane and new_workspace are mutually exclusive");
-            }
-            if key.is_some() && !new_workspace {
-                anyhow::bail!("key requires new_workspace");
-            }
-            let result = mux.run_command_result_with_options_as(
-                &actor,
+            cmd_terminal_io::run(
+                mux,
+                actor,
                 argv,
-                crate::mux::RunCommandOptions {
-                    pane,
-                    new_workspace,
-                    workspace_key: key,
-                    cwd,
-                    name,
-                    size: optional_surface_size(cols, rows),
-                },
-            )?;
-            let placement = result.placement;
-            let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
-            Ok(json!({
-                "surface": placement.as_ref().map(|placement| placement.surface),
-                "terminal_id": result.terminal.terminal_id,
-                "terminal_incarnation": result.terminal.incarnation,
-                "pane": placement.as_ref().map(|placement| placement.pane),
-                "screen": placement.as_ref().map(|placement| placement.screen),
-                "workspace": placement.as_ref().map(|placement| placement.workspace),
-                "lifecycle": result.terminal.lifecycle,
-                "exit": result.terminal.exit,
-                "terminal_revision": result.terminal_revision,
-                "already_exited": already_exited,
-            }))
+                command,
+                cwd,
+                pane,
+                new_workspace,
+                key,
+                name,
+                cols,
+                rows,
+            )
         }
         Command::CreateSurfaceWithReceipt(request) => {
             create_surface_with_receipt(mux, client, *request)
         }
-        Command::SendKey { surface, keys } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)
-                .map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
-            if keys.is_empty() {
-                anyhow::bail!("bad request: keys must be non-empty");
-            }
-            let mut encoder = KeyEncoder::new()?;
-            let mut encoded = Vec::new();
-            surface.scroll_to_bottom()?;
-            surface.try_with_terminal(|term| {
-                encoder.sync_from_terminal(term);
-                for key in &keys {
-                    let Some(input) = key_input_from_chord(key) else {
-                        return Err(anyhow::anyhow!("unknown key {key}"));
-                    };
-                    encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
-                }
-                Ok::<(), anyhow::Error>(())
-            })??;
-            surface.write_bytes(&encoded)?;
-            mux.note_terminal_input(surface.id, client);
-            Ok(json!({}))
-        }
-        Command::Copy { surface, mode } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            let text = match mode.as_str() {
-                "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
-                "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
-                "selection" => {
-                    surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?
-                }
-                other => anyhow::bail!("bad mode {other}"),
-            };
-            Ok(json!({ "text": text, "mode": mode }))
-        }
+        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
         Command::Notify { title, body, level, surface, source } => {
             if title.is_empty() {
@@ -6088,90 +5484,22 @@ fn handle_command_with_cancellation(
         }
         Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
         Command::MintTerminalRenderer { surface, ttl_ms } => {
-            renderer_grant::mint_by_surface(mux, client, surface, ttl_ms)
+            cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
         }
         Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
-            renderer_grant::mint_by_terminal(mux, client, terminal, ttl_ms)
+            cmd_terminals::mint_terminal_renderer_by_terminal(mux, client, terminal, ttl_ms)
         }
         Command::ResolveTerminal { terminal_id } => {
-            let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
-                anyhow::bail!("terminal_not_found");
-            };
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "surface": resolution.surface,
-                "terminal_id": resolution.terminal.terminal_id,
-                "terminal_incarnation": resolution.terminal.incarnation,
-                "workspace_key": resolution.terminal.workspace_key,
-                "lifecycle": resolution.terminal.lifecycle,
-                "launch_spec": resolution.terminal.launch_spec,
-                "exit": resolution.terminal.exit,
-                "terminal_revision": resolution.terminal_revision,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_terminals::resolve_terminal(mux, terminal_id)
         }
         Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = mux.close_terminal_with_mutation(
-                &terminal_id,
-                terminal_incarnation.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "surface": result.surface,
-                "terminal_id": result.terminal_id,
-                "terminal_incarnation": result.terminal_incarnation,
-                "already_closed": result.already_closed,
-                "closed": true,
-                "terminal_revision": result.terminal_revision,
-                "registry_id": registry_id,
-                "generation": generation,
-            }))
+            cmd_terminals::close_terminal(mux, client, terminal_id, terminal_incarnation, mutation)
         }
         Command::SetTerminalIdlePolicy { surface, terminal_id, idle_close_seconds } => {
-            let terminal_id = match (surface, terminal_id) {
-                (Some(surface), None) => {
-                    let surface = get_surface(mux, surface)?;
-                    require_pty(&surface)?;
-                    let identity = mux.resource_terminal_host_identity(&surface);
-                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
-                }
-                (None, Some(terminal_id)) => {
-                    let resolution = mux.resolve_terminal(&terminal_id)?;
-                    let resolution =
-                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
-                    resolution.terminal.terminal_id
-                }
-                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
-            };
-            mux.set_terminal_idle_policy(&terminal_id, idle_close_seconds)?;
-            Ok(json!({
-                "terminal_id": terminal_id,
-                "idle_close_seconds": idle_close_seconds,
-            }))
+            cmd_terminals::set_terminal_idle_policy(mux, surface, terminal_id, idle_close_seconds)
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
-            let terminal_id = match (surface, terminal_id) {
-                (Some(surface), None) => {
-                    let surface = get_surface(mux, surface)?;
-                    require_pty(&surface)?;
-                    let identity = mux.resource_terminal_host_identity(&surface);
-                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
-                }
-                (None, Some(terminal_id)) => {
-                    let resolution = mux.resolve_terminal(&terminal_id)?;
-                    let resolution =
-                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
-                    resolution.terminal.terminal_id
-                }
-                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
-            };
-            mux.set_terminal_keep(&terminal_id, keep)?;
-            Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
+            cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
@@ -6203,57 +5531,12 @@ fn handle_command_with_cancellation(
         Command::NewBrowserTab { url, pane, cols, rows } => {
             cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
-        Command::GetCellPixels => {
-            let (width_px, height_px) = mux.cell_pixel_creation_size();
-            let surfaces = mux.with_state(|state| {
-                state
-                    .surfaces
-                    .values()
-                    .map(|surface| {
-                        let (width_px, height_px) = surface.cell_pixel_size();
-                        json!({
-                            "surface": surface.id,
-                            "width_px": width_px,
-                            "height_px": height_px,
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
-            Ok(json!({
-                "width_px": width_px,
-                "height_px": height_px,
-                "surfaces": surfaces,
-            }))
-        }
+        Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
         Command::SetCellPixels { width_px, height_px } => {
-            let update = mux.set_cell_pixel_size(width_px, height_px);
-            let resizes = update
-                .resizes
-                .into_iter()
-                .map(|(surface, (cols, rows), reservation_id)| {
-                    json!({
-                        "surface": surface,
-                        "cols": cols,
-                        "rows": rows,
-                        "reservation_id": reservation_id,
-                    })
-                })
-                .collect::<Vec<_>>();
-            let failures = update
-                .failures
-                .into_iter()
-                .map(|failure| {
-                    json!({
-                        "surface": failure.surface,
-                        "error": failure.error,
-                        "deferred": failure.deferred,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({"resizes": resizes, "failures": failures}))
+            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
         }
         Command::BrowserFramePresented { surface, frame_seq } => {
-            handle_browser_frame_presented(mux, client, surface, frame_seq)
+            cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }
         cmd @ (Command::BrowserMouse { .. }
         | Command::BrowserMouseGuarded { .. }
@@ -6263,35 +5546,12 @@ fn handle_command_with_cancellation(
         | Command::BrowserKeyPress { .. }
         | Command::BrowserInsertText { .. }) => browser_input::handle(mux, client, cmd),
         Command::BrowserNavigate { surface, url } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            mux.navigate_browser_surface(&surface, &url)?;
-            Ok(json!({}))
+            cmd_browser::browser_navigate(mux, surface, url)
         }
-        Command::BrowserBack { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_back()?;
-            Ok(json!({}))
-        }
-        Command::BrowserForward { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_forward()?;
-            Ok(json!({}))
-        }
-        Command::BrowserReload { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_reload()?;
-            Ok(json!({}))
-        }
-        Command::BrowserActivate { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(mux, &surface)?;
-            surface.browser_activate()?;
-            Ok(json!({}))
-        }
+        Command::BrowserBack { surface } => cmd_browser::browser_back(mux, surface),
+        Command::BrowserForward { surface } => cmd_browser::browser_forward(mux, surface),
+        Command::BrowserReload { surface } => cmd_browser::browser_reload(mux, surface),
+        Command::BrowserActivate { surface } => cmd_browser::browser_activate(mux, surface),
         Command::NewWorkspace { name, cols, rows } => {
             cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
         }
@@ -6312,413 +5572,124 @@ fn handle_command_with_cancellation(
             env,
             keep,
             mutation,
-        } => {
-            let env = env
-                .as_ref()
-                .map(crate::mux::validate_terminal_env)
-                .transpose()?
-                .unwrap_or_default();
-            if argv.is_some() && command.is_some() {
-                anyhow::bail!("argv and command are mutually exclusive");
-            }
-            if shell_args.is_some() && (argv.is_some() || command.is_some()) {
-                anyhow::bail!("shell_args cannot be combined with argv or command");
-            }
-            let argv = match (argv, command) {
-                (Some(argv), None) if !argv.is_empty() => Some(argv),
-                (None, Some(command)) if !command.is_empty() => {
-                    Some(vec![platform::default_shell(), "-lc".to_string(), command])
-                }
-                (None, None) => shell_argv(&env, shell_args, frontend_shell(mux, client)),
-                _ => anyhow::bail!("argv or command must be non-empty when provided"),
-            };
-            let size = paired_surface_size("create-terminal", cols, rows)?;
-            let resolved = resolve_workspace(mux, workspace, key.as_deref());
-            let (registry_id, generation) = mux.registry_identity();
-            // A per-terminal environment rides the receipted path, which is
-            // the only one that carries a spawn reservation.
-            if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
-                let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-                // A keyed retry whose workspace has closed since replays by key.
-                let (workspace, key) = match (resolved, key) {
-                    (Ok((workspace, key)), _) => (Some(workspace), key),
-                    (Err(_), Some(key)) => (None, key),
-                    (Err(error), None) => return Err(error),
-                };
-                let result = mux.create_raw_terminal_in_workspace_with_mutation(
-                    workspace,
-                    &key,
-                    argv,
-                    cwd,
-                    name,
-                    size,
-                    terminal_id.as_deref(),
-                    mutation.expected_generation.as_deref(),
-                    mutation.expected_revision,
-                    &workspace_mutation,
-                    env,
-                )?;
-                let projection_fingerprint = json!({
-                    "terminal_id":result.terminal_id,
-                    "workspace_key":key,
-                });
-                mux.commit_full_resource_projection_with_mutation(
-                    &workspace_mutation,
-                    "raw.terminal.create",
-                    &projection_fingerprint,
-                    json!({
-                        "terminal_id":result.terminal_id,
-                        "workspace_key":key,
-                    }),
-                )?;
-                mux.activate_created_terminal_surface(result.created_surface)?;
-                mux.reap_created_terminal_surface(result.created_surface);
-                let created = mux.created_terminal_run_result(&result.terminal_id)?;
-                if keep {
-                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
-                }
-                let placement = created.placement;
-                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-                Ok(json!({
-                    "surface": placement.as_ref().map(|placement| placement.surface),
-                    "terminal_id": created.terminal.terminal_id,
-                    "terminal_incarnation": created.terminal.incarnation,
-                    "pane": placement.as_ref().map(|placement| placement.pane),
-                    "screen": placement.as_ref().map(|placement| placement.screen),
-                    "workspace": placement.as_ref().map(|placement| placement.workspace),
-                    "key": key,
-                    "lifecycle": created.terminal.lifecycle,
-                    "exit": created.terminal.exit,
-                    "already_exited": already_exited,
-                    "terminal_revision": created.terminal_revision,
-                    "replayed": result.replayed,
-                    "registry_id": registry_id,
-                    "generation": generation,
-                }))
-            } else {
-                let (workspace, key) = resolved?;
-                let created = mux.create_terminal_result_in_workspace_as(
-                    &actor, workspace, argv, cwd, name, size,
-                )?;
-                if keep {
-                    keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
-                }
-                let placement = created.placement;
-                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-                Ok(json!({
-                    "surface": placement.as_ref().map(|placement| placement.surface),
-                    "terminal_id": created.terminal.terminal_id,
-                    "terminal_incarnation": created.terminal.incarnation,
-                    "pane": placement.as_ref().map(|placement| placement.pane),
-                    "screen": placement.as_ref().map(|placement| placement.screen),
-                    "workspace": placement.as_ref().map(|placement| placement.workspace),
-                    "key": key,
-                    "lifecycle": created.terminal.lifecycle,
-                    "exit": created.terminal.exit,
-                    "already_exited": already_exited,
-                    "terminal_revision": created.terminal_revision,
-                    "replayed": false,
-                    "registry_id": registry_id,
-                    "generation": generation,
-                }))
-            }
-        }
-        Command::NewScreen(params) => new_screen::new_screen(mux, client, params),
+        } => cmd_terminals::create_terminal(
+            mux,
+            client,
+            actor,
+            workspace,
+            key,
+            argv,
+            shell_args,
+            command,
+            cwd,
+            name,
+            cols,
+            rows,
+            terminal_id,
+            env,
+            keep,
+            mutation,
+        ),
+        Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
         Command::SetScreenMetadata { screen, color, icon } => {
-            let changed = mux.set_screen_metadata_as(&actor, screen, color, icon)?;
-            let presentation = mux.presentation_snapshot();
-            let record = mux
-                .with_state(|state| {
-                    state
-                        .workspaces
-                        .iter()
-                        .flat_map(|w| w.screens.iter())
-                        .find(|s| s.id == screen)
-                        .map(|s| {
-                            presentation
-                                .screens
-                                .screen(s.public_id.as_str())
-                                .cloned()
-                                .unwrap_or_default()
-                        })
-                })
-                .unwrap_or_default();
-            Ok(
-                json!({"screen": screen, "color": record.color, "icon": record.icon, "changed": changed}),
-            )
+            cmd_screens::set_screen_metadata(mux, actor, screen, color, icon)
         }
         Command::SetScreenPinned { screen, pinned } => {
-            let (changed, index) = mux.set_screen_pinned_as(&actor, screen, pinned)?;
-            Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
+            cmd_screens::set_screen_pinned(mux, actor, screen, pinned)
         }
         Command::MoveScreen { screen, index, workspace, new_workspace } => {
-            let destination = if new_workspace {
-                crate::ScreenDestination::NewWorkspace
-            } else {
-                crate::ScreenDestination::Workspace { workspace, index }
-            };
-            let outcome = mux.move_screen_as(&actor, screen, destination)?;
-            Ok(json!({
-                "screen": outcome.screen,
-                "workspace": outcome.workspace,
-                "key": outcome.key,
-                "index": outcome.index,
-            }))
+            cmd_screens::move_screen(mux, actor, screen, index, workspace, new_workspace)
         }
-        Command::CreateScreenGroup { screens, name, color } => Ok(screen_group_outcome_json(
-            &mux.create_screen_group_as(&actor, &screens, name, color)?,
-        )),
+        Command::CreateScreenGroup { screens, name, color } => {
+            cmd_screens::create_screen_group(mux, actor, screens, name, color)
+        }
         Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            Ok(screen_group_outcome_json(
-                &mux.update_screen_group_as(&actor, &group, name, color, collapsed)?,
-            ))
+            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed)
         }
         Command::AddScreensToScreenGroup { group, screens, index } => {
-            Ok(screen_group_outcome_json(
-                &mux.add_screens_to_screen_group_as(&actor, &group, &screens, index)?,
-            ))
+            cmd_screens::add_screens_to_screen_group(mux, actor, group, screens, index)
         }
         Command::RemoveScreensFromScreenGroup { screens } => {
-            let groups = mux.remove_screens_from_screen_group_as(&actor, &screens)?;
-            Ok(json!({ "screens": screens, "groups": groups }))
+            cmd_screens::remove_screens_from_screen_group(mux, actor, screens)
         }
         Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
-            let destination = if new_workspace {
-                crate::ScreenDestination::NewWorkspace
-            } else {
-                crate::ScreenDestination::Workspace { workspace, index }
-            };
-            Ok(screen_group_outcome_json(&mux.move_screen_group_as(&actor, &group, destination)?))
+            cmd_screens::move_screen_group(mux, actor, group, index, workspace, new_workspace)
         }
         Command::UngroupScreenGroup { group } => {
-            let screens = mux.ungroup_screen_group_as(&actor, &group)?;
-            Ok(json!({ "group": group, "screens": screens }))
+            cmd_screens::ungroup_screen_group(mux, actor, group)
         }
         Command::CloseScreenGroup { group, end_terminals } => {
-            let closed = mux.close_screen_group_as(&actor, &group, end_terminals)?;
-            Ok(json!({ "group": group, "closed": closed }))
+            cmd_screens::close_screen_group(mux, actor, group, end_terminals)
         }
-        Command::ListSavedScreenGroups => {
-            let presentation = mux.presentation_snapshot();
-            let groups = presentation
-                .saved_screen_groups
-                .iter()
-                .map(|saved| {
-                    let open = presentation
-                        .screens
-                        .groups
-                        .values()
-                        .find(|group| group.saved_id.as_deref() == Some(saved.id.as_str()))
-                        .map(|group| group.id.clone());
-                    json!({
-                        "id": saved.id,
-                        "name": saved.name,
-                        "color": saved.color,
-                        "profile_id": saved.profile_id,
-                        "members": saved.members,
-                        "updated_at_ms": saved.updated_at_ms,
-                        "open_group": open,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Ok(json!({ "groups": groups }))
-        }
-        Command::SaveScreenGroup { group } => {
-            let saved = mux.save_screen_group_as(&actor, &group)?;
-            let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
-            value["saved"] = json!(saved);
-            Ok(value)
-        }
-        Command::UnsaveScreenGroup { group } => {
-            mux.unsave_screen_group(&group)?;
-            Ok(screen_group_outcome_json(&mux.screen_group_outcome_public(&group)))
-        }
+        Command::ListSavedScreenGroups => cmd_screens::list_saved_screen_groups(mux),
+        Command::SaveScreenGroup { group } => cmd_screens::save_screen_group(mux, actor, group),
+        Command::UnsaveScreenGroup { group } => cmd_screens::unsave_screen_group(mux, group),
         Command::DeleteSavedScreenGroup { saved } => {
-            mux.delete_saved_screen_group(&saved)?;
-            Ok(json!({}))
+            cmd_screens::delete_saved_screen_group(mux, saved)
         }
         Command::ReopenSavedScreenGroup { saved, workspace } => {
-            let workspace = match workspace {
-                Some(workspace) => workspace,
-                None => mux
-                    .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
-                    .context("no workspace to reopen the screen group into")?,
-            };
-            Ok(screen_group_outcome_json(
-                &mux.reopen_saved_screen_group_as(&actor, &saved, workspace)?,
-            ))
+            cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
         }
         Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(
+            cmd_panes::new_pane(
+                mux,
+                client,
+                actor,
+                pane,
+                cols,
+                rows,
                 cwd,
-                env.as_ref(),
+                env,
+                keep,
                 terminal_id,
                 shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface = mux.new_pane_with_options_as(
-                &actor,
-                pane,
-                spawn,
-                optional_surface_size(cols, rows),
-            )?;
-            placed_terminal_result(mux, &surface, keep)
+            )
         }
-        Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
-        Command::Split(params) => split_kind::split(mux, client, params),
+        Command::NewPaneRight(params) => cmd_panes::new_pane_right(mux, client, params),
+        Command::Split(params) => cmd_panes::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
-            let dir = parse_split_dir(&dir)?;
-            mux.set_ratio_checked_as(&actor, pane, dir, ratio)?;
-            Ok(json!({}))
+            cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
-            transaction.map_or_else(
-                || mux.set_split_ratio_checked_as(&actor, split, ratio),
-                |transaction| {
-                    mux.set_split_ratio_in_transaction_checked_as(
-                        &actor,
-                        split,
-                        ratio,
-                        client,
-                        transaction,
-                    )
-                },
-            )?;
-            Ok(json!({}))
+            cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
-            transaction.map_or_else(
-                || mux.set_viewport_pane_width_checked_as(&actor, pane, width),
-                |transaction| {
-                    mux.set_viewport_pane_width_in_transaction_checked_as(
-                        &actor,
-                        pane,
-                        width,
-                        client,
-                        transaction,
-                    )
-                },
-            )?;
-            Ok(json!({}))
+            cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
-            let mut dock = crate::mux::parse_column_dock(
-                dock,
-                edge.as_deref(),
-                mode.as_deref(),
-                role.as_deref(),
-            )?;
-            // `permanent-dock-v1`: `permanent:true` marks the column; false or
-            // omitted keeps the current value (a permanent column stays one).
-            if let Some(flag) = dock.as_mut() {
-                flag.permanent = permanent == Some(true);
-            }
-            let outcome = mux.set_column_dock_as(
-                &actor,
+            cmd_panes::set_column_dock(
+                mux,
+                client,
+                actor,
                 pane,
                 dock,
-                transaction.map(|transaction| (client, transaction)),
-            )?;
-            let mut data = json!({"column": outcome.column, "dock": outcome.dock});
-            if let Some(transaction) = transaction {
-                data["transaction"] = json!(transaction);
-            }
-            Ok(data)
+                edge,
+                mode,
+                role,
+                permanent,
+                transaction,
+            )
         }
         Command::UndoLayout { pane, revision, confirm_close } => {
-            match mux.undo_layout_as(&actor, pane, revision, confirm_close)? {
-                LayoutUndoResult::Undone { screen, revision } => Ok(json!({
-                    "undone": true,
-                    "screen": screen,
-                    "revision": revision,
-                })),
-                LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes } => {
-                    Ok(json!({
-                        "undone": false,
-                        "confirmation_required": true,
-                        "screen": screen,
-                        "revision": revision,
-                        "closes_panes": closes_panes,
-                    }))
-                }
-            }
+            cmd_panes::undo_layout(mux, actor, pane, revision, confirm_close)
         }
-        Command::PaneNeighbor { pane, dir } => {
-            let dir = parse_direction(&dir)?;
-            let pane = mux.pane_neighbor(pane, dir)?;
-            Ok(json!({ "pane": pane }))
-        }
-        Command::FocusDirection { pane, dir } => {
-            let dir = parse_direction(&dir)?;
-            let pane = mux.focus_direction_as(&actor, pane, dir)?;
-            Ok(json!({ "pane": pane }))
-        }
+        Command::PaneNeighbor { pane, dir } => cmd_panes::pane_neighbor(mux, pane, dir),
+        Command::FocusDirection { pane, dir } => cmd_panes::focus_direction(mux, actor, pane, dir),
         Command::SwapPane { pane, dir, target } => {
-            let target = match (dir, target) {
-                (Some(_), Some(_)) => anyhow::bail!("use only one of dir or target"),
-                (Some(dir), None) => {
-                    let dir = parse_direction(&dir)?;
-                    mux.pane_neighbor(pane, dir)?.ok_or_else(|| anyhow::anyhow!("no neighbor"))?
-                }
-                (None, Some(target)) => target,
-                (None, None) => anyhow::bail!("one of dir or target is required"),
-            };
-            if !mux.swap_panes_as(&actor, pane, target) {
-                anyhow::bail!("unknown pane/target");
-            }
-            Ok(json!({}))
+            cmd_panes::swap_pane(mux, actor, pane, dir, target)
         }
-        Command::ZoomPane { pane, mode } => {
-            let mode = parse_zoom_mode(mode)?;
-            let state = mux.zoom_pane_as(&actor, pane, mode)?;
-            Ok(json!({
-                "pane": state.pane,
-                "zoomed": state.zoomed,
-                "zoomed_pane": state.zoomed_pane,
-            }))
-        }
-        Command::ProcessInfo { surface } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            Ok(json!({
-                "pid": surface.process_id(),
-                "command": surface.spawn_command(),
-                "cwd": surface.local_cwd(),
-                "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
-                "foreground_executable": surface
-                    .process_id()
-                    .and_then(platform::foreground_process_name),
-            }))
-        }
-        Command::TerminalResources { surfaces } => {
-            Ok(terminal_resources::terminal_resources(mux, surfaces))
-        }
+        Command::ZoomPane { pane, mode } => cmd_panes::zoom_pane(mux, actor, pane, mode),
+        Command::ProcessInfo { surface } => cmd_terminals::process_info(mux, surface),
+        Command::TerminalResources { surfaces } => cmd_terminals::terminal_resources(mux, surfaces),
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
-            let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-            let result = mux.move_terminal_with_mutation(
-                &terminal_id,
-                &workspace_key,
-                terminal_incarnation.as_deref(),
-                mutation.expected_generation.as_deref(),
-                mutation.expected_revision,
-                &workspace_mutation,
-            )?;
-            let (registry_id, generation) = mux.registry_identity();
-            Ok(json!({
-                "surface":result.placement.as_ref().map(|placement| placement.surface),
-                "pane":result.placement.as_ref().map(|placement| placement.pane),
-                "screen":result.placement.as_ref().map(|placement| placement.screen),
-                "workspace":result.placement.as_ref().map(|placement| placement.workspace),
-                "terminal_id":result.terminal.terminal_id,
-                "terminal_incarnation":result.terminal.incarnation,
-                "workspace_key":result.terminal.workspace_key,
-                "lifecycle":result.terminal.lifecycle,
-                "changed":result.changed,
-                "replayed":result.replayed,
-                "terminal_revision":result.terminal_revision,
-                "registry_id":registry_id,
-                "generation":generation,
-            }))
+            cmd_terminals::move_terminal(
+                mux,
+                client,
+                terminal_id,
+                workspace_key,
+                terminal_incarnation,
+                mutation,
+            )
         }
         Command::MoveTabToWorkspace { surface, workspace, transaction } => {
             cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
@@ -6736,8 +5707,8 @@ fn handle_command_with_cancellation(
             )
         }
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
-        Command::NewRow(params) => rows::new_row(mux, client, params),
-        Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
+        Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
+        Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,
@@ -6856,7 +5827,7 @@ fn handle_command_with_cancellation(
             marked_unread,
             mutation,
         ),
-        Command::ListPersonal => personal::list(mux),
+        Command::ListPersonal => cmd_profiles::list_personal(mux),
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
@@ -6912,20 +5883,18 @@ fn handle_command_with_cancellation(
             default_session_id,
             defaults,
             follows,
-        } => personal::create_profile(
+        } => cmd_profiles::create_profile(
             mux,
-            crate::workspace_registry::ProfileInput {
-                id: profile,
-                name,
-                color,
-                icon,
-                theme,
-                index,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-                follows,
-            },
+            name,
+            profile,
+            color,
+            icon,
+            theme,
+            index,
+            browser_profile_id,
+            default_session_id,
+            defaults,
+            follows,
         ),
         Command::UpdateProfile {
             profile,
@@ -6936,25 +5905,23 @@ fn handle_command_with_cancellation(
             browser_profile_id,
             default_session_id,
             defaults,
-        } => personal::update_profile(
+        } => cmd_profiles::update_profile(
             mux,
-            &profile,
-            crate::workspace_registry::ProfileUpdate {
-                name,
-                color,
-                icon,
-                theme,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-            },
+            profile,
+            name,
+            color,
+            icon,
+            theme,
+            browser_profile_id,
+            default_session_id,
+            defaults,
         ),
-        Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
+        Command::MoveProfile { profile, index } => cmd_profiles::move_profile(mux, profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, client, &profile, move_to.as_deref())
+            cmd_profiles::delete_profile(mux, client, profile, move_to)
         }
         Command::SetProfileFollows { profile, session_ids } => {
-            personal::set_profile_follows(mux, &profile, &session_ids)
+            cmd_profiles::set_profile_follows(mux, profile, session_ids)
         }
         Command::PinWorkspace { session_id, workspace_key, profile } => {
             cmd_workspaces::pin_workspace(mux, session_id, workspace_key, profile)
@@ -6969,44 +5936,33 @@ fn handle_command_with_cancellation(
             transport,
             capabilities,
             follow_with,
-        } => personal::put_session(
+        } => cmd_profiles::put_session(
             mux,
-            &session_id,
-            machine_name.as_deref(),
-            session_name.as_deref(),
-            &transport,
-            capabilities.as_ref(),
-            follow_with.as_deref(),
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            capabilities,
+            follow_with,
         ),
         Command::ForgetSession { session_id, force } => {
-            personal::forget_session(mux, &session_id, force)
+            cmd_profiles::forget_session(mux, session_id, force)
         }
         Command::ImportSessionOrganization { session_id, groups, workspaces } => {
-            personal::import_session_organization(mux, &session_id, groups, workspaces)
+            cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
         }
         Command::CreatePersonalGroup { name, group, profile, color, collapsed, index } => {
-            personal::create_group(
-                mux,
-                group,
-                profile.as_deref(),
-                &name,
-                color.as_deref(),
-                collapsed,
-                index,
-            )
+            cmd_profiles::create_personal_group(mux, name, group, profile, color, collapsed, index)
         }
         Command::UpdatePersonalGroup { group, name, color, collapsed, profile } => {
-            personal::update_group(
-                mux,
-                &group,
-                name.as_deref(),
-                color,
-                collapsed,
-                profile.as_deref(),
-            )
+            cmd_profiles::update_personal_group(mux, group, name, color, collapsed, profile)
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
-        Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
+        Command::DeletePersonalGroup { group } => {
+            cmd_profiles::delete_personal_group(mux, client, group)
+        }
+        Command::MovePersonalGroup { group, index } => {
+            cmd_profiles::move_personal_group(mux, group, index)
+        }
         Command::SetPersonalWorkspace {
             session_id,
             workspace_key,
@@ -7014,19 +5970,17 @@ fn handle_command_with_cancellation(
             group,
             browser_profile_id,
             theme,
-        } => personal::set_workspace(
+        } => cmd_profiles::set_personal_workspace(
             mux,
-            &session_id,
-            &workspace_key,
-            crate::workspace_registry::PersonalWorkspaceUpdate {
-                index,
-                group,
-                browser_profile_id,
-                theme,
-            },
+            session_id,
+            workspace_key,
+            index,
+            group,
+            browser_profile_id,
+            theme,
         ),
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
-            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+            cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
         }
         Command::ListWorkspaceGroups => cmd_workspaces::list_workspace_groups(mux),
         Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
@@ -7056,56 +6010,18 @@ fn handle_command_with_cancellation(
             cursor_blink,
             palette,
             complete,
-        } => {
-            let current = mux.default_colors();
-            let base = if complete { DefaultColors::default() } else { current };
-            let palette = match palette {
-                Some(entries) => {
-                    let mut palette = [None; 256];
-                    for (index, value) in entries {
-                        let index = index
-                            .parse::<u8>()
-                            .map_err(|_| anyhow::anyhow!("invalid palette index {index}"))?;
-                        palette[index as usize] = Some(parse_hex_color(&value)?);
-                    }
-                    palette
-                }
-                None => base.palette,
-            };
-            let colors = DefaultColors {
-                fg: match fg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => base.fg,
-                },
-                bg: match bg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => base.bg,
-                },
-                cursor: match cursor {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => base.cursor,
-                },
-                selection_bg: match selection_bg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => base.selection_bg,
-                },
-                selection_fg: match selection_fg {
-                    Some(value) => Some(parse_hex_color(&value)?),
-                    None => base.selection_fg,
-                },
-                cursor_style: match cursor_style.as_deref() {
-                    Some("block") => Some(ghostty_vt::CursorShape::Block),
-                    Some("underline") => Some(ghostty_vt::CursorShape::Underline),
-                    Some("bar") => Some(ghostty_vt::CursorShape::Bar),
-                    Some(value) => anyhow::bail!("invalid cursor style {value}"),
-                    None => base.cursor_style,
-                },
-                cursor_blink: cursor_blink.or(base.cursor_blink),
-                palette,
-            };
-            mux.set_default_colors(colors);
-            Ok(json!({}))
-        }
+        } => cmd_terminal_io::set_default_colors(
+            mux,
+            fg,
+            bg,
+            cursor,
+            selection_bg,
+            selection_fg,
+            cursor_style,
+            cursor_blink,
+            palette,
+            complete,
+        ),
         Command::CloseSurface { surface } => cmd_tabs::close_surface(mux, actor, surface),
         Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
             cmd_tabs::close_tabs(
@@ -7119,26 +6035,10 @@ fn handle_command_with_cancellation(
             )
         }
         Command::ClosePane { pane, end_terminals } => {
-            if end_terminals {
-                mux.close_container_ending_terminals_as(
-                    &actor,
-                    crate::BatchCloseTarget::Pane(pane),
-                )?;
-            } else if !mux.close_pane_as(&actor, pane)? {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            Ok(json!({}))
+            cmd_panes::close_pane(mux, actor, pane, end_terminals)
         }
         Command::CloseScreen { screen, end_terminals } => {
-            if end_terminals {
-                mux.close_container_ending_terminals_as(
-                    &actor,
-                    crate::BatchCloseTarget::Screen(screen),
-                )?;
-            } else if !mux.close_screen_as(&actor, screen)? {
-                anyhow::bail!("unknown screen {screen}");
-            }
-            Ok(json!({}))
+            cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
         Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
             cmd_workspaces::close_workspace(mux, client, workspace, key, end_terminals, mutation)
@@ -7149,20 +6049,12 @@ fn handle_command_with_cancellation(
         Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
             cmd_workspaces::close_provider_managed_workspace(mux, actor, workspace, key, authority)
         }
-        Command::RenamePane { pane, name } => {
-            if !mux.rename_pane_as(&actor, pane, name) {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            Ok(json!({}))
-        }
+        Command::RenamePane { pane, name } => cmd_panes::rename_pane(mux, actor, pane, name),
         Command::RenameSurface { surface, name } => {
             cmd_tabs::rename_surface(mux, actor, surface, name)
         }
         Command::RenameScreen { screen, name } => {
-            if !mux.rename_screen_as(&actor, screen, name) {
-                anyhow::bail!("unknown screen {screen}");
-            }
-            Ok(json!({}))
+            cmd_screens::rename_screen(mux, actor, screen, name)
         }
         Command::RenameWorkspace { workspace, key, name, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
@@ -7173,246 +6065,28 @@ fn handle_command_with_cancellation(
             )
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            let (cols, rows) = clamp_terminal_size(cols, rows);
-            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_has_view_placement(mux, surface)
-                    && mux
-                        .control_clients
-                        .surface_attachment_is_current_or_retired(client, surface))
-            {
-                return Ok(json!({
-                    "accepted": false,
-                    "reservation_id": null,
-                    "outcome": "superseded",
-                }));
-            }
-            // Every live control connection participates through the same
-            // client-size reducer. An unattached one-shot resize is removed
-            // when its connection closes, so it cannot bypass visible viewers.
-            // Recording and reducing happen under the sizing lock so a
-            // concurrent detach cannot finish cleanup before this lease exists.
-            let resize = match mux
-                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
-            {
-                Ok(resize) => resize,
-                Err(_)
-                    if mux
-                        .control_clients
-                        .surface_attachment_is_retired_without_current(client, surface)
-                        || (!surface_has_view_placement(mux, surface)
-                            && mux
-                                .control_clients
-                                .surface_attachment_is_current_or_retired(client, surface)) =>
-                {
-                    return Ok(json!({
-                        "accepted": false,
-                        "reservation_id": null,
-                        "outcome": "superseded",
-                    }));
-                }
-                Err(error) => return Err(error),
-            };
-            if let Some((true, name, kind, _)) = resize.attached {
-                mux.emit(MuxEvent::ClientChanged { client, name, kind });
-            }
-            Ok(json!({
-                "accepted": resize.accepted,
-                "reservation_id": resize.reservation_id,
-                "outcome": "applied",
-            }))
+            cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
         Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
-            let (cols, rows) = clamp_terminal_size(cols, rows);
-            let lease = match (lease, view) {
-                (Some(lease), None) => lease,
-                (None, Some(view)) => {
-                    validate_relay_view(&view)?;
-                    let (participant, accepted) = mux.report_terminal_sub_view(
-                        surface,
-                        client,
-                        &view,
-                        identity.map(ClientIdentityWire::into_identity),
-                        Some((cols, rows)),
-                    )?;
-                    return Ok(json!({
-                        "accepted": accepted,
-                        "reservation_id": null,
-                        "outcome": "applied",
-                        "participant": participant,
-                    }));
-                }
-                _ => anyhow::bail!(
-                    "bad request: resize-attached-view needs exactly one of lease or view"
-                ),
-            };
-            let _lifecycle = mux.lock_client_sizing_lifecycle();
-            match mux.control_clients.view_lease_status(client, surface, &lease)? {
-                ViewLeaseStatus::Superseded => {
-                    return Ok(json!({
-                        "accepted": false,
-                        "reservation_id": null,
-                        "outcome": "superseded",
-                    }));
-                }
-                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
-                    return Ok(json!({
-                        "accepted": false,
-                        "reservation_id": null,
-                        "outcome": "superseded",
-                    }));
-                }
-                ViewLeaseStatus::Current { .. } => {}
-            }
-            match mux.control_clients.prepare_view_resize(client, surface, &lease, (cols, rows))? {
-                ViewResizePreparation::Superseded => Ok(json!({
-                    "accepted": false,
-                    "reservation_id": null,
-                    "outcome": "superseded",
-                })),
-                ViewResizePreparation::Passive { .. } => Ok(json!({
-                    "accepted": false,
-                    "reservation_id": null,
-                    "outcome": "passive",
-                })),
-                ViewResizePreparation::GeometryOwner { update, previous_view_size } => {
-                    let resize = match mux
-                        .resize_surface_for_prepared_control_client_with_completion(
-                            surface,
-                            client,
-                            (cols, rows),
-                            None,
-                            Some(update),
-                        ) {
-                        Ok(resize) => resize,
-                        Err(error) => {
-                            mux.control_clients.restore_view_size(
-                                client,
-                                surface,
-                                &lease,
-                                previous_view_size,
-                            );
-                            if !surface_has_view_placement(mux, surface) {
-                                return Ok(json!({
-                                    "accepted": false,
-                                    "reservation_id": null,
-                                    "outcome": "superseded",
-                                }));
-                            }
-                            return Err(error);
-                        }
-                    };
-                    if let Some((true, name, kind, _)) = resize.attached {
-                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-                    }
-                    Ok(json!({
-                        "accepted": resize.accepted,
-                        "reservation_id": resize.reservation_id,
-                        "outcome": "applied",
-                    }))
-                }
-            }
+            cmd_sizing::resize_attached_view(
+                mux, client, surface, lease, view, identity, cols, rows,
+            )
         }
         Command::ReleaseSurfaceSize { surface } => {
-            let _lifecycle = mux.lock_client_sizing_lifecycle();
-            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_has_view_placement(mux, surface)
-                    && mux
-                        .control_clients
-                        .surface_attachment_is_current_or_retired(client, surface))
-            {
-                return Ok(json!({"outcome": "superseded"}));
-            }
-            let attached = mux.control_clients.clear_size(client, surface);
-            let had_report = mux.client_surface_size(surface, client).is_some();
-            if had_report {
-                mux.remove_surface_size_client(surface, client);
-            }
-            let attached_changed = attached.as_ref().is_some_and(|(changed, _, _)| *changed);
-            if attached_changed || (attached.is_none() && had_report) {
-                let (name, kind) = attached
-                    .map(|(_, name, kind)| (name, kind))
-                    .or_else(|| mux.control_clients.client_info(client))
-                    .unwrap_or((None, None));
-                mux.emit(MuxEvent::ClientChanged { client, name, kind });
-            }
-            Ok(json!({"outcome": "applied"}))
+            cmd_sizing::release_surface_size(mux, client, surface)
         }
         Command::ReleaseAttachedViewSize { surface, lease, view } => {
-            let lease = match (lease, view) {
-                (Some(lease), None) => lease,
-                (None, Some(view)) => {
-                    return Ok(match mux.release_terminal_sub_view(surface, client, &view) {
-                        Some(_) => json!({"outcome": "applied"}),
-                        None => json!({"outcome": "superseded"}),
-                    });
-                }
-                _ => anyhow::bail!(
-                    "bad request: release-attached-view-size needs exactly one of lease or view"
-                ),
-            };
-            let _lifecycle = mux.lock_client_sizing_lifecycle();
-            match mux.control_clients.view_lease_status(client, surface, &lease)? {
-                ViewLeaseStatus::Superseded => {
-                    return Ok(json!({"outcome": "superseded"}));
-                }
-                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
-                    return Ok(json!({"outcome": "superseded"}));
-                }
-                ViewLeaseStatus::Current { .. } => {}
-            }
-            match mux.control_clients.release_view_size(client, surface, &lease)? {
-                ViewReleasePreparation::Superseded => Ok(json!({"outcome": "superseded"})),
-                ViewReleasePreparation::Passive => Ok(json!({"outcome": "passive"})),
-                ViewReleasePreparation::GeometryOwner { changed, name, kind } => {
-                    let had_report = mux.client_surface_size(surface, client).is_some();
-                    if had_report {
-                        mux.remove_surface_size_client(surface, client);
-                    }
-                    if changed || had_report {
-                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-                    }
-                    Ok(json!({"outcome": "applied"}))
-                }
-            }
+            cmd_sizing::release_attached_view_size(mux, client, surface, lease, view)
         }
         Command::DetachAttachedView { surface, lease, view } => {
-            let lease = match (lease, view) {
-                (Some(lease), None) => lease,
-                (None, Some(view)) => {
-                    return Ok(match mux.detach_terminal_sub_view(surface, client, &view) {
-                        Some(_) => json!({"outcome": "applied"}),
-                        None => json!({"outcome": "superseded"}),
-                    });
-                }
-                _ => anyhow::bail!(
-                    "bad request: detach-attached-view needs exactly one of lease or view"
-                ),
-            };
-            let Some((stream, outbound)) =
-                mux.control_clients.view_stream(client, surface, &lease)?
-            else {
-                return Ok(json!({"outcome": "superseded"}));
-            };
-            // Closing the stream stops every producer immediately. Removing
-            // its attachment state synchronously makes the command response a
-            // cleanup fence; the attach worker's eventual duplicate detach is
-            // intentionally idempotent.
-            outbound.close();
-            detach_committed_attach(mux, client, surface, stream);
-            Ok(json!({"outcome": "applied"}))
+            cmd_attach::detach_attached_view(mux, client, surface, lease, view)
         }
-        Command::FocusPane { pane } => {
-            if !mux.focus_pane_as(&actor, pane) {
-                anyhow::bail!("unknown pane {pane}");
-            }
-            Ok(json!({}))
-        }
+        Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab { pane, index, delta } => {
             cmd_tabs::select_tab(mux, actor, pane, index, delta)
         }
         Command::SelectScreen { index, delta } => {
-            mux.select_screen_as(&actor, index, delta);
-            Ok(json!({}))
+            cmd_screens::select_screen(mux, actor, index, delta)
         }
         Command::SelectWorkspace { index, delta } => {
             cmd_workspaces::select_workspace(mux, actor, index, delta)
@@ -7436,14 +6110,11 @@ fn handle_command_with_cancellation(
                 None => json!({"pane": null, "tab": null}),
             })
         }
-        Command::SnapshotRequest(params) => terminal_snapshot::handle_request(mux, client, params),
-        Command::TerminalHistory(params) => terminal_history::history(mux, params),
-        Command::TerminalReadRange(params) => terminal_history::read_range(mux, params),
+        Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
+        Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {
-            let surface = get_surface(mux, surface)?;
-            require_pty(&surface)?;
-            mux.scroll_surface_viewport(&surface, delta)?;
-            Ok(json!({}))
+            cmd_terminal_io::scroll_surface(mux, surface, delta)
         }
         Command::Subscribe { tree_events, surface } => {
             let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
@@ -7552,500 +6223,18 @@ fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
-        } => {
-            let initial_size = match (cols, rows) {
-                (Some(cols), Some(rows)) => Some((cols, rows)),
-                (None, None) => None,
-                _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
-            };
-            let surface_id = match surface_id {
-                Some(surface) => surface,
-                None => {
-                    let generation = expected_generation.as_deref().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "attachment identity requires generation and terminal together"
-                        )
-                    })?;
-                    anyhow::ensure!(
-                        mux.registry_identity().1 == generation,
-                        "attachment_generation_mismatch"
-                    );
-                    let terminal = expected_terminal_id.as_deref().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "attachment identity requires generation and terminal together"
-                        )
-                    })?;
-                    let terminal = TerminalPublicId::parse(terminal)
-                        .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
-                    mux.resource_surface_for_terminal(&terminal)
-                        .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
-                }
-            };
-            let surface = get_surface(mux, surface_id)?;
-            anyhow::ensure!(
-                !mux.is_frontend_browser_surface(&surface),
-                "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
-            );
-            match (expected_generation, expected_terminal_id) {
-                (Some(generation), Some(terminal)) => {
-                    anyhow::ensure!(
-                        mux.registry_identity().1 == generation,
-                        "attachment_generation_mismatch"
-                    );
-                    anyhow::ensure!(
-                        surface.terminal_public_id().map(|id| id.as_str())
-                            == Some(terminal.as_str()),
-                        "attachment_terminal_mismatch"
-                    );
-                }
-                (None, None) => {}
-                _ => anyhow::bail!("attachment identity requires generation and terminal together"),
-            }
-            if surface.kind() == SurfaceKind::Browser {
-                let guarded_owner = mux
-                    .control_clients
-                    .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
-                    && mux.control_clients.browser_pointer_owner(client)?
-                        == BrowserPointerOwner::Client(client);
-                if !guarded_owner {
-                    anyhow::bail!(
-                        "browser attach requires client capability \
-                         {GUARDED_BROWSER_POINTER_CAPABILITY} before the first browser pointer \
-                         command; upgrade or restart the cmux-tui client"
-                    );
-                }
-            }
-            if surface.kind() == SurfaceKind::Pty
-                && mode.as_deref().unwrap_or("bytes") == "bytes"
-                && snapshot.wants_snapshot()?
-            {
-                return snapshot.attach(mux, client, surface, writer, initial_size);
-            }
-            let lifecycle = AttachLifecycle::default();
-            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
-            let render_mode = match mode.as_deref().unwrap_or("bytes") {
-                "bytes" => false,
-                "render" => true,
-                other => anyhow::bail!("bad attach mode {other}"),
-            };
-            if render_mode {
-                require_pty(&surface)?;
-                let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
-                    mark_client_attached(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.clone(),
-                        initial_size,
-                    )?;
-                let attach = match surface.attach_render_stream() {
-                    Ok(attach) => attach,
-                    Err(error) => {
-                        rollback_failed_attach(
-                            mux,
-                            client,
-                            surface_id,
-                            outbound_stream.id,
-                            size_rollback,
-                        );
-                        return Err(error.into());
-                    }
-                };
-                if let Err(error) = writer.send_initial(
-                    &render_state_message(&writer.render_service, surface_id, &attach.initial),
-                    &outbound_stream,
-                ) {
-                    handle_attach_send_error(&lifecycle, &error);
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-                let worker_writer = writer.clone();
-                let worker_mux = mux.clone();
-                let worker_lifecycle = lifecycle.clone();
-                let worker_stream = outbound_stream.clone();
-                let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-                let spawned = std::thread::Builder::new()
-                    .name("mux-render-attach-out".into())
-                    .spawn(move || {
-                        let writer = worker_writer;
-                        let mux = worker_mux;
-                        let lifecycle = worker_lifecycle;
-                        let outbound_stream = worker_stream;
-                        if worker_committed.recv().is_err() {
-                            return;
-                        }
-                        let mut state =
-                            RenderClientState::new(writer.render_service.clone(), &attach.initial);
-                        let interrupt = StreamInterrupt::new();
-                        writer.register_interrupt(&interrupt);
-                        outbound_stream.register_interrupt(&interrupt);
-                        lifecycle.register_interrupt(&interrupt);
-                        attach.stream.wake_on(&interrupt);
-                        while writer.is_open()
-                            && outbound_stream.is_open()
-                            && !lifecycle.is_canceled()
-                        {
-                            let send_result = match attach.stream.recv_until_interrupted(&interrupt)
-                            {
-                                Ok(RenderAttachFrame::Frame(frame)) => {
-                                    let message = state.delta_message(surface_id, &frame);
-                                    writer.send_stream_backpressured(&message, &outbound_stream)
-                                }
-                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                                    writer.send_stream_backpressured(
-                                        &json!({
-                                            "event": "scroll-changed",
-                                            "surface": surface_id,
-                                            "offset": offset,
-                                            "at_bottom": at_bottom,
-                                        }),
-                                        &outbound_stream,
-                                    )
-                                }
-                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                            };
-                            if let Err(error) = send_result {
-                                handle_attach_send_error(&lifecycle, &error);
-                                break;
-                            }
-                        }
-                        if writer.is_open() && !lifecycle.overflowed() {
-                            let _ = writer.send_stream_backpressured(
-                                &json!({"event": "detached", "surface": surface_id}),
-                                &outbound_stream,
-                            );
-                        }
-                        report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                        detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
-                    });
-                if let Err(error) = spawned {
-                    lifecycle.cancel();
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-                commit_client_attach_and_start_worker(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.id,
-                    AttachWorkerCommit {
-                        start: worker_start,
-                        lifecycle,
-                        changed: client_changed,
-                        size_rollback,
-                    },
-                )?;
-                return Ok(attach_response(mux, surface_id, client, lease));
-            }
-            if surface.kind() == SurfaceKind::Browser {
-                let MarkedClientAttach {
-                    lease,
-                    size_rollback,
-                    client_changed,
-                    resize_reservation,
-                    resize_completion,
-                } = mark_client_attached(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.clone(),
-                    initial_size,
-                )?;
-                if let Some(reservation) = resize_reservation
-                    && let Err(error) = wait_for_initial_browser_resize(
-                        resize_completion
-                            .as_ref()
-                            .expect("sized browser attach has a completion receiver"),
-                        surface_id,
-                        reservation,
-                    )
-                {
-                    lifecycle.cancel();
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error);
-                }
-                let (state, frames) = match surface.attach_frames() {
-                    Ok(attach) => attach,
-                    Err(error) => {
-                        lifecycle.cancel();
-                        rollback_failed_attach(
-                            mux,
-                            client,
-                            surface_id,
-                            outbound_stream.id,
-                            size_rollback,
-                        );
-                        return Err(error);
-                    }
-                };
-                if let Err(error) = writer.send_initial(
-                    &browser_state_message(surface_id, &state, true),
-                    &outbound_stream,
-                ) {
-                    handle_attach_send_error(&lifecycle, &error);
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-                if let Err(error) = spawn_attach_notification_stream(
-                    mux.clone(),
-                    surface_id,
-                    writer.clone(),
-                    lifecycle.clone(),
-                    outbound_stream.clone(),
-                ) {
-                    lifecycle.cancel();
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-                let worker_writer = writer.clone();
-                let worker_mux = mux.clone();
-                let worker_lifecycle = lifecycle.clone();
-                let worker_stream = outbound_stream.clone();
-                let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-                let spawned =
-                    std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                        let writer = worker_writer;
-                        let mux = worker_mux;
-                        let lifecycle = worker_lifecycle;
-                        let outbound_stream = worker_stream;
-                        if worker_committed.recv().is_err() {
-                            return;
-                        }
-                        let interrupt = StreamInterrupt::new();
-                        writer.register_interrupt(&interrupt);
-                        outbound_stream.register_interrupt(&interrupt);
-                        lifecycle.register_interrupt(&interrupt);
-                        frames.notify.wake_on(&interrupt);
-                        while writer.is_open()
-                            && outbound_stream.is_open()
-                            && !lifecycle.is_canceled()
-                        {
-                            match frames.notify.recv_until_interrupted(&interrupt) {
-                                Ok(()) => {}
-                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                    lifecycle.cancel();
-                                    if writer.is_open() {
-                                        let _ = writer.send_stream_backpressured(
-                                            &json!({"event": "detached", "surface": surface_id}),
-                                            &outbound_stream,
-                                        );
-                                    }
-                                    break;
-                                }
-                            }
-                            let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                            // A frame event applies its bitmap and authority
-                            // atomically. Publish it before a paired state
-                            // snapshot can expose the same positive token.
-                            if let Err(error) = send_browser_attach_update(
-                                &writer,
-                                surface_id,
-                                update,
-                                &outbound_stream,
-                            ) {
-                                handle_attach_send_error(&lifecycle, &error);
-                                break;
-                            }
-                        }
-                        report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                        detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
-                    });
-                if let Err(error) = spawned {
-                    lifecycle.cancel();
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-                commit_client_attach_and_start_worker(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.id,
-                    AttachWorkerCommit {
-                        start: worker_start,
-                        lifecycle,
-                        changed: client_changed,
-                        size_rollback,
-                    },
-                )?;
-                return Ok(attach_response(mux, surface_id, client, lease));
-            }
-            let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
-                mark_client_attached(
-                    mux,
-                    client,
-                    surface_id,
-                    outbound_stream.clone(),
-                    initial_size,
-                )?;
-            lifecycle.set_resumes_pending_sequence(
-                mux.control_clients
-                    .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
-            );
-            let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
-                Ok(attach) => attach,
-                Err(error) => {
-                    lifecycle.cancel();
-                    rollback_failed_attach(
-                        mux,
-                        client,
-                        surface_id,
-                        outbound_stream.id,
-                        size_rollback,
-                    );
-                    return Err(error.into());
-                }
-            };
-            let shape = AttachWireShape {
-                color_overrides: mux
-                    .control_clients
-                    .supports_capability(client, TERMINAL_COLOR_OVERRIDES_CAPABILITY),
-                pending_sequence: mux
-                    .control_clients
-                    .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
-            };
-            let (replay, pending_sequence) = if shape.pending_sequence
-                || attach.pending_sequence.is_empty()
-            {
-                (attach.replay.clone(), attach.pending_sequence.clone())
-            } else {
-                (Arc::from([&*attach.replay, &*attach.pending_sequence].concat()), Arc::from([]))
-            };
-            let initial = VtStateMessage {
-                surface: surface_id,
-                cols: attach.cols,
-                rows: attach.rows,
-                replay,
-                kitty_image_aliases: attach.kitty_image_aliases.clone(),
-                kitty_state: attach.kitty_state,
-                colors: terminal_colors_json(attach.colors, shape.color_overrides),
-                pending_sequence,
-            };
-            if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
-                handle_attach_send_error(&lifecycle, &error);
-                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-                return Err(error.into());
-            }
-            if let Err(error) = spawn_attach_notification_stream(
-                mux.clone(),
-                surface_id,
-                writer.clone(),
-                lifecycle.clone(),
-                outbound_stream.clone(),
-            ) {
-                lifecycle.cancel();
-                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-                return Err(error.into());
-            }
-            let worker_writer = writer.clone();
-            let worker_mux = mux.clone();
-            let worker_stream = outbound_stream.clone();
-            let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-            let spawned =
-                std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    let writer = worker_writer;
-                    let mux = worker_mux;
-                    let outbound_stream = worker_stream;
-                    if worker_committed.recv().is_err() {
-                        return;
-                    }
-                    let interrupt = StreamInterrupt::new();
-                    writer.register_interrupt(&interrupt);
-                    outbound_stream.register_interrupt(&interrupt);
-                    attach.lifecycle.register_interrupt(&interrupt);
-                    attach.stream.wake_on(&interrupt);
-                    while writer.is_open()
-                        && outbound_stream.is_open()
-                        && !attach.lifecycle.is_canceled()
-                    {
-                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
-                            Ok(frame) => frame,
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                attach.lifecycle.cancel();
-                                if writer.is_open() {
-                                    let _ = writer.send_stream_backpressured(
-                                        &json!({"event": "detached", "surface": surface_id}),
-                                        &outbound_stream,
-                                    );
-                                }
-                                break;
-                            }
-                        };
-                        if let Err(error) = writer.send_attach_frame_backpressured(
-                            surface_id,
-                            &frame,
-                            shape,
-                            &outbound_stream,
-                        ) {
-                            handle_attach_send_error(&attach.lifecycle, &error);
-                            break;
-                        }
-                    }
-                    report_attach_overflow(
-                        &writer,
-                        surface_id,
-                        &attach.lifecycle,
-                        &outbound_stream,
-                    );
-                    detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
-                });
-            if let Err(error) = spawned {
-                lifecycle.cancel();
-                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-                return Err(error.into());
-            }
-            commit_client_attach_and_start_worker(
-                mux,
-                client,
-                surface_id,
-                outbound_stream.id,
-                AttachWorkerCommit {
-                    start: worker_start,
-                    lifecycle,
-                    changed: client_changed,
-                    size_rollback,
-                },
-            )?;
-            Ok(attach_response(mux, surface_id, client, lease))
-        }
+        } => cmd_attach::attach_surface(
+            mux,
+            client,
+            writer,
+            surface_id,
+            mode,
+            cols,
+            rows,
+            expected_generation,
+            expected_terminal_id,
+            snapshot,
+        ),
     }
 }
 
