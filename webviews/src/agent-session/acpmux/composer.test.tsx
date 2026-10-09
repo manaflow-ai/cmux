@@ -267,9 +267,9 @@ describe("acpmux composer slash menu", () => {
       return names;
     };
     await render(snapshot());
-    expect(await items()).toEqual(["mention"]);
+    expect(await items()).toEqual(["attach", "mention"]);
     await render(snapshot(commands));
-    expect(await items()).toEqual(["mention", "commands"]);
+    expect(await items()).toEqual(["attach", "mention", "commands"]);
     await type("look at");
     await pickPlus("mention");
     expect(textarea().value).toBe("look at @");
@@ -554,6 +554,45 @@ describe("acpmux composer slash menu", () => {
       expect(sent).toEqual([""]);
       expect(sentAttachments).toEqual([[{ name: "shot.png", kind: "image" }]]);
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
+    });
+
+    test("+ Attach files opens the file chooser, and the chosen files become chips", async () => {
+      await render(snapshot());
+      await ready();
+      await act(async () => plusButton().click());
+      const row = dom.window.document.querySelector('.acpmux-composer-plus [data-value="attach"]');
+      expect(row?.textContent).toContain("Attach files");
+      const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-composer input[type=file]")!;
+      expect(input.multiple).toBe(true);
+      let chooser = 0;
+      input.click = () => {
+        chooser += 1;
+      };
+      await act(async () => {
+        row!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+      expect(chooser).toBe(1);
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [png(), new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" })],
+      });
+      await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+      await settleFiles();
+      expect(
+        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+      ).toEqual(["shot.png", "notes.md"]);
+    });
+
+    test("the + menu rises out of the button it opens above", async () => {
+      await render(snapshot());
+      await act(async () => plusButton().click());
+      expect(dom.window.document.querySelector(".acpmux-composer-plus .acpmux-menu")?.getAttribute("data-side")).toBe(
+        "above",
+      );
+      const css = await Bun.file(new URL("./composerStates.css", import.meta.url)).text();
+      // Above its button, the menu starts a little lower and settles up, never the other way.
+      expect(css).toMatch(/\.acpmux-menu\[data-side="above"\][^}]*animation-name:\s*acpmux-menu-rise/);
+      expect(css).toMatch(/@keyframes acpmux-menu-rise\s*\{\s*from\s*\{[^}]*translateY\(\d/);
     });
 
     test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
