@@ -643,7 +643,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

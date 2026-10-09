@@ -190,6 +190,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.isInspectable = true
         #endif
         webView.navigationDelegate = self
+        webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
