@@ -7,7 +7,7 @@ use std::sync::mpsc::{
     Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel,
     sync_channel as bounded_channel,
 };
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -18,6 +18,10 @@ use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
+mod locks;
+use locks::{close_inner, frame_sessions, frame_state_error, pending_calls};
+#[cfg(test)]
+mod lock_tests;
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
 /// Downstream queue implementations use the same limit so moving an event
@@ -74,14 +78,14 @@ impl FrameEpoch {
     }
 
     pub fn advance(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         self.changed.notify_all();
         epoch
     }
 
     pub fn advance_navigation(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         let epoch = self.current.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         self.latest_navigation.store(epoch, Ordering::Release);
         self.changed.notify_all();
@@ -89,7 +93,7 @@ impl FrameEpoch {
     }
 
     pub fn advance_same_document(&self) -> u64 {
-        let _guard = self.wait_lock.lock().unwrap();
+        let _guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         // Odd values mark the ingress transition itself. Captured motion sees
         // the mismatch immediately, while new presses reject the unstable
         // token until the frame epoch has advanced.
@@ -118,7 +122,7 @@ impl FrameEpoch {
             return true;
         }
         let deadline = Instant::now() + timeout;
-        let mut guard = self.wait_lock.lock().unwrap();
+        let mut guard = self.wait_lock.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if self.current() >= expected {
                 return true;
@@ -127,7 +131,8 @@ impl FrameEpoch {
             if remaining.is_zero() {
                 return false;
             }
-            let (next_guard, wait) = self.changed.wait_timeout(guard, remaining).unwrap();
+            let (next_guard, wait) =
+                self.changed.wait_timeout(guard, remaining).unwrap_or_else(PoisonError::into_inner);
             guard = next_guard;
             if wait.timed_out() && self.current() < expected {
                 return false;
@@ -378,7 +383,7 @@ impl EventQueue {
     }
 
     fn push(&self, event: CdpEvent) -> Result<(), ()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         if state.closed {
             return Err(());
         }
@@ -412,7 +417,7 @@ impl EventQueue {
     }
 
     fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         while let Some(queued) = state.events.pop_front() {
             state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
             match output.try_send(queued.event) {
@@ -432,7 +437,7 @@ impl EventQueue {
     }
 
     fn close(&self, reason: &str) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.lock_state();
         if state.closed {
             return;
         }
@@ -686,7 +691,7 @@ impl CdpClient {
         }
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
-        self.inner.pending.lock().unwrap().insert(id, PendingCall { response: tx, frame_barrier });
+        pending_calls(&self.inner).insert(id, PendingCall { response: tx, frame_barrier });
 
         let mut msg = json!({
             "id": id,
@@ -698,7 +703,7 @@ impl CdpClient {
             msg["sessionId"] = json!(session_id);
         }
         if let Err(e) = self.send_value(&msg) {
-            self.inner.pending.lock().unwrap().remove(&id);
+            pending_calls(&self.inner).remove(&id);
             return Err(e);
         }
 
@@ -706,14 +711,15 @@ impl CdpClient {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => anyhow::bail!("{e}"),
             Err(_) => {
-                self.inner.pending.lock().unwrap().remove(&id);
+                pending_calls(&self.inner).remove(&id);
                 anyhow::bail!("CDP call {method} timed out")
             }
         }
     }
 
     pub fn register_frame_epoch(&self, session_id: &str, frame_epoch: Arc<FrameEpoch>) {
-        self.inner.frame_epochs.lock().unwrap().insert(
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return };
+        frame_sessions.insert(
             session_id.to_string(),
             FrameSession {
                 epoch: frame_epoch,
@@ -729,7 +735,7 @@ impl CdpClient {
     }
 
     pub fn unregister_frame_epoch(&self, session_id: &str) {
-        self.inner.frame_epochs.lock().unwrap().remove(session_id);
+        frame_sessions(&self.inner).map(|mut sessions| sessions.remove(session_id));
     }
 
     pub fn set_discover_targets(&self, discover: bool) -> anyhow::Result<()> {
@@ -838,7 +844,7 @@ impl CdpClient {
 
     pub fn snapshot_main_frame(&self, session_id: &str) -> anyhow::Result<MainFrameSnapshot> {
         let (frame_epoch, observed_epoch, observed_same_document_navigation_epoch) = {
-            let frame_epochs = self.inner.frame_epochs.lock().unwrap();
+            let frame_epochs = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_epochs.get(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -938,7 +944,7 @@ impl CdpClient {
         deadline: Option<Instant>,
     ) -> anyhow::Result<u64> {
         let (frame_epoch, main_frame_id) = {
-            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let frame_sessions = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_sessions.get(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -951,7 +957,7 @@ impl CdpClient {
             .chrome_wall_time_upper_bound(session_id, &main_frame_id, deadline)
             .map_or(ScreencastBarrier::LoaderVerifiedCapture, ScreencastBarrier::Timestamp);
         {
-            let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let mut frame_sessions = frame_sessions(&self.inner).ok_or_else(frame_state_error)?;
             let frame_session = frame_sessions.get_mut(session_id).ok_or_else(|| {
                 anyhow::anyhow!("missing frame epoch for CDP session {session_id}")
             })?;
@@ -1009,7 +1015,7 @@ impl CdpClient {
     ) -> bool {
         let expected = PendingTimestamplessCapture { request_id, frame_epoch, navigation_epoch };
         let recovery_frame = {
-            let frame_sessions = self.inner.frame_epochs.lock().unwrap();
+            let Some(frame_sessions) = frame_sessions(&self.inner) else { return false };
             let Some(frame_session) = frame_sessions.get(session_id) else {
                 return false;
             };
@@ -1034,7 +1040,7 @@ impl CdpClient {
             .ok()
             .map(ScreencastBarrier::Timestamp)
         });
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1061,7 +1067,7 @@ impl CdpClient {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1084,7 +1090,7 @@ impl CdpClient {
         frame_epoch: u64,
         navigation_epoch: u64,
     ) -> bool {
-        let mut frame_sessions = self.inner.frame_epochs.lock().unwrap();
+        let Some(mut frame_sessions) = frame_sessions(&self.inner) else { return false };
         let Some(frame_session) = frame_sessions.get_mut(session_id) else {
             return false;
         };
@@ -1564,7 +1570,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
-        if let Some(pending) = inner.pending.lock().unwrap().remove(&id) {
+        if let Some(pending) = pending_calls(inner).remove(&id) {
             let response = if let Some(error) = value.get("error") {
                 Err(error.to_string())
             } else {
@@ -1592,22 +1598,21 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 ack_screencast_frame(inner, target_session, ack_id, |message| {
                     eprintln!("{message}");
                 });
+                let Some(sessions) = frame_sessions(inner) else { return };
                 let (
                     frame_epoch,
                     navigation_epoch,
                     screencast_barrier,
                     suppressed_timestampless_epoch,
-                ) = inner.frame_epochs.lock().unwrap().get(target_session).map_or(
-                    (0, 0, None, None),
-                    |frame_session| {
-                        (
-                            frame_session.epoch.current(),
-                            frame_session.epoch.latest_navigation(),
-                            frame_session.screencast_barrier,
-                            frame_session.suppressed_timestampless_epoch,
-                        )
-                    },
-                );
+                ) = sessions.get(target_session).map_or((0, 0, None, None), |frame_session| {
+                    (
+                        frame_session.epoch.current(),
+                        frame_session.epoch.latest_navigation(),
+                        frame_session.screencast_barrier,
+                        frame_session.suppressed_timestampless_epoch,
+                    )
+                });
+                drop(sessions);
                 let capture_timestamp = params
                     .get("metadata")
                     .and_then(|metadata| metadata.get("timestamp"))
@@ -1626,7 +1631,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     if suppressed_timestampless_epoch == Some(frame_epoch) {
                         return;
                     }
-                    let mut frame_sessions = inner.frame_epochs.lock().unwrap();
+                    let Some(mut frame_sessions) = frame_sessions(inner) else { return };
                     let Some(frame_session) = frame_sessions.get_mut(target_session) else {
                         return;
                     };
@@ -1683,8 +1688,8 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                     return;
                 };
                 if capture_timestamp.is_some()
-                    && let Some(frame_session) =
-                        inner.frame_epochs.lock().unwrap().get_mut(target_session)
+                    && let Some(mut frame_sessions) = frame_sessions(inner)
+                    && let Some(frame_session) = frame_sessions.get_mut(target_session)
                     && frame_session.epoch.current() == frame_epoch
                 {
                     // A timestamped post-barrier frame can reopen bounded
@@ -1708,7 +1713,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             }
         }
         "Page.frameNavigated" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some((frame_epoch, restored_document)) =
                 main_frame_navigation_epoch(inner, params, &session_id)
             {
@@ -1726,13 +1731,13 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
             }
         }
         "Page.lifecycleEvent" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some(event) = main_frame_document_paint(inner, params, &session_id) {
                 dispatch_event(inner, event);
             }
         }
         "Page.navigatedWithinDocument" if session_id.is_some() => {
-            let session_id = session_id.expect("guarded above");
+            let Some(session_id) = session_id else { return };
             if let Some(event) =
                 main_frame_same_document_navigation(inner, params.clone(), session_id)
             {
@@ -1756,7 +1761,7 @@ fn commit_main_frame_snapshot(
     frame_id: &str,
     loader_id: &str,
 ) -> bool {
-    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let Some(mut frame_epochs) = frame_sessions(inner) else { return false };
     let Some(frame_session) = frame_epochs.get_mut(session_id) else {
         return false;
     };
@@ -1775,7 +1780,7 @@ fn main_frame_navigation_epoch(
     params: &Value,
     session_id: &str,
 ) -> Option<(u64, Option<CdpEvent>)> {
-    let mut frame_epochs = inner.frame_epochs.lock().unwrap();
+    let mut frame_epochs = frame_sessions(inner)?;
     let frame_session = frame_epochs.get_mut(session_id)?;
     let frame = params.get("frame")?;
     if frame.get("parentId").is_some() {
@@ -1809,7 +1814,7 @@ fn main_frame_document_paint(inner: &Inner, params: &Value, session_id: &str) ->
     }
     let frame_id = params.get("frameId")?.as_str()?;
     let lifecycle_loader_id = params.get("loaderId").and_then(Value::as_str).unwrap_or_default();
-    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_epochs = frame_sessions(inner)?;
     let pending = frame_epochs.get(session_id)?.pending_document.as_ref()?;
     if pending.frame_id != frame_id
         || !lifecycle_loader_id.is_empty() && pending.loader_id != lifecycle_loader_id
@@ -1834,7 +1839,7 @@ fn main_frame_same_document_navigation(
     session_id: String,
 ) -> Option<CdpEvent> {
     let frame_id = params.get("frameId")?.as_str()?.to_string();
-    let frame_epochs = inner.frame_epochs.lock().unwrap();
+    let frame_epochs = frame_sessions(inner)?;
     let frame_session = frame_epochs.get(&session_id)?;
     if frame_session.main_frame_id.as_deref() != Some(frame_id.as_str()) {
         return None;
@@ -1998,16 +2003,6 @@ fn target_created(params: &Value) -> Option<TargetCreated> {
     })
 }
 
-fn close_inner(inner: &Arc<Inner>, why: &str) {
-    if inner.closed.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    for (_, pending) in inner.pending.lock().unwrap().drain() {
-        let _ = pending.response.send(Err(why.to_string()));
-    }
-    inner.events.close(why);
-}
-
 struct WsEndpoint {
     host: String,
     port: u16,
@@ -2161,7 +2156,7 @@ mod tests {
 
     use super::*;
 
-    fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
+    pub(super) fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
         test_inner_with_limits(256, CDP_OUTBOUND_QUEUE_MAX_BYTES)
     }
 
@@ -2296,7 +2291,7 @@ mod tests {
         let error = client.call("Test.method", json!({}), None).unwrap_err();
 
         assert!(error.to_string().contains("outbound queue is full"));
-        assert!(inner.pending.lock().unwrap().is_empty());
+        assert!(pending_calls(&inner).is_empty());
     }
 
     #[test]
@@ -3948,57 +3943,5 @@ mod tests {
             matches!(shutdown, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)),
             "reader exit left the event channel live: {shutdown:?}"
         );
-    }
-
-    /// Poisons `lock` the way a real panic would: a thread panics while it
-    /// holds the guard.
-    fn poison<T: Send>(lock: &Mutex<T>) {
-        thread::scope(|scope| {
-            let holder = scope.spawn(|| {
-                let _guard = lock.lock();
-                panic!("poison the lock for the test");
-            });
-            assert!(holder.join().is_err());
-        });
-        assert!(lock.is_poisoned());
-    }
-
-    fn other_event(method: &str) -> CdpEvent {
-        CdpEvent::Other { method: method.to_string(), params: json!({}), session_id: None }
-    }
-
-    #[test]
-    fn a_poisoned_event_queue_still_takes_events_with_a_rebuilt_byte_count() {
-        let (inner, _outbound_rx) = test_inner();
-        inner.events.push(other_event("A")).unwrap();
-        poison(&inner.events.state);
-        inner.events.push(other_event("B")).unwrap();
-        let state = inner.events.state.lock().unwrap();
-        assert_eq!(state.events.len(), 2);
-        let sum: usize = state.events.iter().map(|queued| queued.retained_bytes).sum();
-        assert_eq!(state.retained_bytes, sum);
-    }
-
-    #[test]
-    fn a_poisoned_frame_state_closes_the_connection_instead_of_panicking() {
-        let (inner, _outbound_rx) = test_inner();
-        let client = CdpClient { inner: inner.clone() };
-        client.register_frame_epoch("session-1", Arc::new(FrameEpoch::default()));
-        poison(&inner.frame_epochs);
-        let error = client.snapshot_main_frame("session-1").unwrap_err();
-        assert!(error.to_string().contains("poisoned"), "{error}");
-        assert!(inner.closed.load(Ordering::Acquire));
-        let (event_tx, event_rx) = sync_channel(4);
-        inner.events.drain_into(&event_tx).unwrap();
-        assert!(matches!(event_rx.try_recv(), Ok(CdpEvent::Closed(_))));
-    }
-
-    #[test]
-    fn a_poisoned_pending_map_still_settles_calls() {
-        let (inner, _outbound_rx) = test_inner();
-        poison(&inner.pending);
-        handle_text(&inner, r#"{"id": 9, "result": {}}"#);
-        close_inner(&inner, "test end");
-        assert!(inner.closed.load(Ordering::Acquire));
     }
 }
