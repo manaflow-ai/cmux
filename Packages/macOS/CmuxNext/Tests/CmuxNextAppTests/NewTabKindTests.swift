@@ -38,6 +38,18 @@ import Testing
         #expect(NewTabKind.resolve(.auto, sameKind: same, recent: nil) == same)
     }
 
+    /// `tabs.newTabTemplate: terminal` (cx-yabk): where the setting would
+    /// show the page, Cmd-T opens a terminal; other kinds and templates are unchanged.
+    @Test func theTerminalTemplateTurnsThePageIntoATerminal() {
+        let same = NewTabKind.browser(engine: "cef")
+        #expect(NewTabKind.resolve(.page, template: .terminal, sameKind: same, recent: nil) == .terminal)
+        #expect(NewTabKind.resolve(.page, template: .classic, sameKind: same, recent: nil) == .page)
+        #expect(NewTabKind.resolve(.page, template: nil, sameKind: same, recent: nil) == .page)
+        #expect(NewTabKind.resolve(.browser, template: .terminal, sameKind: same, recent: nil) == .browser(engine: nil))
+        #expect(NewTabKind.resolve(.sameKind, template: .terminal, sameKind: .page, recent: nil) == .terminal)
+        #expect(NewTabKind.resolve(.agent, template: .terminal, sameKind: same, recent: nil) == .agent)
+    }
+
     @Test func autoRemembersTheLastKindPerFolder() {
         var memory = NewTabKindMemory()
         #expect(memory.recent(in: "/src/api") == nil)

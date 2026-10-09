@@ -8,10 +8,13 @@ import { useNt } from "./strings";
 /// automations ops exist (hidden until then, plans/cmux-next/new-tab.md section 4).
 export function ChatCards({
   cards,
+  variant = "cards",
   onOpen,
   onShowAll,
 }: {
   cards: ChatCard[];
+  /// Cards in a grid, or one line per chat (the Threads and Console templates).
+  variant?: "cards" | "list";
   onOpen(sessionId: string): void;
   onShowAll(): void;
 }) {
@@ -30,7 +33,7 @@ export function ChatCards({
       {cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
-        <div className="nt-cards">
+        <div className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
             <button
               key={card.sessionId}

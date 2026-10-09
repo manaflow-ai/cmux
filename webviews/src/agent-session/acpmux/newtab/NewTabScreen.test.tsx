@@ -312,3 +312,41 @@ test("New Tab acknowledges the input generation only after the field has focus",
   expect(seen).toEqual(["opening-1"]);
   await act(async () => root.unmount());
 });
+
+test("each screen template keeps the field and changes only what shows around it", async () => {
+  const tools = [{ id: "openDiffViewer", title: "Changes", symbol: "plusminus", menu: [] }];
+  const shown = async (template?: string) => {
+    const { container, root, field } = await mount({ template, tools, onAddHarness: () => undefined });
+    const result = {
+      focused: dom.window.document.activeElement === field,
+      cards: container.querySelectorAll(".nt-card").length,
+      variant: container.querySelector(".nt-cards")?.getAttribute("data-variant") ?? null,
+      tools: container.querySelector(".nt-tools") !== null,
+      harness: container.querySelector(".nt-add-harness") !== null,
+      prompt: container.querySelector(".nt-prompt-glyph")?.textContent ?? null,
+      template: container.querySelector(".nt-screen")!.getAttribute("data-template"),
+    };
+    await act(async () => root.unmount());
+    return result;
+  };
+  expect(await shown()).toEqual({
+    focused: true, cards: 2, variant: "cards", tools: true, harness: true, prompt: null, template: "default",
+  });
+  expect(await shown("composer")).toEqual({
+    focused: true, cards: 0, variant: null, tools: false, harness: false, prompt: null, template: "composer",
+  });
+  expect(await shown("threads")).toEqual({
+    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: null, template: "threads",
+  });
+  expect(await shown("console")).toEqual({
+    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: ">", template: "console",
+  });
+});
+
+test("the Console prompt glyph gives way to shell mode's !", async () => {
+  const { container, root, type } = await mount({ template: "console" });
+  await type("!");
+  expect(container.querySelector(".nt-prompt-glyph")).toBeNull();
+  expect(container.querySelector(".nt-shell-glyph")?.textContent).toBe("!");
+  await act(async () => root.unmount());
+});
