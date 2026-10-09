@@ -191,11 +191,12 @@ describe("tree rules: numbering, lock, base revision", () => {
 
 describe("acceptance migration 0009 (feat-cmux-next-wg-link cec68f7fadd8)", () => {
   const fixture = readText(join(import.meta.dirname, "fixtures/0009_cmux_vm_mesh_device_address.sql"))
-  it("is refused as written: it drops a CHECK constraint and adds a validated CHECK on an existing table", async () => {
+  it("is refused as written: it drops a CHECK constraint, adds a validated CHECK and a checked column on an existing table", async () => {
     const errors = await errorsOf(fixture, "0009_cmux_vm_mesh_device_address.sql")
     expect(errors.some((e) => e.includes("DROP CONSTRAINT mesh_signed_requests_purpose_check"))).toBe(true)
     expect(errors.some((e) => e.includes("ADD CONSTRAINT mesh_signed_requests_purpose_check validated on an existing table"))).toBe(true)
-    expect(errors.length).toBe(2) // the two ADD COLUMNs (nullable, inline CHECK) are expand
+    expect(errors.some((e) => e.includes("public_ipv6: a CHECK on a new column of an existing table"))).toBe(true)
+    expect(errors.length).toBe(3) // rails-hardening-1: an inline CHECK on a new column of a live table also needs the header
   })
   it("passes with a contract header that states why the replaced CHECK only widens", async () => {
     const withHeader = `-- contract: widens mesh_signed_requests_purpose_check to a superset (adds 'address'); old writes stay valid\n${fixture}`
