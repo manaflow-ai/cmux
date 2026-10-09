@@ -25,6 +25,8 @@ pub mod headless_activity;
 #[cfg(unix)]
 pub mod headless_configure;
 #[cfg(unix)]
+pub mod headless_linger;
+#[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
 pub mod headless_source;
@@ -38,6 +40,7 @@ pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
+pub mod provider_downloads;
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;

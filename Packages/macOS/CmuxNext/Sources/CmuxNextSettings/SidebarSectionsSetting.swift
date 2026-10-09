@@ -62,10 +62,11 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showChats", "Show Chats"),
-                          help: SettingsText.keyed("settings.sidebar.showChats.help", "Shows the device-wide Chats section in the sidebar."),
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
+                          help: SettingsText.keyed("settings.sidebar.showChats.help",
+                                                   "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
-                          keywords: ["sidebar", "chats", "agents", "conversations"])
+                          keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).

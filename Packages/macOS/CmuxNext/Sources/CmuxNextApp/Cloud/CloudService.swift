@@ -32,6 +32,9 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// New Cloud Workspace runs from the click to the open terminal: each
+    /// window's progress view and sidebar row (cx-lu8f).
+    let creations = CloudCreations()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -209,6 +212,7 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
+            creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
         }
     }
@@ -235,6 +239,7 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        for creation in creations.all { creations.remove(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         hasLoadedMachines = false
     }
@@ -242,12 +247,15 @@ final class CloudService {
     // MARK: Mutations
 
     /// Creates a machine and connects to it. Returns its session.
-    func createMachine(name: String?) async throws -> CloudMachineSession {
+    /// `creation` moves to its `creating` stage when the request is sent.
+    func createMachine(name: String?, creation: CloudMachineCreation? = nil) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1
         defer { creating -= 1 }
-        let machine = try await api.createMachine(displayName: name)
+        let machine = try await api.createMachine(displayName: name, onSent: { [weak creation] in
+            await creation?.note(.creating)
+        })
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
@@ -256,6 +264,7 @@ final class CloudService {
 
     func deleteMachine(_ machineID: String) async throws {
         try await api.deleteMachine(machineID)
+        creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
     }

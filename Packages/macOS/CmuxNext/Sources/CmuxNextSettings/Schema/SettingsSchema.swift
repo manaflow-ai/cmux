@@ -139,7 +139,17 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.startAgentGlobalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
+                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",
+                                        "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
+            ),
             TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
@@ -182,6 +192,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.layout.stripScrollbar", "Column Scroll Bar"),
                 help: SettingsText.keyed("settings.layout.stripScrollbar.help", "A thin bar under the columns that shows and moves the visible range."),
                 kind: .choice([
+                    SettingChoice(StripScrollbarMode.system.rawValue, SettingsText.keyed("settings.choice.stripScrollbarSystem", "Follow System")),
                     SettingChoice(StripScrollbarMode.auto.rawValue, SettingsText.keyed("settings.choice.stripScrollbarAuto", "While Scrolling")),
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),

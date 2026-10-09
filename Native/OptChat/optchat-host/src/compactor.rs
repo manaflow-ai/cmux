@@ -47,6 +47,19 @@ impl State {
         !self.closed && self.fatal.is_none()
     }
 
+    /// Whether a turn may start (section 6): every view line is built, or
+    /// stuck (its call fails with a request error that repeats on every
+    /// try; the turn reads it unbuilt, `PLACEHOLDER`, which `zoom` opens),
+    /// or imported (`Memory::turn_ready`).
+    pub fn turn_ready(&self) -> bool {
+        self.memory.turn_ready()
+            || self.memory.view().iter().all(|p| {
+                self.memory.is_built(*p)
+                    || self.stuck.contains(p)
+                    || self.memory.is_imported(p.end() - 1)
+            })
+    }
+
     /// Saves where the memory stands (`db::checkpoint`); a failure costs
     /// only a longer fold at the next start, so it is reported, not fatal.
     pub fn save_checkpoint(&mut self) {
@@ -361,10 +374,20 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         st.failing.insert(node, error.message.clone());
     }
     // A request error repeats on every try; a transient one may pass, up to
-    // COMPACT_TRIES. Either way, past that the node stops holding turns.
+    // COMPACT_TRIES; an exhausted route (a capacity error naming a wait past
+    // MAX_RETRY_WAIT) will not clear soon. In each case the node stops
+    // holding turns; only the first two post a notice (the turn's).
     let permanent = class.as_ref().is_some_and(|c| c.permanent());
-    let stuck = permanent || tries >= crate::COMPACT_TRIES;
-    if stuck && st.stuck.insert(node) {
+    let capacity = crate::model::capacity_wait(&error.message);
+    let exhausted = capacity.is_some_and(|w| w > crate::MAX_RETRY_WAIT);
+    let stuck = permanent || exhausted || tries >= crate::COMPACT_TRIES;
+    if exhausted && st.stuck.insert(node) {
+        st.recovered = false;
+        st.reports.push(Report::NodeWaiting {
+            node,
+            wait: capacity.unwrap_or_default(),
+        });
+    } else if stuck && st.stuck.insert(node) {
         st.recovered = false;
         let class = match &class {
             Some(c) if permanent => c.to_string(),
@@ -379,17 +402,24 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     shared.changed.notify_all();
     shared.unlock(st);
     if stuck {
-        shared.clock.sleep(crate::STUCK_RETRY);
+        // An exhausted route is tried again when its wait ends, at most
+        // STUCK_RETRY from now.
+        let wait = match capacity {
+            Some(w) if exhausted => w.min(crate::STUCK_RETRY),
+            _ => crate::STUCK_RETRY,
+        };
+        shared.clock.sleep(wait);
     } else {
         let backoff = shared.retry.saturating_mul(1 << (tries - 1).min(16));
         let wait = error
             .retry_after
+            .or_else(|| crate::model::retry_after_in(&error.message))
             .unwrap_or(backoff)
             .min(crate::MAX_RETRY_WAIT);
         shared.clock.sleep(wait);
         // A rate limit or an overload: a turn waiting on the same account
         // goes first.
-        if class.is_some_and(|c| c.status == 429 || c.status == 529) {
+        if capacity.is_some() {
             crate::rate::background_wait(crate::MAX_RETRY_WAIT);
         }
     }
@@ -447,6 +477,7 @@ pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
 /// compactor cannot build anything instead of every turn waiting silently.
 pub fn probe(model: &dyn CompactModel, system: &str) -> Result<String, ModelError> {
     let request = CompactRequest {
+        imported: false,
         node: PROBE_NODE,
         system: system.to_owned(),
         context: "<chat>\n</chat>".to_owned(),

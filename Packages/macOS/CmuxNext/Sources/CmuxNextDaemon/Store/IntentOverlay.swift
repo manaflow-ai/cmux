@@ -35,8 +35,9 @@ import Foundation
             workspace.setName(name)
             return .workspaceName(key: key, name: previous)
         case .moveWorkspace(let key, let index):
-            guard let from = store.workspaces.firstIndex(where: { $0.key == key }) else { return nil }
-            return place(at: from, index: min(max(index, 0), store.workspaces.count - 1), group: store.workspaces[from].group, in: store)
+            guard let from = store.workspaces.firstIndex(where: { $0.key == key }),
+                  let current = store.workspaces[checked: from] else { return nil }
+            return place(at: from, index: min(max(index, 0), store.workspaces.count - 1), group: current.group, in: store)
         case .setWorkspaceGroup(let key, let group):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }), group.map({ store.group($0) != nil }) ?? true else { return nil }
             return place(at: from, index: from, group: group, in: store)
@@ -76,13 +77,17 @@ import Foundation
     private static func setRowHeights(_ heights: [RowHeightValue], of column: ColumnID, in store: DaemonStore) -> IntentUndo? {
         let byRow = Dictionary(heights.map { ($0.row, $0.height) }, uniquingKeysWith: { _, new in new })
         for screen in store.screensByHandle.values {
-            guard let index = screen.columns.firstIndex(where: { $0.id == column }) else { continue }
-            var entry = screen.columns[index]
+            guard let current = screen.columns.first(where: { $0.id == column }) else { continue }
+            var entry = current
             guard Set(entry.rows.map(\.id)) == Set(byRow.keys), entry.rows.count == byRow.count else { return nil }
             let previous = entry.rows.map { RowHeightValue(row: $0.id, height: $0.height) }
-            for row in entry.rows.indices { entry.rows[row].height = byRow[entry.rows[row].id] ?? entry.rows[row].height }
-            guard entry != screen.columns[index] else { return nil }
-            screen.columns[index] = entry
+            entry.rows = entry.rows.map { row in
+                var row = row
+                row.height = byRow[row.id] ?? row.height
+                return row
+            }
+            guard entry != current else { return nil }
+            screen.columns.modifyFirst(where: { $0.id == column }) { $0 = entry }
             return .rowHeights(column: column, heights: previous)
         }
         return nil
@@ -135,8 +140,8 @@ import Foundation
     /// Moves the workspace at `from` to daemon-order `index` in `group`;
     /// returns the inverse, or nil when it was there already.
     private static func place(at from: Int, index: Int, group: WorkspaceGroupID?, in store: DaemonStore) -> IntentUndo? {
-        let model = store.workspaces[from]
-        guard index != from || model.group != group, let key = model.key else { return nil }
+        guard let model = store.workspaces[checked: from],
+              index != from || model.group != group, let key = model.key else { return nil }
         let undo = IntentUndo.workspacePlace(key: key, index: from, group: model.group)
         model.setGroup(group)
         if index != from {
@@ -155,11 +160,12 @@ import Foundation
     /// rule turns into a daemon-order index on the current mirror.
     private static func sectionPlacement(from old: Int, group: WorkspaceGroupID?, index: Int, in store: DaemonStore) -> Int {
         let remaining = store.workspaces.indices.filter { $0 != old }
-        let members = remaining.filter { store.workspaces[$0].group == group }
+        let members = store.workspaces.enumerated().filter { $0.offset != old && $0.element.group == group }.map(\.offset)
         let position = { (target: Int) in remaining.firstIndex(of: target) ?? old }
         var new = old
         if let last = members.last {
-            new = index < members.count ? position(members[index]) : position(last) + 1
+            // A negative section index means the front, as a negative move index does.
+            new = members[checked: max(index, 0)].map(position) ?? position(last) + 1
         }
         return min(new, store.workspaces.count - 1)
     }

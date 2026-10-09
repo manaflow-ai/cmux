@@ -25,7 +25,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
-    @ObservationIgnored lazy var automaticDownloads = makeAutomaticDownloadGate()
+    @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -350,11 +350,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
 
-    public func snapshot() async throws -> CGImage {
-        guard let browserID, !isClosed else { throw BrowserTabError.snapshotUnavailable }
-        let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot", params: ["format": "png"])
-        return try CEFDevToolsResult.screenshot(json)
-    }
+    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
+    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))

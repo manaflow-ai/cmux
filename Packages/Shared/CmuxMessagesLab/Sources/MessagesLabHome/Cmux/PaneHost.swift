@@ -299,14 +299,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
         || args.contains("--text-probe") || args.contains("--selftest") || args.contains("--material-probe")
     var onInstalled: [(ChatController) -> Void] = []
+    /// cmux: the host's shared stop action (Home: stop the Chief's turn).
+    var onStop: (() -> Void)?
+    /// cmux: the Chief works: the round button beside the field is Stop,
+    /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
+    var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
     var clock: Double { CACurrentMediaTime() - start }
     private var observers: [NSObjectProtocol] = []
 
     init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+        HomeMarkdownPolicy.install()  // cmux: before the first Markdown parse
         self.host = host
         self.wake = wake
         super.init()
         host.controller = self
+        host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
     }
 
     deinit {
@@ -336,7 +343,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
-        host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
+        host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
         demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
@@ -536,6 +543,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
+        if isWorking { onStop?() }
     }
 
     // MARK: Drops

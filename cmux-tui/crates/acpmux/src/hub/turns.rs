@@ -203,19 +203,22 @@ impl Hub {
             let fallback = (!opts.steer_only).then(|| blocks.clone());
             let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
             params["_meta"] = json!({"steer": true});
-            let mut r = match child.request(method::SESSION_PROMPT, params).await {
-                Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
-                    let Some(blocks) = fallback else { return Err(e) };
-                    let opts = PromptOptions {
-                        prompt_id: Some(prompt_id),
-                        control,
-                        trust_gate,
-                        ..PromptOptions::default()
-                    };
-                    return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
-                }
-                r => r?,
-            };
+            let mut r =
+                match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
+                {
+                    Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
+                        let Some(blocks) = fallback else { return Err(e) };
+                        let opts = PromptOptions {
+                            prompt_id: Some(prompt_id),
+                            control,
+                            trust_gate,
+                            ..PromptOptions::default()
+                        };
+                        return Box::pin(self.run_prompt(session, blocks, client, false, opts))
+                            .await;
+                    }
+                    r => r?,
+                };
             merge_mux_meta(
                 &mut r,
                 json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
@@ -361,12 +364,14 @@ impl Hub {
             return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
-        let mut result = child
-            .request(
-                method::SESSION_PROMPT,
-                json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
-            )
-            .await;
+        let mut result = super::steer_end::agent_prompt(
+            session,
+            &child,
+            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            &turn_id,
+            false,
+        )
+        .await;
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
@@ -400,6 +405,17 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // A fallback that could not resume (another store)
+                        // starts fresh: it gets the restored transcript first.
+                        let mut blocks = blocks;
+                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                            && let Some(transcript) = self.transcript(session, 24_000)
+                        {
+                            blocks.insert(
+                                0,
+                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                            );
+                        }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
                                 .request(

@@ -1684,7 +1684,7 @@ fn run_main() {
     if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
-        client_log::exit(acp::run(args));
+        client_log::exit(acp::run_scope(head, args));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
@@ -2095,7 +2095,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    owner_start::prepare(args.ephemeral, args.state.is_some())?;
+    owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2761,6 +2761,7 @@ fn start_detached_owner_session(
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
+        chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {

@@ -170,7 +170,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             isDebugOnly: descriptor.isDebugOnly,
             mainMenu: descriptor.mainMenu?.rawValue
         )
-        let surfaces = ActionSurfaceExport.object(descriptor)
+        let surfaces: [String: Any] = ActionSurfaceExport.object(descriptor)
         info.surfaces = ["palette", "cli", "context_menu", "mcp"].reduce(into: [:]) { $0[$1] = surfaces[$1] as? String }
         info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         // Snapshot for `action.list`; `action.run` re-reads it live.

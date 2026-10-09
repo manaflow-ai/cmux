@@ -33,6 +33,7 @@ impl Hub {
                     mode,
                     model,
                     effort,
+                    fast: current_option(draft, "fast-mode").as_deref() == Some("on"),
                     claude_session_id: Some(fresh_id),
                 }),
             )

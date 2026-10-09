@@ -16236,10 +16236,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : " ",
+        "key" : "\r",
         "modifiers" : [
           "ctrl",
-          "opt",
           "cmd"
         ]
       },
@@ -16253,8 +16252,41 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
-      "title" : "Quick Agent Chat…",
+      "title" : "Start Agent…",
       "title_key" : "action.palette.quickAgentChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action palette-start-agent-from-any-app",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "palette.startAgentFromAnyApp",
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Start Agent from Any App",
+      "title_key" : "action.palette.startAgentFromAnyApp",
       "title_table" : "ActionCatalog"
     },
     {
@@ -16279,7 +16311,7 @@
         "title_key" : "category.agents",
         "title_table" : "Localizable"
       },
-      "title" : "Add Harness…",
+      "title" : "Integrate a Harness with an Agent…",
       "title_key" : "action.palette.addHarness",
       "title_table" : "ActionCatalog"
     },
@@ -16339,6 +16371,38 @@
       },
       "title" : "Continue in…",
       "title_key" : "action.agentPane.continueIn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-switch-model",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "m",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.switchModel",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Switch Model…",
+      "title_key" : "action.agentPane.switchModel",
       "title_table" : "ActionCatalog"
     },
     {
@@ -16964,6 +17028,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-stop-chief",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.stopChief",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Stop the Chief",
+      "title_key" : "action.home.stopChief",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "action chief-open-memory-inspector",
       "context_menu" : "noObject",
@@ -17091,6 +17181,136 @@
       },
       "title" : "Stop Computer Use",
       "title_key" : "action.computerUseStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent add-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.add",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add ACP Agent…",
+      "title_key" : "action.agent.harness.add",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-harness-add-from-registry",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.addFromRegistry",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Agent from ACP Registry…",
+      "title_key" : "action.agent.harness.addFromRegistry",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent remove-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.remove",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Remove Agent…",
+      "title_key" : "action.agent.harness.remove",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent restore-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.restore",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Restore Removed Agent",
+      "title_key" : "action.agent.harness.restore",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent check-harness",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.doctor",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Check Agent…",
+      "title_key" : "action.agent.harness.doctor",
       "title_table" : "ActionCatalog"
     },
     {
@@ -18560,6 +18780,32 @@
       },
       "title" : "Install cmux-tui on Machine…",
       "title_key" : "action.remote.install",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action remote-copy-error",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sshMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.copyError",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "title" : "Copy SSH Error",
+      "title_key" : "action.remote.copyError",
       "title_table" : "RemoteActions"
     },
     {
@@ -23178,6 +23424,33 @@
       },
       "title" : "Show Hidden Sections",
       "title_key" : "action.sidebar.sections.showHidden",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-workspace-tabs-toggle",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.workspaceTabs.toggle",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Tabs Under Workspaces",
+      "title_key" : "action.sidebar.workspaceTabs.toggle",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -28457,6 +28730,50 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
+              "id" : "sidebar.workspaceTabs.toggle",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 1
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.layout.reset",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "options",
+          "kind" : "folder",
+          "order" : 6,
+          "title" : "Options",
+          "title_key" : "menu.folder.options",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
               "id" : "workspaceGroup.collapseAll",
               "kind" : "action",
               "order" : 0,
@@ -28484,14 +28801,14 @@
           ],
           "folder" : "group",
           "kind" : "folder",
-          "order" : 6,
+          "order" : 8,
           "title" : "Group",
           "title_key" : "menu.folder.group",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 9
         },
         {
           "children" : [
@@ -28537,20 +28854,20 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 8,
+          "order" : 10,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.projects.hide",
           "kind" : "action",
-          "order" : 10,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28563,7 +28880,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.sections.showHidden",
           "kind" : "action",
-          "order" : 11,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28574,13 +28891,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSidebar",
           "kind" : "action",
-          "order" : 13,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28593,27 +28910,10 @@
           "enabled_when" : "can_perform",
           "id" : "appStore.show",
           "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "apps",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 15
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "sidebar.layout.reset",
-          "kind" : "action",
           "order" : 16,
           "visible_when" : {
             "debug_only" : false,
-            "feature" : null,
+            "feature" : "apps",
             "requires" : [
 
             ]
@@ -29081,9 +29381,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "remote.forget",
+          "id" : "remote.copyError",
           "kind" : "action",
           "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.forget",
+          "kind" : "action",
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
@@ -31602,6 +31919,23 @@
               "id" : "disconnectWorkspace",
               "kind" : "action",
               "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 16
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.workspaceTabs.toggle",
+              "kind" : "action",
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

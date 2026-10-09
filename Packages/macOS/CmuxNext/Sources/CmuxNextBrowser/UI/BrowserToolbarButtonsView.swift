@@ -73,6 +73,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
         if window != nil { refresh() }
     }
 
+    /// Shown again after its pane parked it (another tab showed).
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if window != nil { refresh() }
+    }
+
     /// The button's view, the anchor for its menu.
     public func button(_ button: BrowserToolbarButton) -> NSView? { buttons[button] }
 
@@ -121,6 +127,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let facts = currentFacts()
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
+            // Most tab state events (title, progress, address) change no
+            // button: leave those buttons untouched.
+            guard states[button] != state else { continue }
             states[button] = state
             guard let view = buttons[button] else { continue }
             view.setSymbol(state.symbol, label: state.label)

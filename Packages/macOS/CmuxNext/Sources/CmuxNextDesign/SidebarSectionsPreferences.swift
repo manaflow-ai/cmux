@@ -2,7 +2,7 @@
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
 /// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
-/// `sidebar.showChats` controls the optional device-wide Chats section.
+/// `sidebar.showChats` shows the device-wide All chats section (on by default, cx-xub5).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -40,9 +40,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
     public var showProjects = true
-    /// Whether the device-wide Chats section is shown in the sidebar; its
-    /// header's Hide Section turns it off.
-    public var showChats = false
+    /// Whether the device-wide All chats section is shown at the bottom of the
+    /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
+    public var showChats = true
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom

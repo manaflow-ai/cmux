@@ -138,6 +138,12 @@ pub struct SessionMeta {
     /// with "No conversation found with session ID".
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub claude_unstored: bool,
+    /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the
+    /// current Claude conversation: the one that started or forked it. A
+    /// respawn on another profile (a failover) resumes only when that
+    /// profile's store has the conversation, else starts fresh (E1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_profile: Option<String>,
     /// Outcome of the last turn: {turnId, promptId, status, stopReason?,
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +161,9 @@ pub struct SessionMeta {
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub harness_roots: Vec<HarnessRoot>,
+    /// Unsent composer text owned by this acpmux session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer_draft: Option<String>,
 }
 
 /// One chat store root a spawn's env named: `harness` is a chat index
@@ -496,10 +505,12 @@ mod tests {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            claude_profile: None,
             last_turn: None,
             remote_origin: false,
             session_env: Default::default(),
             harness_roots: vec![],
+            composer_draft: None,
         }
     }
 
@@ -541,5 +552,28 @@ mod tests {
         store.append("m", &rec(1)).unwrap();
         store.append("m", &rec(2)).unwrap();
         assert_eq!(store.events("m", 1, 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn local_store_round_trips_composer_draft() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-draft-store-{}", uuid::Uuid::now_v7()));
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let mut saved = meta("draft");
+        saved.composer_draft = Some("keep this across relaunch".into());
+        store.save(&saved).unwrap();
+        assert_eq!(store.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
+
+        let reopened = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        assert_eq!(reopened.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_session_meta_defaults_composer_draft_to_none() {
+        let mut value = serde_json::to_value(meta("legacy")).unwrap();
+        value.as_object_mut().unwrap().remove("composerDraft");
+        let loaded: SessionMeta = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.composer_draft, None);
     }
 }

@@ -86,6 +86,7 @@ describe("T3 model picker", () => {
           onMode: () => {},
           onEffort: (config: string, value: string) => calls.push(`config ${config} ${value}`),
           onHarness: (harness: string) => calls.push(`harness ${harness}`),
+          onAddAgent: () => calls.push("add agent"),
         }),
       ),
     );
@@ -132,7 +133,7 @@ describe("T3 model picker", () => {
     expect(doc.activeElement).toBe(input);
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
     const first = labels();
-    expect(first).toEqual(["Opus 4.1", "Opus 5.5", "Sonnet 5.5"]);
+    expect(first).toEqual(["Opus 5.5", "Sonnet 5.5"]);
     Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "sonnet");
     await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
     expect(labels()).toEqual(["Sonnet 5.5"]);
@@ -146,12 +147,13 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await ctrlKey(input, "n");
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
-    await key(input, "1");
-    expect(calls).toEqual(["model claude-opus-4-1"]);
+    await key(input, "ArrowUp");
+    expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
+    await key(input, "2");
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
   });
 
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
@@ -162,8 +164,8 @@ describe("T3 model picker", () => {
     )!;
     await act(async () => codex.click());
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
     await act(async () => modelRows()[0]!.click());
     expect(calls).toEqual(["harness codex"]);
@@ -283,8 +285,8 @@ describe("T3 model picker", () => {
       codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
     });
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
   });
 
@@ -312,8 +314,8 @@ describe("T3 model picker", () => {
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual(["GPT-6-Astra"]);
     await typeQuery("opus");
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "Opus 4.1",
       "Opus 5.5",
+      "Opus 4.1",
     ]);
   });
 
@@ -377,6 +379,17 @@ describe("T3 model picker", () => {
     expect(menu()).not.toBeNull();
   });
 
+  // Lawrence 2026-10-08: "ensure people are able to add their own ACP stuff, via UI".
+  test("the rail's + runs Add agent… and closes the menu", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const add = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-add-agent")!;
+    expect(add.getAttribute("aria-label")).toBe("Add agent…");
+    await act(async () => add.click());
+    expect(calls).toEqual(["add agent"]);
+    expect(menu()).toBeNull();
+  });
+
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
   // "Claude Code". The chip draws one harness: the running one, or the one a switch is starting.
   test("the chip keeps one harness's mark and name while another harness is browsed", async () => {
@@ -397,5 +410,44 @@ describe("T3 model picker", () => {
     expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
     expect(modelButton().textContent).toContain("Codex");
     expect(modelButton().textContent).not.toContain("Opus 5.5");
+  });
+
+  // cx-jqkx (Lawrence 2026-10-09): the list ran oldest first, so Opus 5.5 sat below the fold.
+  test("the newest models come first; older versions sit under a collapsed Older models row", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const older = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
+    expect(older.textContent).toContain("Older models");
+    expect(older.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => older.click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    // A new opening starts collapsed; a search looks through every model, older ones included.
+    await act(async () => modelButton().click());
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const search = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "4.1");
+    await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    expect(labels()).toEqual(["Opus 4.1"]);
+  });
+
+  test("the arrow keys open the fold, and a session on an older version opens with it open", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    await key(input, "ArrowDown");
+    await key(input, "ArrowDown");
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
+    await act(async () => modelButton().click());
+    const older = snapshot();
+    older.summary = { ...older.summary!, model: "claude-opus-4-1" };
+    await render(older);
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
   });
 });

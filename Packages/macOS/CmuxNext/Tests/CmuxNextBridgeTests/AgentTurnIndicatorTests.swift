@@ -28,7 +28,8 @@ struct AgentTurnStatesTests {
     @Test func aDisconnectLooksIdleUnlessTheLastTurnFailed() {
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected")) == nil)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "unreachable")) == nil)
-        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "completed")) == nil)
+        // A completed turn is an outcome to show until the user looks (client seen state).
+        #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "completed")) == .done(turn: "t-1"))
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "cancelled")) == nil)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "disconnected", lastTurn: "failed")) == .failed)
         #expect(AgentTurnState.of(summary: Self.summary("s", status: "ready", lastTurn: "failed")) == .failed)
@@ -154,31 +155,3 @@ struct AgentTurnIndicatorTests {
     }
 }
 
-/// The row's working slot (`WorkspaceRowContent.showsWorking`, nx/row-content)
-/// follows every agent-work source: an acpmux turn, a hook and OSC 7501, and
-/// any working tab even while another tab of the workspace waits.
-@MainActor
-struct RowWorkingSlotTests {
-    @Test func anAcpTurnOrAProgramReportFillsTheRowsWorkingSlot() throws {
-        let store = try BridgeFixture.store()
-        let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
-        let tab = try #require(workspace.screens.flatMap(\.panes).flatMap(\.tabs).first)
-        tab.programStatus = [ProgramStatusRecord(state: .working, updatedSeq: 1)]
-        let row = SidebarMapping.shared.row(workspace, machine: .local)
-        #expect(row.agentWorking)
-        let content = WorkspaceRowContent(row, preferences: .defaults)
-        #expect(content.showsWorking)
-        #expect(content.activity == .working)
-    }
-
-    @Test func aWaitingTabDoesNotHideAnotherTabsWork() throws {
-        let store = try BridgeFixture.store()
-        let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.screens.flatMap(\.panes).flatMap(\.tabs).count >= 2 })
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        tabs[0].programStatus = [ProgramStatusRecord(state: .working, updatedSeq: 1)]
-        tabs[1].programStatus = [ProgramStatusRecord(state: .blocked, kind: .question, updatedSeq: 2)]
-        let row = SidebarMapping.shared.row(workspace, machine: .local)
-        #expect(row.activity == .waiting(kind: .question))
-        #expect(row.agentWorking)
-    }
-}

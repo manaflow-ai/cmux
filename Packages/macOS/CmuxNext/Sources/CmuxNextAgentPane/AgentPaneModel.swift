@@ -25,9 +25,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
-    /// The new tab page this pane shows until it has a session, nil for a
-    /// plain chat. Cleared once the page reports a session.
-    public private(set) var newTab: AgentPaneNewTab?
+    /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
+    public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
+    @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
@@ -40,19 +40,20 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
-    @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
+    /// The new tab page's "default: X" toggle and template dots (`tab.setDefaultKind`, `newTab.setTemplate`).
+    @ObservationIgnored public var onNewTabSetting: ((AgentPaneNewTabSetting) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
-    /// Opens onboarding's existing project and agent-history import flow.
-    @ObservationIgnored public var onImportAndSync: (() -> Void)?
-    /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
-    /// detached items the App renders from its action placements.
+    @ObservationIgnored public var onImportAndSync: (() -> Void)? // onboarding's project and history import
+    @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
+    /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
+    /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
+    @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
@@ -70,6 +71,9 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// The quick panel's Return started its chat (`quick.startInBackground`): the
+    /// session goes to the sidebar; the reply waits until the host placed it or failed.
+    @ObservationIgnored public var onQuickStartInBackground: (@MainActor (AgentPaneQuickStart) async -> Void)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -111,10 +115,13 @@ public final class AgentPaneModel {
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
     @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
+    /// Choose Folder… for a chat whose folder is missing: the native folder sheet on this pane,
+    /// then acpmux's `chat_open` with the pick (cx-nn3e.1).
+    @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
-    @ObservationIgnored private(set) var handshakeCwd: String?
+    @ObservationIgnored internal(set) var handshakeCwd: String?
 
     /// Saves the inspector's exported log (text, suggested file name) where
     /// the user picks; true when saved, false when the user cancelled. Nil
@@ -122,9 +129,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
-    @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
     /// What a new chat inherits from the tab it was opened from.
-    @ObservationIgnored private let seed: AgentPaneSeedSource?
+    @ObservationIgnored let seed: AgentPaneSeedSource?
 
     public init(
         host: any AgentPaneHostProviding,
@@ -132,12 +138,10 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport(),
-        draftStore: any AgentPaneDraftStoring = UserDefaultsAgentPaneDraftStore()
+        transport: AgentPaneTransport = AgentPaneTransport()
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
-        self.draftStore = draftStore
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -222,6 +226,7 @@ public final class AgentPaneModel {
                     handshake.newSession = true
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
+                if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
@@ -254,11 +259,6 @@ public final class AgentPaneModel {
                 onSessionChange?(id)
             }
             return AgentPaneReply.success()
-        case .readDraft(let id):
-            return AgentPaneReply.success(await draftStore.draft(for: id) ?? NSNull())
-        case .writeDraft(let id, let text):
-            await draftStore.setDraft(text, for: id)
-            return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
@@ -278,8 +278,7 @@ public final class AgentPaneModel {
             guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
             return AgentPaneReply.success()
-        case .touched:
-            return AgentPaneReply.success()
+        case .touched: return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabInputReady(let token):
@@ -290,18 +289,15 @@ public final class AgentPaneModel {
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
-        case .runAction(let id):
-            return runAction(id)
+        case .runAction(let id): return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
             return AgentPaneReply.success()
-        case .setDefaultKind(let kind):
-            guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
-            onSetDefaultKind(kind)
-            return AgentPaneReply.success()
-        case .chooseFolder:
-            return await chooseFolder()
+        case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
+        case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
+        case .chooseFolder: return await chooseFolder()
+        case .chooseChatFolder: return await chooseChatFolder()
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -313,6 +309,7 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
@@ -344,6 +341,15 @@ public final class AgentPaneModel {
                 onSessionChange?(session)
             }
             onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .quickStartInBackground(let start):
+            guard let onQuickStartInBackground else { return Self.unsupported("quick.startInBackground") }
+            if start.sessionId != sessionId {
+                sessionId = start.sessionId
+                newTab = nil
+                onSessionChange?(start.sessionId)
+            }
+            await onQuickStartInBackground(start)
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
@@ -380,11 +386,9 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
-        case .reply(let reply):
-            return await respond(to: reply)
+        case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
-        case .unsupported(let method):
-            return Self.unsupported(method)
+        case .unsupported(let method): return Self.unsupported(method)
         }
     }
 

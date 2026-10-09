@@ -339,6 +339,16 @@ impl Brain {
                 subs: vec![(id.clone(), floor)],
                 quiet,
             });
+            // On its way into the running turn (a steer not read yet): it is
+            // logged when the harness reads it, never queued twice.
+            let steering = self.steering.iter().any(|st| {
+                st.items.iter().any(|q| {
+                    matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
+                })
+            });
+            if steering {
+                continue;
+            }
             let queued = self.queue.iter().position(|q| {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });
@@ -349,6 +359,7 @@ impl Brain {
                         source,
                         images: Vec::new(),
                         conversation: None,
+                        logged: false,
                     }
                 }
                 None => {
@@ -385,28 +396,42 @@ impl Brain {
             ),
             None => return Err(format!("no subagent {id}")),
         };
-        let (tx, rx) = std::sync::mpsc::channel();
         let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
-        self.agents.start_prompt(
-            &session,
-            vec![json!({"type": "text", "text": message})],
-            &prompt_id,
-            tx,
-        )?;
-        let forward = self.tx.clone();
-        let sub_id = id.to_owned();
-        std::thread::spawn(move || {
-            while let Ok(signal) = rx.recv() {
-                match signal {
-                    crate::acpmux::TurnSignal::Changed | crate::acpmux::TurnSignal::Streamed => {}
-                    crate::acpmux::TurnSignal::Done(answer) => {
-                        let _ = forward.send(super::Input::SubagentAnswer { id: sub_id, answer });
-                        return;
+        let blocks = vec![json!({"type": "text", "text": message})];
+        let running = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
+        let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
+        let steered = if running {
+            // Reference parity S4: into the running session, read between
+            // its tool calls; one that cannot steer now takes it as its next
+            // prompt (acpmux queues it after the current turn).
+            let log = self.log.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
+                    log(&format!(
+                        "subagent {sub_id}: the tell could not be steered ({e}); it goes after the current turn"
+                    ));
+                    if let Err(e) = tell_prompt(
+                        &*agents,
+                        &session,
+                        blocks,
+                        &prompt_id,
+                        forward,
+                        sub_id.clone(),
+                    ) {
+                        log(&format!(
+                            "subagent {sub_id}: the tell did not reach it: {e}"
+                        ));
                     }
-                    crate::acpmux::TurnSignal::Lost => return,
                 }
-            }
-        });
+            });
+            true
+        } else {
+            tell_prompt(&*agents, &session, blocks, &prompt_id, forward, sub_id)?;
+            false
+        };
         let resumed = if let Some(sub) = self.state.sub_mut(id)
             && sub.status != SubStatus::Running
         {
@@ -422,11 +447,17 @@ impl Brain {
         }
         self.trace.emit(
             "tell",
-            json!({"id": id, "spawn": spawn, "from": "chief", "message": self.trace.text(message)}),
+            json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "message": self.trace.text(message)}),
         );
-        Ok(format!(
-            "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
-        ))
+        Ok(if steered {
+            format!(
+                "sent to {id}; it reads it between its tool calls, and its report answers it as a \"[{id}] ...\" message"
+            )
+        } else {
+            format!(
+                "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
+            )
+        })
     }
 
     /// After a reconnect: subagents that finished or vanished meanwhile.
@@ -512,19 +543,45 @@ impl Brain {
         }
     }
 
+    /// chief.stop {name}: subagent `name` stops as with chief.stop (its
+    /// report comes quiet), the reference's "Stopped by the user: X.".
+    pub(super) fn stop_subagent(&mut self, name: &str) -> Value {
+        let live = self.state.sub(name).is_some_and(|(_, s)| {
+            matches!(
+                s.status,
+                SubStatus::Starting | SubStatus::Running | SubStatus::Queued
+            )
+        });
+        if !live {
+            return json!({"stopped": false, "error": format!("no subagent {name} at work")});
+        }
+        let stopped = self.stop_subagents_where(|id| id == name);
+        if stopped.is_empty() {
+            return json!({"stopped": false, "error": format!("{name} is still starting; stop it again in a moment")});
+        }
+        (self.log)(&format!("the owner stopped subagent {name}"));
+        json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
+    }
+
     /// chief.stop: every subagent at work stops (`session/cancel`; its
     /// report comes quiet) and every queued one is dropped. Their ids.
     pub(super) fn stop_subagents(&mut self) -> Vec<String> {
+        self.stop_subagents_where(|_| true)
+    }
+
+    /// Stops the subagents at work (or queued) whose id `pick` takes.
+    fn stop_subagents_where(&mut self, pick: impl Fn(&str) -> bool) -> Vec<String> {
         let subs: Vec<(String, SubStatus, Option<String>)> = self
             .state
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
             .filter(|s| {
-                matches!(
-                    s.status,
-                    SubStatus::Starting | SubStatus::Running | SubStatus::Queued
-                )
+                pick(&s.id)
+                    && matches!(
+                        s.status,
+                        SubStatus::Starting | SubStatus::Running | SubStatus::Queued
+                    )
             })
             .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
             .collect();
@@ -619,6 +676,34 @@ impl Brain {
         }
         true
     }
+}
+
+/// A tell as the subagent's next prompt; its answer goes to the brain.
+fn tell_prompt(
+    agents: &dyn crate::acpmux::AgentPort,
+    session: &str,
+    blocks: Vec<Value>,
+    prompt_id: &str,
+    forward: std::sync::mpsc::Sender<super::Input>,
+    sub_id: String,
+) -> Result<(), String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    agents.start_prompt(session, blocks, prompt_id, tx)?;
+    std::thread::spawn(move || {
+        while let Ok(signal) = rx.recv() {
+            match signal {
+                crate::acpmux::TurnSignal::Changed
+                | crate::acpmux::TurnSignal::Noted
+                | crate::acpmux::TurnSignal::Streamed => {}
+                crate::acpmux::TurnSignal::Done(answer) => {
+                    let _ = forward.send(super::Input::SubagentAnswer { id: sub_id, answer });
+                    return;
+                }
+                crate::acpmux::TurnSignal::Lost => return,
+            }
+        }
+    });
+    Ok(())
 }
 
 /// The text of a prompt acpmux recorded (`user_message`).

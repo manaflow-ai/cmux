@@ -345,6 +345,7 @@ fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
     }
     context.push_str("</chat>");
     let request = optchat_core::CompactRequest {
+        imported: false,
         node: optchat_core::NodeId::new(0, 40),
         system: "system".into(),
         context,
@@ -523,7 +524,9 @@ fn claude_code_marks(settings: &Value, later: bool) -> usize {
 #[test]
 fn every_turn_request_shape_stays_within_four_cache_marks() {
     use optchat_chief::prompt::CacheTtl;
-    for (lines, marked) in [(0, false), (1_200, true)] {
+    // A view with no whole block marks its header block: every turn
+    // carries our mark.
+    for (lines, marked) in [(0, true), (1_200, true)] {
         let mut h = claude_harness(None);
         fill(&h.chat, 0, lines);
         h.connect();

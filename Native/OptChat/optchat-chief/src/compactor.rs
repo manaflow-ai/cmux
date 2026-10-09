@@ -150,6 +150,8 @@ pub struct CompactorSpec {
     /// The `env` of the user's Claude Code settings: the slots load no user
     /// setting source, so their project settings carry it.
     pub user_env: BTreeMap<String, String>,
+    /// Sessions at the fast service tier (`compactor_speed` fast).
+    pub fast: bool,
 }
 
 /// Compactor sessions that live at once across the main and fallback
@@ -159,6 +161,22 @@ pub struct CompactorSpec {
 /// subrouter account, whose subscription limits concurrent requests; 16
 /// keeps both bounded while a burst still runs 2x the old width.
 pub const COMPACTOR_SESSIONS: usize = 16;
+
+/// The compactor sessions this host runs: `OPTCHAT_COMPACTOR_SESSIONS`
+/// (1 to the core's JOBS, 64), else `COMPACTOR_SESSIONS`. For measuring an
+/// import at other widths; the default stays 16 until those numbers are in.
+pub fn compactor_sessions() -> usize {
+    compactor_sessions_from(std::env::var("OPTCHAT_COMPACTOR_SESSIONS").ok().as_deref())
+}
+
+/// `compactor_sessions` for a setting value: a number from 1 to JOBS, else
+/// the default.
+pub fn compactor_sessions_from(value: Option<&str>) -> usize {
+    value
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| (1..=optchat_core::JOBS).contains(n))
+        .unwrap_or(COMPACTOR_SESSIONS)
+}
 
 /// Warm sessions the main compactor keeps (`with_warm`): a node takes a
 /// Claude Code process that already started instead of waiting for one.
@@ -186,6 +204,44 @@ struct SlotState {
     warming: usize,
     /// Nodes blocked in `acquire`.
     waiting: usize,
+    /// Tickets of the nodes waiting in `acquire`, oldest first: the chat's
+    /// own nodes (foreground) and imported ones (background).
+    queues: [std::collections::VecDeque<u64>; 2],
+    next_ticket: u64,
+    /// Slots given to foreground nodes in a row while a background node
+    /// waited (`BACKGROUND_EVERY`).
+    foreground_run: usize,
+}
+
+/// Session hand-outs in a row the chat's own nodes may take while an
+/// imported node waits; the next goes to the import, so it never starves.
+const BACKGROUND_EVERY: usize = 4;
+
+impl SlotState {
+    /// Whether ticket `t` of queue `q` (0 foreground, 1 background) is the
+    /// one to take the next session: the oldest of its queue; foreground
+    /// first, except every `BACKGROUND_EVERY`-th hand-out while a
+    /// background node waits.
+    fn turn(&self, q: usize, t: u64) -> bool {
+        if self.queues[q].front() != Some(&t) {
+            return false;
+        }
+        let background_due = !self.queues[1].is_empty() && self.foreground_run >= BACKGROUND_EVERY;
+        match q {
+            0 => !background_due,
+            _ => self.queues[0].is_empty() || background_due,
+        }
+    }
+
+    /// Ticket `t` of queue `q` took a session.
+    fn took(&mut self, q: usize) {
+        self.queues[q].pop_front();
+        self.foreground_run = if q == 0 && !self.queues[1].is_empty() {
+            self.foreground_run + 1
+        } else {
+            0
+        };
+    }
 }
 
 /// A started session no node has prompted yet: a Claude Code process
@@ -227,29 +283,48 @@ impl Slots {
     }
 
     /// A warm session with `key`, else a free slot, else a stale warm
-    /// session's slot; waits while none is there.
-    fn acquire(&self, key: Option<u64>) -> Acquired {
+    /// session's slot; waits while none is there. Waiting nodes take
+    /// sessions in order, the chat's own (`foreground`) before imported
+    /// ones, as the reference client's background calls yield to
+    /// foreground work; every `BACKGROUND_EVERY`-th hand-out goes to a
+    /// waiting import, so it never starves.
+    fn acquire(&self, key: Option<u64>, foreground: bool) -> Acquired {
+        let q = usize::from(!foreground);
         let mut st = self.lock();
-        loop {
-            if let Some(key) = key
-                && let Some(k) = st.warm.iter().position(|w| w.key == key)
-            {
-                return Acquired::Warm(st.warm.remove(k));
+        let t = st.next_ticket;
+        st.next_ticket += 1;
+        st.queues[q].push_back(t);
+        st.waiting += 1;
+        let got = loop {
+            if st.turn(q, t) {
+                let got = if let Some(key) = key
+                    && let Some(k) = st.warm.iter().position(|w| w.key == key)
+                {
+                    Some(Acquired::Warm(st.warm.remove(k)))
+                } else if let Some(k) = st.free.iter().position(|f| *f) {
+                    st.free[k] = false;
+                    Some(Acquired::Slot(k))
+                } else {
+                    st.warm
+                        .iter()
+                        .position(|w| Some(w.key) != key)
+                        .map(|k| Acquired::Stale(st.warm.remove(k)))
+                };
+                if let Some(got) = got {
+                    st.took(q);
+                    break got;
+                }
             }
-            if let Some(k) = st.free.iter().position(|f| *f) {
-                st.free[k] = false;
-                return Acquired::Slot(k);
-            }
-            if let Some(k) = st.warm.iter().position(|w| Some(w.key) != key) {
-                return Acquired::Stale(st.warm.remove(k));
-            }
-            st.waiting += 1;
             st = self
                 .freed
                 .wait(st)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            st.waiting -= 1;
-        }
+        };
+        st.waiting -= 1;
+        drop(st);
+        // The next in line may take a session that is still free.
+        self.freed.notify_all();
+        got
     }
 
     /// Whether the caller, which holds a slot it is done with, should start
@@ -317,6 +392,8 @@ struct Live {
     system: Option<String>,
     /// The node's first message carries our mark (Claude Code's own off).
     ours: bool,
+    /// The route (harness) the session runs on.
+    route: String,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -326,6 +403,44 @@ struct Live {
     error: Option<String>,
     /// The node's context as the trace records it (size, hash, pieces).
     context: Value,
+    /// Where the node's time went, for the trace: waiting for a session
+    /// slot, starting the sessions, and each prompt (first output, whole).
+    timing: Timing,
+}
+
+/// A node's time split (`node` trace event `timing`), in milliseconds.
+#[derive(Clone, Debug, Default)]
+struct Timing {
+    /// Waiting for a free session slot (`Slots::acquire`), summed over tries.
+    slot_wait_ms: u64,
+    /// Starting Claude Code sessions (0 for a warm one), summed.
+    session_start_ms: u64,
+    /// Per prompt: until its first streamed output (None: none seen).
+    ttft_ms: Vec<Option<u64>>,
+    /// Per prompt: until its answer.
+    prompt_ms: Vec<u64>,
+}
+
+impl Timing {
+    fn add(&mut self, older: Timing) {
+        self.slot_wait_ms += older.slot_wait_ms;
+        self.session_start_ms += older.session_start_ms;
+        let mut ttft = older.ttft_ms;
+        ttft.append(&mut self.ttft_ms);
+        self.ttft_ms = ttft;
+        let mut prompt = older.prompt_ms;
+        prompt.append(&mut self.prompt_ms);
+        self.prompt_ms = prompt;
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "slot_wait_ms": self.slot_wait_ms,
+            "session_start_ms": self.session_start_ms,
+            "ttft_ms": self.ttft_ms,
+            "prompt_ms": self.prompt_ms,
+        })
+    }
 }
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -352,6 +467,10 @@ pub struct AcpmuxCompactor {
     model_fallback: Option<Option<String>>,
     /// Warm sessions kept for the next nodes (`with_warm`; 0: none).
     warm: usize,
+    /// The harness to build with while `spec.harness` is exhausted, and
+    /// until when it is (`with_alternate_harness`).
+    alternate: Option<String>,
+    exhausted_until: Mutex<Option<Instant>>,
     reaped: AtomicBool,
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
@@ -381,6 +500,8 @@ impl AcpmuxCompactor {
             cache_ttl: SharedTtl::default(),
             model,
             model_fallback: None,
+            alternate: None,
+            exhausted_until: Mutex::new(None),
             warm: 0,
             reaped: AtomicBool::new(false),
             me: std::sync::Weak::new(),
@@ -454,6 +575,78 @@ impl AcpmuxCompactor {
             compactor.me = me.clone();
             compactor
         })
+    }
+
+    /// The compactor harness to build with while `spec.harness` is exhausted
+    /// (a 429/503/529 with retry-after), until its wait ends.
+    pub fn with_alternate_harness(mut self, harness: Option<String>) -> AcpmuxCompactor {
+        self.alternate = harness.filter(|h| *h != self.spec.harness);
+        self
+    }
+
+    /// The harness sessions start on now: the alternate while the first
+    /// route is exhausted, the first route again once its wait ends.
+    fn harness(&self) -> String {
+        let mut until = self
+            .exhausted_until
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match (*until, &self.alternate) {
+            (Some(t), Some(alternate)) if Instant::now() < t => alternate.clone(),
+            (Some(_), _) => {
+                *until = None;
+                drop(until);
+                self.say(&format!(
+                    "compactor route {} is back; building on it again",
+                    self.spec.harness
+                ));
+                self.spec.harness.clone()
+            }
+            (None, _) => self.spec.harness.clone(),
+        }
+    }
+
+    /// The trace's `compactor.capacity`: the exhausted route, the error's
+    /// status and retry-after, and the route the node fails over to (null:
+    /// none, the node waits).
+    fn trace_capacity(&self, node: NodeId, route: &str, error: &ModelError, failed_over: bool) {
+        self.trace.emit(
+            "compactor.capacity",
+            json!({
+                "node": node.name(),
+                "route": route,
+                "status": optchat_host::error_class(&error.message).map(|c| c.status),
+                "retry_after_s": optchat_host::capacity_wait(&error.message).map(|w| w.as_secs()),
+                "failover": failed_over.then(|| self.alternate.clone()).flatten(),
+            }),
+        );
+    }
+
+    /// `error` says the first route is exhausted (a capacity error with its
+    /// wait): build on the alternate until the wait ends, and say so once.
+    /// False: no alternate, or already on it, or another error.
+    fn fail_over(&self, error: &ModelError) -> bool {
+        let Some(alternate) = &self.alternate else {
+            return false;
+        };
+        let Some(wait) = optchat_host::capacity_wait(&error.message) else {
+            return false;
+        };
+        let mut until = self
+            .exhausted_until
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if until.is_some_and(|t| Instant::now() < t) {
+            return false;
+        }
+        *until = Some(Instant::now() + wait);
+        drop(until);
+        self.say(&format!(
+            "compactor route {} is exhausted (ready in ~{}m); building on {alternate} until then",
+            self.spec.harness,
+            wait.as_secs().div_ceil(60)
+        ));
+        true
     }
 
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
@@ -540,6 +733,8 @@ impl AcpmuxCompactor {
         // ...and whether Claude Code's own marks were off (DISABLE).
         std::hash::Hash::hash(&ours, &mut h);
         std::hash::Hash::hash(&self.model(), &mut h);
+        // ...and the route it started on.
+        std::hash::Hash::hash(&self.harness(), &mut h);
         std::hash::Hasher::finish(&h)
     }
 
@@ -553,13 +748,21 @@ impl AcpmuxCompactor {
         system: Option<&str>,
         ttl: CacheTtl,
         ours: bool,
+        foreground: bool,
     ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
         self.reap_warm();
+        let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
-        let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
+        let asked = Instant::now();
+        let acquired = self
+            .slots
+            .acquire((self.warm > 0).then_some(key), foreground);
+        let slot_wait = asked.elapsed();
+        let got = Instant::now();
+        let (id, slot, cwd, preset) = match acquired {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
                 let slot = match other {
@@ -593,26 +796,28 @@ impl AcpmuxCompactor {
                     preset,
                     system: system.map(str::to_owned),
                     ours,
+                    route,
                     opened: Instant::now(),
                     prompts: 0,
                     usage: None,
                     cost: None,
                     error: None,
                     context: Value::Null,
+                    timing: Timing {
+                        slot_wait_ms: slot_wait.as_millis() as u64,
+                        session_start_ms: got.elapsed().as_millis() as u64,
+                        ..Timing::default()
+                    },
                 },
             );
         Ok(id)
     }
 
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
-        crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
+        let harness = self.harness();
+        crate::harness_gate::admit_live(&*self.port, &harness).map_err(|reason| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
-            crate::harness_gate::trace_refusal(
-                &self.trace,
-                "compactor",
-                &self.spec.harness,
-                &reason,
-            );
+            crate::harness_gate::trace_refusal(&self.trace, "compactor", &harness, &reason);
             ModelError::new(crate::harness_gate::refusal(&reason))
         })
     }
@@ -656,6 +861,7 @@ impl AcpmuxCompactor {
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
             env: Default::default(),
+            fast: self.spec.fast,
         };
         let id = self
             .port
@@ -773,6 +979,8 @@ impl AcpmuxCompactor {
             .get(&node)
             .map_or(0, |l| l.seq);
         let mut begun = false;
+        let asked = Instant::now();
+        let mut ttft = None;
         let prompt_id = format!("optchat-compact:{}:{}:{n}", self.stamp, node.name());
         let (tx, rx) = channel();
         self.port
@@ -781,7 +989,7 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {
+                Ok(TurnSignal::Changed | TurnSignal::Noted) => {
                     // The first streamed output: the response started.
                     if !begun
                         && self.port.events(session, before).is_ok_and(|events| {
@@ -789,6 +997,7 @@ impl AcpmuxCompactor {
                         })
                     {
                         begun = true;
+                        ttft = Some(asked.elapsed().as_millis() as u64);
                         started();
                     }
                 }
@@ -809,6 +1018,15 @@ impl AcpmuxCompactor {
                 }
             }
         };
+        if let Some(l) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&node)
+        {
+            l.timing.ttft_ms.push(ttft);
+            l.timing.prompt_ms.push(asked.elapsed().as_millis() as u64);
+        }
         // acpmux answers a refused Claude turn with a JSON-RPC error that
         // carries Claude Code's text (claude_stdio/inbound.rs), never with
         // `stopReason: "refusal"`; both are refusals.
@@ -901,6 +1119,7 @@ impl AcpmuxCompactor {
     fn first_cached(
         &self,
         request: &CompactRequest,
+        note: Option<&str>,
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
@@ -908,12 +1127,15 @@ impl AcpmuxCompactor {
         // The turns' TTL on this route, read once: the mark, the slot's
         // Claude Code settings and the warm session key agree.
         let ttl = self.cache_ttl.get();
-        let layout = cached_prompt_with(request, marker, ttl);
+        let mut layout = cached_prompt_with(request, marker, ttl);
+        if let Some(note) = note {
+            layout.blocks.push(text_block(note));
+        }
         let ours = layout
             .blocks
             .iter()
             .any(|b| b.get("cache_control").is_some());
-        let session = self.open(node, Some(&layout.system), ttl, ours)?;
+        let session = self.open(node, Some(&layout.system), ttl, ours, !request.imported)?;
         let has_marker = layout
             .blocks
             .iter()
@@ -929,8 +1151,12 @@ impl AcpmuxCompactor {
                 ));
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);
-                let layout = cached_prompt_with(request, false, ttl);
-                let session = self.open(node, Some(&layout.system), ttl, false)?;
+                let mut layout = cached_prompt_with(request, false, ttl);
+                if let Some(note) = note {
+                    layout.blocks.push(text_block(note));
+                }
+                let session =
+                    self.open(node, Some(&layout.system), ttl, false, !request.imported)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
@@ -946,30 +1172,85 @@ impl AcpmuxCompactor {
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
-        let (session, blocks) = match followups.last() {
-            None => {
-                // A fresh conversation: whatever an earlier try left is gone.
-                self.end(request);
-                if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
-                    return self.first_cached(request, started);
-                }
-                (
-                    self.open(node, None, self.cache_ttl.get(), false)?,
-                    request_blocks(request),
-                )
-            }
-            Some(last) => {
-                let session = self
-                    .live
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(&node)
-                    .map(|l| l.id.clone())
-                    .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
-                (session, vec![text_block(&last.retry)])
-            }
+        let Some(last) = followups.last() else {
+            // A fresh conversation: whatever an earlier try left is gone.
+            self.end(request);
+            return self.first_call(request, None, started);
         };
-        self.prompt(node, &session, blocks, started)
+        // A size retry is a fresh call, as the reference client makes it: a
+        // new session with the node's first prompt (its cached prefix is read
+        // again) and the retry note, never the model's own long line. The
+        // node's counts carry over.
+        let old = self.retire(node);
+        let reply = self.first_call(request, Some(&last.retry), started);
+        if let Some(old) = old
+            && let Some(l) = self
+                .live
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_mut(&node)
+        {
+            l.opened = old.opened;
+            l.prompts += old.prompts;
+            l.timing.add(old.timing);
+            l.cost = match (l.cost, old.cost) {
+                (Some(a), Some(b)) => Some(a + b),
+                (a, b) => a.or(b),
+            };
+            if let Some(u) = old.usage {
+                let sum = l.usage.get_or_insert_with(Usage::default);
+                sum.input += u.input;
+                sum.cache_read += u.cache_read;
+                sum.cache_write += u.cache_write;
+                sum.output += u.output;
+            }
+            if l.context.is_null() {
+                l.context = old.context;
+            }
+        }
+        reply
+    }
+
+    /// A node's first prompt (with `note`, a size retry's), in a new session.
+    fn first_call(
+        &self,
+        request: &CompactRequest,
+        note: Option<&str>,
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
+            return self.first_cached(request, note, started);
+        }
+        let mut blocks = request_blocks(request);
+        if let Some(note) = note {
+            blocks.push(text_block(note));
+        }
+        let session = self.open(
+            request.node,
+            None,
+            self.cache_ttl.get(),
+            false,
+            !request.imported,
+        )?;
+        self.prompt(request.node, &session, blocks, started)
+    }
+
+    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; its
+    /// slot goes back. Its counts, for the next session of the node.
+    fn retire(&self, node: NodeId) -> Option<Live> {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node)?;
+        let _ = self.port.end_session(&live.id);
+        self.delete_transcript(&live.cwd);
+        self.wipe_codex(live.slot);
+        if live.system.is_some() {
+            let _ = self.port.set_system_prompt(&live.preset, "");
+        }
+        self.slots.give(live.slot);
+        Some(live)
     }
 }
 
@@ -984,11 +1265,24 @@ impl CompactModel for AcpmuxCompactor {
         followups: &[Followup],
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
+        let route = self.harness();
         let result = match self.call_inner(request, followups, started) {
             // The account cannot use the model: the node again, fresh, on the fallback.
             Err(e) if followups.is_empty() && self.switch_model(&e) => {
                 self.end(request);
                 self.call_inner(request, followups, started)
+            }
+            // The route is exhausted: one trace event per wait, then the node
+            // again, fresh, on the other route when there is one.
+            Err(e) if followups.is_empty() && optchat_host::capacity_wait(&e.message).is_some() => {
+                let failed_over = self.fail_over(&e);
+                self.trace_capacity(request.node, &route, &e, failed_over);
+                if failed_over {
+                    self.end(request);
+                    self.call_inner(request, followups, started)
+                } else {
+                    Err(e)
+                }
             }
             other => other,
         };
@@ -1031,8 +1325,8 @@ impl AcpmuxCompactor {
         self.trace.emit(
             "node",
             json!({
-                "node": node.name(),
-                "harness": self.spec.harness,
+                "node": node_label(node),
+                "harness": live.route,
                 "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
                 "prompts": live.prompts,
@@ -1041,6 +1335,7 @@ impl AcpmuxCompactor {
                 "ok": live.error.is_none(),
                 "error": live.error.as_deref().map(|e| self.trace.text(e)),
                 "context": live.context,
+                "timing": live.timing.json(),
             }),
         );
         // Purged: a node's session holds the chat's text, and nothing reads it again.
@@ -1081,14 +1376,33 @@ impl AcpmuxCompactor {
             None => "tokens not reported".to_owned(),
         };
         let cost = live.cost.map_or(String::new(), |c| format!(", ${c:.3}"));
+        let what = if node == PROBE_NODE {
+            "compactor probe".to_owned()
+        } else if is_describe(node) {
+            "compactor image description".to_owned()
+        } else {
+            format!("compactor node {}", node.name())
+        };
         self.say(&format!(
-            "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
-            node.name(),
-            self.spec.harness,
+            "{what} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
+            live.route,
             self.model().as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
+    }
+}
+
+/// The trace's name of `node`: `probe` and `describe` for the ids no chat
+/// node has (the start-up probe's level 63, image descriptions'), else its
+/// `id+n`.
+fn node_label(node: NodeId) -> String {
+    if node == PROBE_NODE {
+        "probe".to_owned()
+    } else if is_describe(node) {
+        "describe".to_owned()
+    } else {
+        node.name()
     }
 }
 
@@ -1115,7 +1429,8 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
         let session = self
-            .open(node, None, self.cache_ttl.get(), false)
+            // A user's image: foreground work, ahead of an import.
+            .open(node, None, self.cache_ttl.get(), false, true)
             .map_err(|e| e.message)?;
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
@@ -1432,7 +1747,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..COMPACTOR_SESSIONS)
+        return (0..compactor_sessions())
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1458,7 +1773,15 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
                         CODEX_CACHE_KEY_ENV.to_owned(),
                         codex_cache_key(home, "compact"),
                     ),
-                ]),
+                ])
+                .into_iter()
+                .chain(crate::codex_home::chief_codex(paths).map(|c| {
+                    (
+                        crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                        c.display().to_string(),
+                    )
+                }))
+                .collect(),
                 args: Vec::new(),
                 system_prompt: None,
             })
@@ -1489,10 +1812,11 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
+    env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..COMPACTOR_SESSIONS)
+    (0..compactor_sessions())
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),
@@ -1533,6 +1857,15 @@ pub fn compactor_effort(family: Family) -> Option<String> {
 /// prompt caching for one node, against 1.3 s at effort low).
 pub const CLAUDE_CODE_COMPACTOR_MODEL: &str = optchat_host::DEFAULT_MODEL;
 
+/// The compactor's other route when `harness` is exhausted: the user's own
+/// Claude login (`claude`) for a pooled or routed Claude harness, when
+/// acpmux has it (`admitted`). None: no other route.
+pub fn derived_alternate(harness: &str, admitted: &[String]) -> Option<String> {
+    let own = "claude";
+    (harness != own && harness.starts_with("claude") && admitted.iter().any(|h| h == own))
+        .then(|| own.to_owned())
+}
+
 /// The default compactor model of `family`'s harness (None: the harness's
 /// own default model).
 pub fn compactor_model_for(family: Family) -> Option<String> {
@@ -1572,6 +1905,7 @@ pub fn compactor_spec(
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
         user_env: crate::session_dir::host_user_env(),
+        fast: false,
     }
 }
 
@@ -1614,5 +1948,44 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
             let _ = config;
             Ok(CompactRoute::Acpmux)
         }
+    }
+}
+
+#[cfg(test)]
+mod slot_order_tests {
+    use super::*;
+
+    /// No starvation: while chat nodes keep coming, a waiting import node
+    /// still takes every `BACKGROUND_EVERY + 1`-th session, and each queue
+    /// keeps its own order.
+    #[test]
+    fn an_import_node_takes_a_session_between_chat_nodes() {
+        let mut st = SlotState::default();
+        st.queues[1].extend([100, 101]);
+        st.queues[0].extend(1..=10);
+        let mut order = Vec::new();
+        while !st.queues[0].is_empty() || !st.queues[1].is_empty() {
+            let q = (0..2)
+                .find(|&q| st.queues[q].front().is_some_and(|&t| st.turn(q, t)))
+                .expect("someone's turn");
+            order.push(*st.queues[q].front().unwrap());
+            st.took(q);
+        }
+        assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
+    }
+}
+
+#[cfg(test)]
+mod session_count_tests {
+    use super::*;
+
+    #[test]
+    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
+        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("32")), 32);
+        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
+        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }

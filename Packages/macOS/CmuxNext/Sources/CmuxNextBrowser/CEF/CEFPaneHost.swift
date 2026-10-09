@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the
@@ -49,6 +50,17 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
     }
 
+    /// The viewport of a tab no pane has shown (Playwright's default page
+    /// size, the WebKit render window's too).
+    static let hiddenTabViewport = NSSize(width: 1280, height: 800)
+
+    /// The size a new Chromium window starts at: the host view's, or the
+    /// hidden-tab viewport when the view was never laid out (empty bounds
+    /// gave a 1x1 window, so the page had no viewport).
+    static func creationSize(for bounds: NSSize) -> NSSize {
+        bounds.width >= 1 && bounds.height >= 1 ? bounds : hiddenTabViewport
+    }
+
     func add(_ tab: CEFTab) {
         tabs.append(tab)
     }
@@ -83,7 +95,9 @@ final class CEFPaneHost {
     func present(_ tab: CEFTab, in container: NSView) {
         lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
         if hostView.superview !== container {
-            hostView.removeFromSuperview()
+            // A direct addSubview moves the view without taking it out of
+            // the window: the page's child window is not re-added (about
+            // 3 ms of window ordering on each tab switch).
             hostView.frame = container.bounds
             // The tab's content view lays it out (page frame beside a docked DevTools).
             hostView.autoresizingMask = []
@@ -103,7 +117,9 @@ final class CEFPaneHost {
             ensureOwnWindow(for: tab)
         } else if let browser = tab.browserID {
             lastActivated = browser
+            tabSwitchMark("activate")
             _ = runtime.shim?.tabActivate(browser)
+            tabSwitchMark("activated")
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
             tab.sidePanel.scheduleRefresh()
@@ -133,7 +149,11 @@ final class CEFPaneHost {
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
-            let size = hostView.bounds.size
+            let size = Self.creationSize(for: hostView.bounds.size)
+            // A host no pane has laid out (a background tab an agent drives, a
+            // pane under a page) takes the size its window starts at, so a
+            // later layout pass does not shrink it back to nothing.
+            if hostView.window == nil, hostView.bounds.size != size { hostView.setFrameSize(size) }
             let contextKey = runtime.contextKey(for: key)
             if key.offTheRecord {
                 // An in-memory profile: no directory, released when the
@@ -255,4 +275,12 @@ final class CEFPaneHost {
     func refreshExtensionActions() {
         for tab in tabs { tab.refreshExtensionActions() }
     }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

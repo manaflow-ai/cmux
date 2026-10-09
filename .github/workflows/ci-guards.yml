@@ -1015,9 +1015,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate the nightly-next feed staleness alarm
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_next_feed_staleness.sh
+
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_route.py
+
+      - name: Validate cmux-next self-hosted checkouts retry once
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_checkout_retry.py
 
       - name: Validate the nightly dSYM upload retries and never fails the nightly
         if: ${{ matrix.group == 'release-notary' }}

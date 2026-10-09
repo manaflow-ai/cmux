@@ -15,7 +15,8 @@ use crate::cli::OutputMode;
 pub(in crate::cli) enum Control {
     /// Show the engine, or set the given fields (harness, model, effort).
     Engine(Vec<(String, String)>),
-    Stop,
+    /// Stop the turn and every subagent, or only the named subagent.
+    Stop(Option<String>),
 }
 
 impl Session {
@@ -26,7 +27,7 @@ impl Session {
 
     /// Stops the Chief's running turn; whether one was running.
     pub(super) fn stop(&mut self) -> Result<bool, LinkError> {
-        stop(&mut self.control)
+        stop(&mut self.control, None)
     }
 }
 
@@ -41,9 +42,13 @@ fn engine(link: &mut Link, changes: &[(String, String)]) -> Result<Value, LinkEr
     Ok(result.get("value").cloned().unwrap_or(Value::Null))
 }
 
-fn stop(link: &mut Link) -> Result<bool, LinkError> {
+fn stop(link: &mut Link, name: Option<&str>) -> Result<bool, LinkError> {
     let key = super::link::new_message_id();
-    let result = link.call("chief.stop", json!({}), Some(&key))?;
+    let params = match name {
+        Some(name) => json!({"name": name}),
+        None => json!({}),
+    };
+    let result = link.call("chief.stop", params, Some(&key))?;
     Ok(result.pointer("/value/stopped").and_then(Value::as_bool).unwrap_or(false))
 }
 
@@ -53,7 +58,11 @@ pub(super) fn engine_line(report: &Value) -> String {
     let text = |key: &str| {
         engine.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("default")
     };
-    format!("{} · {} · {}", text("harness"), text("model"), text("effort"))
+    let mut line = format!("{} · {} · {}", text("harness"), text("model"), text("effort"));
+    if engine.get("speed").and_then(Value::as_str) == Some("fast") {
+        line.push_str(" · fast");
+    }
+    line
 }
 
 /// The text of a control refusal: an old daemon, or the brain's own reason.
@@ -67,12 +76,26 @@ pub(super) fn refusal(error: &LinkError) -> String {
 }
 
 /// `cmux chief engine|stop`: one call on the current session, no chat.
-pub(super) fn run(global: &GlobalArgs, control: &Control, output: OutputMode) -> i32 {
-    let socket = match super::super::wire::resolve_socket_with_origin(global) {
-        Ok(socket) => socket,
-        Err(_) => {
-            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
-            return 2;
+pub(super) fn run(
+    global: &GlobalArgs,
+    chief_home: Option<&std::path::Path>,
+    control: &Control,
+    output: OutputMode,
+) -> i32 {
+    // The Chief home's owner, as the chat finds it; nothing is started (a
+    // Chief that does not run has no engine to show or turn to stop).
+    let socket = match super::target(global, chief_home) {
+        Ok(super::Target::Explicit(socket, derived)) => (socket, derived),
+        Ok(super::Target::Home(home)) => match home.socket() {
+            Ok(socket) => (socket, true),
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                return 2;
+            }
+        },
+        Err((code, message)) => {
+            eprintln!("cmux: {message}");
+            return code;
         }
     };
     let mut link = match Link::connect(&socket.0, socket.1) {
@@ -84,7 +107,9 @@ pub(super) fn run(global: &GlobalArgs, control: &Control, output: OutputMode) ->
     };
     let answer = match control {
         Control::Engine(changes) => engine(&mut link, changes),
-        Control::Stop => stop(&mut link).map(|stopped| json!({"stopped": stopped})),
+        Control::Stop(name) => {
+            stop(&mut link, name.as_deref()).map(|stopped| json!({"stopped": stopped}))
+        }
     };
     match answer {
         Ok(value) if super::json_output(output) => {
@@ -95,8 +120,8 @@ pub(super) fn run(global: &GlobalArgs, control: &Control, output: OutputMode) ->
             let m = messages();
             match control {
                 Control::Engine(_) => println!("{}", engine_line(&value)),
-                Control::Stop if value["stopped"] == true => println!("{}", m.stop_sent),
-                Control::Stop => println!("{}", m.stop_idle),
+                Control::Stop(_) if value["stopped"] == true => println!("{}", m.stop_sent),
+                Control::Stop(_) => println!("{}", m.stop_idle),
             }
             0
         }

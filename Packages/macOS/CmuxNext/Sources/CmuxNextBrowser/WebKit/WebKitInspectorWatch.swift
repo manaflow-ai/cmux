@@ -1,6 +1,5 @@
 public import AppKit
 public import Observation
-import CmuxNextWakeups
 import WebKit
 
 /// Whether a WebKit tab's Web Inspector is shown, as an observable value
@@ -19,23 +18,28 @@ import WebKit
 /// missed until the next read; the toolbar also reads when it is shown,
 /// when a toolbar menu opens and on every press.
 @Observable
+@MainActor
 public final class WebKitInspectorWatch: NSObject {
     public private(set) var isVisible = false
     @ObservationIgnored private weak var webView: WKWebView?
+    @ObservationIgnored private var closeObserver: (any NSObjectProtocol)?
 
     override init() {}
+
+    isolated deinit {
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+    }
 
     func attach(webView: WKWebView, container: WebKitPageContainer) {
         self.webView = webView
         container.onSubviewsChange = { [weak self] in self?.refresh() }
-        // A selector observer is removed when this object is freed.
-        NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil)
-    }
-
-    /// Any window's close notice (`object: nil`), from whichever thread
-    /// posted it: the read runs on main (crash-elimination.md, P1b).
-    @objc nonisolated private func windowWillClose(_ notification: Notification) {
-        MainDelivery().run { [weak self] in self?.refresh() }
+        // queue: .main: a window may close off main; a selector into this
+        // main-actor object trapped there. Inline for a close on main.
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() } // main-proof: observer on queue: .main
+        }
     }
 
     /// Reads the inspector's visibility now and once more on the next turn.

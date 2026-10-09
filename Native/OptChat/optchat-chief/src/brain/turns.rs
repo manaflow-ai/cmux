@@ -20,6 +20,31 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
+/// The notice for the first stuck view line (its node fails with a request
+/// error on every try); None when no line is stuck.
+/// A line held only by an exhausted route (a capacity error) is a quiet
+/// wait, logged by the host: no notice.
+pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
+    let error = |node: &optchat_core::NodeId| {
+        status
+            .failures
+            .iter()
+            .find(|f| f.node == *node)
+            .map(|f| f.error.as_str())
+    };
+    let node = status
+        .stuck
+        .iter()
+        .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
+    let class = error(node)
+        .and_then(optchat_host::error_class)
+        .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
+    Some(format!(
+        "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
+        node.name()
+    ))
+}
+
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
@@ -105,17 +130,8 @@ impl Brain {
                     // holds the turn: one notice says so, retracted once
                     // every stuck node is built.
                     let status = chat.status();
-                    if let Some(node) = status.stuck.first() {
-                        let class = status
-                            .failures
-                            .iter()
-                            .find(|f| f.node == *node)
-                            .and_then(|f| optchat_host::error_class(&f.error))
-                            .map_or_else(|| "a request error".to_owned(), |c| c.to_string());
-                        let _ = tx.send(Input::CompactorStatus(Err(format!(
-                            "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
-                            node.name()
-                        ))));
+                    if let Some(text) = stuck_notice(&status) {
+                        let _ = tx.send(Input::CompactorStatus(Err(text)));
                     } else if status.recovered {
                         let _ = tx.send(Input::CompactorStatus(Ok(())));
                     }
@@ -163,7 +179,7 @@ impl Brain {
                             marked.then_some(CacheTtl::FiveMinutes)
                         };
                         let stale = ttl_stale.load(Ordering::SeqCst);
-                        match (&outcome.error, ours) {
+                        let outcome = match (&outcome.error, ours) {
                             // The API refused our TTL next to Claude Code's.
                             // A pooled session started under the other TTL
                             // (cache.ttl changed since the prewarm): the
@@ -237,7 +253,10 @@ impl Brain {
                                 turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             _ => outcome,
-                        }
+                        };
+                        crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                        })
                     }
                     Engine::Native(native) => {
                         let mailbox = || {
@@ -283,7 +302,9 @@ impl Brain {
             self.phase = Phase::Idle;
             return None;
         }
-        if self.chat.status().unbuilt > 0 {
+        // The same check as settle's: an imported line still being built
+        // (or a stuck one) does not hold the turn.
+        if !self.chat.turn_ready() {
             self.phase = Phase::Idle;
             self.maybe_start_turn();
             return None;
@@ -322,9 +343,19 @@ impl Brain {
         let (cached, plain_preset) = self.session_presets(family);
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view, held within the
-        // API's lookback of the last turn's mark (optchat_core::mark_piece),
-        // which is saved with the messages so a restart keeps it.
+        // Our one mark: the last whole block of the view (the header while
+        // there is none), held within the API's lookback of the last turn's
+        // mark (optchat_core::mark_piece), which is saved with the messages
+        // so a restart keeps it. A marked turn runs Claude Code without its
+        // own marks (the API takes 4), so each tool step's tail after the
+        // view goes uncached. Measured 2026-10-08 on a 30 KB view: this wins
+        // 11x on a one-request turn and 20% at 12 steps with tiny outputs;
+        // Claude Code's own rolling marks win only past about 400 output
+        // tokens per step at 12 steps (32% at about 1k tokens). Claude Code
+        // reads the setting at process start, so a turn cannot switch after
+        // its first step; 11 of 13 real turns made 1-2 requests, and
+        // tool-heavy work belongs in subagents, which keep Claude Code's
+        // marks (decision 2026-10-08).
         let mark = cached
             .as_ref()
             .filter(|_| marker)
@@ -386,7 +417,7 @@ impl Brain {
                     Source::Message {
                         remote: Some(_),
                         ..
-                    }
+                    } | Source::Resume { remote: true, .. }
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
@@ -408,7 +439,15 @@ impl Brain {
             .filter_map(super::images::TurnImage::block)
             .collect();
         self.describe_images(&images);
-        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // A resume note carries the cut messages' full text (never logged
+        // again) before the newer messages.
+        let texts: Vec<String> = items
+            .into_iter()
+            .map(|i| match &i.source {
+                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
+                _ => i.text,
+            })
+            .collect();
         // Per-turn state goes after the view, never in the system prompt:
         // the subagents at work now (the reference client's line), before
         // the new messages. Never logged.
@@ -491,11 +530,13 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: self.turn_fast(&engine, family),
             },
             blocks,
             system_prompt,
             key,
             limit: self.settings.turn_limit,
+            idle_limit: self.settings.turn_idle_limit,
         })
     }
 
@@ -509,6 +550,10 @@ impl Brain {
         items: &[Queued],
         update: impl FnOnce(&mut HostState, &Appended),
     ) -> Option<Appended> {
+        // Items logged already (a failed steer on a harness that answers at
+        // the turn's end) are not logged again.
+        let fresh: Vec<Queued> = items.iter().filter(|q| !q.logged).cloned().collect();
+        let items = &fresh[..];
         let main = self.state.conversation.clone().unwrap_or_default();
         let entries: Vec<NewMessage<'_>> = items
             .iter()
@@ -548,6 +593,9 @@ impl Brain {
                 }
                 if let Source::Spawn(r) = &item.source {
                     next.spawn_logged(r);
+                }
+                if let Source::Resume { .. } = &item.source {
+                    next.resumes.retain(|r| r.conversation != item.conversation);
                 }
                 if let (Some(c), Source::Message { seq, id, .. }) =
                     (&item.conversation, &item.source)
@@ -596,7 +644,11 @@ impl Brain {
         // the interrupt is answered. Only the items ahead of the first one
         // of another conversation go (G9 fairness: an item that waits for
         // its turn is never passed by later ones).
-        self.interrupt.clear();
+        // Messages never set the interrupt now; only chief.stop does, and a
+        // boundary must not clear it.
+        if !self.owner_stopped {
+            self.interrupt.clear();
+        }
         let side = self.turn_side();
         let take = self
             .queue
@@ -662,17 +714,25 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
-        // A pending approval holds the tool call: a newer message denies it,
-        // so the turn can stop and the next one answers.
-        self.deny_pending("a newer message");
-        if matches!(self.settings.engine, Engine::Acpmux) {
-            // Parity item 7: between tool calls, when the session steers.
-            if self.try_steer() {
-                return;
-            }
-            self.stop_wanted = true;
+        // Decision 2026-10-09 (interruptions, parity with the reference): a
+        // message never stops a turn, on any engine. acpmux: it is steered
+        // in between tool calls when the session steers, else it waits and
+        // the next turn starts the moment this one ends. Native: the engine
+        // delivers it after the next tool results. Only chief.stop stops.
+        let side = self.turn_side();
+        let human = self
+            .queue
+            .iter()
+            .filter(|q| q.conversation == side)
+            .any(|q| matches!(q.source, Source::Message { .. }));
+        if human {
+            // A pending approval holds the tool call: a newer message denies
+            // it, so the turn reaches its next tool boundary and reads it.
+            self.deny_pending("a newer message");
         }
-        self.interrupt.request();
+        if matches!(self.settings.engine, Engine::Acpmux) {
+            self.try_steer();
+        }
     }
 
     /// An acpmux turn's session id and fold position, saved so a host that
@@ -681,10 +741,15 @@ impl Brain {
         let Some(turn) = self.state.turn.as_mut().filter(|t| t.key == key) else {
             return;
         };
+        let first = turn.session_id.is_none();
         if turn.session_id.as_deref() != Some(session_id.as_str()) || turn.after != after {
             turn.session_id = Some(session_id);
             turn.after = after;
             self.save();
+        }
+        // Messages that came before the turn's session existed go in now.
+        if first && self.phase == Phase::Running && matches!(self.settings.engine, Engine::Acpmux) {
+            self.try_steer();
         }
     }
 
@@ -768,6 +833,22 @@ impl Brain {
 
     /// This turn's engine: engine.json over the defaults. A harness acpmux
     /// does not know keeps the default harness, and says so.
+    /// Whether this turn runs at the fast tier: `speed` fast on a harness
+    /// that has it; on another one the turn runs at the default speed and
+    /// the log says why.
+    fn turn_fast(&self, engine: &crate::engine::TurnEngine, family: crate::acpmux::Family) -> bool {
+        let Some(speed) = engine.speed.as_deref() else {
+            return false;
+        };
+        match crate::engine::check_speed(speed, family) {
+            Ok(()) => crate::engine::is_fast(Some(speed)),
+            Err(reason) => {
+                (self.log)(&format!("{reason}; this turn runs at the default speed"));
+                false
+            }
+        }
+    }
+
     fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
         let (engine, unknown) = self.next_engine();
         if let Some(named) = unknown {
@@ -788,6 +869,7 @@ impl Brain {
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
             model: engine.model.clone(),
+            effort: engine.effort.clone(),
             other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
         })
     }
@@ -971,8 +1053,8 @@ impl Brain {
         if let Some(hook) = &self.after_turn {
             hook(key);
         }
-        self.prewarm_next_turn();
         self.maybe_start_turn();
+        self.prewarm_next_turn();
     }
 }
 
@@ -983,6 +1065,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Resume { .. } => "resume",
     }
 }
 
@@ -1005,11 +1088,19 @@ fn with_images(
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, .. } => Item {
+        Source::Message { seq, id, remote } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
+            remote: remote.is_some(),
+            ..Item::default()
+        },
+        Source::Resume { remote, cut } => Item {
+            conversation: queued.conversation.clone(),
+            remote: *remote,
+            resume: true,
+            cut: cut.clone(),
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {

@@ -16,7 +16,7 @@ import Observation
 /// (`TabModel.id`): the page views, a new chat's seed, the new tab page, link and turn requests.
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
-    private let host: any AgentPaneHostProviding
+    let host: any AgentPaneHostProviding
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
@@ -44,6 +44,7 @@ final class AgentTabStore {
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
     var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
+    var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
     /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
@@ -132,6 +133,8 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
+    /// The device chats every page's New Tab cards show (``AgentPageChats``).
+    let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -152,7 +155,7 @@ final class AgentTabStore {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
-        let (resolvedSource, resolvedHost) = Self.resolvePane(tag: tag, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
@@ -241,8 +244,10 @@ final class AgentTabStore {
         let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key) else { return nil }
-        let local = record.host == localHost
-        guard let paneHost = local ? host : remoteHost(key) else { return nil }
+        let kind = AgentPaneHostKind(record, localHost: localHost, chiefHost: chiefHost)
+        // A Chief subagent runs on this Mac too, in the Chief home's acpmux.
+        let local = kind != .remote
+        guard let paneHost = kind == .local ? (localSessionHost ?? host) : kind == .chief ? chiefPaneHost : remoteHost(key) else { return nil }
         // A tab this run did not open and that has no chat yet is a New Tab page the store
         // restored after a relaunch: it opens as the page again, not as an empty chat.
         if local, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
@@ -310,7 +315,7 @@ final class AgentTabStore {
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
+        model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
         model.onRunAction = { [weak self] id in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
@@ -326,6 +331,7 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
+        model.onOpenChat = { [weak self] key in self?.pageChats.open?(key) }
         model.onImportAndSync = { [weak self] in
             guard let self else { return }
             if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
@@ -348,7 +354,8 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
-        pageSettings.apply(to: view)
+        pageSettings.apply(to: NewTabOmnibar.installed(on: view))
+        view.deviceChats = pageChats.chats
         customization.start()
         return view
     }

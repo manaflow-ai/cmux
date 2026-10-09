@@ -165,7 +165,7 @@ fn the_size_loop_retries_in_the_same_conversation() {
     assert_eq!(seen[1][0].reply.text, "a".repeat(700));
     assert!(seen[1][0]
         .retry
-        .starts_with("Too long: your line is 700 bytes, over the 512-byte limit."));
+        .starts_with("Too long: your last line for this <input> was 700 bytes,"));
     assert!(seen[1][0].retry.ends_with("| ← LIMIT"));
     assert_eq!(chat.zoom(0, 1).unwrap(), format!("0+0|user: {}", long(0)));
     assert!(chat
@@ -286,6 +286,7 @@ impl CompactModel for Ending {
 
 fn node_request(step: &str) -> CompactRequest {
     CompactRequest {
+        imported: false,
         node: NodeId::new(0, 4),
         system: "SYS".into(),
         context: "<chat>\n</chat>".into(),
@@ -326,6 +327,7 @@ fn run_node_ends_the_conversation_once_on_every_outcome() {
 fn a_cut_request_line_starts_with_the_cut() {
     let model = Ending::new(vec![Ok(Reply::text("user: a long log"))]);
     let request = CompactRequest {
+        imported: false,
         cut: Some("(cut: 10 of 20 characters not shown) ".into()),
         ..node_request("S")
     };
@@ -354,6 +356,7 @@ fn a_cut_line_is_retried_against_its_reduced_room() {
         Ok(Reply::text("user: short")),
     ]);
     let request = CompactRequest {
+        imported: false,
         cut: Some(prefix.clone()),
         ..node_request("S")
     };
@@ -461,11 +464,33 @@ fn a_node_that_always_fails_with_a_request_error_does_not_block_settle() {
 #[derive(Default)]
 struct Recording {
     waits: Mutex<Vec<Duration>>,
+    recorded: std::sync::Condvar,
+}
+
+impl Recording {
+    /// The first `n` waits, once that many were recorded (each job thread
+    /// sleeps after it releases the chat's lock, so a settle that returned
+    /// does not mean the stuck wait is recorded yet).
+    fn first(&self, n: usize) -> Vec<Duration> {
+        let waits = self.waits.lock().unwrap();
+        let (waits, timeout) = self
+            .recorded
+            .wait_timeout_while(waits, Duration::from_secs(10), |w| w.len() < n)
+            .unwrap();
+        assert!(
+            !timeout.timed_out(),
+            "only {} waits: {:?}",
+            waits.len(),
+            *waits
+        );
+        waits[..n].to_vec()
+    }
 }
 
 impl Clock for Recording {
     fn sleep(&self, d: Duration) {
         self.waits.lock().unwrap().push(d);
+        self.recorded.notify_all();
         if d >= STUCK_RETRY {
             std::thread::park();
         }
@@ -484,7 +509,9 @@ fn compactor_retries_back_off_honor_retry_after_and_stop_holding_turns_after_8_t
         let calls = calls.clone();
         Arc::new(Fake(move |_: &CompactRequest, _: &[Followup]| {
             let k = calls.fetch_add(1, Ordering::SeqCst);
-            let e = ModelError::new(r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#);
+            let e = ModelError::new(
+                r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+            );
             Err(if k == 2 {
                 e.with_retry_after(Duration::from_secs(7))
             } else {
@@ -499,7 +526,7 @@ fn compactor_retries_back_off_honor_retry_after_and_stop_holding_turns_after_8_t
         chat.settle(None, Some(Duration::from_secs(10))),
         "a node failing 8 times still holds the turn"
     );
-    let waits: Vec<u64> = clock.waits.lock().unwrap().iter().map(Duration::as_secs).collect();
+    let waits: Vec<u64> = clock.first(8).iter().map(Duration::as_secs).collect();
     assert_eq!(waits, vec![1, 2, 7, 8, 16, 32, 64, STUCK_RETRY.as_secs()]);
     assert_eq!(calls.load(Ordering::SeqCst), 8);
 }
@@ -518,4 +545,58 @@ fn a_compactor_retry_waits_while_a_turn_waits_on_a_rate_limit() {
     let waited = waiter.join().unwrap();
     assert!(waited >= Duration::from_millis(300), "{waited:?}");
     assert!(waited < Duration::from_secs(5), "{waited:?}");
+}
+
+/// Soak at 64d57f35a20f: the first turn after a 2,020-message import waited
+/// 11 minutes, because a turn waited for every view line, the imported ones
+/// too, and the chat's own new message queued behind the import's calls.
+/// The reference client keeps imported messages on their own side: a turn
+/// waits only for the chat's own lines, and each side has its own compactor
+/// calls. Imported lines are marked as such in the database, so this holds
+/// after a reopen too.
+#[test]
+fn a_turn_does_not_wait_for_imported_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    // Imported messages' replies start (their cache entry exists) and then
+    // take until the test ends; the chat's own nodes are answered at once.
+    let (release, gate) = mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    let model = {
+        let gate = gate.clone();
+        Arc::new(Starting(move |r: &CompactRequest, started: &dyn Fn()| {
+            started();
+            if r.step.contains("imported ") {
+                let _ = gate.lock().unwrap().recv();
+            }
+            Ok(Reply::text(summary(r.node, 200)))
+        }))
+    };
+    let chat = open(dir.path(), 128_000, model.clone());
+    chat.append(Kind::User, &long(0)).unwrap();
+    for k in 0..200u64 {
+        let text = format!("imported {k}: {}", "words ".repeat(120));
+        chat.append_dated(Kind::Note, &text, "2026-01-01T00:00:00Z")
+            .unwrap();
+    }
+    chat.append(Kind::User, &long(1)).unwrap();
+    assert!(
+        chat.settle(None, Some(Duration::from_secs(10))),
+        "a turn waited for imported lines: {:?}",
+        chat.status()
+    );
+    assert!(chat.status().unbuilt >= 200, "{:?}", chat.status());
+    let view = chat.render_view().text;
+    assert!(view.contains("sum 201+1"), "{view}");
+    chat.shutdown();
+    drop(chat);
+
+    let chat = open(dir.path(), 128_000, model);
+    chat.append(Kind::User, &long(2)).unwrap();
+    assert!(
+        chat.settle(None, Some(Duration::from_secs(10))),
+        "after a reopen, a turn waited for imported lines: {:?}",
+        chat.status()
+    );
+    chat.shutdown();
+    drop(release);
 }

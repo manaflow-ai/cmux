@@ -13,10 +13,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
-    /// Reads the unsent composer text for a durable session.
-    case readDraft(String)
-    /// Stores or clears the unsent composer text for a durable session.
-    case writeDraft(String, text: String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -56,6 +52,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's "default: X" toggle: what Cmd-T opens
     /// (`tabs.newTabKind`; the App checks the value).
     case setDefaultKind(String)
+    /// The new tab page's template dots (`newTab.setTemplate`): the
+    /// template to save as `tabs.newTabTemplate` (the App checks the value).
+    case setNewTabTemplate(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -63,10 +62,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
     /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     case chooseFolder
+    /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
+    case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// The empty-chat action opens the existing onboarding project/history import flow.
     case importAndSync
+    /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
+    /// opened through the app's shared Open Chat path.
+    case openChat(String)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -97,6 +101,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the panel. `{sessionId}` is optional; without it the host uses the
     /// session the page last persisted.
     case quickOpenInWindow(sessionId: String?)
+    /// The quick panel's page (Start Agent's Return): its chat started;
+    /// hand the session to the sidebar in the background and hide the panel.
+    case quickStartInBackground(AgentPaneQuickStart)
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
@@ -153,9 +160,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
-    /// Longest composer draft persisted by the native bridge.
-    public static let maximumDraftText = 1_000_000
-
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024

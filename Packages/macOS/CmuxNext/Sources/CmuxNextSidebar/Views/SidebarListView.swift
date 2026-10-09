@@ -53,6 +53,7 @@ final class SidebarListView: NSView {
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
+    let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
@@ -81,10 +82,11 @@ final class SidebarListView: NSView {
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
-        NotificationCenter.default.removeObserver(self)
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     }
     // MARK: - Window occlusion
     private var observedWindow: NSWindow?
+    private var occlusionObserver: (any NSObjectProtocol)?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -92,13 +94,14 @@ final class SidebarListView: NSView {
         if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
-        if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
+        if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
-        if let window {
-            center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        }
+        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
+        occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
+        } }
     }
-    @objc private func windowOcclusionChanged(_ note: Notification) {
+    private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
     /// Pauses (or resumes) every row's activity animation.
