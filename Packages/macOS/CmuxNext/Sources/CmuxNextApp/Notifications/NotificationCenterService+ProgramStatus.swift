@@ -50,19 +50,23 @@ extension NotificationCenterService {
 enum StatusNotificationImage {
     static let side: CGFloat = 64
 
-    /// PNG data per reason (six images; drawn once per theme).
+    /// PNG data per reason, icon set and theme.
     private static var cache: [String: Data] = [:]
 
-    /// The badge PNG for `reason`, cached per reason and theme.
+    /// The badge PNG for `reason` in the chosen status icon set
+    /// (`StatusIconSet`), cached per reason, set and theme.
     static func data(_ reason: ProgramStatusNotification.Reason) -> Data? {
-        let key = "\(reason.rawValue)-\(ThemeScope.app.tokens.surfaceBackground)"
+        let set = StatusIndicatorAppearance.shared.config.iconSet
+        let key = "\(reason.rawValue)-\(set.rawValue)-\(ThemeScope.app.tokens.surfaceBackground)"
         if let cached = cache[key] { return cached }
-        let drawn = png(reason)
+        let drawn = png(reason, set: set)
         cache[key] = drawn
         return drawn
     }
 
-    static func png(_ reason: ProgramStatusNotification.Reason) -> Data? {
+    /// The badge for `reason` drawn with `set`'s mark (the reason's blocked
+    /// kind included) by `StatusIconSet.image`, the drawing the sidebar uses.
+    static func png(_ reason: ProgramStatusNotification.Reason, set: StatusIconSet) -> Data? {
         let tokens = ThemeScope.app.tokens
         let scale: CGFloat = 2
         let pixels = Int(side * scale)
@@ -75,17 +79,14 @@ enum StatusNotificationImage {
         context.addPath(CGPath(roundedRect: tile, cornerWidth: side * 0.22, cornerHeight: side * 0.22, transform: nil))
         context.setFillColor(tokens.surfaceBackground.withAlpha(1).nsColor.cgColor)
         context.fillPath()
-        let indicator = StatusIndicatorLayer()
-        indicator.contentsScale = scale
-        indicator.colors = StatusIndicatorLayer.Colors(
-            loading: tokens.textSecondary.nsColor.cgColor, attention: tokens.attention.nsColor.cgColor,
-            danger: tokens.danger.nsColor.cgColor, success: tokens.success.nsColor.cgColor,
-            accent: tokens.textPrimary.nsColor.cgColor)
         let glyph = side * 0.5
-        indicator.frame = CGRect(x: (side - glyph) / 2, y: (side - glyph) / 2, width: glyph, height: glyph)
-        indicator.apply(.make(reason.indicator, style: .arc, animates: false), config: StatusIndicatorConfig(animatesLoops: false))
-        context.translateBy(x: indicator.frame.minX, y: indicator.frame.minY)
-        indicator.layer.render(in: context)
+        let kind = reason.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) }
+        let mark = ThemeScope.app.perform {
+            set.image(state: reason.indicator, kind: kind, pointSize: glyph, scale: scale, appearance: ThemeScope.app.appearance)
+        }
+        if let mark = mark?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            context.draw(mark, in: CGRect(x: (side - glyph) / 2, y: (side - glyph) / 2, width: glyph, height: glyph))
+        }
         guard let image = context.makeImage() else { return nil }
         return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
     }

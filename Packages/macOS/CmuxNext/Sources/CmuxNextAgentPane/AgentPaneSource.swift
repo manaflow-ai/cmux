@@ -41,7 +41,10 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     public var pageURL: URL {
         switch self {
         case .bundled(let page):
-            URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent)")!
+            // A file name under a literal origin; the escaped form covers names URL(string:) refuses.
+            URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent)")
+                ?? URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "")")
+                ?? URL(fileURLWithPath: "/dev/null")
         case .devServer(let url):
             url
         }

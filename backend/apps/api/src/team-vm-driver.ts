@@ -2,6 +2,7 @@ import type { SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { ProviderState } from "./domains/team-vm.ts"
 import { FakeGuest } from "./team-vm-fake-guest.ts"
+import { FakeFiles, FreestyleFiles } from "./team-vm-driver-files.ts"
 
 /**
  * The provider behind TeamVmDO (plans/cmux-next/team-vm-plan.md S2). Two calls, both idempotent:
@@ -16,8 +17,14 @@ export interface TeamVmDriver {
   lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
-  /** Pauses the VM with this provider id (memory and disk kept); a VM already paused counts as paused. */
-  pauseVm(id: string): Promise<void>
+  /**
+   * Retires the VM with this provider id: syncs a running guest's disk (best effort, bounded), spends its lifetime run budget, then pauses it (memory
+   * and disk kept; a VM already paused counts as paused). The provider resumes a paused VM on any
+   * inbound traffic (public IPv6, VPC peers, tunnels, its SSH proxy; measured cx-009a); a spent
+   * budget makes it refuse every later start, those wakes and exec included, while the files stay
+   * readable and the VM can still be deleted. Nothing in cmux raises the budget again.
+   */
+  retireVm(id: string): Promise<void>
   /**
    * Runs one command on this exact VM through the provider API (authenticated by our provider key,
    * which the guest never sees) and returns its exit code and output. Used only by the bind
@@ -26,6 +33,32 @@ export interface TeamVmDriver {
   exec(id: string, command: string, timeoutMs: number): Promise<{ readonly code: number; readonly stdout: string }>
   /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
   listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }>
+  /**
+   * The provider's file API on the VM's disk (team-vm-export.ts). It reads a paused VM without
+   * starting it, also one whose run budget is spent (measured cx-009a). Never used on a running VM.
+   */
+  readonly files: TeamVmFiles
+}
+
+export type FsKind = "file" | "directory" | "symlink" | "other"
+export interface FsStat {
+  readonly kind: FsKind
+  readonly size: number
+  /** Permission bits. */
+  readonly mode: number
+  /** Seconds since the epoch, 0 when unknown. */
+  readonly mtime: number
+  readonly owner: string
+  readonly group: string
+}
+
+export interface TeamVmFiles {
+  /** The entries of directory `path`, or null when the path does not exist (the VM itself missing is `team_vm.vm_missing`). */
+  list(id: string, path: string): Promise<ReadonlyArray<{ readonly name: string; readonly kind: FsKind }> | null>
+  /** Metadata of `path` without following a symlink's target, or null when the path does not exist. */
+  stat(id: string, path: string): Promise<FsStat | null>
+  /** The bytes of file `path` from byte `offset` on, as the provider streams them. */
+  read(id: string, path: string, offset: number, signal: AbortSignal): Promise<ReadableStream<Uint8Array>>
 }
 
 export class DriverError extends Error {
@@ -48,14 +81,21 @@ const IDLE_TIMEOUT_SECONDS = 600
 const REQUEST_TIMEOUT_MS = 20_000
 /** A create can take much longer than a wake (the web driver allows minutes); a lost answer is recovered by slug. */
 const CREATE_TIMEOUT_MS = 120_000
+/** The guest `sync` before a retire: long enough to flush a busy disk, short enough that the fence follows promptly. */
+const RETIRE_SYNC_MS = 15_000
+/** A retired VM's lifetime run budget: below the time it has already run, so the provider refuses every start. */
+const RETIRED_RUN_BUDGET_SECONDS = 1
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
 export class FreestyleDriver implements TeamVmDriver {
+  readonly files: FreestyleFiles
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string,
     private readonly snapshot: string
-  ) {}
+  ) {
+    this.files = new FreestyleFiles(apiKey, baseUrl)
+  }
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     let res: Response
@@ -139,7 +179,22 @@ export class FreestyleDriver implements TeamVmDriver {
     this.fail(gone.status, gone.json, "delete VM")
   }
 
-  async pauseVm(id: string) {
+  async retireVm(id: string) {
+    // The file API reads a paused VM's disk image, not the guest page cache (measured cx-lyvg: a
+    // file written seconds before the pause read back as 0 bytes). So a running VM syncs first,
+    // as root, bounded; a failure never holds the fence back. A paused VM is never woken for it.
+    const seen = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (seen.status === 404) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    if (seen.status === 200 && seen.json.state === "running") {
+      const synced = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/exec-await`, { command: "sync", timeoutMs: RETIRE_SYNC_MS, linuxUser: "root" }, RETIRE_SYNC_MS + 5_000)
+      if (synced.status !== 200 || synced.json.statusCode !== 0) console.warn(JSON.stringify({ msg: "team vm retire sync failed", vm: id, status: synced.status }))
+    }
+    // First the budget (1 s is always spent: the VM has run at least that long), so no packet that
+    // arrives between the pause and a later call can run it again. On a running VM the budget alone
+    // pauses it within about a second; the pause below then confirms the state.
+    const capped = await this.call("PATCH", `/v5/vms/${encodeURIComponent(id)}`, { maxRunTotalSeconds: RETIRED_RUN_BUDGET_SECONDS })
+    if (capped.status === 404) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    if (capped.status < 200 || capped.status >= 300) this.fail(capped.status, capped.json, "retire VM")
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
     if (r.status >= 200 && r.status < 300) return
     // A VM that is already paused (or stopped) may refuse the call; that is the state asked for.
@@ -177,8 +232,10 @@ export class FreestyleDriver implements TeamVmDriver {
  */
 export class FakeDriver implements TeamVmDriver {
   private readonly guest: FakeGuest
+  readonly files: FakeFiles
   constructor(private readonly sql: SqlStore) {
     this.guest = new FakeGuest(sql)
+    this.files = new FakeFiles(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, team TEXT)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
@@ -233,15 +290,27 @@ export class FakeDriver implements TeamVmDriver {
     this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
   }
 
-  async pauseVm(id: string) {
+  async retireVm(id: string) {
     this.maybeFail()
     this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`)
     if ((this.sql.exec<{ fail: number }>(`SELECT fail FROM fake_pause_ctl WHERE id = 1`)[0]?.fail ?? 0) > 0) {
       this.sql.exec(`UPDATE fake_pause_ctl SET fail = fail - 1 WHERE id = 1`)
       throw new DriverError("team_vm.provider_failed", "fake pause failure", false)
     }
-    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "pause VM: 404", true)
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_fence (id TEXT PRIMARY KEY)`)
+    this.sql.exec(`INSERT OR IGNORE INTO fake_fence (id) VALUES (?)`, id)
     this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
+  }
+
+  /**
+   * Test only: one inbound connection to `id` as the provider handles it (measured cx-009a):
+   * traffic resumes a paused VM unless its run budget is spent (`fake_fence`).
+   */
+  inbound(id: string): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_fence (id TEXT PRIMARY KEY)`)
+    if (this.sql.exec<{ id: string }>(`SELECT id FROM fake_fence WHERE id = ?`, id)[0]) return
+    this.sql.exec(`UPDATE fake_vm SET state = 'running' WHERE id = ? AND state = 'paused'`, id)
   }
 
   async exec(id: string, command: string, _timeoutMs: number) {

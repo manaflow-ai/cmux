@@ -27,7 +27,7 @@ use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     encode_stream_frame,
 };
-use cmux_remote_browser::proto::{Control, ScreenInfo, SurfaceKind, ViewerCaps};
+use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
 
 use crate::ffi::{
     RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
@@ -36,7 +36,7 @@ use crate::ffi::{
 };
 use crate::pump::{FrameEncoder, Pump, PumpOut};
 use crate::shim_ui;
-use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut};
+use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut, fork_surface_kind};
 
 const FPS: u32 = 60;
 const START_KBPS: u32 = 8000;
@@ -313,6 +313,10 @@ impl Host {
         self.send_rb(replies);
         let out = self.viewer.as_mut().map(|v| v.pump.start(now)).unwrap_or_default();
         self.apply(out);
+        // Popups still open from an earlier viewer: the new pump has none
+        // of their streams.
+        let outs = self.tab.rejoin_surfaces(&mut ShimPresentation);
+        self.surface_outs(outs);
     }
 
     fn left(&mut self) {
@@ -635,8 +639,10 @@ unsafe extern "C" fn on_surface(
     height: c_int,
 ) {
     let Ok(surface) = u32::try_from(surface) else { return };
-    // cef_cmux.h CMUX_RP_SURFACE_PAGE_POPUP; Views bubbles are not surfaces yet.
-    let kind = if kind == 1 { SurfaceKind::PagePopup } else { SurfaceKind::Bubble };
+    let Some(kind) = fork_surface_kind(kind) else {
+        eprintln!("serve: surface {surface} kind {kind} ignored");
+        return;
+    };
     let anchor = HostTab::anchor(x, y, width, height);
     eprintln!("serve: surface {surface} visible {visible} at {x},{y} {width}x{height}");
     dispatch(move |h| {

@@ -12,10 +12,17 @@ A process ends only in five ways:
 | Way | Mechanism | 2026-10 cmux examples |
 | --- | --- | --- |
 | a. A runtime-checked invariant fails | Swift traps: `x!`, IUO, `as!`, `try!`, `unowned` to a freed object, an index out of range, overflow, `precondition`/`fatalError`, `MainActor.assumeIsolated` off main, exclusivity, continuation misuse | KeyViewProxy `unowned` |
-| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
+| b. An Objective-C exception escapes Cocoa | NSRangeException, unrecognized selector, unknown KVC key, a nil from a factory annotated nonnull (it lies under concurrency: `NSFont.monospacedSystemFont` returned nil about 1 in 1000 calls when threads made and dropped the last instance, macOS 27.0.1) passed to an API that throws on nil; Swift cannot catch them | TextLayout NSRangeException (stale UTF-16 offsets on a background render), PointerHover `mouseEnteredWith:` |
 | c. Memory unsafety | C/C++/Zig/Rust FFI, unsafe pointers, a C callback into a freed object | none filed this month |
 | d. An embedded engine asserts | CEF CHECK/DCHECK, a Rust panic across FFI with abort | CEF WebAuthn DCHECK (section 1) |
 | e. Something outside kills it | jetsam/OOM, hang watchdog, launch constraints, our own scripts | Launch Constraint kills, terminal hosts ended by a reaper LaunchAgent |
+
+Rule for b (cx-qpqs): AppKit and Core Text objects that background renderers
+use (fonts first) come from process-wide caches that hold them for the life of
+the process (`HomeFonts`), and a value from a nonnull-annotated factory that
+flows into an API that throws on nil is checked as an optional first. Lint:
+ratchet class `render_font` (fonts made in place in MessagesLabHome,
+MessagesLabSidebar, CmuxHomeRender, outside a `static let`).
 
 The common root of a and b: an invariant that the type system does not hold
 is checked at run time, at a boundary with an untyped or dynamic system
@@ -40,12 +47,12 @@ reachable (e, d and hardware stay), so the program has two halves:
 | Phase | Item | State |
 | --- | --- | --- |
 | 1 | Ratchet v2: scope = CmuxNext + every package in its `.package(path:)` closure except vendor/ (the TextLayout crash was in CmuxHomeRender, outside v1's scope); BAN mode with `scripts/cmux-next/crash-allowlist.json` (path, class, count, reason, reviewer; inline crash-allow does not waive a banned class); `// main-proof:` exempts assumeIsolated; new classes `objc_selector` (BAN) and `dynamic_dispatch` (ratchet); `fatal_error` BAN | landed 58a219f944e1 (red 7e7a9c4555ac); safe-push compares the widened scope (hq scratch safe-push-ratchet.py) |
-| 1 | Swift classes to 0, then BAN per class: force_unwrap 338, iuo 61, unowned 110, as! 12, precondition 40, assumeIsolated 123 (counts in the widened scope at 406a70f2f39e) | in progress: three helpers per class (unowned + as! + precondition; assumeIsolated; iuo + force_unwrap outside CmuxNextApp), then CmuxNextApp force unwraps; Sidebar, group files and CmuxHomeRender wait for their owners |
+| 1 | Swift classes to 0, then BAN per class | BANNED: as!, fatal_error, objc_selector, assumeIsolated. Left (2026-10-09): force_unwrap 203, iuo 71, unowned 75, precondition 1 (Sidebar, after cx-rcby); helpers H3, H4 running; render_font 31 (new, cx-qpqs) |
 | 1 | NSRange/UTF-16 ban outside one TextRange module | after the TextLayout fix (cx-qpqs) lands |
 | 1 | Rust (section 6) | planned, CORE window |
-| 2 | Crash handler + crash dialog (no auto-restart, Lawrence 2026-10-08): macOS's own dialog offers Reopen at crash time; the next-launch restart notice is our crash dialog (cause in one line, Report = a prefilled GitHub issue the user reads and sends, Show Crash Log); uncaught NSException recorder (run.exception: name, reason, frames) into the report; NSApplicationCrashOnExceptions for every channel; restore from daemon state at launch as before | landing |
+| 2 | Crash handler + crash dialog (no auto-restart, Lawrence 2026-10-08): macOS's own dialog offers Reopen at crash time; the next-launch restart notice is our crash dialog (cause in one line, Report = a prefilled GitHub issue the user reads and sends, Show Crash Log); uncaught NSException recorder (run.exception: name, reason, frames) into the report; NSApplicationCrashOnExceptions for every channel; restore from daemon state at launch as before | landed 92cd7e0693cc |
 | 2 | Crash e2e: debug.crash.exception and debug.crash.app, relaunch, the notice names the cause, every terminal still live (extends scripts/cmux-next/relaunch-e2e.py) | next |
-| 3 | Fuzz, property tests, sanitizers (section 7) | planned |
+| 3 | Fuzz, property tests, sanitizers (section 7) | in progress: TextLayoutFuzzTests (found a second NSRangeException path, fixed 65db2f835c69), MobileProtocolFuzzTests (found an unbounded render-grid replay and a width overflow, fixed in the same push), `CMUX_SWIFT_SANITIZE` for package-test-lane (nightly schedule: CI lead) |
 | 4 | CEF out of process: NO-GO now (section 8) | decided, revisit on the trigger |
 
 P1b rules (chief, 2026-10-08): no behavior change except "no trap". An

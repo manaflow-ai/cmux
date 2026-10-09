@@ -42,9 +42,17 @@ fn stmt(database: &str, sql: String) -> Statement {
     Statement { database: database.to_owned(), sql }
 }
 
+/// Quotes a name this module controls: a constant or `app_<AppId>`
+/// (`AppId::parse` admits only `[a-z0-9_]`), so it is non-empty and free of
+/// NUL. Should it ever not quote, the result is `""`, a zero-length
+/// identifier that Postgres refuses: the statement fails, never runs with
+/// unquoted text, and the process does not panic.
 fn ident(name: &str) -> String {
-    quote_ident(name).expect("validated identifiers are non-empty and NUL-free")
+    quote_ident(name).unwrap_or_else(|| REFUSED_BY_POSTGRES.to_owned())
 }
+
+/// A zero-length delimited identifier: a syntax error in any statement.
+const REFUSED_BY_POSTGRES: &str = "\"\"";
 
 /// A SCRAM verifier: `SCRAM-SHA-256$<iter>:<salt>$<stored>:<server>` with
 /// base64 fields. Anything else is refused, so the value can never close the
@@ -230,7 +238,8 @@ impl PgPlan {
                 ADMIN_DATABASE,
                 format!(
                     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = {}",
-                    quote_literal(&role).expect("validated role name")
+                    // A role name from AppId never holds NUL; see `ident`.
+                    quote_literal(&role).unwrap_or_else(|| REFUSED_BY_POSTGRES.to_owned())
                 ),
             ),
         ]
@@ -247,5 +256,20 @@ impl PgPlan {
                 limits.connection_limit
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name that does not quote (empty, or holding NUL) becomes a
+    /// zero-length identifier that Postgres refuses; it never panics and
+    /// never reaches the SQL unquoted.
+    #[test]
+    fn a_name_that_does_not_quote_is_refused_by_postgres_not_a_panic() {
+        assert_eq!(ident("app_x"), "\"app_x\"");
+        assert_eq!(ident(""), "\"\"");
+        assert_eq!(ident("a\0b"), "\"\"");
     }
 }

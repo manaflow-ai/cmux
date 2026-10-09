@@ -95,7 +95,7 @@ public nonisolated struct BrowserURLResolver: Sendable {
         let port = afterColon.prefix { $0.isNumber }
         if !port.isEmpty, !afterColon.hasPrefix("//") {
             let rest = afterColon.dropFirst(port.count)
-            if rest.isEmpty || "/?#".contains(rest.first!) {
+            if rest.first.map({ "/?#".contains($0) }) ?? true {
                 return nil
             }
         }

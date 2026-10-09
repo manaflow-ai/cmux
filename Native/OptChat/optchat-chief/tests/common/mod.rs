@@ -581,6 +581,12 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+            ));
+        }
         let mut inner = self.inner.lock().unwrap();
         let system = spec
             .preset

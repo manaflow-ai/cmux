@@ -77,6 +77,7 @@ and render-server field animation, blurred header and native scrolling.
 | MarkdownStore, LongText | `isPlain`/`setPlain`: a message is plain unless HomeMapping marks it Markdown (an agent's text without mentions), so a person's text never takes the Markdown engine, also before HomeStore has it (the reducer's local send at the press) |
 | MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
 | ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
+| Compose, FlightRecorder, SwipeReply, HeaderBar, UIKitNames, ComposeAttachments, Engine, Fixture, Header, Layout, LinkPreviews, LongText, MarkdownParser, Model, Shapes, Springs, TiledBubble, Transcript, WindowView, Sidebar{Drawing,Model,View} | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs; named color spaces and UI fonts through `CrashSafeGraphics`/`SidebarCrashSafe` with stated fallbacks, an optional gradient draws nothing, a fixture that cannot load is an empty conversation |
 
 ## Updating
 

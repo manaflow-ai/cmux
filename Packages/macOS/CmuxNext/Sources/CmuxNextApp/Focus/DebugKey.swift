@@ -21,11 +21,11 @@ enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
         "l": ("l", 37), "w": ("w", 13), "t": ("t", 17), "h": ("h", 4), "j": ("j", 38), "k": ("k", 40),
-        "left": (String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123), "right": (String(UnicodeScalar(NSRightArrowFunctionKey)!), 124),
-        "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
-        "pageup": (String(UnicodeScalar(NSPageUpFunctionKey)!), 116), "pagedown": (String(UnicodeScalar(NSPageDownFunctionKey)!), 121),
-        "home": (String(UnicodeScalar(NSHomeFunctionKey)!), 115), "end": (String(UnicodeScalar(NSEndFunctionKey)!), 119),
-        "delete": ("\u{7f}", 51), "forwarddelete": (String(UnicodeScalar(NSDeleteFunctionKey)!), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
+        "left": (Shortcut.leftArrowKey, 123), "right": (Shortcut.rightArrowKey, 124),
+        "down": (Shortcut.downArrowKey, 125), "up": (Shortcut.upArrowKey, 126),
+        "pageup": (FunctionKeyCharacter.string(NSPageUpFunctionKey), 116), "pagedown": (FunctionKeyCharacter.string(NSPageDownFunctionKey), 121),
+        "home": (FunctionKeyCharacter.string(NSHomeFunctionKey), 115), "end": (FunctionKeyCharacter.string(NSEndFunctionKey), 119),
+        "delete": ("\u{7f}", 51), "forwarddelete": (FunctionKeyCharacter.string(NSDeleteFunctionKey), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
     ]
 
     /// ANSI virtual key codes, so Chromium accelerators (extension commands

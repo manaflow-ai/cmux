@@ -52,6 +52,15 @@ const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
 };
 
+// The macOS menu gesture: press the pill, drag onto a row, release to pick it.
+const pressDragRelease: Play = async (ctx) => {
+  await ctx.pointer.down({ selector: ".acpmux-project-button" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
+  await ctx.pointer.move({ selector: '[role="option"][aria-label^="relay"]' });
+  await ctx.pointer.up({ selector: '[role="option"][aria-label^="relay"]' });
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="dialog"]'));
+};
+
 const noMatches: Play = async (ctx) => {
   await open(ctx);
   await ctx.type("nothing-matches");
@@ -104,6 +113,11 @@ export default componentEntry<Props>({
         onBrowse: () => undefined,
       },
       play: open,
+    },
+    "press-drag-release": {
+      note: "Pressing the pill opens the chooser; dragging onto a project and releasing picks it and closes.",
+      props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
+      play: pressDragRelease,
     },
     "no-matches": {
       note: "A query with no results shows the quiet empty state without changing the anchor.",

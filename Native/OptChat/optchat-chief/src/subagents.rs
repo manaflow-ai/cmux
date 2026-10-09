@@ -275,18 +275,14 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
-        // A Claude session on a preset with a system prompt takes the cached
-        // layout: our one mark ends the shared view, with the turns' TTL, and
-        // Claude Code is told the same TTL (the API refuses a 1h mark after a
-        // 5m one).
-        let mark = ttl
-            .filter(|_| admitted.family == crate::acpmux::Family::Claude)
-            .filter(|_| {
-                s.preset
-                    .as_deref()
-                    .is_some_and(|p| self.agents.system_prompt(p))
-            })
-            .and_then(|ttl| crate::prompt::Mark::last_whole(view, ttl));
+        // No mark of ours in a subagent's first message: Claude Code marks
+        // its two system blocks and the last two messages of every later
+        // request in the session (each tool step), and the API takes at
+        // most 4 marks, so ours would fail the subagent's second request
+        // (Claude Code 2.1.287, measured 2026-10-08). Claude Code's own
+        // marks cache the long session step by step.
+        let _ = ttl;
+        let mark: Option<crate::prompt::Mark> = None;
         // The workspace key is chosen first, so the session starts knowing
         // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
         let key = self
@@ -315,7 +311,6 @@ impl Spawner {
             env: key
                 .iter()
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
-                .chain(mark.map(|m| ttl_env(m.ttl)))
                 .collect(),
         };
         let session = self.agents.new_session(&spec)?;
@@ -557,18 +552,6 @@ impl Spawner {
         let events = self.agents.events(&session, 0)?;
         let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
         Ok(crate::agent_chat::page(id, &text, at, page))
-    }
-}
-
-/// The session env that gives Claude Code the TTL of our mark.
-fn ttl_env(ttl: crate::prompt::CacheTtl) -> (String, String) {
-    match ttl {
-        crate::prompt::CacheTtl::OneHour => {
-            ("CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(), "1h".to_owned())
-        }
-        crate::prompt::CacheTtl::FiveMinutes => {
-            ("FORCE_PROMPT_CACHING_5M".to_owned(), "1".to_owned())
-        }
     }
 }
 
