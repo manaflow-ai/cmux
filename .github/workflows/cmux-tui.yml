@@ -671,7 +671,7 @@ jobs:
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
         # each selector.
-        run: 'cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2'
+        run: 'cargo test -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
         working-directory: cmux-tui
@@ -691,10 +691,10 @@ jobs:
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          cargo test -p cmux-tui-platform --lib \
             unix_process_scope::tests::mac_process_scope_launcher_stops_before_the_requested_program \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          cargo test -p cmux-tui-platform --lib \
             unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
             -- --exact
           # macOS always has /bin/zsh; the Linux runner has none, so this
@@ -869,7 +869,7 @@ jobs:
       - name: focused macOS journal process-fence tests
         if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+        run: cargo test -p cmux-tui-platform --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
         if: inputs.mode == 'focused'
