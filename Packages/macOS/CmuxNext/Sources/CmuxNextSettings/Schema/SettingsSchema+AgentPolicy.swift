@@ -36,6 +36,7 @@ extension SettingsSchema {
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+        .union(["agentPane.zoom"]) // display-only agent surface zoom
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
