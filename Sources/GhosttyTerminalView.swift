@@ -314,6 +314,9 @@ class GhosttyApp {
                     result.cleanupTransferredTemporaryFiles(
                         using: pasteboardService
                     )
+                },
+                fastOperation: { request in
+                    try await client.prepareFastPath(request)
                 }
             )
             return TerminalSurfaceViewFactory(

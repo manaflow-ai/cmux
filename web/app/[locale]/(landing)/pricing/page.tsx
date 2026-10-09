@@ -47,6 +47,7 @@ import {
   PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
+  ResumePlanButton,
   SecondaryLink,
   visibleCompareRows,
   visibleFaqItems,
@@ -208,6 +209,13 @@ function PricingContent({
   };
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
+  // The current plan's one action: Resume while a cancellation is scheduled,
+  // otherwise the billing portal.
+  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+    <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
+  ) : (
+    <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
+  );
   // An App Store subscriber never gets Stripe checkout for a personal plan:
   // every personal action becomes "Manage in the App Store", plus Stripe's
   // "Manage billing" while a Stripe subscription still bills them.
@@ -334,11 +342,7 @@ function PricingContent({
           >
             {appStoreAction ? appStoreAction() : isGo ? (
               <div className="space-y-2">
-                {canManageBilling ? (
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                ) : (
+                {canManageBilling ? currentPlanAction(t("go.name")) : (
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                 )}
               </div>
@@ -374,11 +378,7 @@ function PricingContent({
           ) : null
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
-          <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
-          </div>
+          <div className="space-y-2">{currentPlanAction(t("pro.name"))}</div>
         ) : (canManageBilling && !isGo) || isMax ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
@@ -401,11 +401,7 @@ function PricingContent({
         }
       >
         {appStoreAction ? appStoreAction() : isMax ? (
-          <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
-          </div>
+          <div className="space-y-2">{currentPlanAction(t("max.name"))}</div>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal">
             {t("manageBilling")}
@@ -642,6 +638,8 @@ type PlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** The Stripe subscription ends at period end; pricing offers Resume. */
+  cancelScheduled?: boolean;
 };
 
 /**
@@ -689,5 +687,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
+    cancelScheduled: status.cancelScheduled ?? false,
   };
 }
