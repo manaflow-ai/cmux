@@ -516,7 +516,7 @@ impl Fade {
             self.value = self.target;
             return false;
         }
-        let t = ease_out((self.elapsed / self.duration) as f32);
+        let t = self.token.curve().progress((self.elapsed / self.duration) as f32);
         self.value = self.from + (self.target - self.from) * t;
         true
     }
@@ -697,13 +697,46 @@ impl MotionFade {
             Self::Highlight => 1.2,
             Self::Launch => 0.24,
             // SidebarPinDragging.swift: lift.duration, settle.duration,
-            // setAnimationDuration (beginPinDrag, landPinDrag). MessagesLab
-            // runs the scales linear (a CABasicAnimation without a timing
-            // function) and the shrink on the transaction's default curve;
-            // here they share every fade's ease-out.
+            // setAnimationDuration (beginPinDrag, landPinDrag); the curves
+            // are `curve`.
             Self::PinLift => 0.15,
             Self::PinSettle => 0.25,
             Self::PinShrink => 0.22,
+        }
+    }
+}
+
+impl MotionFade {
+    /// The token's timing curve. Every fade eases out (cmux-next
+    /// `Motion.fadeCurve`) but MessagesLab's pin drag scales, which run
+    /// linear: `beginPinDrag`'s lift and `landPinDrag`'s settle are
+    /// `CABasicAnimation`s with no timing function (Core Animation paces
+    /// those linearly). `pinShrink` keeps ease-out: it is an implicit
+    /// animation in a `CATransaction` with no timing function set.
+    pub const fn curve(self) -> MotionCurve {
+        match self {
+            Self::PinLift | Self::PinSettle => MotionCurve::Linear,
+            _ => MotionCurve::EaseOut,
+        }
+    }
+}
+
+/// A timed fade's curve (`MotionFade::curve`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum MotionCurve {
+    /// Core Animation's `easeOut` (`ease_out`).
+    EaseOut,
+    /// Core Animation's `linear` (a `CABasicAnimation` without a timing function).
+    Linear,
+}
+
+impl MotionCurve {
+    /// The progress at time fraction `t` (0..=1).
+    pub fn progress(self, t: f32) -> f32 {
+        match self {
+            Self::EaseOut => ease_out(t),
+            Self::Linear => t.clamp(0., 1.),
         }
     }
 }

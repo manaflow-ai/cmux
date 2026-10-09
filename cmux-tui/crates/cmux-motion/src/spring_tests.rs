@@ -87,6 +87,35 @@ fn pin_drag_tokens_are_messages_labs() {
     );
 }
 
+/// MessagesLab runs the pin drag's lift and settle scales linear (a
+/// `CABasicAnimation` with no timing function); every other fade keeps
+/// ease-out.
+#[test]
+fn pin_lift_and_settle_are_linear_and_other_fades_ease_out() {
+    assert_eq!(MotionFade::PinLift.curve(), MotionCurve::Linear);
+    assert_eq!(MotionFade::PinSettle.curve(), MotionCurve::Linear);
+    for t in MotionFade::ALL
+        .into_iter()
+        .filter(|t| ![MotionFade::PinLift, MotionFade::PinSettle].contains(t))
+    {
+        assert_eq!(t.curve(), MotionCurve::EaseOut, "{t:?}");
+    }
+    assert_eq!(MotionCurve::Linear.progress(0.25), 0.25);
+    assert_eq!(MotionCurve::EaseOut.progress(0.25), ease_out(0.25));
+    // A lift fade at 30 % of its 0.15 s is 30 % of the way (linear); an
+    // ease-out fade at the same fraction is further.
+    let policy = MotionPolicy::default();
+    let mut lift = Fade::new(0., MotionFade::PinLift);
+    lift.set_target(1., &policy);
+    lift.step(0.045);
+    assert!((lift.value() - 0.3).abs() < 1e-5, "lift {}", lift.value());
+    let mut shrink = Fade::new(0., MotionFade::PinShrink);
+    shrink.set_target(1., &policy);
+    shrink.step(0.3 * 0.22);
+    assert!((shrink.value() - ease_out(0.3)).abs() < 1e-5, "shrink {}", shrink.value());
+    assert!(shrink.value() > 0.3);
+}
+
 #[test]
 fn spring_settles_without_visible_overshoot() {
     // PinDrag is MessagesLab's own spring (damping 0.84): its own test.
