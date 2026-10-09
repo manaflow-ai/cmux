@@ -122,7 +122,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
             return await AgentTabStore.saveAgentFolder(path, workspace: workspace, on: services.machines.daemon(forTab: tab))
         }
-        tabs.reopenChat = { [weak services] chat, folder in
+        AgentTabStore.reopenChat = { [weak services] chat, folder in
             guard let services else { return .cancelled }
             return await services.chatsOpener.reopen(chat, in: folder)
         }

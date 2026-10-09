@@ -19,7 +19,7 @@ extension AgentTabStore {
         }
         model.onChooseChatFolder = { [weak self] chat in
             guard let self, let view = views[resolve(provisional)], let url = await view.pickFolder() else { return .cancelled }
-            return await reopenChat(chat, url.path)
+            return await Self.reopenChat(chat, url.path)
         }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
@@ -55,6 +55,10 @@ extension AgentTabStore {
         guard let workspace = workspace(holding: key), let home = Self.agentHomes, AgentHome.isSafeID(workspace.id) else { return nil }
         return AgentHomeFill(home: home, workspace: workspace.id)
     }
+
+    /// Re-opens chat `key` (acpmux's chat index) in `folder` after the user picked one for a chat
+    /// whose folder is missing (ChatsOpenCoordinator.reopen, cx-nn3e.1). Set once by the app.
+    static var reopenChat: @MainActor (_ chat: String, _ folder: String) async -> AgentPaneChatFolderResult = { _, _ in .cancelled }
 
     /// `~/Library/Application Support/cmux/agent-home`, read once.
     static let agentHomes = AgentHome.standard

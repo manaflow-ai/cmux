@@ -54,9 +54,6 @@ final class AgentTabStore {
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
     /// Saves `path` as the agent folder of `workspace` (tab `key`'s), on the tab's daemon.
-    /// Re-opens chat `key` (acpmux's chat index) in `folder` after the user picked one for a chat
-    /// whose folder is missing (ChatsOpenCoordinator.reopen, cx-nn3e.1).
-    var reopenChat: @MainActor (_ chat: String, _ folder: String) async -> AgentPaneChatFolderResult = { _, _ in .cancelled }
     var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
         .unavailable(AgentPaneFolderChoice.notSavedMessage)
     }

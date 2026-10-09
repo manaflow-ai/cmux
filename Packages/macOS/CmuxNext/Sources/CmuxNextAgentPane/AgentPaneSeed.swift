@@ -44,6 +44,8 @@ public final class AgentPaneSeedSource {
     /// The seed's surface. Unlike the draft it holds for the page's whole
     /// life, after the chat has a session too.
     public private(set) var surface: AgentPaneSurface?
+    /// The missing folder this pane's chat waits for (cx-nn3e.1), until a pick works.
+    public internal(set) var folderNeeded: AgentPaneFolderNeeded?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -67,6 +69,11 @@ public final class AgentPaneSeedSource {
         let seed = value
         value?.draft = nil
         value?.prompt = nil
+        // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
+        if let needed = value?.folderNeeded {
+            folderNeeded = needed
+            value?.folderNeeded = nil
+        }
         return seed
     }
 }
