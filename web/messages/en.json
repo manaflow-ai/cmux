@@ -81,6 +81,7 @@
     "agentLoginNative": "2) Sign in natively on this VM\n   Run `%s` here. Native credentials stay on this VM.",
     "agentLoginDisplay": "Browser sign-in: open this VM's Desktop first, then run the command from a Desktop terminal so the browser callback returns to the VM.",
     "agentLoginDevice": "Codex headless sign-in: run `codex login --device-auth` and open the printed link on another device.",
+    "agentLoginConnect": "To share an account, run `%s` on your Mac.",
     "agentLoginChoice": "Choose [1/2], or press Enter to keep these instructions: ",
     "agentLoginRetry": "After signing in, run `%s` again.",
     "unsupportedAgent": "unsupported agent '%s' (choose claude, codex, opencode, pi, or hermes)",

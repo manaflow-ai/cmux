@@ -855,6 +855,40 @@ guest_agent_command() {
 # account handoff is host-owned, while native credentials remain local to the
 # VM. This is deliberately a small interactive prompt: it also works over SSH
 # and in a non-interactive terminal by printing the same actionable commands.
+guest_agent_native_mark() {
+  (umask 077; mkdir -p "\$HOME/.config/cmux/agent-auth" 2>/dev/null &&
+    : > "\$HOME/.config/cmux/agent-auth/\$1.native") 2>/dev/null || true
+}
+
+guest_agent_native_env() {
+  # A native login must not send credentials or callbacks through the
+  # VM-scoped CodeRouter route. Keep unrelated user provider settings intact.
+  if [ -n "\${CMUX_CODEROUTER_URL-}" ]; then
+    [ "\${OPENAI_BASE_URL-}" != "\${CMUX_CODEROUTER_URL%/}/v1" ] || unset OPENAI_BASE_URL
+    [ "\${ANTHROPIC_BASE_URL-}" != "\${CMUX_CODEROUTER_URL%/}" ] || unset ANTHROPIC_BASE_URL
+    case "\${OPENAI_API_KEY-}" in cmux-vm-edge-placeholder|e30.*coderouter*) unset OPENAI_API_KEY ;; esac
+    case "\${ANTHROPIC_API_KEY-}" in cmux-vm-edge-placeholder|e30.*coderouter*) unset ANTHROPIC_API_KEY ;; esac
+    unset CMUX_CODEROUTER_URL
+  fi
+}
+
+guest_agent_native_login() (
+  guest_agent_native_mark "\$1"
+  guest_agent_native_env
+  case "\$1" in
+    codex)
+      if [ "\$2" = --device-auth ]; then command codex login --device-auth
+      elif [ -n "\${DISPLAY-}\${WAYLAND_DISPLAY-}" ]; then CMUX_BROWSER_TARGET=vm command codex login
+      else command codex login --device-auth
+      fi
+      ;;
+    claude) command claude ;;
+    opencode) command opencode auth login ;;
+    pi) command pi ;;
+    hermes) command hermes login ;;
+  esac
+)
+
 guest_agent_login() {
   cmux_login_agent="\${1:-}"
   [ -n "\$cmux_login_agent" ] || { cmux_message agentLoginUsage >&2; return 2; }
@@ -878,6 +912,15 @@ guest_agent_login() {
     esac
     shift
   done
+  if [ "\$cmux_login_native" -eq 1 ] || [ "\$cmux_login_device" -eq 1 ]; then
+    if [ "\$cmux_login_device" -eq 1 ]; then
+      [ "\$cmux_login_agent" = codex ] || { cmux_message agentLoginUsage >&2; return 2; }
+      guest_agent_native_login codex --device-auth
+      return "\$?"
+    fi
+    guest_agent_native_login "\$cmux_login_agent"
+    return "\$?"
+  fi
   case "\$cmux_login_agent" in
     codex) cmux_login_native_command='codex login' ;;
     claude) cmux_login_native_command='claude' ;;
@@ -893,8 +936,6 @@ guest_agent_login() {
     cmux_message agentLoginDevice >&2
   fi
   cmux_message agentLoginRetry "\$cmux_login_native_command" >&2
-  if [ "\$cmux_login_native" -eq 1 ]; then return 2; fi
-  if [ "\$cmux_login_device" -eq 1 ]; then return 2; fi
   if [ -t 0 ] && [ -t 1 ]; then
     printf '%s' "\$(cmux_message agentLoginChoice)" >&2
     IFS= read -r cmux_login_choice || cmux_login_choice=""
@@ -903,17 +944,11 @@ guest_agent_login() {
       2)
         case "\$cmux_login_agent" in
           codex)
-            if [ -n "\${DISPLAY-}" ] && [ -n "\${CMUX_TUI_TERMINAL_ID-}" ]; then
-              command codex login
-            else
-              command codex login --device-auth
-            fi
-            return "\$?"
-            ;;
-          claude) command claude ;;
-          opencode) command opencode auth login ;;
-          pi) command pi ;;
-          hermes) command hermes login ;;
+            guest_agent_native_login codex
+            return "\$?" ;;
+          claude|opencode|pi|hermes)
+            guest_agent_native_login "\$cmux_login_agent"
+            return "\$?" ;;
         esac
         return "\$?"
         ;;

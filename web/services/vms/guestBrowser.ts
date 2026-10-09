@@ -16,6 +16,15 @@ if ! printf '%s' "$url" | jq -Rse 'length <= 16384 and test("^[Hh][Tt][Tt][Pp][S
   cmux_message openURLInvalid >&2
   exit 2
 fi
+if [ "\${CMUX_BROWSER_TARGET:-}" = vm ]; then
+  # Codex's loopback OAuth callback belongs to this VM. Never fall back to
+  # opening it on the Mac when the VM browser/display is unavailable.
+  if [ -n "\${DISPLAY:-}\${WAYLAND_DISPLAY:-}" ] && [ -x /usr/bin/google-chrome ]; then
+    exec /usr/bin/google-chrome --no-sandbox --new-window "$url"
+  fi
+  cmux_message openURLFallback "$url"
+  exit 1
+fi
 terminal="\${CMUX_TUI_TERMINAL_ID:-}"
 session="\${CMUX_TUI_SESSION:-cloud}"
 binary="\${CMUX_TUI_BIN:-/usr/local/bin/cmux-tui}"

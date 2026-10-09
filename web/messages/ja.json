@@ -81,6 +81,7 @@
     "agentLoginNative": "2) このマシンで直接サインインする\n   ここで `%s` を実行してください。認証情報はこのマシンに保存されます。",
     "agentLoginDisplay": "ブラウザーでサインインする場合: 先にこのマシンの Desktop を開き、Desktop のターミナルからコマンドを実行してください。ブラウザーのコールバックがこのマシンに戻れるようにします。",
     "agentLoginDevice": "Codex をヘッドレスでサインインする場合: `codex login --device-auth` を実行し、表示されたリンクを別のデバイスで開いてください。",
+    "agentLoginConnect": "アカウントを共有するには、Mac で `%s` を実行してください。",
     "agentLoginChoice": "[1/2] を選択するか、Enter でこの説明を残します: ",
     "agentLoginRetry": "サインイン後、もう一度 `%s` を実行してください。",
     "unsupportedAgent": "エージェント「%s」は対応していません（claude、codex、opencode、pi、hermes から選択してください）",

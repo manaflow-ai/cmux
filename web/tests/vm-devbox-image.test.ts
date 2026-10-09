@@ -935,12 +935,16 @@ describe("devbox image template", () => {
       expect(device.status).toBe(0);
       expect(device.stdout.toString()).toContain("login --device-auth");
 
+      // A VM display is enough for the native browser callback; the old
+      // terminal-id requirement forwarded this loopback URL to the Mac.
       const browser = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; codex login`], {
         env: { ...baseEnv, DISPLAY: ":1" },
       });
-      expect(browser.status).toBe(1);
-      expect(browser.stderr.toString()).toContain("cmux agent login codex");
-      expect(browser.stdout.toString()).not.toContain("codex ");
+      expect(browser.status).toBe(0);
+      expect(browser.stdout.toString()).toContain(" login\n");
+      // The browser login choice is persisted for later launches. Clear it so
+      // the following routed-account assertion still exercises discovery.
+      rmSync(path.join(home, ".config/cmux/agent-auth/codex.native"), { force: true });
 
       writeFileSync(path.join(bin, "curl"), `#!/bin/sh
 out=""
