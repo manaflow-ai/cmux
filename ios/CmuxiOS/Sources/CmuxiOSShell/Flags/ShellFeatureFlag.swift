@@ -25,10 +25,13 @@ public enum ShellFeatureFlag: String, CaseIterable, Hashable, Sendable {
     /// the Mac's power assertion behind `KeepAwakeControl`.
     case keepAwake
 
-    /// On in DEBUG so lanes see their tab; off in Release until the lane ships.
+    /// The core tabs are shipped surfaces and must be available in a release
+    /// build even when remote configuration is unavailable. Remote config and
+    /// the launch environment can still disable them for a staged rollout.
     public func defaultValue(isDebug: Bool) -> Bool {
+        _ = isDebug
         switch self {
-        case .feedTab, .workspacesTab, .composeTab, .hostsTab, .searchTab, .cloudTab: isDebug
+        case .feedTab, .workspacesTab, .composeTab, .hostsTab, .searchTab, .cloudTab: true
         case .iPadSidebar: true
         case .billing, .cloudOnboarding, .cloudWorkspaces, .keepAwake: false
         }

@@ -34,7 +34,7 @@ import Testing
         let store = FeatureFlagStore(environment: [:], defaults: defaults(), isDebug: false)
         store.applyRemote(RemoteConfig(flags: ["composeTab": .bool(true)]))
         store.applyRemote(.empty)
-        #expect(!store.isEnabled(.composeTab))
+        #expect(store.isEnabled(.composeTab))
         #expect(store.layer(.composeTab) == .buildDefault)
     }
 }

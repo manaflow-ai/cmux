@@ -9,9 +9,9 @@ import Testing
         return UserDefaults(suiteName: name)!
     }
 
-    @Test func releaseHidesUnfinishedTabs() {
+    @Test func releaseShowsShippedCoreTabs() {
         let store = FeatureFlagStore(environment: [:], defaults: defaults(), isDebug: false)
-        #expect(store.visibleTabs == [.home, .settings])
+        #expect(store.visibleTabs == [.home, .feed, .workspaces, .compose, .hosts, .search, .cloud, .settings])
     }
 
     @Test func debugShowsEveryTabInOrder() {
@@ -30,11 +30,11 @@ import Testing
         let store = FeatureFlagStore(environment: [:], defaults: defaults(), isDebug: false)
         var changes = 0
         store.onChange = { changes += 1 }
-        store.set(.hostsTab, enabled: true)
-        store.set(.hostsTab, enabled: true)
-        #expect(store.visibleTabs == [.home, .hosts, .settings])
+        store.set(.hostsTab, enabled: false)
+        store.set(.hostsTab, enabled: false)
+        #expect(store.visibleTabs == [.home, .feed, .workspaces, .compose, .search, .cloud, .settings])
         store.reset(.hostsTab)
-        #expect(!store.isEnabled(.hostsTab))
+        #expect(store.isEnabled(.hostsTab))
         #expect(changes == 2)
     }
 

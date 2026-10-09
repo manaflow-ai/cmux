@@ -1,8 +1,7 @@
 import Foundation
 
 /// The root destinations, in tab order. Home is always first and Settings
-/// always last; the feature tabs are behind feature flags until their
-/// lanes ship.
+/// always last; remote and device flags can stage any feature tab.
 public enum ShellTab: String, CaseIterable, Hashable, Sendable {
     case home
     case feed
