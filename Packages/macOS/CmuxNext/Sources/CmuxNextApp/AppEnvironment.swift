@@ -111,6 +111,11 @@ struct AppEnvironment: Sendable {
             resourcesDirectory: GhosttyRuntime.resourcesDirectory(environment: environment),
             version: GhosttyRuntime.version
         )
-        return ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
+        var terminal = ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
+        // `cmux chief` in this app's terminals opens this app's Chief: its
+        // isolation markers are the app's own environment, which terminals
+        // do not inherit (schemas/chief-home/vectors.json).
+        terminal["CMUX_CHIEF_HOME"] = ChiefHome.resolve(tag: launch.tag, environment: environment).root.path
+        return terminal
     }
 }

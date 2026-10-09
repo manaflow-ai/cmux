@@ -134,19 +134,49 @@ struct GlobalHotKeyServiceTests {
         #expect(service.conflicts == ["second"])
     }
 
-    @Test func quickAgentChatRegistersControlOptionCommandSpace() {
+    /// Start Agent from Any App (Ctrl-Opt-Cmd-Space) takes the system-wide
+    /// key only while `app.startAgentGlobalHotKey` is on (off by default,
+    /// cx-hkat); Start Agent itself never registers one.
+    @Test func startAgentFromAnyAppWaitsForItsSetting() {
         let registry = ActionRegistry.standard()
         var runs = 0
-        registry.bind("palette.quickAgentChat") { runs += 1 }
+        registry.bind("palette.quickAgentChat") {}
+        registry.bind("palette.startAgentFromAnyApp") { runs += 1 }
         let registrar = FakeRegistrar()
-        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_Space), modifiers: controlOptionCommand)
+
+        let byDefault = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        byDefault.start()
+        #expect(registrar.held.isEmpty)
+        byDefault.stop()
+
+        var enabled = false
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi },
+                                          startAgentEnabled: { enabled })
         service.start()
         defer { service.stop() }
-
-        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_Space), modifiers: controlOptionCommand)
+        #expect(registrar.held.isEmpty)
+        enabled = true
+        service.apply()
         #expect(Array(registrar.held.values) == [hotKey])
         registrar.press(hotKey)
         #expect(runs == 1)
+        enabled = false
+        service.apply()
+        #expect(registrar.held.isEmpty)
+    }
+
+    /// A key another app holds is a conflict the Keyboard Shortcuts page marks.
+    @Test func startAgentFromAnyAppHeldByAnotherAppIsAConflict() {
+        let registry = ActionRegistry.standard()
+        registry.bind("palette.startAgentFromAnyApp") {}
+        let registrar = FakeRegistrar()
+        registrar.refused = [CarbonHotKey(keyCode: UInt32(kVK_Space), modifiers: controlOptionCommand)]
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi },
+                                          startAgentEnabled: { true })
+        service.start()
+        defer { service.stop() }
+        #expect(service.conflicts == ["palette.startAgentFromAnyApp"])
     }
 
     @Test func aKeyRefusedToTheFirstActionIsStillTriedForALaterOne() {
