@@ -1,7 +1,7 @@
 // The gallery's stage and controls: a stage is an iframe of frame.html under the controls (in
 // window mode the real-size window, scaled down by one transform); the controls edit the URL
 // contract (env.ts). A developer tool: its own labels are English, like the native gallery's.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_ENV,
   DENSITIES,
@@ -141,6 +141,51 @@ export function Stage({
   const [run, setRun] = useState(0);
   const [report, setReport] = useState<PlayReport | undefined>();
   const hasPlay = Boolean(entry.variants[state]?.play);
+  const note = entry.variants[state]?.note;
+  // Component entries have their own natural bounds. Keep the window frame for page entries,
+  // but never make a component preview inherit the 16:9 window's scale.
+  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
+  let frame: { width: number; height: number };
+  let scale = 1;
+  if (windowed) {
+    // The surface lays out at the real size of its pane in that window; one transform scales the
+    // finished surface, so its aspect ratio, text and spacing stay as the user sees them.
+    frame = entryPaneSize(env.window, env.layout, env.density, metrics);
+    const thumbnailWidth = Math.min(THUMBNAIL_WIDTH, available.width);
+    scale = thumbnail ? thumbnailWidth / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
+  } else {
+    // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
+    frame = {
+      width: widthPx(env.width, entry.widths ?? (entry.host === "native" ? NATIVE_WIDTHS : WIDTHS)),
+      height: env.height || stageHeight(entry, state),
+    };
+    scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
+  }
+  const frameWidth = frame.width;
+  const frameHeight = frame.height;
+  type FrameState = { query: string; run: number; frame: { width: number; height: number }; scale: number };
+  const [display, setDisplay] = useState<FrameState>({ query, run, frame, scale });
+  const [pending, setPending] = useState<FrameState>();
+  const promotion = useRef(0);
+  const pendingRef = useRef<FrameState | undefined>(undefined);
+  pendingRef.current = pending;
+  useEffect(() => {
+    const requested = { query, run, frame: { width: frameWidth, height: frameHeight }, scale };
+    if (display.query === query && display.run === run) {
+      setDisplay((current) => ({ ...current, frame: requested.frame, scale }));
+      setPending(undefined);
+      return;
+    }
+    setPending((current) =>
+      current?.query === requested.query &&
+      current.run === requested.run &&
+      current.frame.width === frameWidth &&
+      current.frame.height === frameHeight &&
+      current.scale === scale
+        ? current
+        : requested,
+    );
+  }, [display.query, display.run, frameHeight, frameWidth, query, run, scale]);
   const frameRef = useCallback((iframe: HTMLIFrameElement | null) => {
     if (!iframe) return;
     const scrollTarget = scrollTargetFor(iframe);
@@ -232,39 +277,53 @@ export function Stage({
       removeIntentListeners();
     };
     const receive = (event: MessageEvent) => {
-      const data = event.data as { type?: string; status?: string; report?: PlayReport } | null;
-      if (event.source !== iframe.contentWindow) return;
+      const data = event.data as { type?: string; report?: PlayReport; status?: string } | null;
+      const query = iframe.dataset.galleryQuery;
+      const run = Number(iframe.dataset.galleryRun);
+      if (event.source !== iframe.contentWindow || !query || !Number.isFinite(run)) return;
       if (data?.type === "cmux-gallery-play") setReport(data.report);
       if (data?.type === "cmux-gallery-stage" && (data.status === "ready" || data.status === "error")) {
         restore();
+        const pending = pendingRef.current;
+        if (!pending || pending.query !== query || pending.run !== run) return;
+        const token = ++promotion.current;
+        requestAnimationFrame(() => {
+          if (token !== promotion.current) return;
+          const current = pendingRef.current;
+          if (!current || current.query !== query || current.run !== run) return;
+          pendingRef.current = undefined;
+          setDisplay(current);
+          setPending(undefined);
+        });
       }
     };
     addEventListener("message", receive);
     return () => {
       removeEventListener("message", receive);
       removeIntentListeners();
+      promotion.current += 1;
     };
   }, []);
-  const note = entry.variants[state]?.note;
-  // Component entries have their own natural bounds. Keep the window frame for page entries,
-  // but never make a component preview inherit the 16:9 window's scale.
-  const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
-  let frame: { width: number; height: number };
-  let scale = 1;
-  if (windowed) {
-    // The surface lays out at the real size of its pane in that window; one transform scales the
-    // finished surface, so its aspect ratio, text and spacing stay as the user sees them.
-    frame = entryPaneSize(env.window, env.layout, env.density, metrics);
-    const thumbnailWidth = Math.min(THUMBNAIL_WIDTH, available.width);
-    scale = thumbnail ? thumbnailWidth / frame.width : env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
-  } else {
-    // The pane's width; the interface scale zooms the page inside it, as pageZoom does.
-    frame = {
-      width: widthPx(env.width, entry.widths ?? (entry.host === "native" ? NATIVE_WIDTHS : WIDTHS)),
-      height: env.height || stageHeight(entry, state),
-    };
-    scale = env.zoom === "fit" ? fitScale(frame, available) : env.zoom;
-  }
+  const shown = display;
+  const next = pending;
+  const iframe = (content: typeof shown, hidden: boolean) => (
+    <iframe
+      key={`${content.run}:${content.query}`}
+      ref={frameRef}
+      data-gallery-query={content.query}
+      data-gallery-run={content.run}
+      title={`${entry.id} ${state}`}
+      src={`frame.html?${content.query}`}
+      style={{
+        width: content.frame.width,
+        height: content.frame.height,
+        transform: `scale(${content.scale})`,
+        background: "var(--g-bg)",
+        ...(hidden ? { position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" } : {}),
+      }}
+      loading="lazy"
+    />
+  );
   return (
     <figure className="gallery-stage">
       <figcaption>
@@ -299,15 +358,12 @@ export function Stage({
           </span>
         )}
       </figcaption>
-      <div className="gallery-window" style={{ width: frame.width * scale, height: frame.height * scale }}>
-        <iframe
-          key={run}
-          ref={frameRef}
-          title={`${entry.id} ${state}`}
-          src={`frame.html?${query}`}
-          style={{ width: frame.width, height: frame.height, transform: `scale(${scale})` }}
-          loading="lazy"
-        />
+      <div
+        className="gallery-window"
+        style={{ width: shown.frame.width * shown.scale, height: shown.frame.height * shown.scale }}
+      >
+        {iframe(shown, false)}
+        {next && iframe(next, true)}
       </div>
     </figure>
   );
