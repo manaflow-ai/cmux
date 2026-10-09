@@ -75,6 +75,7 @@ struct OffMainNotificationTests {
         PointerHover.setDebugPointer(NSPoint(x: 40, y: 30), in: window)
         #expect(PointerHover.debugPointers[ObjectIdentifier(window)] != nil)
 
+        // global-notice-allow: deliberate off-main post on the real center to prove the app observer hops to main (crash-elimination P1b); AppKit's own observers of it can trap (#18815)
         await postOffMain(NSWindow.willCloseNotification, object: window, on: .default)
         await waitOnMain { PointerHover.debugPointers[ObjectIdentifier(window)] == nil }
         #expect(PointerHover.debugPointers[ObjectIdentifier(window)] == nil)
@@ -95,6 +96,7 @@ struct OffMainNotificationTests {
         PointerHover.debugPointers[ObjectIdentifier(window)] = .init(point: NSPoint(x: 40, y: 30), mouse: NSEvent.mouseLocation)
         #expect(!hover.isHovering)
 
+        // global-notice-allow: deliberate off-main post on the real center to prove the app observer hops to main (crash-elimination P1b); AppKit's own observers of it can trap (#18815)
         await postOffMain(NSWindow.didBecomeKeyNotification, object: window, on: .default)
         await waitOnMain { hover.isHovering }
         #expect(hover.isHovering)
@@ -115,6 +117,7 @@ struct OffMainNotificationTests {
         let before = log.calls
 
         await postOffMain(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil,
+                          // global-notice-allow: deliberate off-main post on the real center to prove the app observer hops to main (crash-elimination P1b); AppKit's own observers of it can trap (#18815)
                           on: NSWorkspace.shared.notificationCenter)
         await waitOnMain { log.calls > before }
         #expect(log.calls > before)

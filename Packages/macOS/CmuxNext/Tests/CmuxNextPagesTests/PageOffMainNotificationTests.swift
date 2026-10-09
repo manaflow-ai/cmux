@@ -5,6 +5,7 @@ import WebKit
 @testable import CmuxNextPages
 
 /// Posts `name` from a background thread and returns when the post returned.
+// global-notice-allow: deliberate off-main post on the real center to prove the app observer hops to main (crash-elimination P1b); AppKit's own observers of it can trap (#18815)
 private func postOffMain(_ name: Notification.Name, object: AnyObject?, on center: NotificationCenter = .default) async {
     let post = OffMainPost(name: name, object: object, center: center)
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in

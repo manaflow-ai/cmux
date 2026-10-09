@@ -14,6 +14,7 @@ import Testing
     /// Posts `name` from a detached thread, then waits one main-queue turn,
     /// which runs after any hop the observer enqueued.
     private func postFromBackground(_ name: Notification.Name, object: (any Sendable)? = nil,
+                                    // global-notice-allow: deliberate off-main post on the real center to prove the app observer hops to main (crash-elimination P1b); AppKit's own observers of it can trap (#18815)
                                     on center: NotificationCenter = .default) async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             Thread.detachNewThread {
