@@ -50,8 +50,10 @@ import Testing
         #expect(!window.isKeyWindow)
         let down = try mouse(.leftMouseDown, at: point, in: window)
         #expect(hit.acceptsFirstMouse(for: down), "the first click on a background window switches the space")
-        window.sendEvent(down)
-        window.sendEvent(try mouse(.leftMouseUp, at: point, in: window))
+        // The window is never put on screen, so AppKit's own dispatch is not used here: the view
+        // the window would deliver the click to gets the press and the release.
+        hit.mouseDown(with: down)
+        hit.mouseUp(with: try mouse(.leftMouseUp, at: point, in: window))
         #expect(view.model.activeProfileID == ProfileKey("s2"), "now \(String(describing: view.model.activeProfileID))")
     }
 }
