@@ -150,6 +150,7 @@ mod remote_relay;
 use remote_relay::handle_connection_message;
 mod cmd_attach;
 mod cmd_panes;
+mod cmd_profiles;
 mod cmd_screens;
 mod cmd_sizing;
 mod cmd_tabs;
@@ -5985,7 +5986,7 @@ fn handle_command_with_cancellation(
             marked_unread,
             mutation,
         ),
-        Command::ListPersonal => personal::list(mux),
+        Command::ListPersonal => cmd_profiles::list_personal(mux),
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
@@ -6041,20 +6042,18 @@ fn handle_command_with_cancellation(
             default_session_id,
             defaults,
             follows,
-        } => personal::create_profile(
+        } => cmd_profiles::create_profile(
             mux,
-            crate::workspace_registry::ProfileInput {
-                id: profile,
-                name,
-                color,
-                icon,
-                theme,
-                index,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-                follows,
-            },
+            name,
+            profile,
+            color,
+            icon,
+            theme,
+            index,
+            browser_profile_id,
+            default_session_id,
+            defaults,
+            follows,
         ),
         Command::UpdateProfile {
             profile,
@@ -6065,25 +6064,23 @@ fn handle_command_with_cancellation(
             browser_profile_id,
             default_session_id,
             defaults,
-        } => personal::update_profile(
+        } => cmd_profiles::update_profile(
             mux,
-            &profile,
-            crate::workspace_registry::ProfileUpdate {
-                name,
-                color,
-                icon,
-                theme,
-                browser_profile_id,
-                default_session_id,
-                defaults,
-            },
+            profile,
+            name,
+            color,
+            icon,
+            theme,
+            browser_profile_id,
+            default_session_id,
+            defaults,
         ),
-        Command::MoveProfile { profile, index } => personal::move_profile(mux, &profile, index),
+        Command::MoveProfile { profile, index } => cmd_profiles::move_profile(mux, profile, index),
         Command::DeleteProfile { profile, move_to } => {
-            personal::delete_profile(mux, client, &profile, move_to.as_deref())
+            cmd_profiles::delete_profile(mux, client, profile, move_to)
         }
         Command::SetProfileFollows { profile, session_ids } => {
-            personal::set_profile_follows(mux, &profile, &session_ids)
+            cmd_profiles::set_profile_follows(mux, profile, session_ids)
         }
         Command::PinWorkspace { session_id, workspace_key, profile } => {
             cmd_workspaces::pin_workspace(mux, session_id, workspace_key, profile)
@@ -6098,44 +6095,33 @@ fn handle_command_with_cancellation(
             transport,
             capabilities,
             follow_with,
-        } => personal::put_session(
+        } => cmd_profiles::put_session(
             mux,
-            &session_id,
-            machine_name.as_deref(),
-            session_name.as_deref(),
-            &transport,
-            capabilities.as_ref(),
-            follow_with.as_deref(),
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            capabilities,
+            follow_with,
         ),
         Command::ForgetSession { session_id, force } => {
-            personal::forget_session(mux, &session_id, force)
+            cmd_profiles::forget_session(mux, session_id, force)
         }
         Command::ImportSessionOrganization { session_id, groups, workspaces } => {
-            personal::import_session_organization(mux, &session_id, groups, workspaces)
+            cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
         }
         Command::CreatePersonalGroup { name, group, profile, color, collapsed, index } => {
-            personal::create_group(
-                mux,
-                group,
-                profile.as_deref(),
-                &name,
-                color.as_deref(),
-                collapsed,
-                index,
-            )
+            cmd_profiles::create_personal_group(mux, name, group, profile, color, collapsed, index)
         }
         Command::UpdatePersonalGroup { group, name, color, collapsed, profile } => {
-            personal::update_group(
-                mux,
-                &group,
-                name.as_deref(),
-                color,
-                collapsed,
-                profile.as_deref(),
-            )
+            cmd_profiles::update_personal_group(mux, group, name, color, collapsed, profile)
         }
-        Command::DeletePersonalGroup { group } => personal::delete_group(mux, client, &group),
-        Command::MovePersonalGroup { group, index } => personal::move_group(mux, &group, index),
+        Command::DeletePersonalGroup { group } => {
+            cmd_profiles::delete_personal_group(mux, client, group)
+        }
+        Command::MovePersonalGroup { group, index } => {
+            cmd_profiles::move_personal_group(mux, group, index)
+        }
         Command::SetPersonalWorkspace {
             session_id,
             workspace_key,
@@ -6143,19 +6129,17 @@ fn handle_command_with_cancellation(
             group,
             browser_profile_id,
             theme,
-        } => personal::set_workspace(
+        } => cmd_profiles::set_personal_workspace(
             mux,
-            &session_id,
-            &workspace_key,
-            crate::workspace_registry::PersonalWorkspaceUpdate {
-                index,
-                group,
-                browser_profile_id,
-                theme,
-            },
+            session_id,
+            workspace_key,
+            index,
+            group,
+            browser_profile_id,
+            theme,
         ),
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
-            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+            cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
         }
         Command::ListWorkspaceGroups => cmd_workspaces::list_workspace_groups(mux),
         Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
