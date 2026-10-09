@@ -574,7 +574,7 @@ final class AppContainer {
         home?.stop()
         homeAccount = account.userID
         let source: any HomeSource
-        if !isDemo, let base = Self.cloudAPIBaseURL(), let identity {
+        if !isDemo, let base = Self.cloudAPIBaseURL(production: auth.composition.authEnvironment == .production), let identity {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
             let coordinator = auth.coordinator
             let credentials = AppCloudCredentials(identity: identity,
