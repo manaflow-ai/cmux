@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { closeFileSearch, FilesSidebarBackdrop, shouldDismissFileSearch } from "../src/App";
+import { closeFileSearch, shouldDismissFileSearch } from "../src/App";
+import { FilesSidebarBackdrop } from "../src/diff-viewer/FilesSidebar";
 import { JumpToFilePalette } from "../src/DiffToolbar";
 import { JUMP_ROW_CAP, jumpToFileRows } from "../src/toolbar-model";
 import type { DiffItem } from "../src/diff-stream";
