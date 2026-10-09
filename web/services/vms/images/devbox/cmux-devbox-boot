@@ -169,7 +169,11 @@ recover_rebooted_daemon_state() {
   case "$current_boot_id" in
     ""|*[!A-Za-z0-9-]*) return 0 ;;
   esac
-  [ "$boot_id_recovered" = "$current_boot_id" ] && return 0
+  # The template park command removes the marker while this supervisor stays
+  # alive for the snapshot. Recreate it even when the in-memory boot ID is
+  # unchanged so a resumed clone has a predecessor marker before its first
+  # real reboot.
+  [ "$boot_id_recovered" = "$current_boot_id" ] && [ -e "$BOOT_ID_FILE" ] && return 0
   previous_boot_id=$(cat "$BOOT_ID_FILE" 2>/dev/null || true)
   if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
     session_state="$REMOTE_STATE_DIR/sessions/$REMOTE_SESSION_COMPONENT"

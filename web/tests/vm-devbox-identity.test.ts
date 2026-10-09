@@ -193,12 +193,26 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
           `BOOT_ID_FILE='${bootFile}' BOOT_ID_SOURCE='${bootSource}' REMOTE_STATE_DIR='${state}' REMOTE_SESSION_COMPONENT='Y2xvdWQ'`,
           functionBody,
           "recover_rebooted_daemon_state",
-        ].join("\n")], { timeout: 5_000 });
+        ].join("\n")], { timeout: 15_000 });
 
       const missingOutcome = await runRecovery();
       expect({ status: missingOutcome.status, stderr: missingOutcome.stderr }).toEqual({ status: 0, stderr: "" });
       expect(existsSync(path.join(session, "runtime.json"))).toBe(false);
       expect(existsSync(path.join(session, "shutdown.json"))).toBe(false);
+      expect(readFileSync(bootFile, "utf8")).toBe("new-boot\n");
+
+      writeFileSync(path.join(session, "runtime.json"), "runtime");
+      rmSync(path.join(session, "shutdown.json"), { force: true });
+      writeFileSync(bootFile, "old-boot\n");
+      const markerRecreated = await runChild("sh", ["-c", [
+        `BOOT_ID_FILE='${bootFile}' BOOT_ID_SOURCE='${bootSource}' REMOTE_STATE_DIR='${state}' REMOTE_SESSION_COMPONENT='Y2xvdWQ'`,
+        functionBody,
+        "recover_rebooted_daemon_state",
+        `rm -f '${bootFile}'`,
+        "recover_rebooted_daemon_state",
+      ].join("\n")], { timeout: 15_000 });
+      expect(markerRecreated.status).toBe(0);
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(false);
       expect(readFileSync(bootFile, "utf8")).toBe("new-boot\n");
 
       writeFileSync(path.join(session, "runtime.json"), "runtime");
@@ -245,7 +259,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });
 
 // The private-network announce (services/vms/images/network.ts): the VPC
