@@ -2046,12 +2046,19 @@ fn a_transient_probe_error_posts_no_notice_and_is_retried() {
     assert_eq!(probe_notice(CompactRoute::Acpmux, network), None);
     assert_eq!(probe_retry_wait(network, 0), Some(Duration::from_secs(1)));
     assert_eq!(probe_retry_wait(network, 3), Some(Duration::from_secs(8)));
-    assert_eq!(probe_retry_wait(network, 20), Some(Duration::from_secs(120)));
+    assert_eq!(
+        probe_retry_wait(network, 20),
+        Some(Duration::from_secs(120))
+    );
     let exhausted = "API error: 503 no non-exhausted claude accounts available (retry after 300s)";
-    assert_eq!(probe_retry_wait(exhausted, 0), Some(Duration::from_secs(120)));
+    assert_eq!(
+        probe_retry_wait(exhausted, 0),
+        Some(Duration::from_secs(120))
+    );
     let lost = "the acpmux connection was lost during a compactor call";
     assert!(probe_retry_wait(lost, 0).is_some());
-    let login = "the compactor model: Unable to validate model: Could not resolve authentication method";
+    let login =
+        "the compactor model: Unable to validate model: Could not resolve authentication method";
     assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
     assert_eq!(probe_retry_wait(login, 0), None);
 }
