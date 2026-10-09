@@ -187,7 +187,10 @@ final class SidebarRegionView: NSView {
                 place(view, row.frame)
             }
         }
-        for (id, view) in itemViews where !liveItems.contains(id) {
+        // A dragged item's view owns the press (AppKit sends it the drags
+        // and the release): it stays, hidden, while a preview leaves it out.
+        let pressed = Set((reorder?.hidden ?? []).map(ObjectIdentifier.init))
+        for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
             itemViews[id] = nil
         }
