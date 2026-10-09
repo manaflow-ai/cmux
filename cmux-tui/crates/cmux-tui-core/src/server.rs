@@ -127,6 +127,8 @@ mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
+mod resource_trust;
+use resource_trust::trusted_local_resource_client;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -7317,23 +7319,6 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::StreamCancel
             | ResourceOperation::OriginConfirmationIssue
     ) || conversation_resource::handles(operation)
-}
-
-fn trusted_local_resource_client(
-    mux: &Mux,
-    client: u64,
-    operation: ResourceOperation,
-) -> Result<(), ResourceError> {
-    if mux.control_clients.is_unix(client) {
-        Ok(())
-    } else {
-        let operation = operation.wire_name().to_owned();
-        Err(ResourceError::operation_failed(
-            operation,
-            "operation requires a trusted local connection",
-            json!({"required_authority":"trusted_local"}),
-        ))
-    }
 }
 
 fn handle_resource_session_shutdown(
