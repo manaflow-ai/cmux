@@ -376,8 +376,16 @@ fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
 #[test]
 fn a_brain_gets_the_harness_logins_and_nothing_else() {
     use super::launch::brain_env_allowed;
-    for name in ["HOME", "CLAUDE_CODE_OAUTH_TOKEN", "CODEX_HOME", "ANTHROPIC_BASE_URL", "LC_ALL",
-                 "MUX_HARNESS", "OPTCHAT_CHIEF_HARNESS", "CMUX_MCP_COMMAND"] {
+    for name in [
+        "HOME",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CODEX_HOME",
+        "ANTHROPIC_BASE_URL",
+        "LC_ALL",
+        "MUX_HARNESS",
+        "OPTCHAT_CHIEF_HARNESS",
+        "CMUX_MCP_COMMAND",
+    ] {
         assert!(brain_env_allowed(name), "{name}");
     }
     for name in ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DYLD_INSERT_LIBRARIES", "PWD"] {
