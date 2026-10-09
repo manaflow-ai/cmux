@@ -333,6 +333,21 @@ verification remain unverified. A pending record remains a barrier until the own
 back the resulting tmux state and calls `reconcilePending`; that path persists the readback receipt
 without issuing a second command and refuses a missing or mismatched reservation.
 
+### SSH lifecycle command integration (2026-10-09)
+
+The owner contract is wired to the SSH workspace channel. A file-backed,
+complete-protection JSON ledger keeps pending/applied records per host, and a
+fresh non-interactive runner executes epoch-checked tmux window mutations. The
+same durable path covers discovered GNU screen sessions and cmux-tui workspace
+selectors: screen rechecks the exact `<pid>.<name>` listing, while cmux-tui
+invokes its public `workspace create|rename|close` CLI through the discovered
+socket. The channel rejects stale or unknown catalog targets before opening a
+mutation runner and returns a replayed `ResultFrame` for an applied key; an
+uncertain SSH result is a non-retryable `outcome.unknown` until explicit
+readback reconciliation. Wire round trips, command framing, target checks and
+ledger restart persistence have focused tests. Live SSH and device execution
+remain runtime verification gates.
+
 ### Pending lifecycle readback reconciliation (2026-10-08)
 
 `SSHTmuxLifecycleOwnerAdapter.reconcilePending` closes the safe recovery step after an executor

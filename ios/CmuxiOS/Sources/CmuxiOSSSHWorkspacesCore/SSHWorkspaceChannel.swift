@@ -7,17 +7,25 @@ import Foundation
 /// An SSH host's workspace stream (e3-workspaces.md section 6): each
 /// discovery run becomes one snapshot of `workspace:<host>`. Discovery runs
 /// when the list subscribes, on `requestSnapshot()` and when an attached
-/// terminal of the host ends; never on a timer. The host is a read-only
-/// projection: every op is refused.
+/// terminal of the host ends; never on a timer. Lifecycle operations use the
+/// explicit owner adapter when one is supplied; discovery remains the only
+/// source of attachable targets.
 public actor SSHWorkspaceChannel: WorkspaceControlChannel {
     /// Makes the runner for one run (resolving the host chain and login
     /// fresh, so an edited host takes effect); throws `SSHSessionFailure`.
     public typealias RunnerFactory = @Sendable () async throws -> any SSHCommandRunning
+    /// Builds the durable owner for this host. The factory is intentionally
+    /// async because a fresh SSH runner must be opened only when a mutation is
+    /// actually submitted.
+    public typealias LifecycleFactory = @Sendable
+        (_ hostID: HostID, _ runner: RunnerFactory) async throws -> any SSHTmuxLifecycleMutating
 
     private let hostID: HostID
     private let makeRunner: RunnerFactory
     private let catalog: SSHSessionCatalog
     private let reasons: SSHWorkspaceReasons
+    private let makeLifecycle: LifecycleFactory?
+    private var lifecycle: (any SSHTmuxLifecycleMutating)?
     private let discovery = SSHSessionDiscovery()
     private var state: WorkspaceChannelState = .connecting
     private var stateSinks: [UUID: AsyncStream<WorkspaceChannelState>.Continuation] = [:]
@@ -28,11 +36,13 @@ public actor SSHWorkspaceChannel: WorkspaceControlChannel {
     private var endings: Task<Void, Never>?
     private var closed = false
 
-    public init(hostID: HostID, catalog: SSHSessionCatalog, reasons: SSHWorkspaceReasons, makeRunner: @escaping RunnerFactory) {
+    public init(hostID: HostID, catalog: SSHSessionCatalog, reasons: SSHWorkspaceReasons,
+                makeRunner: @escaping RunnerFactory, makeLifecycle: LifecycleFactory? = nil) {
         self.hostID = hostID
         self.catalog = catalog
         self.reasons = reasons
         self.makeRunner = makeRunner
+        self.makeLifecycle = makeLifecycle
     }
 
     public var stream: String { "workspace:" + hostID.rawValue }
@@ -59,8 +69,40 @@ public actor SSHWorkspaceChannel: WorkspaceControlChannel {
     }
 
     public func submit(_ op: OpFrame) async throws -> WorkspaceOpOutcome {
-        .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: "proto.unsupported",
-                              message: "SSH sessions are read-only", retryable: false, replayed: false))
+        guard let makeLifecycle else {
+            return .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: "proto.unsupported",
+                                         message: "SSH lifecycle is unavailable", retryable: false, replayed: false))
+        }
+        guard let mutation = SSHTmuxLifecycleMutation(op: op.op, params: op.params) else {
+            return .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: "proto.unsupported",
+                                         message: "SSH operation is unsupported", retryable: false, replayed: false))
+        }
+        guard await catalogContainsCurrentTarget(mutation) else {
+            return .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: "ssh.session_gone",
+                                         message: "SSH target is no longer present", retryable: true, replayed: false))
+        }
+        do {
+            if lifecycle == nil { lifecycle = try await makeLifecycle(hostID, makeRunner) }
+            guard let lifecycle else { throw SSHTmuxLifecycleOwnerError.invalidRequest }
+            let receipt = try await lifecycle.submit(mutation, idempotencyKey: op.idempotencyKey)
+            return .applied(ResultFrame(tx: "ssh", idempotencyKey: receipt.idempotencyKey,
+                                        value: receipt.value, revision: receipt.revision, replayed: receipt.replayed))
+        } catch let error as SSHTmuxLifecycleOwnerError {
+            let (code, retryable): (String, Bool) = switch error {
+            case .invalidRequest: ("validation.invalid", false)
+            case .noPendingRecord, .idempotencyConflict: ("idempotency.conflict", false)
+            case .indeterminate: ("outcome.unknown", false)
+            case .malformedRecord: ("state.corrupt", false)
+            }
+            return .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: code,
+                                         message: "SSH lifecycle operation was refused", retryable: retryable, replayed: false))
+        } catch {
+            // A lost SSH response is deliberately surfaced as unknown. The
+            // durable owner leaves its pending record in place, so retrying
+            // the same key cannot issue a second command.
+            return .rejected(RejectFrame(tx: "ssh", idempotencyKey: op.idempotencyKey, code: "outcome.unknown",
+                                         message: "SSH lifecycle operation outcome is unknown", retryable: false, replayed: false))
+        }
     }
 
     public func requestSnapshot() { refresh() }
@@ -143,4 +185,28 @@ public actor SSHWorkspaceChannel: WorkspaceControlChannel {
 
     private func dropState(_ id: UUID) { stateSinks[id] = nil }
     private func dropUpdates(_ id: UUID) { updateSinks[id] = nil }
+
+    /// Lifecycle commands may only target the exact object returned by the
+    /// latest discovery. This prevents stale UI state or a pasted socket path
+    /// from crossing the SSH command boundary.
+    private func catalogContainsCurrentTarget(_ mutation: SSHTmuxLifecycleMutation) async -> Bool {
+        switch mutation {
+        case .createWindow(let epoch, let sessionID, _):
+            return await catalog.containsTmuxSession(host: hostID, serverPID: epoch.serverPID,
+                                                     serverStart: epoch.serverStart, sessionID: sessionID)
+        case .renameWindow(let epoch, let windowID, _), .killWindow(let epoch, let windowID):
+            return await catalog.containsTmuxWindow(host: hostID, serverPID: epoch.serverPID,
+                                                    serverStart: epoch.serverStart, windowID: windowID)
+        case .createScreen:
+            // screen create has no existing object; its name is validated by
+            // the mutation and the durable key protects the command.
+            return true
+        case .renameScreen(let session, _), .killScreen(let session):
+            return await catalog.target(host: hostID, surfaceID: "ssh:screen:\(session)") != nil
+        case .createCmuxTUI(let socket, _), .renameCmuxTUI(let socket, _, _), .killCmuxTUI(let socket, _):
+            guard let target = await catalog.target(host: hostID, surfaceID: "ssh:cmux-tui:" + (SSHCmuxTUISocket(validatingPath: socket)?.session.rawValue ?? "")) else { return false }
+            guard case .cmuxTUI(_, let discovered) = target else { return false }
+            return discovered.path == socket
+        }
+    }
 }

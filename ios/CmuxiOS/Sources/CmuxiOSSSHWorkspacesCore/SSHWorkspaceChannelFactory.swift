@@ -12,17 +12,20 @@ public struct SSHWorkspaceChannelFactory: WorkspaceChannelFactory {
     private let catalog: SSHSessionCatalog
     private let reasons: SSHWorkspaceReasons
     private let runners: Runners
+    private let lifecycles: SSHWorkspaceChannel.LifecycleFactory?
 
     public init(fallback: any WorkspaceChannelFactory, catalog: SSHSessionCatalog, reasons: SSHWorkspaceReasons,
-                runners: @escaping Runners) {
+                runners: @escaping Runners, lifecycles: SSHWorkspaceChannel.LifecycleFactory? = nil) {
         self.fallback = fallback
         self.catalog = catalog
         self.reasons = reasons
         self.runners = runners
+        self.lifecycles = lifecycles
     }
 
     public func channel(for host: WorkspaceHostDescriptor) -> any WorkspaceControlChannel {
         guard host.kind == .ssh else { return fallback.channel(for: host) }
-        return SSHWorkspaceChannel(hostID: host.id, catalog: catalog, reasons: reasons, makeRunner: runners(host.id))
+        return SSHWorkspaceChannel(hostID: host.id, catalog: catalog, reasons: reasons,
+                                   makeRunner: runners(host.id), makeLifecycle: lifecycles)
     }
 }

@@ -54,6 +54,16 @@ actor TargetLog {
     func add(_ target: SSHSessionTarget) { targets.append(target) }
 }
 
+actor LifecycleOwner: SSHTmuxLifecycleMutating {
+    private(set) var mutations: [(SSHTmuxLifecycleMutation, String)] = []
+
+    func submit(_ mutation: SSHTmuxLifecycleMutation, idempotencyKey: String) async throws -> SSHTmuxLifecycleReceipt {
+        mutations.append((mutation, idempotencyKey))
+        return SSHTmuxLifecycleReceipt(idempotencyKey: idempotencyKey, mutation: mutation,
+                                       value: .object(["ok": .bool(true)]), revision: "r-1", replayed: false)
+    }
+}
+
 @Suite struct SSHWorkspacesTests {
     let host = HostID("ssh_box1")
     let reasons = SSHWorkspaceReasons(untrustedKey: "untrusted", needsLogin: "login", unreachable: "down", refused: "refused")
@@ -112,6 +122,34 @@ actor TargetLog {
         await channel.requestSnapshot()
         #expect(await states.next() == .offline(reason: "down"))
         await channel.close()
+    }
+
+    @Test func explicitLifecycleOperationUsesDurableOwner() async throws {
+        let owner = LifecycleOwner()
+        let runner = ScriptedRunner([])
+        let channel = SSHWorkspaceChannel(hostID: host, catalog: SSHSessionCatalog(), reasons: reasons,
+                                          makeRunner: { runner },
+                                          makeLifecycle: { _, _ in owner })
+        let outcome = try await channel.submit(OpFrame(
+            op: "ssh.screen.session.create", params: .object(["name": .string("build")]),
+            idempotencyKey: "screen-create-1"))
+        guard case .applied(let result) = outcome else { Issue.record("lifecycle op was rejected"); return }
+        #expect(result.revision == "r-1")
+        #expect(result.value == .object(["ok": .bool(true)]))
+        #expect((await owner.mutations).count == 1)
+        await channel.close()
+    }
+
+    @Test func screenAndCmuxExecutorsUseExactTargets() async throws {
+        let screenRunner = ScriptedRunner([.success("CMUX_OK\n")])
+        let screenExecutor = SSHWorkspaceLifecycleCommandExecutor(runner: screenRunner)
+        _ = try await screenExecutor.execute(.renameScreen(session: "4242.build", name: "release"))
+        #expect(await screenRunner.commands == ["/bin/sh -s"])
+
+        let cmuxRunner = ScriptedRunner([.success("CMUX_OK\n")])
+        let cmuxExecutor = SSHWorkspaceLifecycleCommandExecutor(runner: cmuxRunner)
+        _ = try await cmuxExecutor.execute(.killCmuxTUI(socket: "/tmp/cmux-tui-501/work.sock", workspaceID: "ws_123"))
+        #expect(await cmuxRunner.commands == ["/bin/sh -s"])
     }
 
     @Test func aFailedDiscoveryLeavesNothingAttachable() async {

@@ -27,6 +27,18 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
     case createWindow(server: SSHTmuxServerEpoch, sessionID: String, name: String?)
     case renameWindow(server: SSHTmuxServerEpoch, windowID: String, name: String)
     case killWindow(server: SSHTmuxServerEpoch, windowID: String)
+    /// GNU screen lifecycle uses the discovery-issued `<pid>.<name>` session
+    /// identity. There is no server epoch in screen's listing, so the command
+    /// executor must re-read the exact session immediately before mutating it.
+    case createScreen(name: String)
+    case renameScreen(session: String, name: String)
+    case killScreen(session: String)
+    /// cmux-tui lifecycle is routed to an already discovered Unix socket. The
+    /// socket path and workspace id are retained verbatim in the owner
+    /// fingerprint so a reconnect cannot accidentally target another owner.
+    case createCmuxTUI(socket: String, name: String?)
+    case renameCmuxTUI(socket: String, workspaceID: String, name: String)
+    case killCmuxTUI(socket: String, workspaceID: String)
 
     public static let maximumNameBytes = 200
     /// The mobile owner wire accepts printable idempotency keys up to 128
@@ -37,11 +49,11 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
     /// Parses the wire operation used by a future workspace owner adapter.
     /// Unknown fields and malformed host-issued ids are refused.
     public init?(op: String, params: JSONValue) {
-        guard let object = params.objectValue,
-              let epoch = Self.epoch(from: object) else { return nil }
+        guard let object = params.objectValue else { return nil }
         let keys = Set(object.keys)
         switch op {
         case "ssh.tmux.window.create":
+            guard let epoch = Self.epoch(from: object) else { return nil }
             guard keys.isSubset(of: ["server_pid", "server_start", "session_id", "name"]),
                   let sessionID = object["session_id"]?.stringValue,
                   Self.validSessionID(sessionID) else { return nil }
@@ -60,6 +72,7 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
             self = .createWindow(server: epoch, sessionID: sessionID, name: name)
             return
         case "ssh.tmux.window.rename":
+            guard let epoch = Self.epoch(from: object) else { return nil }
             guard keys == Set(["server_pid", "server_start", "window_id", "name"]),
                   let windowID = object["window_id"]?.stringValue,
                   let name = object["name"]?.stringValue,
@@ -67,10 +80,54 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
             self = .renameWindow(server: epoch, windowID: windowID, name: name)
             return
         case "ssh.tmux.window.kill":
+            guard let epoch = Self.epoch(from: object) else { return nil }
             guard keys == Set(["server_pid", "server_start", "window_id"]),
                   let windowID = object["window_id"]?.stringValue,
                   Self.validWindowID(windowID) else { return nil }
             self = .killWindow(server: epoch, windowID: windowID)
+            return
+        case "ssh.screen.session.create":
+            guard keys == Set(["name"]), let name = object["name"]?.stringValue,
+                  Self.validName(name) else { return nil }
+            self = .createScreen(name: name)
+            return
+        case "ssh.screen.session.rename":
+            guard keys == Set(["session", "name"]), let session = object["session"]?.stringValue,
+                  let name = object["name"]?.stringValue, Self.validSessionName(session), Self.validName(name) else { return nil }
+            self = .renameScreen(session: session, name: name)
+            return
+        case "ssh.screen.session.kill":
+            guard keys == Set(["session"]), let session = object["session"]?.stringValue,
+                  Self.validSessionName(session) else { return nil }
+            self = .killScreen(session: session)
+            return
+        case "ssh.cmux_tui.workspace.create":
+            guard keys.contains("socket"), keys.subtracting(["socket", "name"]).isEmpty,
+                  let socket = object["socket"]?.stringValue, Self.validSocket(socket) else { return nil }
+            let name: String?
+            if let value = object["name"] {
+                guard case .null = value else {
+                    guard let string = value.stringValue, Self.validName(string) else { return nil }
+                    name = string
+                    self = .createCmuxTUI(socket: socket, name: name)
+                    return
+                }
+                name = nil
+            } else { name = nil }
+            self = .createCmuxTUI(socket: socket, name: name)
+            return
+        case "ssh.cmux_tui.workspace.rename":
+            guard keys == Set(["socket", "workspace", "name"]),
+                  let socket = object["socket"]?.stringValue, Self.validSocket(socket),
+                  let workspaceID = object["workspace"]?.stringValue, Self.validWorkspaceID(workspaceID),
+                  let name = object["name"]?.stringValue, Self.validName(name) else { return nil }
+            self = .renameCmuxTUI(socket: socket, workspaceID: workspaceID, name: name)
+            return
+        case "ssh.cmux_tui.workspace.kill":
+            guard keys == Set(["socket", "workspace"]),
+                  let socket = object["socket"]?.stringValue, Self.validSocket(socket),
+                  let workspaceID = object["workspace"]?.stringValue, Self.validWorkspaceID(workspaceID) else { return nil }
+            self = .killCmuxTUI(socket: socket, workspaceID: workspaceID)
             return
         default:
             return nil
@@ -83,6 +140,12 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
         case .createWindow: "ssh.tmux.window.create"
         case .renameWindow: "ssh.tmux.window.rename"
         case .killWindow: "ssh.tmux.window.kill"
+        case .createScreen: "ssh.screen.session.create"
+        case .renameScreen: "ssh.screen.session.rename"
+        case .killScreen: "ssh.screen.session.kill"
+        case .createCmuxTUI: "ssh.cmux_tui.workspace.create"
+        case .renameCmuxTUI: "ssh.cmux_tui.workspace.rename"
+        case .killCmuxTUI: "ssh.cmux_tui.workspace.kill"
         }
     }
 
@@ -102,6 +165,20 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
         case .killWindow(let epoch, let windowID):
             server = epoch
             object = ["window_id": .string(windowID)]
+        case .createScreen(let name):
+            return .object(["name": .string(name)])
+        case .renameScreen(let session, let name):
+            return .object(["session": .string(session), "name": .string(name)])
+        case .killScreen(let session):
+            return .object(["session": .string(session)])
+        case .createCmuxTUI(let socket, let name):
+            var params: [String: JSONValue] = ["socket": .string(socket)]
+            if let name { params["name"] = .string(name) }
+            return .object(params)
+        case .renameCmuxTUI(let socket, let workspaceID, let name):
+            return .object(["socket": .string(socket), "workspace": .string(workspaceID), "name": .string(name)])
+        case .killCmuxTUI(let socket, let workspaceID):
+            return .object(["socket": .string(socket), "workspace": .string(workspaceID)])
         }
         object["server_pid"] = .int(Int64(server.serverPID))
         object["server_start"] = .int(Int64(clamping: server.serverStart))
@@ -126,6 +203,13 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
             epoch.serverPID > 0 && epoch.serverStart > 0 && Self.validWindowID(windowID) && Self.validName(name)
         case .killWindow(let epoch, let windowID):
             epoch.serverPID > 0 && epoch.serverStart > 0 && Self.validWindowID(windowID)
+        case .createScreen(let name): Self.validName(name)
+        case .renameScreen(let session, let name): Self.validSessionName(session) && Self.validName(name)
+        case .killScreen(let session): Self.validSessionName(session)
+        case .createCmuxTUI(let socket, let name): Self.validSocket(socket) && (name.map(Self.validName) ?? true)
+        case .renameCmuxTUI(let socket, let workspaceID, let name):
+            Self.validSocket(socket) && Self.validWorkspaceID(workspaceID) && Self.validName(name)
+        case .killCmuxTUI(let socket, let workspaceID): Self.validSocket(socket) && Self.validWorkspaceID(workspaceID)
         }
     }
 
@@ -151,6 +235,20 @@ public enum SSHTmuxLifecycleMutation: Hashable, Sendable {
         return value.unicodeScalars.allSatisfy {
             !CharacterSet.controlCharacters.contains($0) && $0 != "\u{2028}" && $0 != "\u{2029}"
         }
+    }
+
+    private static func validSessionName(_ value: String) -> Bool {
+        SSHSessionName(validating: value) != nil
+    }
+
+    private static func validWorkspaceID(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        return (1...128).contains(bytes.count) && bytes.first != UInt8(ascii: "-")
+            && bytes.allSatisfy { SSHSessionName.isAllowed($0) }
+    }
+
+    private static func validSocket(_ value: String) -> Bool {
+        SSHCmuxTUISocket(validatingPath: value) != nil
     }
 }
 

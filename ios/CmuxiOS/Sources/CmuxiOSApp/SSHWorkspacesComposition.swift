@@ -31,9 +31,22 @@ struct SSHWorkspacesComposition: Sendable {
     /// `.ssh` hosts over discovery, the rest over `fallback`.
     func channels(fallback: any WorkspaceChannelFactory) -> any WorkspaceChannelFactory {
         let composition = self
-        return SSHWorkspaceChannelFactory(fallback: fallback, catalog: catalog, reasons: reasons) { host in
-            { NIOSSHCommandRunner(dialer: try await composition.dialer(for: host)) }
-        }
+        return SSHWorkspaceChannelFactory(fallback: fallback, catalog: catalog, reasons: reasons,
+                                          runners: { host in
+                                              { NIOSSHCommandRunner(dialer: try await composition.dialer(for: host)) }
+                                          }, lifecycles: { host, makeRunner in
+                                              let runner = try await makeRunner()
+                                              let root = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                                                  in: .userDomainMask).first!
+                                                  .appendingPathComponent("Cmux/SSH-Lifecycle", isDirectory: true)
+                                              // Host IDs may come from a synced store. Encode the bytes so a
+                                              // malformed remote id can never escape this ledger directory.
+                                              let component = host.rawValue.utf8.map { String(format: "%02x", $0) }.joined()
+                                              let file = root.appendingPathComponent(component + ".json")
+                                              return SSHTmuxLifecycleOwnerAdapter(
+                                                  store: SSHTmuxLifecycleJSONStore(url: file),
+                                                  executor: SSHWorkspaceLifecycleCommandExecutor(runner: runner))
+                                          })
     }
 
     /// Terminals of SSH session surfaces; the rest go to `fallback`.

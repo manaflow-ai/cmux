@@ -98,6 +98,22 @@ import Testing
         .renameWindow(server: epoch, windowID: "@12", name: "renamed")
     }
 
+    @Test func jsonStorePersistsPendingAndAppliedRecordsAcrossInstances() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-lifecycle-\(UUID().uuidString)", isDirectory: true)
+        let url = directory.appendingPathComponent("records.json")
+        let store = SSHTmuxLifecycleJSONStore(url: url)
+        let pending = try #require(SSHTmuxLifecycleRecord(pending: "persist-1", mutation: mutation()))
+        #expect(try await store.reserve(pending) == nil)
+        let reopened = SSHTmuxLifecycleJSONStore(url: url)
+        #expect(try await reopened.record(for: "persist-1") == pending)
+        let applied = try #require(SSHTmuxLifecycleRecord(applied: "persist-1", mutation: mutation(),
+                                                          value: .null, revision: "r-1"))
+        #expect(try await reopened.replace(applied, ifCurrent: pending))
+        let third = SSHTmuxLifecycleJSONStore(url: url)
+        #expect(try await third.record(for: "persist-1") == applied)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     @Test func appliedRecordReplaysWithoutExecutingAgain() async throws {
         let store = Store()
         let execution = try #require(SSHTmuxLifecycleExecution(value: .object(["window_id": .string("@12")]), revision: "r-1"))

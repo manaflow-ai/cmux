@@ -67,4 +67,19 @@ import Testing
         #expect(SSHTmuxLifecycleMutation.createWindow(server: epoch, sessionID: "$7", name: nil).isValid)
         #expect(!SSHTmuxLifecycleMutation.renameWindow(server: epoch, windowID: "@12", name: "\u{2028}").isValid)
     }
+
+    @Test func screenAndCmuxLifecycleWireRoundTrips() throws {
+        let screen = try #require(SSHTmuxLifecycleMutation(op: "ssh.screen.session.rename",
+            params: .object(["session": .string("4242.build"), "name": .string("release")])) )
+        #expect(screen.isValid)
+        #expect(SSHTmuxLifecycleMutation(op: screen.op, params: screen.params) == screen)
+
+        let socket = "/tmp/cmux-tui-501/work.sock"
+        let cmux = try #require(SSHTmuxLifecycleMutation(op: "ssh.cmux_tui.workspace.kill",
+            params: .object(["socket": .string(socket), "workspace": .string("ws_123")])) )
+        #expect(cmux.isValid)
+        #expect(SSHTmuxLifecycleMutation(op: cmux.op, params: cmux.params) == cmux)
+        #expect(SSHTmuxLifecycleMutation(op: "ssh.cmux_tui.workspace.kill",
+            params: .object(["socket": .string("relative.sock"), "workspace": .string("ws_123")])) == nil)
+    }
 }

@@ -28,6 +28,28 @@ public actor SSHSessionCatalog {
         targets[host]?[id]
     }
 
+    /// Whether the latest discovery contains a tmux target from this exact
+    /// server epoch and session id. Lifecycle callers use this instead of
+    /// reconstructing a window surface id for a session-level create.
+    public func containsTmuxSession(host: HostID, serverPID: UInt32, serverStart: UInt64,
+                                    sessionID: String) -> Bool {
+        targets[host]?.values.contains { target in
+            switch target {
+            case .tmuxControl(_, let window):
+                return window.serverPID == serverPID && window.serverStart == serverStart && window.sessionID == sessionID
+            default: return false
+            }
+        } ?? false
+    }
+
+    public func containsTmuxWindow(host: HostID, serverPID: UInt32, serverStart: UInt64,
+                                   windowID: String) -> Bool {
+        targets[host]?.values.contains { target in
+            guard case .tmuxControl(_, let window) = target else { return false }
+            return window.serverPID == serverPID && window.serverStart == serverStart && window.windowID == windowID
+        } ?? false
+    }
+
     /// An attached terminal of `host` ended: listeners rediscover.
     public func sessionEnded(on host: HostID) {
         for continuation in listeners.values { continuation.yield(host) }
