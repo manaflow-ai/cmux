@@ -159,13 +159,24 @@ function matches(model: ModelChoice, query: string): boolean {
 /// The real search field receives focus immediately, and the selected harness's fixed model order
 /// keeps keyboard muscle memory intact between openings.
 export function ModelPicker(props: ModelPickerProps) {
-  const { catalog, harness, label, onLand, onHarness, onHarnessHint, onHarnessEnable, fastMode, catalogRefresh } =
-    props;
+  const {
+    catalog,
+    harness,
+    label,
+    switching,
+    onLand,
+    onHarness,
+    onHarnessHint,
+    onHarnessEnable,
+    fastMode,
+    catalogRefresh,
+  } = props;
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
+  const starredText = t("picker.starred");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
@@ -173,7 +184,6 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try {
       const stored = globalThis.localStorage?.getItem("cmux.model-picker.favorites");
@@ -192,10 +202,15 @@ export function ModelPicker(props: ModelPickerProps) {
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   const selected = harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current;
   const models = useMemo(() => choicesFor(selected), [selected]);
+  // Starred models come first, in their own section; nothing is filtered out.
   const visible = useMemo(() => {
     const matching = query ? models.filter((model) => matches(model, query)) : models;
-    return favoritesOnly ? matching.filter((model) => favorites.has(model.id)) : matching;
-  }, [favorites, favoritesOnly, models, query]);
+    return [
+      ...matching.filter((model) => favorites.has(model.id)),
+      ...matching.filter((model) => !favorites.has(model.id)),
+    ];
+  }, [favorites, models, query]);
+  const starredCount = visible.filter((model) => favorites.has(model.id)).length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -362,7 +377,11 @@ export function ModelPicker(props: ModelPickerProps) {
       trigger.current?.focus();
     }
   };
-  const modelLabel = selected?.ids.includes(harness ?? "") ? label : (selected?.name ?? label);
+  // The chip draws one harness: the one a switch to another harness is starting, else the running
+  // one. Browsing another harness in the open menu changes neither its mark nor its name.
+  const switchingTo = switching && !current?.ids.includes(switching.harness) ? switching : undefined;
+  const chipHarness = switchingTo?.harness ?? current?.id ?? harness;
+  const chipLabel = switchingTo?.name ?? label;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -403,8 +422,8 @@ export function ModelPicker(props: ModelPickerProps) {
         }}
         {...press}
       >
-        <AgentMark agent={current?.id ?? harness} size={15} />
-        <span className="acpmux-model-name">{modelLabel}</span>
+        <AgentMark agent={chipHarness} size={15} />
+        <span className="acpmux-model-name">{chipLabel}</span>
         <ChevronIcon />
       </PickerButton>
       {open && (
@@ -441,16 +460,6 @@ export function ModelPicker(props: ModelPickerProps) {
           <div className="acpmux-mp-columns">
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
             <div className="acpmux-mp-harnesses">
-              <button
-                type="button"
-                className="acpmux-mp-harness-favorites"
-                aria-label={modelText}
-                aria-pressed={favoritesOnly}
-                title={modelText}
-                onClick={() => setFavoritesOnly((value) => !value)}
-              >
-                <span aria-hidden="true">★</span>
-              </button>
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich harness rows need icons and prewarm states. */}
               <PickerOptionList className="acpmux-mp-harness-list" aria-label={harnessText}>
                 <div className="acpmux-mp-harness-list-inner">
@@ -534,7 +543,12 @@ export function ModelPicker(props: ModelPickerProps) {
               ) : visible.length === 0 ? (
                 <div className="acpmux-mp-empty">{noMatchesText}</div>
               ) : (
-                visible.map((model, index) => (
+                visible.map((model, index) => [
+                  starredCount > 0 && (index === 0 || index === starredCount) && (
+                    <div key={`section-${index}`} className="acpmux-mp-section" role="presentation">
+                      {index === 0 ? starredText : selected?.name}
+                    </div>
+                  ),
                   <div className="acpmux-mp-row-shell" key={model.id}>
                     <PickerOption
                       type="button"
@@ -548,13 +562,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       onClick={() => selectModel(model)}
                       active={index === active}
                     >
-                      <span className="acpmux-mp-row-main">
-                        <span className="acpmux-menu-label">{model.name}</span>
-                        <span className="acpmux-mp-row-subtitle">
-                          <AgentMark agent={selected?.id} size={12} />
-                          {selected?.name}
-                        </span>
-                      </span>
+                      <span className="acpmux-menu-label">{model.name}</span>
                       {index < 4 && <span className="acpmux-mp-hotkey">⌘{index + 1}</span>}
                       {model.unavailable && <span className="acpmux-menu-description">{unavailableText}</span>}
                       {model.id === props.model && <CheckIcon />}
@@ -569,8 +577,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     >
                       <span aria-hidden="true">{favorites.has(model.id) ? "★" : "☆"}</span>
                     </button>
-                  </div>
-                ))
+                  </div>,
+                ])
               )}
             </PickerOptionList>
           </div>

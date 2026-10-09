@@ -246,14 +246,57 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["config fast-mode on"]);
   });
 
-  test("shows T3 subtitles, stable command hotkeys, and local favorites", async () => {
+  test("rows are one line with stable command hotkeys and a star on the row", async () => {
     await render();
     await act(async () => modelButton().click());
-    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")?.textContent).toContain("Claude Code");
+    expect(modelRows()[0]!.querySelector(".acpmux-mp-row-subtitle")).toBeNull();
     expect(modelRows()[0]!.querySelector(".acpmux-mp-hotkey")?.textContent).toBe("⌘1");
     const favorite = modelRows()[0]!.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
     expect(favorite.getAttribute("aria-pressed")).toBe("false");
     await act(async () => favorite.click());
-    expect(favorite.getAttribute("aria-pressed")).toBe("true");
+    expect(modelRows()[0]!.parentElement!.querySelector(".acpmux-mp-favorite")!.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  // Leo (dogfood 2026-10-08, A1): the lone star in a big left column filtered every harness down to
+  // "No matching models". Starred models get their own section on top instead; nothing filters.
+  test("starred models sit in a Starred section on top, and no toggle hides the other models", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    expect(menu()!.querySelector(".acpmux-mp-harness-favorites")).toBeNull();
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
+    await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
+    expect(labels()).toEqual(["Sonnet 5.5", "Opus 4.1", "Opus 5.5"]);
+    const sections = [...menu()!.querySelectorAll(".acpmux-mp-models .acpmux-mp-section")].map((s) => s.textContent);
+    expect(sections[0]).toBe("Starred");
+    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
+    await act(async () => codex.click());
+    expect(labels()).toEqual(["o3", "GPT-6-Astra"]);
+  });
+
+  // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
+  // "Claude Code". The chip draws one harness: the running one, or the one a switch is starting.
+  test("the chip keeps one harness's mark and name while another harness is browsed", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (row) => row.textContent === "Codex",
+    )!;
+    await act(async () => codex.click());
+    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("claude");
+    expect(modelButton().textContent).toContain("Opus 5.5");
+    expect(modelButton().textContent).not.toContain("Codex");
+  });
+
+  test("a harness switch in flight draws the new harness's mark and name together", async () => {
+    await render({ ...snapshot(), switching: { harness: "codex", name: "Codex", phase: "starting" } });
+    // Codex draws the OpenAI mark.
+    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
+    expect(modelButton().textContent).toContain("Codex");
+    expect(modelButton().textContent).not.toContain("Opus 5.5");
   });
 });

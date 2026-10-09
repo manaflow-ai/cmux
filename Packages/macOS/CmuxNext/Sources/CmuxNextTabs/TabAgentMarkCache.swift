@@ -17,7 +17,7 @@ final class TabAgentMarkCache {
         let pixels = Int((size * scale).rounded())
         guard pixels > 0, let context = CGContext(
             data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         let side = CGFloat(pixels) * Self.fill
         let inset = (CGFloat(pixels) - side) / 2

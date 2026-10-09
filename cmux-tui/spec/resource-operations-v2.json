@@ -11487,7 +11487,7 @@
         "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
         "Only an agent participant (a connection bound with conversation-bind) publishes drafts, for itself: details.reason not_agent otherwise.",
         "Ephemeral: never stored, no rev change, never replayed to a resumed stream. The posted message with client_msg_id equal to turn, a done draft, or typing off ends the draft.",
-        "A seq at or below the last published seq of the turn is a replay: published false, nothing sent.",
+        "The replay key is (participant, turn, seq), not the idempotency key: a seq at or below the last published seq of the caller's turn is a replay (published false, nothing sent), so an out-of-order delta is dropped and the client recovers at the next fresh item.",
         "At most 10 draft events per second per (conversation, turn): rate_limited. A delta above 16 KiB or a fresh text above 64 KiB: text_too_large.",
         "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
       ]
@@ -11926,7 +11926,7 @@
       ],
       "constraints": [
         "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
-        "Publishes a typing item for the caller's own principal, which must take part in the conversation. Never stored; the conversation rev does not change.",
+        "Publishes a typing item for the caller's own principal, which must take part in the conversation. Never stored; the conversation rev does not change. The idempotency key is not stored: a retry publishes the indicator again (it is a state, so that is harmless) and replayed is false.",
         "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
       ]
     },

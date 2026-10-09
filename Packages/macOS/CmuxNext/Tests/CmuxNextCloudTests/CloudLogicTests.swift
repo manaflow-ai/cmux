@@ -31,6 +31,16 @@ import Testing
         #expect(config.backend == .localOnly(URL(string: "http://localhost:3811")!))
     }
 
+    /// A callback scheme from the environment that cannot form a URL used to trap at sign-in;
+    /// it is ignored and the default scheme is used.
+    @Test func unusableCallbackSchemeFallsBackToTheDefault() throws {
+        let config = CloudConfiguration.resolve(bundleID: "b", bundled: ["CMUX_AUTH_CALLBACK_SCHEME": "bad scheme"],
+                                                process: [:], isDebugBuild: true)
+        #expect(config.callbackScheme == "cmux-dev")
+        let url = config.signInURL(callbackState: "s1")
+        #expect(url.path == "/handler/native-sign-in")
+    }
+
     @Test func signInURLNestsTheNativeCallback() throws {
         let config = CloudConfiguration.resolve(bundleID: "b", bundled: ["CMUX_AUTH_WWW_ORIGIN": "https://web.test", "CMUX_TAG": "My Tag"],
                                                 process: [:], isDebugBuild: true)

@@ -27,3 +27,69 @@
          cell.layer.addSublayer(arrow)
          move(by: dx)
          return true
+@@ -181,7 +183,7 @@
+         guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
+         let px = Int(Tuning.arrowSize * scale)
+         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
++                                  space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil } // cmux: no force unwrap
+         NSGraphicsContext.saveGraphicsState()
+         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+         let sz = sym.size, r = CGFloat(px)
+@@ -204,39 +206,44 @@
+         guard let i = a.firstIndex(of: "--swipe-check"), i + 1 < a.count else { return nil }
+         return a[i + 1]
+     }
+-    static func event(dx: CGFloat, dy: CGFloat, phase: Int64) -> NSEvent {
+-        let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0)!
++    // cmux: optional, no force unwraps (crash program); `run` records a FAIL for a nil event.
++    static func event(dx: CGFloat, dy: CGFloat, phase: Int64) -> NSEvent? {
++        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0) else { return nil }
+         cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+         cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: dy)
+         cg.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: dx)
+         cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
+         cg.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
+         cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+-        return NSEvent(cgEvent: cg)!
++        return NSEvent(cgEvent: cg)
+     }
+     static func run(_ c: ChatController, out: String) {
+         var lines: [String] = []
+         func check(_ name: String, _ ok: Bool, _ detail: String) { lines.append("\(ok ? "PASS" : "FAIL") \(name): \(detail)") }
+-        guard let hit = c.demo.lastTextRow(mine: false) else { lines.append("FAIL no incoming text row"); finish(lines, out); return }
++        guard let hit = c.demo?.lastTextRow(mine: false) else { lines.append("FAIL no incoming text row"); finish(lines, out); return }
+         let p = CGPoint(x: hit.body.midX, y: hit.body.midY)
++        @discardableResult func handle(_ e: NSEvent?) -> NSEvent? { // cmux: a nil event is a FAIL, not a trap
++            guard let e else { lines.append("FAIL could not make a scroll event"); return nil }
++            return c.swipe.handle(e, at: p)
++        }
+         func stream(_ dx: CGFloat, _ dy: CGFloat, steps: Int) -> [CGFloat] {
+             var offsets: [CGFloat] = []
+-            c.swipe.handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 1), at: p)
+-            for _ in 1..<steps { c.swipe.handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 2), at: p); offsets.append(c.swipe.rowOffset) }
++            handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 1))
++            for _ in 1..<steps { handle(event(dx: dx / CGFloat(steps), dy: dy / CGFloat(steps), phase: 2)); offsets.append(c.swipe.rowOffset) }
+             return offsets
+         }
+         let short = stream(40, 0, steps: 8)
+         check("short swipe follows 1:1", abs((short.last ?? 0) - 40) < 0.5, "offset after 40 pt travel = \(short.last ?? -1)")
+-        c.swipe.handle(event(dx: 0, dy: 0, phase: 4), at: p)
+-        check("short swipe opens nothing", c.store.state.ui.openThread == nil, "openThread = \(String(describing: c.store.state.ui.openThread))")
++        handle(event(dx: 0, dy: 0, phase: 4))
++        check("short swipe opens nothing", c.store?.state.ui.openThread == nil, "openThread = \(String(describing: c.store?.state.ui.openThread))")
+         check("short swipe springs back (model)", c.swipe.rowOffset == 0, "model offset \(c.swipe.rowOffset)")
+         let full = stream(160, 0, steps: 16)
+         check("full swipe capped", (full.max() ?? 0) <= SwipeReply.Tuning.maxOffset + 0.01, "max offset \(full.max() ?? -1)")
+-        c.swipe.handle(event(dx: 0, dy: 0, phase: 4), at: p)
+-        check("full swipe opens the reply", c.store.state.ui.openThread != nil, "openThread = \(String(describing: c.store.state.ui.openThread))")
++        handle(event(dx: 0, dy: 0, phase: 4))
++        check("full swipe opens the reply", c.store?.state.ui.openThread != nil, "openThread = \(String(describing: c.store?.state.ui.openThread))")
+         c.dispatch(.closeThread)
+-        let consumedVertical = c.swipe.handle(event(dx: 0, dy: -20, phase: 1), at: p) == nil
+-        c.swipe.handle(event(dx: 0, dy: 0, phase: 4), at: p)
++        let consumedVertical = handle(event(dx: 0, dy: -20, phase: 1)) == nil
++        handle(event(dx: 0, dy: 0, phase: 4))
+         check("vertical stream not claimed", !consumedVertical, "consumed = \(consumedVertical)")
+         finish(lines, out)
+     }
