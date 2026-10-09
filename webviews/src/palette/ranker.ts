@@ -69,7 +69,7 @@ export interface PaletteRankRequest {
 }
 
 /** Below every enabled row of any tier. */
-const disabledPenalty = 10_000;
+const disabledPenalty = 100_000;
 const titleWeight = 100;
 const keywordWeight = 80;
 const subtitleWeight = 65;
@@ -79,6 +79,7 @@ const defaultHalfLife = 3 * 24 * 60 * 60;
 
 let cachedVersion: number | undefined;
 let cachedFields: Field[][] = [];
+let cachedIDs: Array<string[] | null> = [];
 
 type CharClass = "lower" | "upper" | "digit" | "delimiter" | "ideograph" | "other";
 
@@ -88,6 +89,8 @@ interface FoldedText {
   bonus: number[];
   initials: string[];
   mask: bigint;
+  /** Folded words split at delimiters, built on first use and kept with the cached fields. */
+  words?: string[][];
 }
 
 interface Field {
@@ -346,14 +349,20 @@ function fieldsFor(entry: PaletteRankEntry): Field[] {
   return fields;
 }
 
-function fieldsForEntries(entries: readonly PaletteRankEntry[], version: number | undefined): Field[][] {
-  if (version !== undefined && cachedVersion === version && cachedFields.length === entries.length) return cachedFields;
+function fieldsForEntries(
+  entries: readonly PaletteRankEntry[],
+  version: number | undefined,
+): { fields: Field[][]; ids: Array<string[] | null> } {
+  if (version !== undefined && cachedVersion === version && cachedFields.length === entries.length)
+    return { fields: cachedFields, ids: cachedIDs };
   const fields = entries.map(fieldsFor);
+  const ids = entries.map((entry) => (entry.actionID ? Array.from(entry.actionID).map(foldScalar) : null));
   if (version !== undefined) {
     cachedVersion = version;
     cachedFields = fields;
+    cachedIDs = ids;
   }
-  return fields;
+  return { fields, ids };
 }
 
 /**
@@ -363,35 +372,42 @@ function fieldsForEntries(entries: readonly PaletteRankEntry[], version: number 
  */
 export const matchTier = {
   /** The whole title is the query. */
-  wholeTitle: 6,
+  wholeTitle: 12,
   /** A scope row whose keyword is the whole query ("settings" for the settings scope). */
-  scopeKeyword: 5.5,
+  scopeKeyword: 11,
   /** The title starts with the query, in whole words ("split" for Split Right). */
-  titlePrefix: 5,
+  titlePrefix: 10,
   /** Every token is a whole title word ("chat" for New Agent Chat). */
-  wholeWords: 4.5,
+  wholeWords: 9,
   /** The title starts with the query, the last word cut ("brows" for Browser Profiles). */
-  titlePartialPrefix: 4,
+  titlePartialPrefix: 8,
   /** Every token starts a title word ("brows" for New Browser Tab). */
-  titleWords: 3.5,
+  titleWords: 7,
   /** The query is the start of the title's word initials ("sr", "nac"). */
-  acronym: 3,
-  /** Every token is a title substring or starts a keyword. */
-  substring: 2,
-  /** A token is one edit away from a title word ("spilt", "sttings"). */
-  typo: 1.5,
-  /** Every token matches in order from a word start, or starts a subtitle word. */
-  fuzzy: 1,
+  acronym: 6,
+  /** Every token is a title substring, or starts a keyword word. */
+  substring: 4,
+  /** Every token is one edit from a title word, or matches strictly ("spilt", "sttings"). */
+  typo: 3,
+  /** Every token matches in order from a title word start, or is a keyword, subtitle or accessory substring. */
+  fuzzy: 2,
 } as const;
 
+/** Points per tier: above the largest quality, usage and bias sum, so the class always decides first. */
 const tierScale = 1_000;
 const maximumQuality = 880;
 /** Lifts a row with a shortcut over its unbound siblings ("Split Right" over "Split Up"); far less than a tier. */
 const shortcutBonus = 40;
+/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
+ * ranks with a command that has the query as a whole word, below one that starts with it. */
+const demotion = 2;
+/** The typo pass runs only when the strict pass found fewer rows than this at the substring tier or better. */
+const typoPassThreshold = 3;
 
 /** How well one token matches one field: 3 starts a word, 2 contiguous, 1 in order from a word start, 0 none. */
-function tokenLevel(token: readonly string[], text: FoldedText): number {
+function tokenLevel(token: readonly string[], tokenMask: bigint, text: FoldedText): number {
   if (!token.length) return 3;
+  if ((text.mask & tokenMask) !== tokenMask) return 0;
   if (substringStart(token, text.folded, text.bonus, true) !== null) return 3;
   if (substringStart(token, text.folded, text.bonus, false) !== null) return 2;
   for (let index = 0; index < text.folded.length; index++) {
@@ -401,23 +417,24 @@ function tokenLevel(token: readonly string[], text: FoldedText): number {
   return 0;
 }
 
-/** The entry tier one token reaches through its best field (title levels count fully, others less). */
-function tokenTier(token: readonly string[], fields: readonly Field[]): number {
+/** The tier one token reaches through its best field; -1 when no field matches. */
+function tokenTier(token: readonly string[], tokenMask: bigint, fields: readonly Field[]): number {
   let best = -1;
   for (const field of fields) {
-    const level = tokenLevel(token, field.text);
+    const level = tokenLevel(token, tokenMask, field.text);
     if (!level) continue;
     let tier: number;
     if (field.weight === titleWeight) tier = level >= 2 ? matchTier.substring : matchTier.fuzzy;
-    else if (field.weight === keywordWeight) tier = level === 3 ? matchTier.substring : -1;
-    else tier = level === 3 ? matchTier.fuzzy : -1;
+    else if (field.weight === keywordWeight)
+      tier = level === 3 ? matchTier.substring : level === 2 ? matchTier.fuzzy : -1;
+    else tier = level >= 2 ? matchTier.fuzzy : -1;
     best = Math.max(best, tier);
   }
   return best;
 }
 
-/** Title words (folded scalars), split at delimiters. */
-function titleWords(text: FoldedText): string[][] {
+function wordsOf(text: FoldedText): string[][] {
+  if (text.words) return text.words;
   const words: string[][] = [];
   let current: string[] = [];
   text.original.forEach((scalar, index) => {
@@ -427,30 +444,26 @@ function titleWords(text: FoldedText): string[][] {
     } else current.push(text.folded[index]);
   });
   if (current.length) words.push(current);
+  text.words = words;
   return words;
 }
 
-/** Optimal string alignment distance, stopping early above 1. */
+/** At most one insert, delete, substitute or adjacent swap turns `a` into `b`. Linear time. */
 function withinOneEdit(a: readonly string[], b: readonly string[]): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const d: number[][] = Array.from({ length: rows }, (_, i) =>
-    Array.from({ length: cols }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
-  );
-  for (let i = 1; i < rows; i++) {
-    let rowMin = Number.POSITIVE_INFINITY;
-    for (let j = 1; j < cols; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let value = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
-        value = Math.min(value, d[i - 2][j - 2] + 1);
-      d[i][j] = value;
-      rowMin = Math.min(rowMin, value);
-    }
-    if (rowMin > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (i === a.length && i === b.length) return true;
+  const restEqual = (x: number, y: number) => {
+    if (a.length - x !== b.length - y) return false;
+    for (let k = 0; x + k < a.length; k++) if (a[x + k] !== b[y + k]) return false;
+    return true;
+  };
+  if (a.length === b.length) {
+    if (restEqual(i + 1, i + 1)) return true; // substitute
+    return i + 1 < a.length && a[i] === b[i + 1] && a[i + 1] === b[i] && restEqual(i + 2, i + 2); // swap
   }
-  return d[a.length][b.length] <= 1;
+  return a.length > b.length ? restEqual(i + 1, i) : restEqual(i, i + 1); // delete or insert
 }
 
 /** One adjacent swap and nothing else ("tba" for "tab"). */
@@ -462,26 +475,28 @@ function isTransposition(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * Whether every token matches the title strictly or within one edit of a title word (or its
- * prefix). Tokens of 4 or more letters allow any one edit; 3-letter tokens only a swap.
+ * The query with each mistyped token replaced by the title word it is one edit from, or null.
+ * Tokens of 4 or more letters allow any one edit against a word or the word's start; 3-letter
+ * tokens only an adjacent swap. At least one token must be a typo.
  */
 function typoCorrection(query: Query, title: FoldedText): Query | null {
-  const words = titleWords(title);
+  const words = wordsOf(title);
   let typos = 0;
   const corrected: string[] = [];
-  for (const token of query.tokens) {
-    if (tokenLevel(token, title) >= 2) {
+  for (let tokenIndex = 0; tokenIndex < query.tokens.length; tokenIndex++) {
+    const token = query.tokens[tokenIndex];
+    if (tokenLevel(token, query.tokenMasks[tokenIndex], title) >= 2) {
       corrected.push(token.join(""));
       continue;
     }
     if (token.length < 3) return null;
     const close = words.find((word) => {
+      if (word.length < token.length - 1) return false;
       if (token.length === 3) return isTransposition(token, word.slice(0, 3));
       return (
         withinOneEdit(token, word) ||
         withinOneEdit(token, word.slice(0, token.length)) ||
-        withinOneEdit(token, word.slice(0, token.length + 1)) ||
-        withinOneEdit(token, word.slice(0, token.length - 1))
+        withinOneEdit(token, word.slice(0, token.length + 1))
       );
     });
     if (!close) return null;
@@ -493,7 +508,7 @@ function typoCorrection(query: Query, title: FoldedText): Query | null {
 
 /** Whether `token` occurs in the title as a whole word. */
 function isWholeWord(token: readonly string[], text: FoldedText): boolean {
-  return titleWords(text).some((word) => word.length === token.length && hasPrefix(word, token));
+  return wordsOf(text).some((word) => word.length === token.length && hasPrefix(word, token));
 }
 
 /** Whether the title starts with the query phrase and the phrase ends at a word end. */
@@ -503,59 +518,76 @@ function startsWithWholeWords(query: Query, text: FoldedText): boolean {
   return next === undefined || charClass(next) === "delimiter" || text.bonus[query.phrase.length] >= 7;
 }
 
-/** A one-word query that is the action id (`newSurface`) or starts it. */
-function actionIDTier(entry: PaletteRankEntry, query: Query): number | null {
-  if (!entry.actionID || query.tokens.length !== 1 || query.joined.length < 4) return null;
-  const id = Array.from(entry.actionID).map(foldScalar);
-  if (!hasPrefix(id, query.joined)) return null;
-  return id.length === query.joined.length ? matchTier.titlePrefix : matchTier.substring;
+/**
+ * A one-word query that names the action id: the whole id ("newsurface"), or a start of it
+ * written like an id, with a dot or a capital ("palette.new", "newSur"). A plain word such as
+ * "palette" or "work" never matches ids, so it cannot lift a whole id namespace.
+ */
+function actionIDTier(id: readonly string[] | null, query: Query): number | null {
+  if (!id || query.tokens.length !== 1 || query.joined.length < 4 || !hasPrefix(id, query.joined)) return null;
+  if (id.length === query.joined.length) return matchTier.titlePrefix;
+  const raw = query.raw.trim();
+  return raw.includes(".") || /\p{Lu}/u.test(raw) ? matchTier.substring : null;
 }
 
-/** The row's tier and the query its quality is measured with (a typo row: the corrected one). */
-function entryTier(
-  entry: PaletteRankEntry,
-  query: Query,
-  fields: readonly Field[],
-): { tier: number; query: Query } | null {
-  const byText = textTier(entry, query, fields);
-  const byID = actionIDTier(entry, query);
-  if (!byText) return byID === null ? null : { tier: byID, query };
-  if (byID !== null && byID > byText.tier) return { tier: byID, query };
-  if (entry.demoted) return { tier: byText.tier - 1, query: byText.query };
-  return byText;
+interface TierMatch {
+  tier: number;
+  /** The query the quality is measured with (a typo row: the corrected one). */
+  query: Query;
 }
 
 function textTier(
   entry: PaletteRankEntry,
   query: Query,
   fields: readonly Field[],
-): { tier: number; query: Query } | null {
+  allowsTypo: boolean,
+): TierMatch | null {
   const title = fields[0].text;
   const tiered = (tier: number) => ({ tier, query });
-  if (titleIsQuery(entry.title, query.raw)) return tiered(matchTier.wholeTitle);
+  const titleHasLetters = (title.mask & query.mask) === query.mask;
+  if (titleHasLetters && titleIsQuery(entry.title, query.raw)) return tiered(matchTier.wholeTitle);
   if (entry.entersScope && entry.keywords?.some((keyword) => titleIsQuery(keyword, query.raw)))
     return tiered(matchTier.scopeKeyword);
-  if (startsWithWholeWords(query, title)) return tiered(matchTier.titlePrefix);
-  if (query.tokens.every((token) => isWholeWord(token, title))) return tiered(matchTier.wholeWords);
-  if (hasPrefix(title.folded, query.phrase)) return tiered(matchTier.titlePartialPrefix);
-  if (query.tokens.every((token) => tokenLevel(token, title) === 3)) return tiered(matchTier.titleWords);
+  if (titleHasLetters) {
+    if (startsWithWholeWords(query, title)) return tiered(matchTier.titlePrefix);
+    if (query.tokens.every((token) => isWholeWord(token, title))) return tiered(matchTier.wholeWords);
+    if (hasPrefix(title.folded, query.phrase)) return tiered(matchTier.titlePartialPrefix);
+    if (query.tokens.every((token, index) => tokenLevel(token, query.tokenMasks[index], title) === 3))
+      return tiered(matchTier.titleWords);
+  }
   if (query.tokens.length === 1 && query.joined.length >= 2 && hasPrefix(title.initials, query.joined))
     return tiered(matchTier.acronym);
   let tier: number = matchTier.substring;
-  for (const token of query.tokens) {
-    const reached = tokenTier(token, fields);
+  for (let index = 0; index < query.tokens.length; index++) {
+    const reached = tokenTier(query.tokens[index], query.tokenMasks[index], fields);
     if (reached < 0) {
       tier = -1;
       break;
     }
     tier = Math.min(tier, reached);
   }
-  // One edit away from a real title word is a better answer than scattered letters.
-  if (tier <= matchTier.fuzzy) {
+  // One edit away from a real title word is a better answer than letters spread over the title.
+  if (allowsTypo && tier < matchTier.typo) {
     const corrected = typoCorrection(query, title);
     if (corrected) return { tier: matchTier.typo, query: corrected };
   }
   return tier < 0 ? null : tiered(tier);
+}
+
+/** The row's tier: its text, or its action id when that is better; a demoted row one tier lower. */
+function entryTier(
+  entry: PaletteRankEntry,
+  id: readonly string[] | null,
+  query: Query,
+  fields: readonly Field[],
+  allowsTypo: boolean,
+): TierMatch | null {
+  const byText = textTier(entry, query, fields, allowsTypo);
+  const byID = actionIDTier(id, query);
+  let match = byText;
+  if (byID !== null && (!match || byID > match.tier)) match = { tier: byID, query };
+  if (match && entry.demoted) match = { tier: match.tier - demotion, query: match.query };
+  return match;
 }
 
 function highlightsFor(query: Query, title: FoldedText): number[] {
@@ -611,16 +643,22 @@ function matchQuality(query: Query, fields: readonly Field[]): number {
 
 function scoreEntry(
   entry: PaletteRankEntry,
+  id: readonly string[] | null,
   query: Query,
   fields: Field[],
-): { score: number; highlights: number[] } | null {
-  if (queryIsEmpty(query)) return { score: 0, highlights: [] };
-  const match = entryTier(entry, query, fields);
+  allowsTypo: boolean,
+): { score: number; tier: number; highlights: number[] } | null {
+  if (queryIsEmpty(query)) return { score: 0, tier: 0, highlights: [] };
+  const match = entryTier(entry, id, query, fields, allowsTypo);
   if (!match) return null;
   // Whole-title rows tie on quality ("Settings" and "Settings…"), so the provider order decides.
-  const quality = match.tier >= matchTier.wholeTitle ? maximumQuality : matchQuality(match.query, fields);
+  const quality =
+    match.tier >= matchTier.wholeTitle - 1 && titleIsQuery(entry.title, query.raw)
+      ? maximumQuality
+      : matchQuality(match.query, fields);
   return {
     score: Math.round(match.tier * tierScale) + quality,
+    tier: match.tier,
     highlights: highlightsFor(match.query, fields[0].text),
   };
 }
@@ -709,16 +747,28 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   const gated = entries.some((entry) => entry.queryPrefix != null || entry.hidesWhenTyping === true);
   const prepared = fieldsForEntries(entries, request.version);
   const scored: Array<{ index: number; score: number; highlights: number[] }> = [];
-  entries.forEach((entry, index) => {
-    if (gated && entry.hidesWhenTyping) return;
-    if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
-    const match = scoreEntry(entry, query, prepared[index]);
-    if (!match) return;
-    let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
-    if (entry.hasShortcut) score += shortcutBonus;
-    if (entry.isEnabled === false) score -= disabledPenalty;
-    scored.push({ index, score, highlights: match.highlights });
-  });
+  const rank = (allowsTypo: boolean) => {
+    let strong = 0;
+    entries.forEach((entry, index) => {
+      if (gated && entry.hidesWhenTyping) return;
+      if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
+      const match = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
+      if (!match) return;
+      if (match.tier >= matchTier.substring) strong++;
+      let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
+      if (entry.hasShortcut) score += shortcutBonus;
+      if (entry.isEnabled === false) score -= disabledPenalty;
+      scored.push({ index, score, highlights: match.highlights });
+    });
+    return strong;
+  };
+  // Typos are looked for only when the strict pass found little: they cost per row, and a real
+  // match is always the better answer.
+  if (rank(false) < typoPassThreshold) {
+    // Strict tiers do not change with typos allowed, so the second pass replaces the first.
+    scored.length = 0;
+    rank(true);
+  }
   if (request.ranksPrefixFirst) {
     const prefix = query.raw.trim().toLocaleLowerCase();
     const starts = new Set(

@@ -55,9 +55,9 @@ public struct PaletteItem: Identifiable {
     /// The row shows for an empty query only, never as a match (the
     /// picker's Locations).
     public var hidesWhenTyping = false
-    /// A row of a secondary kind (a setting): it ranks one match class
-    /// below a command with the same match, unless its whole title is the
-    /// query, so 200 setting rows never bury the commands.
+    /// A row of a secondary kind (a setting): it ranks below a command with
+    /// the same match (ten setting rows are titled "Color"), so 200 setting
+    /// rows never bury the commands.
     public var isDemoted = false
 
     public init(
