@@ -34,12 +34,14 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var linkSource: LinkSource = .legacy
 
     public enum LinkSource: Sendable, Equatable {
-        /// `/api/vm` attach endpoint and a `cmux-tui remote connect` process
-        /// (frozen, contract 2.5).
+        /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
+        /// connect` process (frozen, contract 2.5). Release builds, and
+        /// Debug builds with `CMUX_CLOUD_LINK=legacy`.
         case legacy
-        /// The Cloud app server's `cloud.machine.connect` carrier socket
-        /// (contract 2.3). Debug builds with `CMUX_CLOUD_LINK=app` only,
-        /// until the machine list comes from the app server too.
+        /// The Cloud app server (contract 2.1, 2.3): the machine list,
+        /// create and the `cloud.machine.connect` carrier socket, all on the
+        /// cmux-next API Worker through the host credential relay (cx-t2rz).
+        /// The Debug default.
         case appServer
     }
 

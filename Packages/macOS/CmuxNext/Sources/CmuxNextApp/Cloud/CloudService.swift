@@ -34,6 +34,10 @@ final class CloudService {
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
+    /// The Cloud app server's ops on the local daemon (contract 2.1).
+    var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
+    /// The cmux window a create's native confirmation attaches to (set by AppServices).
+    @ObservationIgnored var confirmWindow: (@MainActor () -> NSWindow?)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
 
@@ -90,7 +94,8 @@ final class CloudService {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
-        if case .localOnly = configuration.backend { return CloudStrings.localBackend }
+        // The app server path needs no web backend (cx-t2rz): only the legacy /api/vm path does.
+        if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
     }
@@ -101,7 +106,7 @@ final class CloudService {
     var mayCallCloud: Bool {
         if policyDisabled { return false }
         if auth.managedTeamID != nil, auth.teamID == nil { return false }
-        if case .localOnly = configuration.backend { return false }
+        if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return false }
         return true
     }
 
@@ -219,7 +224,7 @@ final class CloudService {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         do {
-            let list = try await api.listMachines()
+            let list = configuration.linkSource == .appServer ? try await appServerMachines() : try await api.listMachines()
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -281,12 +286,16 @@ final class CloudService {
     // MARK: Mutations
 
     /// Creates a machine and connects to it. Returns its session.
-    func createMachine(name: String?) async throws -> CloudMachineSession {
+    /// `startedByPerson`: the person's own gesture in this app; any other
+    /// create asks the person first (``CloudMachineCreateFlow``).
+    func createMachine(name: String?, startedByPerson: Bool) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         creating += 1
         defer { creating -= 1 }
-        let machine = try await api.createMachine(displayName: name)
+        let machine = configuration.linkSource == .appServer
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson)
+            : try await api.createMachine(displayName: name)
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }

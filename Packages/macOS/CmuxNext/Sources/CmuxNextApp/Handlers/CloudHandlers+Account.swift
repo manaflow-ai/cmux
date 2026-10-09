@@ -8,9 +8,10 @@ import CmuxNextDaemon
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
-        bind("newCloudMachine", registry, reason: reason) { _ in
+        bind("newCloudMachine", registry, reason: reason) { invocation in
+            let byPerson = invocation.origin == .user
             run("new cloud machine", context) {
-                let session = try await cloud.createMachine(name: nil)
+                let session = try await cloud.createMachine(name: nil, startedByPerson: byPerson)
                 // The sidebar shows the machine while it provisions; its
                 // workspace opens once the daemon is reachable.
                 show(try await waitForWorkspace(on: session, context), context)
@@ -18,8 +19,9 @@ extension CloudHandlers {
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
             let session = try? machine(invocation, context)
+            let byPerson = invocation.origin == .user
             run("new cloud workspace", context) {
-                let target = if let session { session } else { try await cloud.createMachine(name: nil) }
+                let target = if let session { session } else { try await cloud.createMachine(name: nil, startedByPerson: byPerson) }
                 if target.daemon.connection == nil {
                     show(try await waitForWorkspace(on: target, context), context)
                 } else if let id = await context.services.windows.createWorkspace(on: target.daemon) {

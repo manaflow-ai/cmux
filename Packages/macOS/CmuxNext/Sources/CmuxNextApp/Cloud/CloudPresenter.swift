@@ -19,6 +19,14 @@ enum CloudPresenter {
         show(CloudStrings.failedTitle, String(describing: error), in: window)
     }
 
+    /// Asks a yes/no question; `done(true)` only for a click on `button`.
+    static func confirm(_ title: String, _ body: String, button: String, in window: NSWindow?, done: @escaping (Bool) -> Void) {
+        let spec = CmuxDialogSpec(title: title, lines: [body],
+                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
+                                  identifier: "cmux.dialog.cloud.confirm")
+        present(spec, in: window) { answer in done(answer?.button == "confirm") }
+    }
+
     /// Asks for a line of text. Calls `done` with the text, or nil on cancel.
     static func askText(_ title: String, initial: String, button: String, in window: NSWindow?, done: @escaping (String?) -> Void) {
         let spec = CmuxDialogSpec(title: title, fields: [.text("text", initial: initial)],
