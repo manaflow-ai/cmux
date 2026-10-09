@@ -22,8 +22,8 @@ use std::time::Duration;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::workspace_registry::{WorkspaceRegistry, meta_value};
 use crate::shell_history::FinishedCommand;
+use crate::workspace_registry::{WorkspaceRegistry, meta_value};
 
 /// Days a command record is kept when no client set a retention.
 pub(crate) const DEFAULT_COMMAND_RETENTION_DAYS: u32 = 30;
