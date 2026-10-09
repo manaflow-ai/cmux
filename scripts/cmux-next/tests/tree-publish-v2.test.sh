@@ -3,17 +3,22 @@
 # tree under its v2 key and then its v1 key. When v2 already holds a partial
 # publication from another commit X (the repair case), completing v2 puts X's
 # binaries into assets/tree; the v1 call must still publish THIS run's build
-# (review F1). Runs the workflow step itself with the real trusted helper; a
+# (review F1). The Windows daemon: the other commit X predates the Windows
+# target (it published no cmux-tui-windows/<X>/), so v2 gets THIS run's Windows build with
+# completion-windows.json naming this run's commit; a second run reuses it.
+# Runs the workflow step itself with the real trusted helper; a
 # stub curl serves the CDN and a stub uploader writes into it. No network.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 fail() { printf '%s\n' "$@" >&2; exit 1; }
-sha() { shasum -a 256 "$1" | awk '{print $1}'; }
+sha() { if command -v shasum >/dev/null; then shasum -a 256 "$1"; else sha256sum "$1"; fi | awk '{print $1}'; }
 # Every companion the publisher requires (macOS and Linux), from its own list.
 # shellcheck disable=SC2207 # one name per line, no spaces
 names=($(python3 "$ROOT/scripts/ci/publish-cmux-tui-tree.py" --list-companions))
+# shellcheck disable=SC2207
+windows_names=($(python3 "$ROOT/scripts/ci/publish-cmux-tui-tree.py" --list-windows-companions))
 
 python3 - "$ROOT/.github/workflows/cmux-tui-artifacts.yml" "$TMP/publish.sh" <<'PY'
 import sys, yaml
@@ -58,15 +63,19 @@ other=1111111111111111111111111111111111111111
 
 # This run's build (assets/tree) and its commit manifest.
 mkdir -p "$src/assets/tree" "$cdn/$run_sha" "$cdn/$other" "$cdn/tree/$v2"
-manifest() { # <commit> <dir> -> manifest.json on stdout
-  printf '{"commit": "%s", "binaries": {' "$1"
-  local sep=""
-  for n in "${names[@]}"; do printf '%s"%s": "%s"' "$sep" "$n" "$(sha "$2/$n")"; sep=", "; done
+manifest() { # <commit> <dir> <names...> -> manifest.json on stdout
+  local commit="$1" dir="$2" sep="" n; shift 2
+  printf '{"commit": "%s", "binaries": {' "$commit"
+  for n in "$@"; do printf '%s"%s": "%s"' "$sep" "$n" "$(sha "$dir/$n")"; sep=", "; done
   printf '}}\n'
 }
 for n in "${names[@]}"; do echo "run build $n" > "$src/assets/tree/$n"; echo "other build $n" > "$cdn/$other/$n"; done
-manifest "$run_sha" "$src/assets/tree" > "$cdn/$run_sha/manifest.json"
-manifest "$other" "$cdn/$other" > "$cdn/$other/manifest.json"
+for n in "${windows_names[@]}"; do echo "run build $n" > "$src/assets/tree/$n"; done
+manifest "$run_sha" "$src/assets/tree" "${names[@]}" > "$cdn/$run_sha/manifest.json"
+# The Windows daemon's own commit prefix: cmux-tui-windows/<sha>/ (served from $cdn/windows/).
+mkdir -p "$cdn/windows/$run_sha"
+manifest "$run_sha" "$src/assets/tree" "${windows_names[@]}" > "$cdn/windows/$run_sha/manifest.json"
+manifest "$other" "$cdn/$other" "${names[@]}" > "$cdn/$other/manifest.json"
 # v2: a partial publication by the other commit (source.json only). v1: nothing.
 printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
 
@@ -83,8 +92,11 @@ while [[ \$# -gt 0 ]]; do
   esac
 done
 path="\${url%%\?*}"
-path="\${path#https://files.cmux.com/cmux-tui/}"
-[[ "\$path" != "\$url" && -f "$cdn/\$path" ]] || exit 22
+case "\$path" in
+  https://files.cmux.com/cmux-tui-windows/*) path="windows/\${path#https://files.cmux.com/cmux-tui-windows/}" ;;
+  *) path="\${path#https://files.cmux.com/cmux-tui/}" ;;
+esac
+[[ "\$path" != "\${url%%\?*}" && -f "$cdn/\$path" ]] || exit 22
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 STUB
 chmod +x "$TMP/bin/curl"
@@ -101,5 +113,36 @@ done
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["key"] == sys.argv[2] and d["commit"] == sys.argv[3], d' \
   "$cdn/tree/$v1/source.json" "$v1" "$run_sha" || fail "the v1 source.json does not name v1 and this run's commit"
 [[ -f "$cdn/tree/$v1/completion.json" && -f "$cdn/tree/$v2/completion.json" ]] || fail "a completion manifest is missing"
+for key in "$v2" "$v1"; do
+  for n in "${windows_names[@]}"; do
+    [[ "$(cat "$cdn/tree/$key/$n")" == "run build $n" ]] || fail "$key $n is not this run's Windows build"
+    [[ "$(awk '{print $1}' "$cdn/tree/$key/$n.sha256")" == "$(sha "$cdn/tree/$key/$n")" ]] || fail "$key $n.sha256 is wrong"
+  done
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["sourceCommit"] == sys.argv[2], d' \
+    "$cdn/tree/$key/completion-windows.json" "$run_sha" || fail "$key completion-windows.json does not name this run's commit"
+done
+
+# A second run of the same commit completes nothing new and conflicts with nothing
+# (its commit-addressed objects are published by then).
+cp "$src"/assets/run/* "$cdn/$run_sha/"
+out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp "$src"/assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=2 \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "the second publication failed:" "$out"
+
+# The Windows build is optional: a run that built none (no cmux-tui-windows/<sha>/)
+# publishes the macOS and Linux tree without Windows objects.
+rm -rf "$cdn/tree" "$cdn/windows"
+mkdir -p "$cdn/tree/$v2"
+printf '{"key": "%s", "commit": "%s"}\n' "$v2" "$other" > "$cdn/tree/$v2/source.json"
+for n in "${windows_names[@]}"; do rm -f "$src/assets/run/$n"; done
+out=$(cd "$src" && rm -rf assets/tree tree && mkdir -p assets/tree && cp assets/run/* assets/tree/ && env PATH="$TMP/bin:$PATH" GITHUB_SHA="$run_sha" GITHUB_RUN_ID=3 \
+  GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=manaflow-ai/cmux R2_ENDPOINT=https://r2.test \
+  KEY_V2="$v2" LEGACY_KEY="$v1" bash "$TMP/publish.sh" 2>&1) || fail "a run without a Windows build failed:" "$out"
+for key in "$v2" "$v1"; do
+  [[ -f "$cdn/tree/$key/completion.json" ]] || fail "$key: no completion.json without Windows"
+  [[ ! -e "$cdn/tree/$key/completion-windows.json" ]] || fail "$key: completion-windows.json without a Windows build"
+  for n in "${windows_names[@]}"; do [[ ! -e "$cdn/tree/$key/$n" ]] || fail "$key: $n without a Windows build"; done
+done
+grep -q "published without the Windows daemon" <<<"$out" || fail "no warning for a tree without Windows:" "$out"
 
 printf 'tree-publish-v2 tests: ok\n'
