@@ -402,6 +402,12 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "palette_usage.get")]
+    PaletteUsageGet,
+    #[serde(rename = "palette_usage.record")]
+    PaletteUsageRecord,
+    #[serde(rename = "palette_usage.import")]
+    PaletteUsageImport,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -622,6 +628,7 @@ impl ResourceOperation {
                 | Self::ClosedList
                 | Self::WindowRecordList
                 | Self::SidebarLayoutGet
+                | Self::PaletteUsageGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

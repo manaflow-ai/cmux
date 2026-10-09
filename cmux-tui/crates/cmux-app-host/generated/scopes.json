@@ -181,9 +181,21 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.engine.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.stop": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -892,6 +904,18 @@
     "notification.list": {
       "scope": "notification:read",
       "class": "read"
+    },
+    "palette_usage.get": {
+      "scope": "palette_usage:read",
+      "class": "read"
+    },
+    "palette_usage.import": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
+    },
+    "palette_usage.record": {
+      "scope": "palette_usage:write",
+      "class": "mutation"
     },
     "pane.create": {
       "scope": "workspace:write",

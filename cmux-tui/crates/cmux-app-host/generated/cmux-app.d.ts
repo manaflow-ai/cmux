@@ -22,6 +22,7 @@ declare namespace Cmux {
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
   type ChiefId = string
+  type ChiefStopResult = { stopped: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -57,14 +58,14 @@ declare namespace Cmux {
   type ConversationMessage = { id: string; conversation: string; seq: number; client_msg_id: string; author: string; parts: Array<Cmux.JsonValue>; reply_to?: Cmux.ConversationPartRef; created_at: string; edited_at?: string; retracted_at?: string; reactions: Array<Cmux.JsonValue>; origin?: Cmux.ConversationOrigin }
   type ConversationMessageItem = { type: "message" | "message_updated"; conversation: string; rev: number; message: Cmux.ConversationMessage }
   type ConversationOrigin = { kind: "remote"; install: string }
-  type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationPage = { conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
   type ConversationParticipant = { id: string; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; person?: string }
   type ConversationPartRef = { message_id: string; part_index: number }
   type ConversationPublishResult = { published: boolean }
   type ConversationReadCursorItem = { type: "read_cursor"; conversation: string; rev: number; participant: string; seq: number }
   type ConversationSearchHit = { conversation: string; title: string; seq: number; message_id: string; author: string; created_at: string; snippet: string }
   type ConversationSendResult = { message: Cmux.ConversationMessage; rev: number }
-  type ConversationSnapshotItem = { type: "snapshot"; reset_reason: "initial" | "cursor_expired"; conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage> }
+  type ConversationSnapshotItem = { type: "snapshot"; reset_reason: "initial" | "cursor_expired"; conversation: Cmux.ConversationSummary; messages: Array<Cmux.ConversationMessage>; typing: Array<string> }
   type ConversationSummary = { id: string; owner: "local"; title: string; participants: Array<Cmux.ConversationParticipant>; last_seq: number; rev: number; created_at: string; updated_at: string; last_message?: Cmux.ConversationMessage; read_cursors: Record<string, number> }
   type ConversationTypingItem = { type: "typing"; conversation: string; participant: string; on: boolean }
   type CreatedBrowserPath = { kind: "browser"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; browser_id: string /* browser_… */ }
@@ -206,6 +207,11 @@ declare namespace Cmux {
   type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
+  type PaletteUsageImportResult = { revision: string; imported: boolean }
+  type PaletteUsagePick = { prefix: string; key: string; score: number; last_used_ms: string; last: boolean }
+  type PaletteUsageRecordResult = { revision: string }
+  type PaletteUsageRow = { key: string; score: number; last_used_ms: string }
+  type PaletteUsageSnapshot = { revision: string; half_life_ms: string; pick_half_life_ms: string; entries: Array<Cmux.PaletteUsageRow>; picks: Array<Cmux.PaletteUsagePick>; imported: Array<string> }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ParticipantId = string
@@ -481,8 +487,16 @@ interface CmuxGlobal {
   chief: {
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
     create: CmuxOp<{ display_name?: string; is_default?: boolean; brain_place?: Cmux.ChiefBrainPlace; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+    engine: {
+      /** `chief.engine.get` (read, scope `chief:read`) */
+      get: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+      /** `chief.engine.set` (mutation, scope `chief:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; harness?: string; model?: string; effort?: string }, Cmux.MutationResult<Cmux.JsonValue>>
+    }
     /** `chief.list` (read, scope `chief:read`): The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
     list: CmuxOp<{ include_archived?: boolean }, { chiefs: Array<Cmux.HomeChief>; tombstones: Array<{ id: Cmux.ChiefId; owner_user: string; archived_at: Cmux.Timestamp }> }>
+    /** `chief.stop` (mutation, scope `chief:write`) */
+    stop: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
@@ -947,6 +961,14 @@ interface CmuxGlobal {
     create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
+  }
+  palette_usage: {
+    /** `palette_usage.get` (read, scope `palette_usage:read`) */
+    get: CmuxOp<{ machine?: string; session?: string }, Cmux.PaletteUsageSnapshot>
+    /** `palette_usage.import` (mutation, scope `palette_usage:write`) */
+    import: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.PaletteUsageRow> }, Cmux.MutationResult<Cmux.PaletteUsageImportResult>>
+    /** `palette_usage.record` (mutation, scope `palette_usage:write`) */
+    record: CmuxOp<{ machine?: string; session?: string; key: string; query?: string }, Cmux.MutationResult<Cmux.PaletteUsageRecordResult>>
   }
   pane: {
     /** `pane.create` (mutation, scope `workspace:write`) */
