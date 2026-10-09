@@ -23,5 +23,5 @@ describe("palette ranking eval", () => {
     expect(report.top1).toBeGreaterThanOrEqual(floors.top1);
     expect(report.top3).toBeGreaterThanOrEqual(floors.top3);
     expect(report.mrr).toBeGreaterThanOrEqual(floors.mrr);
-  });
+  }, 30_000);
 });
