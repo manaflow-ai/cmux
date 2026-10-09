@@ -9,7 +9,7 @@ import type { AcpmuxSnapshot } from "./model";
 // which the pane does not load.
 const css = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const dom = new JSDOM(
-  `<!doctype html><style>${[
+  `<!doctype html><style>:root { --layer-dropdown: 50; }${[
     "./styles.css",
     "./composerControls.css",
     "./composerStates.css",
@@ -104,8 +104,20 @@ const render = async () => {
 };
 
 const zIndex = (element: Element) => {
-  const value = Number.parseInt(dom.window.getComputedStyle(element).zIndex, 10);
-  return Number.isNaN(value) ? 0 : value;
+  const style = dom.window.getComputedStyle(element);
+  const value = Number.parseInt(style.zIndex, 10);
+  if (!Number.isNaN(value)) return value;
+  // jsdom does not substitute custom properties in computed z-index values; resolve the fixture token explicitly.
+  if (style.zIndex.includes("--layer-dropdown")) {
+    const token = Number.parseInt(style.getPropertyValue("--layer-dropdown"), 10);
+    if (!Number.isNaN(token)) return token;
+    const rootToken = Number.parseInt(
+      dom.window.getComputedStyle(dom.window.document.documentElement).getPropertyValue("--layer-dropdown"),
+      10,
+    );
+    if (!Number.isNaN(rootToken)) return rootToken;
+  }
+  return 0;
 };
 
 test("the folder and computer row is a footer inside the composer card, not a second card", async () => {
