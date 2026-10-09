@@ -622960,16 +622960,58 @@
     "cli.browser.repl.error.callerUnresolved": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تتبّع هذه العملية إلى طرفية cmux أو إلى خارج cmux (سلسلة العمليات الأم عميقة جدًا أو تحتوي على حلقة)؛ شغّل استدعاء REPL من عملية أقل عمقًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diesen Prozess weder einem cmux-Terminal noch einem Aufruf außerhalb von cmux zuordnen (die Kette der Elternprozesse ist zu tief oder enthält eine Schleife); starte den REPL-Aufruf aus einem weniger tief verschachtelten Prozess"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux could not trace this process to a cmux terminal or to outside cmux (its parent process chain is too deep or loops); run the REPL call from a shallower process"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo rastrear este proceso hasta una terminal de cmux ni hasta fuera de cmux (la cadena de procesos padre es demasiado profunda o tiene un bucle); ejecuta la llamada al REPL desde un proceso menos anidado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu rattacher ce processus à un terminal cmux ni à l'extérieur de cmux (la chaîne des processus parents est trop profonde ou contient une boucle) ; lancez l'appel REPL depuis un processus moins imbriqué"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux はこのプロセスを cmux ターミナルにも cmux の外にも辿れませんでした（親プロセスの連鎖が深すぎるか、ループしています）。より浅いプロセスから REPL を呼び出してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 프로세스를 cmux 터미널이나 cmux 외부로 추적할 수 없습니다(부모 프로세스 체인이 너무 깊거나 순환합니다). 더 얕은 프로세스에서 REPL을 호출하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将此进程追溯到 cmux 终端或 cmux 外部（父进程链过深或存在循环）；请从层级更浅的进程调用 REPL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將此程序追溯到 cmux 終端機或 cmux 外部（父程序鏈過深或存在迴圈）；請從層級較淺的程序呼叫 REPL"
           }
         }
       }
