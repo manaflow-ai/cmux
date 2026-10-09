@@ -367,3 +367,30 @@ struct SidebarSlidePaneChromeLaneTests {
         #expect(SidebarSlidePaneChrome.laneWidth(buttonCount: 8, paneWidth: 1000) == 218)
     }
 }
+
+/// A layout change mid-slide rebuilds the motion from where it is.
+@Suite
+struct SidebarToggleSlideMachineRestartTests {
+    @Test
+    func restartGoesOnFromThePresentedOffsetWithItsSpeed() throws {
+        var machine = SidebarToggleSlideMachine(docked: false)
+        _ = machine.request(visible: true, width: 240, now: 0)
+        let before = try #require(machine.slide)
+        let offset = try #require(machine.offset(at: 0.05))
+        let restarted = try #require(machine.restart(now: 0.05))
+        #expect(restarted.generation != before.generation)
+        #expect(abs(restarted.from - offset) < 1e-9)
+        #expect(restarted.to == before.to)
+        #expect(restarted.landsVisible == before.landsVisible)
+        let speed = machine.spring.velocity(from: before.from, to: before.to, velocity: before.velocity, at: 0.05)
+        #expect(abs(restarted.velocity - machine.spring.nonOvershootingVelocity(from: offset, to: 240, velocity: speed)) < 1e-9)
+        #expect(machine.land(generation: before.generation).isEmpty)
+        #expect(machine.land(generation: restarted.generation) == [.commitShownLayout])
+    }
+
+    @Test
+    func nothingToRestartAtRest() {
+        var machine = SidebarToggleSlideMachine(docked: true)
+        #expect(machine.restart(now: 1) == nil)
+    }
+}

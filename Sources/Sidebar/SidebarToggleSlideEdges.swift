@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import QuartzCore
 
 #if DEBUG
@@ -74,8 +75,19 @@ enum SidebarToggleSlideEdges {
             String(format: "%.1f:%.1f:%.1f:%.1f", rect.minX, rect.maxX, rect.minY, rect.maxY)
         }
         let layout = SidebarSlidePaneLayout.measure(in: reference)
-        let panes = layout.panes.sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }
-            .compactMap { layout.view($0.key).flatMap(span) }
+        let paneViews = layout.panes.sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }
+            .compactMap { layout.view($0.key) }
+        let panes = paneViews.compactMap(span)
+        // Each pane's tab bar width as laid out (its slide width, else the
+        // pane's own): it must match the pane's visible width every frame.
+        let tabBars = paneViews.map { pane -> String in
+            func find(_ view: NSView) -> BonsplitTabBarSlideWidthControlling? {
+                if let tabBar = view as? BonsplitTabBarSlideWidthControlling { return tabBar }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            let width = find(pane)?.slideTabBarWidth ?? pane.bounds.width
+            return String(format: "%.1f", width)
+        }
         let hosted = SidebarSlideStart.portalViews(in: window).map(\.view)
             .compactMap { onScreen($0) }
             .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
@@ -102,7 +114,7 @@ enum SidebarToggleSlideEdges {
         }
         findPictures(rootLayer)
         pictures.sort { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
-        SidebarNavigationTimings.record("slide.edges phase=\(phase) t=\(String(format: "%.4f", CACurrentMediaTime())) panes=\(panes.joined(separator: ",")) hosted=\(hosted.joined(separator: ",")) chips=\(chips.map(box).joined(separator: ",")) pics=\(pictures.map(box).joined(separator: ","))")
+        SidebarNavigationTimings.record("slide.edges phase=\(phase) t=\(String(format: "%.4f", CACurrentMediaTime())) panes=\(panes.joined(separator: ",")) hosted=\(hosted.joined(separator: ",")) chips=\(chips.map(box).joined(separator: ",")) pics=\(pictures.map(box).joined(separator: ",")) tabbars=\(tabBars.joined(separator: ","))")
     }
 }
 #endif

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import WebKit
 import QuartzCore
 
@@ -14,6 +15,11 @@ import QuartzCore
 @MainActor
 final class SidebarSlidePaneGlide {
     private(set) var animations: [SidebarSlideGlide.Layer] = []
+    /// Each pane's tab bar with its width in the hidden and the docked
+    /// layout: the animator sets the width in between every frame, so tabs
+    /// truncate and the action lane sits at the pane's moving trailing edge
+    /// exactly as Bonsplit lays them out at that width.
+    private(set) var tabBarWidths: [(tabBar: BonsplitTabBarSlideWidthControlling, pane: NSView, hidden: CGFloat, docked: CGFloat)] = []
     private(set) var overlay: NSView?
     private var masked: [CALayer] = []
     private var pictures: [CALayer] = []
@@ -90,6 +96,17 @@ final class SidebarSlidePaneGlide {
                   let dockedRect = docked.slots[id] ?? docked.panes[id] else { continue }
             let parent = enclosingSlot(view).map(absoluteFactor) ?? 0
             glide(view, factor: absoluteFactor(id) - parent, frame: hiddenRect, widthChange: dockedRect.width - hiddenRect.width, sidebarWidth: width)
+        }
+        for (id, hiddenRect) in hidden.panes {
+            guard let dockedRect = docked.panes[id], let pane = hidden.view(id) else { continue }
+            func find(_ view: NSView) {
+                if let tabBar = view as? BonsplitTabBarSlideWidthControlling {
+                    tabBarWidths.append((tabBar, pane, hiddenRect.width, dockedRect.width))
+                    return
+                }
+                view.subviews.forEach(find)
+            }
+            find(pane)
         }
         // The portals' views (terminals, browser pages) follow the pane
         // their anchor sits in, by its absolute motion; neither portal is
@@ -316,7 +333,23 @@ final class SidebarSlidePaneGlide {
         return false
     }
 
+    /// Lays every tab bar out at its width for `progress` (0 hidden, 1
+    /// docked), or back to its pane's own width with nil.
+    func layOutTabBars(progress: Double?) {
+        for entry in tabBarWidths {
+            guard let progress else {
+                entry.tabBar.slideTabBarWidth = nil
+                continue
+            }
+            let width = entry.hidden + (entry.docked - entry.hidden) * CGFloat(progress)
+            entry.tabBar.slideTabBarWidth = (width * 2).rounded() / 2
+        }
+        // Apply now, inside this frame's transaction, not on a later pass.
+        tabBarWidths.forEach { $0.pane.layoutSubtreeIfNeeded() }
+    }
+
     func tearDown(animationKey: String) {
+        layOutTabBars(progress: nil)
         animations.forEach { $0.layer.removeAnimation(forKey: animationKey) }
         masked.forEach { $0.mask = nil }
         hidden.forEach { $0.layer.mask = $0.mask }

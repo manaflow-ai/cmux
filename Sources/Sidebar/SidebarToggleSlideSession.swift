@@ -16,7 +16,20 @@ final class SidebarToggleSlideSession {
     private let stillOverlay: NSView?
     private var tabRowOverlay: NSView?
     private var stillChrome: [NSView] = []
-    private var paneGlide: SidebarSlidePaneGlide?
+    private(set) var paneGlide: SidebarSlidePaneGlide?
+    private var tabBarDriver: SidebarSlideTabBarDriver?
+
+    /// Lays the panes' tab bars out at the slide's progress every frame
+    /// (`progress` maps a presentation time to 0 hidden ... 1 docked).
+    func driveTabBars(from view: NSView, progress: @escaping (CFTimeInterval) -> Double?) {
+        tabBarDriver?.stop()
+        guard let paneGlide, !paneGlide.tabBarWidths.isEmpty else { return }
+        paneGlide.layOutTabBars(progress: progress(CACurrentMediaTime()))
+        tabBarDriver = SidebarSlideTabBarDriver(view: view) { [weak paneGlide] time in
+            guard let paneGlide, let value = progress(time) else { return }
+            paneGlide.layOutTabBars(progress: value)
+        }
+    }
 
     /// The panes' rects in both layouts, for per-pane motion.
     struct Panes {
@@ -114,9 +127,53 @@ final class SidebarToggleSlideSession {
             layer.mask = nil
         }
         glides.forEach { $0.layer.removeAnimation(forKey: animationKey) }
+        tabBarDriver?.stop()
+        tabBarDriver = nil
         paneGlide?.tearDown(animationKey: animationKey)
         tabRowOverlay?.removeFromSuperview()
         stillChrome.forEach { $0.removeFromSuperview() }
         stillOverlay?.removeFromSuperview()
+    }
+}
+
+/// A display link that hands each frame's presentation time to `tick`.
+/// The tab bars re-lay out on the main thread, once per frame, only while
+/// a slide runs.
+@MainActor
+private final class SidebarSlideTabBarDriver: NSObject {
+    private var link: CADisplayLink?
+    private let tick: (CFTimeInterval) -> Void
+
+    init(view: NSView, tick: @escaping (CFTimeInterval) -> Void) {
+        self.tick = tick
+        super.init()
+        let link = view.displayLink(target: self, selector: #selector(step(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+#if DEBUG
+    private var costs: [Double] = []
+#endif
+
+    @objc private func step(_ link: CADisplayLink) {
+#if DEBUG
+        let began = CACurrentMediaTime()
+        tick(link.targetTimestamp)
+        costs.append((CACurrentMediaTime() - began) * 1000)
+#else
+        tick(link.targetTimestamp)
+#endif
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+#if DEBUG
+        if !costs.isEmpty {
+            SidebarNavigationTimings.record(String(format: "slide.tabbarCost frames=%d avgMs=%.2f maxMs=%.2f", costs.count, costs.reduce(0, +) / Double(costs.count), costs.max() ?? 0))
+        }
+#endif
     }
 }

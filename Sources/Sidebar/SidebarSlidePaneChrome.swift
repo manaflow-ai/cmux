@@ -107,14 +107,9 @@ struct SidebarSlidePaneChrome {
                 }
 #endif
                 let isTabBar = tabRows[id].map { abs($0.lowerBound - rows.lowerBound) < 1 && abs($0.upperBound - rows.upperBound) < 1 } ?? false
-                if isTabBar {
-                    let lane = laneWidth(buttonCount: buttonCount, paneWidth: pane.width)
-                    let seam = Int(((pane.width - lane) * scale).rounded())
-                    if lane > 0, seam > 0, let band = picture(paneRep, rect: paneRect, rows: 0..<paneRep.pixelsHigh, columns: seam..<paneRep.pixelsWide) {
-                        bands[id, default: []].append(band)
-                    }
-                    continue
-                }
+                // The tab bar lays itself out live at the pane's moving
+                // width (SidebarSlidePaneGlide.tabBarWidths): no picture.
+                if isTabBar { continue }
                 // A trailing part wider than half the pane is content that
                 // happens to have a gap (text lines, a page), not a bar's
                 // trailing items: it rides with the pane.

@@ -44,6 +44,7 @@ final class SidebarToggleAnimator: ObservableObject {
     /// every retarget until it lands.
     private var session: SidebarToggleSlideSession?
     private var layoutObserver: NSObjectProtocol?
+    private var isRebuildPending = false
     /// Effects are being carried out; a press arriving meanwhile (the atomic
     /// commit runs the run loop once) waits its turn.
     private var isExecuting = false
@@ -170,14 +171,14 @@ final class SidebarToggleAnimator: ObservableObject {
                     if let slide { addSlideAnimation(slide, in: window) }
                 }
                 pendingDocked = nil
-                if let slide { machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime()) }
+                if let slide { machine.slideDidStart(generation: slide.generation, at: animationBegin()) }
             case let .animate(slide):
                 CATransaction.begin()
                 if slide.landsVisible { layout?.dockedPane?.setRowsOnScreen(true) }
                 addSlideAnimation(slide, in: window)
                 CATransaction.commit()
                 CATransaction.flush()
-                machine.slideDidStart(generation: slide.generation, at: CACurrentMediaTime())
+                machine.slideDidStart(generation: slide.generation, at: animationBegin())
             case .commitShownLayout:
                 commitAtomically(in: window) {
                     layout?.docksSidebar = true
@@ -268,6 +269,9 @@ final class SidebarToggleAnimator: ObservableObject {
         }
         let distance = slide.to - slide.from
         let velocity = distance == 0 ? 0 : slide.velocity / distance
+        if let view = window.contentView {
+            session.driveTabBars(from: view) { [weak self] time in self?.progress(at: time) }
+        }
         for (index, layer) in session.movingLayers.enumerated() {
             let animation = slideSpring(from: slide.from, to: slide.to, velocity: velocity, duration: slide.duration)
             if index == 0 {
@@ -312,6 +316,23 @@ final class SidebarToggleAnimator: ObservableObject {
         return .init(hidden: hidden, docked: docked, portalViews: SidebarSlideStart.portalViews(in: window), sidebarWidth: width)
     }
 
+    /// When Core Animation actually started the running spring (its
+    /// transaction's commit), so clock-driven work (the tab bars' widths,
+    /// retargets) follows the same curve frame for frame.
+    private func animationBegin() -> CFTimeInterval {
+        guard let layer = session?.movingLayers.first, let animation = layer.animation(forKey: Self.animationKey),
+              animation.beginTime > 0 else { return CACurrentMediaTime() }
+        return layer.convertTime(animation.beginTime, to: nil)
+    }
+
+    /// How far the slide shows at a presentation time: 0 hidden, 1 docked.
+    private func progress(at time: CFTimeInterval) -> Double? {
+        guard let slide = machine.slide, let width = layout?.width, width > 0 else { return nil }
+        let elapsed = (time - slide.begin) * Double(Self.speed)
+        let offset = machine.spring.position(from: slide.from, to: slide.to, velocity: slide.velocity, at: max(0, elapsed))
+        return min(1, max(0, offset / Double(width)))
+    }
+
     private func slideSpring(from: Double, to: Double, velocity: Double, duration: Double, keyPath: String = "transform.translation.x") -> CASpringAnimation {
         let spring = machine.spring
         let animation = CASpringAnimation(keyPath: keyPath)
@@ -339,22 +360,34 @@ final class SidebarToggleAnimator: ObservableObject {
 
     /// The slide's motion is built for the pane layout at its start. A
     /// split, a close or a workspace switch mid-slide resizes split views;
-    /// the slide then lands at once on the new layout instead of moving
-    /// stale geometry.
+    /// the slide is then rebuilt for the new layout and goes on from where
+    /// it is, with its speed, on the next turn (out of the layout pass, once
+    /// every split of the change has settled).
     private func watchLayout(in window: NSWindow) {
         layoutObserver = NotificationCenter.default.addObserver(
-            forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main
+            forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: nil
         ) { [weak self, weak window] note in
             guard let splitView = note.object as? NSSplitView, let window, splitView.window === window,
                   SidebarSlidePaneLayout.splitView(splitView) != nil else { return }
             MainActor.assumeIsolated {
                 guard let self, self.session != nil, let slide = self.machine.slide else { return }
-#if DEBUG
-                SidebarNavigationTimings.record("slide.layoutChanged split=\(ObjectIdentifier(splitView).hashValue) frame=\(splitView.frame) executing=\(self.isExecuting)")
-#endif
-                self.land(generation: slide.generation)
+                guard !self.isRebuildPending else { return }
+                self.isRebuildPending = true
+                DispatchQueue.main.async { [weak self] in self?.rebuildForNewLayout(generation: slide.generation) }
             }
         }
+    }
+
+    private func rebuildForNewLayout(generation: Int) {
+        isRebuildPending = false
+        guard !isExecuting, machine.slide?.generation == generation, let window = window(),
+              let slide = machine.restart(now: CACurrentMediaTime()) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        removeSlideAnimations()
+        addSlideAnimation(slide, in: window)
+        CATransaction.commit()
+        machine.slideDidStart(generation: slide.generation, at: animationBegin())
     }
 
     /// Idempotent: a stale or repeated landing does nothing.
