@@ -116,6 +116,8 @@ impl Hub {
                         | "tool_call"
                         | "tool_call_update"
                         | "plan"
+                        | "turn_started"
+                        | "turn_result"
                         | "turn_end"
                 ) {
                     self.append(&new, &e.dir, &e.kind, e.msg);

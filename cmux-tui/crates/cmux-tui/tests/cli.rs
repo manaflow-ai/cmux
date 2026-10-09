@@ -3648,6 +3648,9 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/chief.rs"]
+mod chief;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 

@@ -16,8 +16,14 @@ export interface TeamVmDriver {
   lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
-  /** Pauses the VM with this provider id (memory and disk kept); a VM already paused counts as paused. */
-  pauseVm(id: string): Promise<void>
+  /**
+   * Retires the VM with this provider id: spends its lifetime run budget, then pauses it (memory
+   * and disk kept; a VM already paused counts as paused). The provider resumes a paused VM on any
+   * inbound traffic (public IPv6, VPC peers, tunnels, its SSH proxy; measured cx-009a); a spent
+   * budget makes it refuse every later start, those wakes and exec included, while the files stay
+   * readable and the VM can still be deleted. Nothing in cmux raises the budget again.
+   */
+  retireVm(id: string): Promise<void>
   /**
    * Runs one command on this exact VM through the provider API (authenticated by our provider key,
    * which the guest never sees) and returns its exit code and output. Used only by the bind
@@ -48,6 +54,8 @@ const IDLE_TIMEOUT_SECONDS = 600
 const REQUEST_TIMEOUT_MS = 20_000
 /** A create can take much longer than a wake (the web driver allows minutes); a lost answer is recovered by slug. */
 const CREATE_TIMEOUT_MS = 120_000
+/** A retired VM's lifetime run budget: below the time it has already run, so the provider refuses every start. */
+const RETIRED_RUN_BUDGET_SECONDS = 1
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0
 
 export class FreestyleDriver implements TeamVmDriver {
@@ -139,7 +147,13 @@ export class FreestyleDriver implements TeamVmDriver {
     this.fail(gone.status, gone.json, "delete VM")
   }
 
-  async pauseVm(id: string) {
+  async retireVm(id: string) {
+    // First the budget (1 s is always spent: the VM has run at least that long), so no packet that
+    // arrives between the pause and a later call can run it again. On a running VM the budget alone
+    // pauses it within about a second; the pause below then confirms the state.
+    const capped = await this.call("PATCH", `/v5/vms/${encodeURIComponent(id)}`, { maxRunTotalSeconds: RETIRED_RUN_BUDGET_SECONDS })
+    if (capped.status === 404) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    if (capped.status < 200 || capped.status >= 300) this.fail(capped.status, capped.json, "retire VM")
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
     if (r.status >= 200 && r.status < 300) return
     // A VM that is already paused (or stopped) may refuse the call; that is the state asked for.
@@ -233,15 +247,27 @@ export class FakeDriver implements TeamVmDriver {
     this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
   }
 
-  async pauseVm(id: string) {
+  async retireVm(id: string) {
     this.maybeFail()
     this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_pause_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail INTEGER NOT NULL)`)
     if ((this.sql.exec<{ fail: number }>(`SELECT fail FROM fake_pause_ctl WHERE id = 1`)[0]?.fail ?? 0) > 0) {
       this.sql.exec(`UPDATE fake_pause_ctl SET fail = fail - 1 WHERE id = 1`)
       throw new DriverError("team_vm.provider_failed", "fake pause failure", false)
     }
-    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "pause VM: 404", true)
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "retire VM: 404", true)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_fence (id TEXT PRIMARY KEY)`)
+    this.sql.exec(`INSERT OR IGNORE INTO fake_fence (id) VALUES (?)`, id)
     this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
+  }
+
+  /**
+   * Test only: one inbound connection to `id` as the provider handles it (measured cx-009a):
+   * traffic resumes a paused VM unless its run budget is spent (`fake_fence`).
+   */
+  inbound(id: string): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_fence (id TEXT PRIMARY KEY)`)
+    if (this.sql.exec<{ id: string }>(`SELECT id FROM fake_fence WHERE id = ?`, id)[0]) return
+    this.sql.exec(`UPDATE fake_vm SET state = 'running' WHERE id = ? AND state = 'paused'`, id)
   }
 
   async exec(id: string, command: string, _timeoutMs: number) {

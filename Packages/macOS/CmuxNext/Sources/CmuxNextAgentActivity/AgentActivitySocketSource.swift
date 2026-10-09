@@ -171,7 +171,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() }
+            MainActor.assumeIsolated { self?.connect() } // main-proof: dispatch source on queue: .main
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

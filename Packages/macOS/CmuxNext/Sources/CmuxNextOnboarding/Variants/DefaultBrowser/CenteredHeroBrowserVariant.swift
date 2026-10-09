@@ -28,11 +28,11 @@ struct CenteredHeroBrowser: OnboardingScreenVariant {
 final class CenteredHeroBrowserBody: BrowserClaimView {
     private let title = OnboardingLabel.make(BrowserVariantStrings.openLinks, font: .systemFont(ofSize: 34, weight: .bold), lines: 2)
     private let status = OnboardingLabel.make(font: .systemFont(ofSize: 13), color: Palette.textSecondary, lines: 2)
-    private var button: NSButton!
+    private lazy var button: NSButton = .browserHeroButton(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        button = .browserHeroButton(OnboardingStrings.makeDefaultBrowser, target: self, action: #selector(requestClaim))
+        _ = button  // built here, as before
         title.alignment = .center
         status.alignment = .center
         let stack = NSStackView(views: [title, button, status])

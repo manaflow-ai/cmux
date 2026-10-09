@@ -227,6 +227,8 @@ impl Native {
                             ""
                         }
                     ));
+                    // Compactor retries hold back while this turn waits.
+                    let _first = optchat_host::rate::foreground();
                     std::thread::sleep(wait);
                 }
                 Err(e) if e.retry && stop() => return Err(CallError::interrupted()),
@@ -429,6 +431,7 @@ impl Native {
             // The Messages API, no acpmux harness.
             harness: None,
             refused: false,
+            done_draft: None,
         }
     }
 

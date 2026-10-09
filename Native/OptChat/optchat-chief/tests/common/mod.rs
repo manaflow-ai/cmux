@@ -112,6 +112,8 @@ pub struct Owner {
     /// Every op the brain sent, in order: (idempotency key, op).
     pub ops: Vec<(String, Op)>,
     pub typing: Vec<bool>,
+    /// Every draft published: (conversation, draft).
+    pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
@@ -344,6 +346,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn draft(
+        &mut self,
+        conversation: &str,
+        draft: &optchat_chief::draft::Draft,
+    ) -> Result<(), OpError> {
+        self.0
+            .lock()
+            .unwrap()
+            .drafts
+            .push((conversation.to_owned(), draft.clone()));
+        Ok(())
+    }
+
     fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
         self.0
             .lock()
@@ -566,6 +581,12 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+            ));
+        }
         let mut inner = self.inner.lock().unwrap();
         let system = spec
             .preset
@@ -784,6 +805,7 @@ pub fn settings(dir: &Path) -> Settings {
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
+        shared_ttl: Default::default(),
     }
 }
 
