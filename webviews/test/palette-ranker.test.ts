@@ -98,6 +98,56 @@ describe("shared palette ranker", () => {
     expect(rankedIDs(entries, "fold", frecency)[0]).toBe("folder");
   });
 
+  // Review of the tiered scorer: Search Tabs keeps URLs and cwds in keywords and Find in Directory
+  // keeps paths in subtitles; an infix of them must still find the row.
+  test("a keyword or subtitle substring still finds the row", () => {
+    const entries = [
+      entry("pr", "cmux pull requests", { keywords: ["https://github.com/manaflow-ai/cmux/pulls"] }),
+      entry("hit", "let model = makeModel()", { subtitle: "Sources/App/FooController.swift:12" }),
+      entry("other", "Open Folder"),
+    ];
+    expect(rankedIDs(entries, "hub")).toEqual(["pr"]);
+    expect(rankedIDs(entries, "ontroller")).toEqual(["hit"]);
+  });
+
+  // 80 catalog ids start with "palette.": a plain word must not lift that namespace, while the
+  // whole id, or a start written like an id, still finds its row.
+  test("only an id-shaped query matches action ids", () => {
+    const entries = [
+      entry("copy", "Copy Tab ID", { actionID: "palette.copySurfaceID" }),
+      entry("scope", "Open Palette Scope…", { actionID: "palette.open" }),
+      entry("terminal", "New Terminal Tab", { actionID: "newSurface" }),
+    ];
+    expect(rankedIDs(entries, "palette")).toEqual(["scope"]);
+    expect(rankedIDs(entries, "palette.copy")).toEqual(["copy"]);
+    expect(rankedIDs(entries, "newsurface")[0]).toBe("terminal");
+    expect(rankedIDs(entries, "newSur")[0]).toBe("terminal");
+  });
+
+  test("a mistyped word finds its row, below every real match", () => {
+    const entries = [entry("right", "Split Right"), entry("close", "Close Tab"), entry("pane", "Close Pane")];
+    expect(rankedIDs(entries, "spilt")).toEqual(["right"]);
+    expect(rankedIDs(entries, "clsoe tab")[0]).toBe("close");
+  });
+
+  // Chief review of step 2: ten settings are titled "Color"; a command with the word comes first.
+  // A shortcut only breaks exact ties (Split Right over the unbound Split Up), never adds score.
+  test("a command beats a setting with an equal or close match, a shortcut only breaks ties", () => {
+    const entries = [
+      entry("setting:focusRing.color", "Color", { subtitle: "Focus Ring", demoted: true }),
+      entry("setting:attention.color", "Color", { subtitle: "Attention Ring", demoted: true }),
+      entry("action:workspaceColor", "Set Workspace Color…"),
+      entry("action:splitUp", "Split Up"),
+      entry("action:splitRight", "Split Right", { hasShortcut: true }),
+      entry("action:splitTabs", "Split Tabs Evenly"),
+    ];
+    expect(rankedIDs(entries, "color")[0]).toBe("action:workspaceColor");
+    expect(rankedIDs(entries, "split").slice(0, 2)).toEqual(["action:splitRight", "action:splitUp"]);
+    const scores = rankPalette({ entries, query: "split", now }).flatMap((section) => section.rows);
+    const score = (id: string) => scores.find((row) => entries[row.index].id === id)?.score;
+    expect(score("action:splitRight")).toBe(score("action:splitUp"));
+  });
+
   test("frecency decays by its half-life and orders recent keys", () => {
     const store: PaletteFrecency = { entries: { a: { score: 2, lastUsed: now } }, halfLife: 100 };
     const score = (at: number) => store.entries!.a.score * 2 ** (-(at - store.entries!.a.lastUsed) / store.halfLife!);

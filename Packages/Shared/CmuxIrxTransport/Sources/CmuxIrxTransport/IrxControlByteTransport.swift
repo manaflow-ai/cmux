@@ -386,28 +386,27 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let buffered = inboundPartialFrame
         guard !buffered.isEmpty else { return nil }
         let headerByteCount = MobileSyncFrameCodec.headerByteCount
+        var reader = WireByteReader(buffered)
         var boundary = 0
-        while buffered.count - boundary >= headerByteCount {
-            let headerStart = buffered.startIndex + boundary
-            var length = 0
-            for byte in buffered[headerStart..<(headerStart + headerByteCount)] {
-                length = (length << 8) | Int(byte)
-            }
+        while true {
+            var frame = reader
+            guard let header = frame.bigEndian(UInt32.self) else { break }
+            let length = Int(clamping: header)
             guard length <= MobileSyncFrameCodec.defaultMaximumFrameByteCount else {
                 inboundPartialFrame = Data()
                 return buffered
             }
-            guard buffered.count - boundary - headerByteCount >= length else { break }
+            guard frame.skip(length) else { break }
             boundary += headerByteCount + length
+            reader = frame
         }
         guard boundary > 0 else { return nil }
-        if boundary == buffered.count {
+        if reader.remainingCount == 0 {
             inboundPartialFrame = Data()
             return buffered
         }
-        let split = buffered.startIndex + boundary
-        inboundPartialFrame = Data(buffered[split...])
-        return Data(buffered[buffered.startIndex..<split])
+        inboundPartialFrame = reader.remaining
+        return Data(buffered.prefix(boundary))
     }
 
     // MARK: - Establishment

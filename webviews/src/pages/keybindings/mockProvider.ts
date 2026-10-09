@@ -83,6 +83,8 @@ export class MockKeybindingsProvider implements PageClient {
   /** Set to make keymap import and export fail (a broken file). */
   keymapFails = false;
   recording = false;
+  /** Commands whose system-wide key another app holds (GlobalHotKeyService conflicts). */
+  heldElsewhere = new Set<string>();
   readonly page = new MockPageStreams();
   private readonly titles: Record<string, string>;
   private readonly changed = new Set<(data: unknown, seq: number) => void>();
@@ -250,7 +252,12 @@ export class MockKeybindingsProvider implements PageClient {
       rows.push({ ...this.row(entry), source: entry.source, ...(removed ? { removed: true } : {}) });
     }
     for (const entry of this.layers.user) rows.push({ ...this.row(entry), source: "user" });
-    const bindings: Binding[] = rows.map((row, id) => ({ ...row, id, conflicts: [] }));
+    const bindings: Binding[] = rows.map((row, id) => ({
+      ...row,
+      id,
+      conflicts: [],
+      ...(!row.removed && this.heldElsewhere.has(row.command) ? { heldElsewhere: true } : {}),
+    }));
     for (const a of bindings) {
       if (a.removed) continue;
       a.conflicts = bindings

@@ -15,7 +15,7 @@ enum BubblePath {
         if let p = cache[k] { return p }
         if cache.count > 2000 { cache.removeAll() }
         let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail).cgPath
-        cache[k] = p
+        cache.updateValue(p, forKey: k) /* cmux */
         return p
     }
     static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius) -> UIBezierPath {

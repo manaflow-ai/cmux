@@ -21,9 +21,8 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { TemplateDots } = await import("./TemplateDots");
-const { NEW_TAB_TEMPLATES, parseNewTabTemplate, pickNewTabTemplate, screenTemplate, shownTemplate } = await import(
-  "./templates"
-);
+const { NEW_TAB_TEMPLATES, parseNewTabTemplate, pickNewTabTemplate, screenTemplate, shownTemplate } =
+  await import("./templates");
 const { newTabHost } = await import("../NewTabPage");
 const { translateNewTab } = await import("./strings");
 
@@ -46,7 +45,10 @@ test("a dot saves the template and shows it in place; Terminal turns the page in
   const calls: unknown[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => void calls.push([method, params]);
   pickNewTabTemplate("threads", { callNative, cwd: "/src/app", show: (template) => calls.push(["show", template]) });
-  expect(calls).toEqual([["newTab.setTemplate", { template: "threads" }], ["show", "threads"]]);
+  expect(calls).toEqual([
+    ["newTab.setTemplate", { template: "threads" }],
+    ["show", "threads"],
+  ]);
   calls.length = 0;
   pickNewTabTemplate("terminal", { callNative, cwd: "/src/app", show: (template) => calls.push(["show", template]) });
   expect(calls).toEqual([
@@ -59,12 +61,26 @@ test("the dots name every template, press the shown one and pick another", async
   const picked: string[] = [];
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(createElement(TemplateDots, { current: "default", onPick: (t) => picked.push(t) })));
+  await act(async () =>
+    root.render(createElement(TemplateDots, { current: "default", onPick: (t) => picked.push(t) })),
+  );
   const dots = [...container.querySelectorAll<HTMLButtonElement>(".nt-template-dot")];
   expect(dots.map((dot) => dot.getAttribute("aria-label"))).toEqual([
-    "Default", "Composer", "Threads", "Console", "Classic", "Terminal",
+    "Default",
+    "Composer",
+    "Threads",
+    "Console",
+    "Classic",
+    "Terminal",
   ]);
-  expect(dots.map((dot) => dot.getAttribute("aria-pressed"))).toEqual(["true", "false", "false", "false", "false", "false"]);
+  expect(dots.map((dot) => dot.getAttribute("aria-pressed"))).toEqual([
+    "true",
+    "false",
+    "false",
+    "false",
+    "false",
+    "false",
+  ]);
   await act(async () => {
     dots[0]!.click();
     dots[3]!.click();
@@ -76,6 +92,8 @@ test("the dots name every template, press the shown one and pick another", async
 test("every template has a name in English and Japanese", () => {
   for (const template of NEW_TAB_TEMPLATES) {
     expect(translateNewTab(`template.${template}`, {}, "en")).not.toBe(`newTab.template.${template}`);
-    expect(translateNewTab(`template.${template}`, {}, "ja")).not.toBe(translateNewTab(`template.${template}`, {}, "en"));
+    expect(translateNewTab(`template.${template}`, {}, "ja")).not.toBe(
+      translateNewTab(`template.${template}`, {}, "en"),
+    );
   }
 });
