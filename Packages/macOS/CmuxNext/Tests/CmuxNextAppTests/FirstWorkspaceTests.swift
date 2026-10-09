@@ -39,4 +39,21 @@ struct FirstWorkspaceTests {
         let models = Self.workspaces([user])
         #expect(FirstWorkspace.isNeeded(models, leftover: models.map(\.id)))
     }
+
+    /// Regression (cx-aha, hqffa2 first launch): on a fresh store the tree
+    /// can report the home workspace before its `kind` row (ensure_home
+    /// creates the workspace, then reloads the kind). That launch counted
+    /// Home as the user's own, made no first workspace and opened on Home.
+    /// The workspace `ensure_home` named is Home whatever its kind says yet.
+    @Test func theHomeWorkspaceNamedByEnsureHomeCountsAsHomeBeforeItsKind() {
+        let home = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "home"),
+                                     resourceID: ResourceID(rawValue: "ws_home"), name: "Home")
+        let models = Self.workspaces([home])
+        #expect(models.first?.kind == nil, "the kind row has not arrived")
+        #expect(FirstWorkspace.isNeeded(models, leftover: [], home: ResourceID(rawValue: "ws_home")))
+        #expect(!FirstWorkspace.isNeeded(models, leftover: [], home: nil), "an unnamed workspace without a kind is the user's")
+        let user = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "user"),
+                                     resourceID: ResourceID(rawValue: "ws_user"), name: "code")
+        #expect(!FirstWorkspace.isNeeded(Self.workspaces([home, user]), leftover: [], home: ResourceID(rawValue: "ws_home")))
+    }
 }
