@@ -57,7 +57,7 @@ fn new_messages(h: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// Lets the held turns run once the first cancel is in.
+/// Lets the held turns run once `cancels` cancels are in.
 fn release_after_cancel(agents: &Arc<FakeAgents>, cancels: usize) {
     let agents = agents.clone();
     std::thread::spawn(move || {
@@ -133,10 +133,11 @@ fn the_brain_does_not_keep_every_session_it_hears_about() {
     assert_eq!(h.brain.known_sessions(), 0);
 }
 
-// m6 (decision 2026-10-04): a human message interrupts at once; a running
-// tool call finishes first.
+// Decision 2026-10-09 (replaces m6 of 2026-10-04): a message never stops
+// a turn. This fake session does not steer, so "thanks" waits for the turn
+// to end and the next turn answers it.
 #[test]
-fn thanks_during_a_tool_waits_for_the_tool_then_interrupts() {
+fn thanks_during_a_tool_waits_for_the_turn_and_the_next_turn_answers() {
     let mut h = Harness::new(Box::new(|turn, _| {
         if turn == 0 {
             tool_in_flight()
@@ -153,12 +154,14 @@ fn thanks_during_a_tool_waits_for_the_tool_then_interrupts() {
     std::thread::sleep(Duration::from_millis(400));
     assert!(
         h.agents.inner.lock().unwrap().cancels.is_empty(),
-        "a running tool is not interrupted"
+        "the turn is not stopped"
     );
-    release_after_cancel(&h.agents, 1);
     h.agents.push_events("s1", tool_done());
-    h.settle();
-    assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
+    h.agents.hold(false);
+    h.agents.release();
+    h.agents.release();
+    h.settle_posts();
+    assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
     assert_eq!(new_messages(&h), vec!["build it", "thanks"]);
     let log: Vec<(String, String)> = h.log();
     let kinds: Vec<&str> = log.iter().map(|(k, _)| k.as_str()).collect();
@@ -168,13 +171,19 @@ fn thanks_during_a_tool_waits_for_the_tool_then_interrupts() {
         "the tool's result is logged before the new message: {log:?}"
     );
     assert_eq!(log[3].1, "build ok");
-    let sends = h.owner.lock().unwrap().sends();
-    assert_eq!(sends.len(), 1, "{sends:?}");
-    assert_eq!(sends[0].1, "You're welcome.");
+    let sends: Vec<String> = h
+        .owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect();
+    assert_eq!(sends, vec!["Running the build.", "You're welcome."]);
 }
 
 #[test]
-fn thanks_while_the_model_writes_interrupts_at_once() {
+fn thanks_while_the_model_writes_never_stops_it() {
     let mut h = Harness::new(Box::new(|turn, _| {
         if turn == 0 {
             vec![
@@ -193,15 +202,17 @@ fn thanks_while_the_model_writes_interrupts_at_once() {
     h.say("user_local", "plan the release");
     h.step();
     h.agents.wait_prompts(1);
-    release_after_cancel(&h.agents, 1);
     h.say("user_local", "thanks");
+    h.agents.hold(false);
+    h.agents.release();
+    h.agents.release();
     h.settle();
-    assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
+    assert!(h.agents.inner.lock().unwrap().cancels.is_empty());
     assert_eq!(new_messages(&h), vec!["plan the release", "thanks"]);
 }
 
-// Audit round 2 race: a cancel that reached acpmux before its prompt is
-// lost; the runner sends it again until the turn ends.
+// Audit round 2 race: a cancel (chief.stop) that reached acpmux before its
+// prompt is lost; the runner sends it again until the turn ends.
 #[test]
 fn a_lost_cancel_is_sent_again_until_the_turn_ends() {
     let mut h = Harness::new(Box::new(|turn, _| {
@@ -218,8 +229,11 @@ fn a_lost_cancel_is_sent_again_until_the_turn_ends() {
     h.step();
     h.agents.wait_prompts(1);
     release_after_cancel(&h.agents, 2);
-    h.say("user_local", "second");
+    // Only an explicit stop stops a turn (decision 2026-10-09).
+    let (reply, answer) = std::sync::mpsc::channel();
+    h.brain.step(Input::Stop { reply });
+    assert_eq!(answer.recv().unwrap(), json!({"stopped": true}));
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1", "s1"]);
-    assert_eq!(new_messages(&h), vec!["first", "second"]);
+    assert_eq!(new_messages(&h), vec!["first"]);
 }

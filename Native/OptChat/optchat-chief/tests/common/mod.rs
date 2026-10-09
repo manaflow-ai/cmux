@@ -462,6 +462,10 @@ pub struct Agents {
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
     pub steers: Vec<(String, Vec<Value>)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -743,6 +747,13 @@ impl AgentPort for FakeAgents {
         if !inner.steering {
             return Err("steer.unavailable".into());
         }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
         inner.steers.push((session.to_owned(), blocks));
         drop(inner);
         self.changed.notify_all();
@@ -984,6 +995,15 @@ impl Harness {
         while !self.brain.is_idle() {
             let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
             self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
         }
     }
 
