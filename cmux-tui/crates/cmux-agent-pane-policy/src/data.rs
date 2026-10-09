@@ -35,8 +35,8 @@ pub struct KnownParams {
 /// `maximum_items` of its item ids, each mapped to a string, a list of at most
 /// `maximum_list_strings` strings, or Codex's `{answers: [string]}`; each id
 /// and each string is at most `maximum_value_bytes` UTF-8 bytes (a list: its
-/// strings together). The default (a policy that did not parse) accepts no
-/// answers.
+/// strings together). With the default (a policy that did not parse) the
+/// rule refuses every frame that carries `answers`.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct QuestionAnswers {
     pub method: String,

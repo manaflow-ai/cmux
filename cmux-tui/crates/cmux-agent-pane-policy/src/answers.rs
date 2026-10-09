@@ -17,9 +17,16 @@ use serde_json::{Map, Value};
 /// most `maximum_list_strings` strings, or Codex's `{answers: [string]}` with
 /// that one key. Each key and each string is at most `maximum_value_bytes`
 /// UTF-8 bytes, and the strings of one list are bounded together by the same
-/// limit.
+/// limit. A policy that did not parse (an empty `method`) refuses every frame
+/// that carries `answers`.
 pub fn breaks_answers_rule(object: &Map<String, Value>, options: &PermissionOptions) -> bool {
     let rule = &policy().question_answers;
+    if rule.method.is_empty() {
+        return object
+            .get("params")
+            .and_then(Value::as_object)
+            .is_some_and(|params| params.contains_key("answers"));
+    }
     if object.get("method").and_then(Value::as_str) != Some(rule.method.as_str()) {
         return false;
     }
