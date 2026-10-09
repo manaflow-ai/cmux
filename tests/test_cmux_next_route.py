@@ -95,7 +95,19 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
         self.assertEqual(result["swift_targets"].split(),
                          ["CmuxNextAppTests", "CmuxNextBridgeTests", "CmuxNextSidebarTests"])
+        self.assertEqual(result["swift_canary"], "true")
+        self.assertEqual(result["swift_canary_targets"], "CmuxNextSidebar")
         self.assertEqual(result["daemon"], "false")
+
+    def test_test_source_keeps_release_as_the_gate(self):
+        result = tiers([f"{PACKAGE}/Tests/CmuxNextSidebarTests/SidebarTests.swift"])
+        self.assertEqual(result["swift_canary"], "false")
+        self.assertEqual(result["swift_canary_targets"], "")
+
+    def test_non_package_swift_does_not_use_the_canary(self):
+        result = tiers(["App/main.swift"])
+        self.assertEqual(result["swift_canary"], "false")
+        self.assertEqual(result["swift_canary_targets"], "")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"])
@@ -235,6 +247,8 @@ class EveryTier(unittest.TestCase):
             self.assertEqual(result[key], "true", key)
         self.assertEqual(result["swift_filter"], "")
         self.assertEqual(result["swift_targets"], "all")
+        self.assertEqual(result["swift_canary"], "false")
+        self.assertEqual(result["swift_canary_targets"], "")
 
     def test_push_runs_every_tier(self):
         self.assert_everything(tiers([], event="push"))

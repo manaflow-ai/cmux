@@ -503,6 +503,7 @@ class InstalledHelperRegression(unittest.TestCase):
 
     def test_feat_next_native_and_release_checks_are_required_when_reported(self):
         names = (
+            "cmux-next Swift canary",
             "cmux-next Release compile (Xcode 26)",
             "cmux app scheme compile (Debug)",
             "cmux-next swift test",

@@ -175,6 +175,33 @@ class ReferencedFilesExist(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class SwiftCanaryJob(unittest.TestCase):
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_path_route_exports_canary_outputs(self):
+        outputs = self.jobs()["path_route"]["outputs"]
+        self.assertIn("swift_canary", outputs)
+        self.assertIn("swift_canary_targets", outputs)
+
+    def test_canary_is_a_mini_first_targeted_debug_build(self):
+        jobs = self.jobs()
+        canary = jobs["swift-canary"]
+        condition = " ".join(canary["if"].split())
+        self.assertIn("needs.path_route.outputs.swift_canary == 'true'", condition)
+        self.assertIn("macos-placement", canary["needs"])
+        self.assertIn("vars.", str(canary["runs-on"]))
+        self.assertIn("swift build --configuration debug --target", " ".join(step.get("run", "") for step in canary["steps"]))
+        self.assertIn("owned_spm_scratch.py link", " ".join(step.get("run", "") for step in canary["steps"]))
+        self.assertIn("swift-canary", jobs["macos-placement"]["steps"][2]["env"]["JOBS"])
+
+    def test_release_is_advisory_only_for_canary_pull_requests(self):
+        release = self.jobs()["release-compile"]
+        self.assertIn("github.event_name == 'pull_request'", release["continue-on-error"])
+        self.assertIn("needs.path_route.outputs.swift_canary == 'true'", release["continue-on-error"])
+        self.assertIn("swift-canary", self.jobs()["push-attribution"]["needs"])
+
+
 class GodfileScopes(unittest.TestCase):
     """`--only swift` and `--only rust` each check their half, at unchanged budgets."""
 
@@ -702,7 +729,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "request-nightly-next", "swift-test"])
+                                           "request-nightly-next", "swift-canary", "swift-test"])
 
 
 
