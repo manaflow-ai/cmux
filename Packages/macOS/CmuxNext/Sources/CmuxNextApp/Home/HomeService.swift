@@ -106,6 +106,7 @@ final class HomeService {
         // daemon carries only the cloud proxy's events (its own conversation
         // store is the old per-tag one, which Home no longer shows).
         chief.onEvent = { [weak self] event in self?.handle(event) }
+        showLocalChiefRow()
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .cloudConversations = event { self?.handle(event) }
         }

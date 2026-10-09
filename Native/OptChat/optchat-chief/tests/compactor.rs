@@ -68,6 +68,7 @@ fn compactor(agents: &Arc<FakeAgents>, dir: &std::path::Path) -> AcpmuxCompactor
 
 fn request(i: u64) -> CompactRequest {
     CompactRequest {
+        imported: false,
         node: NodeId::new(0, i),
         system: "SYS".into(),
         context: "<chat>\nuser: hi\n</chat>".into(),
@@ -211,6 +212,7 @@ fn request_blocks_keep_the_cache_shape() {
     }
     context.push_str("</chat>");
     let r = CompactRequest {
+        imported: false,
         context: context.clone(),
         ..request(0)
     };
@@ -685,6 +687,7 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
     let context = chat_of(150);
     let pieces = optchat_core::block_pieces(&context);
     let r = CompactRequest {
+        imported: false,
         context: context.clone(),
         ..request(0)
     };
@@ -720,6 +723,7 @@ fn with_system_prompt_support_the_system_text_is_the_slot_presets_prompt_and_one
 fn the_marker_sits_on_the_last_whole_four_line_block() {
     // 9 lines: the header, two whole blocks, the marker on the second.
     let r = CompactRequest {
+        imported: false,
         context: chat_of(9),
         ..request(0)
     };
@@ -736,6 +740,7 @@ fn the_marker_sits_on_the_last_whole_four_line_block() {
     );
     // Without the marker the blocks are the same text.
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -762,6 +767,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
         sink.lock().unwrap().push(l.to_owned())
     }));
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -790,6 +796,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     // Later nodes skip the marker instead of failing first.
     assert_eq!(run_node(&compactor, &request(1)).unwrap(), "user: a line");
     let r2 = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(2)
     };
@@ -805,6 +812,7 @@ fn without_system_prompt_support_the_old_layout_stays() {
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
     let compactor = compactor(&agents, dir.path());
     let r = CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(0)
     };
@@ -880,6 +888,7 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
     ));
     agents.hold(true);
     let r = |i: u64| CompactRequest {
+        imported: false,
         context: chat_of(1_100),
         ..request(i)
     };
@@ -1526,6 +1535,7 @@ fn each_node_takes_the_shared_cache_ttl_for_its_mark_and_its_slot_settings() {
         blocks[markers(blocks)[0]]["cache_control"].clone()
     };
     let r = |i| CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(i)
     };
@@ -1568,6 +1578,7 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     }
     let compactor = compactor(&agents, dir.path());
     let r = |i| CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(i)
     };
@@ -1722,6 +1733,7 @@ fn a_marked_node_runs_claude_code_without_its_own_cache_marks() {
             .unwrap()
     };
     let marked = CompactRequest {
+        imported: false,
         context: chat_of(150),
         ..request(0)
     };
@@ -1780,6 +1792,7 @@ fn size_retries_of_a_marked_node_reread_the_view_mark() {
     }
     context.push_str("</chat>");
     let request = CompactRequest {
+        imported: false,
         node: NodeId::new(0, 12),
         context,
         ..request(12)
@@ -2142,4 +2155,54 @@ fn the_probe_retries_through_a_stoppable_delay() {
     real.stop();
     assert!(!waiter.join().unwrap());
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+/// Soak at 64d57f35a20f: during an import every compactor session is busy
+/// with imported nodes and dozens more wait; a new chat line's node waited
+/// behind them in an unordered queue. The reference client lets foreground
+/// work go first (its background calls yield). With all sessions busy on an
+/// import and imported nodes waiting, a chat node takes the first session
+/// that frees.
+#[test]
+fn a_chat_node_takes_the_next_free_session_before_waiting_import_nodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
+    agents.hold(true);
+    let compactor = Arc::new(compactor(&agents, dir.path()));
+    let node = |i: u64, imported: bool| CompactRequest {
+        node: NodeId::new(0, i),
+        imported,
+        ..request(i)
+    };
+    let spawn = |r: CompactRequest| {
+        let c = compactor.clone();
+        std::thread::spawn(move || run_node(&*c, &r))
+    };
+    let mut workers: Vec<_> = (0..COMPACTOR_SESSIONS as u64)
+        .map(|i| spawn(node(i, true)))
+        .collect();
+    agents.wait_prompts(COMPACTOR_SESSIONS);
+    workers.extend(
+        (COMPACTOR_SESSIONS as u64..2_000)
+            .take(48)
+            .map(|i| spawn(node(i, true))),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    workers.push(spawn(node(2_000, false)));
+    std::thread::sleep(Duration::from_millis(300));
+    // One session frees.
+    agents.release();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while agents.inner.lock().unwrap().specs.len() <= COMPACTOR_SESSIONS {
+        assert!(std::time::Instant::now() < deadline, "no session started");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let next = agents.inner.lock().unwrap().specs[COMPACTOR_SESSIONS]
+        .name
+        .clone();
+    agents.hold(false);
+    agents.release();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+    assert_eq!(next, "optchat-compact-test-2000+1", "the chat node waited");
 }

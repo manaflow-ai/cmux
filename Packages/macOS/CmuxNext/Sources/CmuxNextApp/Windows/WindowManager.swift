@@ -177,23 +177,15 @@ final class WindowManager {
         }
         // Incognito workspaces a crashed run left on a daemon without state
         // resources: the app's ledger owns them, so they close, never shown.
-        // A daemon with state resources owns its ephemeral workspaces (it
-        // closes them at its next start); until then they show in an
-        // incognito window, never a normal one, so wait for its flags.
+        // A daemon with state resources owns its ephemeral workspaces (it closes them at its
+        // next start); until then they show in an incognito window only, so wait for its flags.
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        // A fresh store's snapshot can show Home before its kind row: decide
-        // once ensure_home answered, with the workspace it named.
-        await services.home.awaitHomeEnsured()
-        // The workspace a launch gives an empty tree, on its New Tab page.
-        var firstWorkspace: String?
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) {
-            firstWorkspace = await createWorkspace(newTabPage: true)
-        }
+        let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -221,10 +213,7 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
-        // A first launch (or a tree emptied since) goes straight to the new
-        // workspace's New Tab page, not the Home page: nothing was chosen
-        // yet (Lawrence 2026-10-09: "drop user into main screen asap").
-        if let firstWorkspace, services.machines.workspace(id: firstWorkspace) != nil { _ = reveal(workspaceID: firstWorkspace) }
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and
