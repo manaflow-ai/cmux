@@ -119,6 +119,14 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
   (daemon `close-workspace` by key, into the closed history) instead of the
   done mark.
+- The opener follows the E17 rule (schemas/chief-cmux-target) at each
+  open: the app while its control socket and daemon exist, else the
+  Chief's own owner daemon (a Chief that `cmux chief` started without the
+  app), so the app shows the workspace when it connects. Every subagent
+  tab's host is `chief:<home id>`: the app attaches it to the Chief home's
+  acpmux. A Chief turn starts subagents only with `spawn`: Claude Code's
+  Task/Agent tools are not in `TURN_TOOLS`, and codex turns run with
+  `features.multi_agent = false` (harness.rs guard test).
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
