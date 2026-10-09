@@ -1044,6 +1044,11 @@ jobs:
           # The device-wide chat index: Windows store roots (USERPROFILE,
           # APPDATA, LOCALAPPDATA) and every adapter on NTFS semantics.
           cargo test --locked --target x86_64-pc-windows-gnu -p cmux-chat-index
+          # Per-terminal hosts on Windows (bead cx-ko2e,
+          # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
+          # fenced daemon restart.
+          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
+            --test windows_terminal_hosts -- --test-threads=1
 
       # A peer of another user is refused by cmux::local_socket's accept.
       # The peer runs as LocalService (another SID, no new account) through
