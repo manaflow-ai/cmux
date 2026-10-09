@@ -226,7 +226,7 @@ final class AppContainer {
         }
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install's principal (identity D5, InstallIdentity).
-        let base = Self.cloudAPIBaseURL()
+        let base = Self.cloudAPIBaseURL(production: composition.authEnvironment == .production)
         let madeIdentity = base.map {
             InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
         }
@@ -551,10 +551,18 @@ final class AppContainer {
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
     /// xcconfigs). Missing or not https: no ops at all (fail closed), never a
     /// fallback origin that could receive a production credential.
-    private static func cloudAPIBaseURL() -> URL? {
+    private static func cloudAPIBaseURL(production: Bool) -> URL? {
         let raw = Bundle.main.object(forInfoDictionaryKey: "CMUXCloudAPIBaseURL") as? String ?? ""
         guard let url = URL(string: raw.trimmingCharacters(in: .whitespaces)), url.scheme == "https",
               url.host?.isEmpty == false else { return nil }
+        // The fleet production recipe builds the same tagged Debug target as
+        // development and may therefore retain Shared.xcconfig's staging
+        // Cloud API setting. Never send a production Stack credential to that
+        // authority; use the production Cloud Worker whenever auth is
+        // production and the embedded value is the staging default.
+        if production, url.host == "cloud-api-staging.cmux.dev" {
+            return URL(string: "https://cloud-api.cmux.dev")
+        }
         return url
     }
 
