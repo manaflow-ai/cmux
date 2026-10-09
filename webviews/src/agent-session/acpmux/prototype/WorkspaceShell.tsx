@@ -354,13 +354,12 @@ export function WorkspaceShell() {
       )}
 
       <main className="proto-content">
-        <div className="proto-tabs" role="tablist" aria-label={workspaceLead(active).title}>
+        <nav className="proto-tabs" aria-label={`${workspaceLead(active).title} tabs`}>
           {active.tabs.map((tab) => {
             const KindIcon = KIND_ICONS[tab.kind];
             return (
               <div
                 key={tab.id}
-                role="presentation"
                 className={`proto-tab proto-tab-${tab.kind}${tab.id === activeTab.id ? " is-active" : ""}`}
               >
                 <button
@@ -370,8 +369,7 @@ export function WorkspaceShell() {
                     else tabSelectRefs.current.delete(key);
                   }}
                   type="button"
-                  role="tab"
-                  aria-selected={tab.id === activeTab.id}
+                  aria-current={tab.id === activeTab.id ? "page" : undefined}
                   className="proto-tab-select"
                   onClick={() => show(selectTab(stack, active.id, tab.id))}
                 >
@@ -392,7 +390,7 @@ export function WorkspaceShell() {
               </div>
             );
           })}
-        </div>
+        </nav>
         <div className="proto-body">
           <div className="proto-agent" hidden={activeTab.kind !== "agent"}>
             <AcpmuxApp />
