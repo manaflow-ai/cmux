@@ -258,6 +258,17 @@ way and named in the `changes` summary. An order left empty by that turns the
 preference off. A pin path that is not `/Applications/Xcode_<version>.app`
 names no owned pool.
 
+Headless Macs use a separate namespace. A pool such as
+`glaeda-aws-std-xcode-26.6` is never included by the default office-first
+order, even when an AWS runner also carries a compatibility office label.
+Add the full namespaced pool to `CI_PR_POOL_ORDER` to opt that Xcode lane into
+AWS capacity, for example
+`glaeda-aws-std-xcode-26.6,glaeda-std-xcode-26.6,...`. The picker then counts
+only runners carrying the selected namespace, while GUI and canonical-root
+labels remain independent. Keep the AWS entry out of the variable until its
+toolchain, cache warm-up, and headless job mix have been verified; this keeps
+the existing office route unchanged while allowing a reversible canary.
+
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |

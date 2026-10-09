@@ -324,6 +324,24 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips the deprecated Codex hooks feature alias from saved cmux argv")
+    func stripsDeprecatedCodexHooksFeatureAlias() {
+        let injected = codexWrapperHookArguments { subcommand in
+            legacyNamedScriptPath(subcommand)
+        }
+        let arguments = ["codex"] + injected
+            .enumerated()
+            .map { index, argument in index == 1 ? "codex_hooks" : argument }
+            + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Preserves user Codex hook config without cmux marker")
     func preservesUserCodexHookConfigWithoutCmuxMarker() {
         #expect(
