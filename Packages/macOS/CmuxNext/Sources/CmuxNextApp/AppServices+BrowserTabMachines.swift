@@ -17,7 +17,9 @@ extension AppServices {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             if let badge = remoteLocalhost.badge(for: tab, url: url, engine: engine) { return badge }
         }
-        guard !MachineBrowserRecord.matches(url), let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return nil }
+        // A machine browser page runs (or waits) on the machine, whatever address it shows.
+        guard !MachineBrowserRecord.matches(url), !(cache.existingBrowser(key)?.tab is MachineBrowserPageTab),
+              let daemon = daemon(ofBrowserTab: key), !daemon.isLocal else { return nil }
         let name = machines.machineName(daemon.machineID) ?? daemon.machineID
         return (MachineBrowserStrings.thisMac, RemoteStrings.browserRunsOnThisMac(name))
     }
