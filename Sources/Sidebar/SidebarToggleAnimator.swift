@@ -254,6 +254,7 @@ final class SidebarToggleAnimator: ObservableObject {
             session = SidebarToggleSlideSession(
                 views: views,
                 trailingStillWidth: trailingStillWidth(),
+                sidebarWidth: layout.width,
                 titleGlide: layout.titlebarTitle?.glide(sidebarWidth: layout.width),
                 tabRow: start.tabRow,
                 chrome: start.chrome,
