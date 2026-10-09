@@ -84,6 +84,18 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   useEffect(() => setSelected(0), [rows]);
+  const list = useRef<HTMLDivElement>(null);
+  // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
+  // screen around it, as scrollIntoView would).
+  useEffect(() => {
+    const box = list.current;
+    const row = box?.querySelector<HTMLElement>(`#nt-row-${selected}`);
+    if (!box || !row) return;
+    const inner = box.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    if (at.top < inner.top) box.scrollTop -= inner.top - at.top;
+    else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
+  }, [selected, rows]);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
@@ -203,7 +215,7 @@ export function NewTabScreen(props: Props) {
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+        <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
           {rows.map((row, index) => (
             <div
               key={rowKey(row)}

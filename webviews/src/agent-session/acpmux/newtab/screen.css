@@ -5,7 +5,7 @@
 .nt-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--agent-text);font:inherit;font-size:16px}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
-.nt-rows{padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);max-height:min(56vh,400px);overflow:auto}
+.nt-rows{flex:none;padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);max-height:min(56vh,400px);overflow:auto}
 .nt-row{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px 0 12px;border-radius:12px;color:var(--agent-soft);font-size:13.5px;cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;width:16px;height:16px;border-radius:50%;box-shadow:inset 0 0 0 1.25px var(--acpmux-composer-dim)}
