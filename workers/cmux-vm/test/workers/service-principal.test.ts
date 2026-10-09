@@ -150,7 +150,9 @@ describe("other VMs of the team", () => {
 describe("its own chief VMs", () => {
   it("can read, exec, pause, start, stop and delete them, each mutation audited as the service", async () => {
     const service = await h.addServiceKey();
-    const vm = await createChief(service, TENANT_A);
+    // A running VM a member labelled role=chief: the label, not the creator, decides what the service reaches.
+    const { vmId } = h.addVm(TENANT_A, "running", CHIEF);
+    const vm = { id: vmId };
     const headers = asTeam(service, TENANT_A);
 
     expect((await h.request(`/v1/vms/${vm.id}`, headers)).status).toBe(200);
@@ -166,7 +168,8 @@ describe("its own chief VMs", () => {
 
   it("forks only into another role=chief VM", async () => {
     const service = await h.addServiceKey();
-    const vm = await createChief(service, TENANT_A);
+    const { vmId } = h.addVm(TENANT_A, "running", CHIEF);
+    const vm = { id: vmId };
     const headers = asTeam(service, TENANT_A);
 
     expect((await h.request(`/v1/vms/${vm.id}/fork`, headers, { method: "POST", body: {} })).status).toBe(403);
