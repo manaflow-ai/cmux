@@ -16969,6 +16969,21 @@ struct CMUXCLI {
         }
 
         switch normalizedVerb {
+        case "list":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            try rejectBrowserCommandExtras(
+                parsed.positionals[...],
+                commandName: commandName
+            )
+
         case "create":
             let commandName = "browser profiles \(profileVerb)"
             try validateBrowserCommandArguments(
@@ -17302,6 +17317,21 @@ struct CMUXCLI {
 
             switch normalizedVerb {
             case "list":
+            case "list":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                let parsed = try browserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                try rejectBrowserCommandExtras(
+                    parsed.positionals[...],
+                    commandName: commandName
+                )
+
                 let payload = try client.sendV2(method: "browser.profiles.list")
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))

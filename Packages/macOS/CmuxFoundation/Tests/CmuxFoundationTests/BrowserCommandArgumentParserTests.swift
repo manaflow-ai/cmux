@@ -42,6 +42,19 @@ struct BrowserCommandArgumentParserTests {
         #expect(result.positionals == ["https://example.com/search", "two", "words"])
     }
 
+    @Test("Rejects options and positionals for zero-argument commands")
+    func rejectsArgumentsForZeroArgumentCommands() {
+        let parser = BrowserCommandArgumentParser()
+
+        #expect(throws: BrowserCommandArgumentParser.ParseError.unknownOption(name: "--unknown")) {
+            try parser.parse(["--unknown"])
+        }
+        #expect(throws: BrowserCommandArgumentParser.ParseError.unexpectedPositionals) {
+            let parsed = try parser.parse(["extra"])
+            try BrowserCommandArgumentParser.requireNoExtraPositionals(parsed.positionals.count)
+        }
+    }
+
     @Test("Treats arguments after the terminator as positionals")
     func honorsTerminator() throws {
         let parser = BrowserCommandArgumentParser(allowedFlags: ["--snapshot-after"])
