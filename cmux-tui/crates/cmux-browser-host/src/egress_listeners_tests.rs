@@ -83,6 +83,17 @@ fn own_listeners_are_checked_by_executable() {
     assert!(verdict(v4(), &in_table, &[], ME, false).is_some(), "no holder");
 }
 
+/// The table shows a listener of this user on 127.0.0.1:P that libproc did
+/// not find, beside a found wildcard: the kernel gives the connection to the
+/// exact address, whose holder is unknown, so the target is refused.
+#[test]
+fn an_own_table_listener_libproc_missed_refuses_beside_a_found_one() {
+    let own = [held(IpAddr::V4(Ipv4Addr::UNSPECIFIED), "node")];
+    let table = [listener(IpAddr::V4(Ipv4Addr::UNSPECIFIED), ME), listener(IpAddr::V4(Ipv4Addr::LOCALHOST), ME)];
+    assert!(verdict(v4(), &table, &own, ME, true).is_some());
+    assert!(verdict(v4(), &table[..1], &own, ME, true).is_none(), "the found one alone");
+}
+
 fn xinpgen(count: u32) -> Vec<u8> {
     let mut header = vec![0u8; XINPGEN_SIZE];
     header[0..4].copy_from_slice(&(XINPGEN_SIZE as u32).to_le_bytes());
@@ -166,9 +177,14 @@ fn a_table_of_another_layout_is_unreadable() {
 fn the_live_sources_find_a_listener_and_its_holder() {
     let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = socket.local_addr().unwrap();
-    assert!(system_listeners().is_some(), "pcblist64 readable");
     // SAFETY: geteuid has no preconditions.
-    let own = system_own_listeners(unsafe { libc::geteuid() }).expect("libproc readable");
+    let uid = unsafe { libc::geteuid() };
+    // Even a filtered table shows the caller's own sockets.
+    let table = system_listeners().expect("pcblist64 readable");
+    let listed: Vec<&Listener> = table.iter().filter(|l| l.port == addr.port()).collect();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!((listed[0].addr, listed[0].uid), (addr.ip(), uid));
+    let own = system_own_listeners(uid).expect("libproc readable");
     let mine: Vec<&Held> = own.iter().filter(|h| h.listener.port == addr.port()).collect();
     assert_eq!(mine.len(), 1, "{mine:?}");
     assert_eq!(mine[0].listener.addr, addr.ip());
