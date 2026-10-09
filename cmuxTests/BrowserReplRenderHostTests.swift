@@ -82,6 +82,25 @@ struct BrowserReplRenderHostTests {
         override var isKeyWindow: Bool { reportsKey }
     }
 
+    /// A deterministic ordinary pane window for tests that exercise only the
+    /// render-host focus transition. Headless runners do not reliably activate
+    /// a newly-created AppKit window, so its key status is explicit.
+    private func makeWindow() throws -> (NSWindow, NSView) {
+        let window = KeyStatusWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.reportsKey = true
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        let contentView = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+        return (window, anchor)
+    }
+
     private func makePane(key: Bool) throws -> (KeyStatusWindow, NSView, BrowserPanel, NSView) {
         let window = KeyStatusWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
