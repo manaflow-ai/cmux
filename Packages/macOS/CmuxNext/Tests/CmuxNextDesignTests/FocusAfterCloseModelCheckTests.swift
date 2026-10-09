@@ -43,7 +43,9 @@ import Testing
     /// The layout change of a close-like step: the columns after, aligned
     /// with the columns before by identity (`aligned[i]` is column i's
     /// panes now, empty when it is gone), plus a new column if one formed.
-    static func transition(_ step: PaneStep, _ world: PaneWorld) -> (aligned: [[Int]], extra: [Int]?)? {
+    typealias Transition = (aligned: [[Int]], extra: [Int]?)
+
+    static func transition(_ step: PaneStep, _ world: PaneWorld) -> Transition? {
         switch step {
         case .closePane(let pane):
             return (world.columns.map { $0.filter { $0 != pane } }, nil)
@@ -96,9 +98,10 @@ import Testing
     }
 
     /// One step. Returns the next world and, for a close, what the rule saw.
-    static func apply(_ step: PaneStep, to world: PaneWorld, rule: PaneRule, policy: CloseFocusPolicy) -> PaneWorld {
+    /// `change` is `transition(step, world)`, computed once by the caller.
+    static func apply(_ step: PaneStep, _ change: Transition?, to world: PaneWorld, rule: PaneRule, policy: CloseFocusPolicy) -> PaneWorld {
         var next = world
-        if let (aligned, extra) = transition(step, world) {
+        if let (aligned, extra) = change {
             next.columns = aligned.filter { !$0.isEmpty } + (extra.map { [$0] } ?? [])
             let alive = Set(next.columns.flatMap { $0 })
             next.history = world.history.filter(alive.contains)
@@ -136,9 +139,9 @@ import Testing
 
     /// The invariants of a close step, stated from the spec independently
     /// of the implementation (column indices, not the code's search).
-    static func check(_ step: PaneStep, before: PaneWorld, after: PaneWorld, policy: CloseFocusPolicy, rule: PaneRule) -> [String] {
+    static func check(_ change: Transition?, before: PaneWorld, after: PaneWorld, policy: CloseFocusPolicy, rule: PaneRule) -> [String] {
         var bad: [String] = []
-        guard let (aligned, _) = transition(step, before) else { return bad }
+        guard let (aligned, _) = change else { return bad }
         let surviving = Set(after.columns.flatMap { $0 })
         // C3: nil only when nothing survives.
         if (after.focused == nil) != surviving.isEmpty { bad.append("C3 focus \(String(describing: after.focused)) with \(surviving.count) panes") }
@@ -212,23 +215,26 @@ import Testing
         }
         var seen = frontier
         stats.states = seen.count
+        // `seen` already removes duplicates, so the next frontier is a plain array.
+        var layer = Array(frontier)
         for _ in 0..<depth {
-            var next: Set<PaneWorld> = []
-            for world in frontier {
+            var next: [PaneWorld] = []
+            for world in layer {
                 for step in steps(world, maxPanes: maxPanes, maxColumns: maxColumns) {
-                    let after = apply(step, to: world, rule: rule, policy: policy)
+                    let change = transition(step, world)
+                    let after = apply(step, change, to: world, rule: rule, policy: policy)
                     stats.transitions += 1
-                    if transition(step, world) != nil { stats.closes += 1 }
-                    let bad = check(step, before: world, after: after, policy: policy, rule: rule)
+                    if change != nil { stats.closes += 1 }
+                    let bad = check(change, before: world, after: after, policy: policy, rule: rule)
                     if !bad.isEmpty {
                         if stats.violations.count < 5 { stats.violations.append("\(world) \(step): \(bad)") }
                         if stopAfterViolation { return stats }
                     }
                     let key = canonical(after)
-                    if seen.insert(key).inserted { next.insert(key) }
+                    if seen.insert(key).inserted { next.append(key) }
                 }
             }
-            frontier = next
+            layer = next
             stats.states = seen.count
         }
         return stats
