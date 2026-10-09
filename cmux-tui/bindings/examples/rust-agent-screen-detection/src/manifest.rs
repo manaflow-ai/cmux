@@ -2162,7 +2162,8 @@ line_regex = ["^working$", "^missing line$"]
     #[test]
     fn screen_detect_grok_local_patch_rejects_older_remote_manifest() {
         let bundled = include_str!("../manifests/grok.toml");
-        let upstream = bundled.replacen("version = \"2026.09.18.1\"", "version = \"2026.09.18\"", 1);
+        let upstream =
+            bundled.replacen("version = \"2026.09.18.1\"", "version = \"2026.09.18\"", 1);
         let mut set = ManifestSet::from_sources(&[("grok", bundled)]).unwrap();
         let remote = compile_manifest_source_with_source(
             &upstream,
