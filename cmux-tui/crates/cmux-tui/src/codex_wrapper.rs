@@ -9,7 +9,8 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
+use std::io::Read as _;
+use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,10 +35,11 @@ pub(crate) fn invocation(args: &[OsString]) -> Option<&[OsString]> {
 /// Execs the real Codex. If the launch is not a session or the terminal has
 /// no live cmux socket, the original argv is passed through unchanged.
 pub(crate) fn run(args: &[OsString]) -> i32 {
+    let messages = &crate::localization::catalog().agent_wrapper;
     let path = std::env::var_os("PATH").unwrap_or_default();
     let shim_dir = shim_directory();
     let Some(codex) = find_real_codex(&path, shim_dir.as_deref()) else {
-        eprintln!("codex: command not found");
+        eprintln!("{}", messages.agent_not_found);
         return 127;
     };
 
@@ -45,14 +47,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
-        if let Some((injected, helper)) = prepare_hooks(args) {
-            launch_args = injected;
-            command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
-            command.env("CMUX_TUI_HOOK", helper);
+        match prepare_hooks(args) {
+            Ok(Some(injected)) => {
+                launch_args = injected;
+                command.env("CMUX_TUI_CODEX_WRAPPER_ACTIVE", "1");
+            }
+            Ok(None) => {}
+            Err(_) => eprintln!("{}", messages.hooks_unavailable),
         }
     }
     let _error = command.args(&launch_args).exec();
-    eprintln!("codex: failed to start");
+    eprintln!("{}", messages.agent_start_failed);
     126
 }
 
@@ -75,29 +80,22 @@ fn current_executable() -> anyhow::Result<PathBuf> {
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
-fn hook_helper(executable: &Path) -> Option<PathBuf> {
-    agent_hook_install::runtime_helper_path()
-        .filter(|path| agent_hook_install::is_executable_file(path))
-        .or_else(|| agent_hook_install::locate_helper_source(Some(executable)))
-        .filter(|path| path.is_absolute())
-}
-
-fn prepare_hooks(args: &[OsString]) -> Option<(Vec<OsString>, PathBuf)> {
-    let executable = current_executable().ok()?;
-    let helper = hook_helper(&executable)?;
-    let socket = std::env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty())?;
-    let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty())?;
-    let socket = PathBuf::from(socket);
-    let mut launch = vec![OsString::from("--enable"), OsString::from("hooks")];
-    launch.push(OsString::from("--dangerously-bypass-hook-trust"));
-    for event in agent_hook_install::CODEX_EVENTS {
-        launch.push(OsString::from("-c"));
-        launch.push(OsString::from(agent_hook_install::codex_contextual_hook_setting(
-            event, &socket, &terminal, &helper,
-        )));
+fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+    let Some((socket, Some(terminal))) = crate::hook_helper::session_route() else {
+        return Ok(None);
+    };
+    if !fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+        return Ok(None);
     }
-    launch.extend_from_slice(args);
-    Some((launch, helper))
+    let executable = current_executable()?;
+    let mut launch = vec![OsString::from("--enable"), OsString::from("hooks")];
+    for setting in agent_hook_install::codex_session_hook_settings(&socket, &terminal, &executable)?
+    {
+        launch.push(OsString::from("-c"));
+        launch.push(OsString::from(setting));
+    }
+    launch.extend(hoist_session_global_args(args));
+    Ok(Some(launch))
 }
 
 fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -> bool {
@@ -105,15 +103,6 @@ fn should_inject(args: &[OsString], getenv: impl Fn(&str) -> Option<OsString>) -
         .into_iter()
         .any(|name| getenv(name).is_some_and(|value| value == "1"));
     if disabled || getenv("CMUX_TUI_CODEX_WRAPPER_ACTIVE").is_some_and(|value| value == "1") {
-        return false;
-    }
-    let Some(socket) = getenv("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) else {
-        return false;
-    };
-    if !fs::metadata(socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
-        return false;
-    }
-    if getenv("CMUX_TUI_TERMINAL_ID").is_none_or(|value| value.is_empty()) {
         return false;
     }
     !launch_classification::is_non_launch(
@@ -161,9 +150,15 @@ fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
 }
 
 fn is_codex_shim(path: &Path) -> bool {
-    fs::read(path).ok().is_some_and(|bytes| {
-        bytes.windows(SHIM_MARKER.len()).any(|window| window == SHIM_MARKER.as_bytes())
-    })
+    fs::File::open(path)
+        .ok()
+        .and_then(|file| {
+            let mut bytes = Vec::new();
+            file.take(4096).read_to_end(&mut bytes).ok().map(|_| bytes)
+        })
+        .is_some_and(|bytes| {
+            bytes.windows(SHIM_MARKER.len()).any(|window| window == SHIM_MARKER.as_bytes())
+        })
 }
 
 fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
@@ -190,13 +185,69 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
     ))
 }
 
+/// Codex's clap globals replace the root list when repeated after a
+/// subcommand. Move session -c/--config and feature flags into the root list
+/// so the wrapper's hooks survive `codex exec -c ...` and resume/fork.
+fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].to_string_lossy();
+        if arg == "--" {
+            return args.to_vec();
+        }
+        if arg.starts_with('-') {
+            index += if launch_classification::consumes_value(&arg) { 2 } else { 1 };
+        } else if matches!(arg.as_ref(), "exec" | "e" | "resume" | "fork") {
+            break;
+        } else {
+            return args.to_vec();
+        }
+    }
+    if index >= args.len() {
+        return args.to_vec();
+    }
+    let mut head = args[..index].to_vec();
+    let mut tail = vec![args[index].clone()];
+    index += 1;
+    while index < args.len() {
+        let arg = args[index].to_string_lossy();
+        if arg == "--" {
+            tail.extend_from_slice(&args[index..]);
+            break;
+        }
+        let separate = matches!(arg.as_ref(), "-c" | "--config" | "--enable" | "--disable");
+        let inline =
+            ["--config=", "--enable=", "--disable="].iter().any(|prefix| arg.starts_with(prefix))
+                || (arg.starts_with("-c") && arg.len() > 2);
+        if separate && index + 1 < args.len() {
+            head.extend_from_slice(&args[index..index + 2]);
+            index += 2;
+        } else if inline {
+            head.push(args[index].clone());
+            index += 1;
+        } else {
+            let count = if launch_classification::consumes_value(&arg) && index + 1 < args.len() {
+                2
+            } else {
+                1
+            };
+            tail.extend_from_slice(&args[index..index + count]);
+            index += count;
+        }
+    }
+    head.extend(tail);
+    head
+}
+
 mod launch_classification {
     const INFORMATIONAL: &[&str] = &["--help", "-h", "--version", "-V"];
     const MANAGEMENT: &[&str] = &[
+        "a",
         "apply",
         "app",
         "app-server",
         "archive",
+        "cloud",
         "completion",
         "debug",
         "delete",
@@ -216,6 +267,34 @@ mod launch_classification {
         "update",
     ];
 
+    pub(super) fn consumes_value(argument: &str) -> bool {
+        matches!(
+            argument,
+            "-c" | "--config"
+                | "-m"
+                | "--model"
+                | "-p"
+                | "--profile"
+                | "-C"
+                | "--cd"
+                | "--remote"
+                | "-a"
+                | "--ask-for-approval"
+                | "-s"
+                | "--sandbox"
+                | "--output-last-message"
+                | "--enable"
+                | "--disable"
+                | "--add-dir"
+                | "-i"
+                | "--image"
+                | "--local-provider"
+                | "--remote-auth-token-env"
+                | "--output-schema"
+                | "--color"
+        )
+    }
+
     pub(super) fn is_non_launch(args: &[String]) -> bool {
         let mut expects_value = false;
         for argument in args {
@@ -230,21 +309,7 @@ mod launch_classification {
                 if INFORMATIONAL.contains(&argument.as_str()) {
                     return true;
                 }
-                if matches!(
-                    argument.as_str(),
-                    "-c" | "--config"
-                        | "-m"
-                        | "--model"
-                        | "-p"
-                        | "--profile"
-                        | "-C"
-                        | "--cd"
-                        | "-s"
-                        | "--sandbox"
-                        | "--enable"
-                        | "--disable"
-                ) && !argument.contains('=')
-                {
+                if consumes_value(argument) {
                     expects_value = true;
                 }
                 continue;
@@ -259,7 +324,6 @@ mod launch_classification {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixListener;
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
@@ -267,20 +331,9 @@ mod tests {
 
     #[test]
     fn codex_wrapper_injects_session_entrypoints_only() {
-        let root = tempfile::tempdir().unwrap();
-        let socket = root.path().join("mux.sock");
-        let _listener = UnixListener::bind(&socket).unwrap();
-        let env = |args: &[(&str, &str)]| {
-            let socket = socket.clone();
-            move |name: &str| -> Option<OsString> {
-                if let Some((_, value)) = args.iter().find(|(key, _)| *key == name) {
-                    return Some((*value).into());
-                }
-                match name {
-                    "CMUX_TUI_SOCKET" => Some(socket.clone().into_os_string()),
-                    "CMUX_TUI_TERMINAL_ID" => Some("term_1".into()),
-                    _ => None,
-                }
+        let env = |overrides: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                overrides.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).into())
             }
         };
         assert!(!should_inject(&os(&["--version"]), env(&[])));
@@ -289,6 +342,45 @@ mod tests {
         assert!(should_inject(&os(&["exec", "hello"]), env(&[])));
         assert!(should_inject(&os(&["resume", "--last"]), env(&[])));
         assert!(!should_inject(&os(&[]), env(&[(HOOKS_DISABLED_ENV, "1")])), "opt-out");
+    }
+
+    #[test]
+    fn codex_wrapper_preserves_session_config_and_prompt_arguments() {
+        assert_eq!(
+            hoist_session_global_args(&os(&[
+                "-c",
+                "model=\"root\"",
+                "exec",
+                "--image",
+                "--config=picture",
+                "--enable",
+                "foo",
+                "-cmodel=\"child\"",
+                "--",
+                "-c",
+                "prompt"
+            ])),
+            os(&[
+                "-c",
+                "model=\"root\"",
+                "--enable",
+                "foo",
+                "-cmodel=\"child\"",
+                "exec",
+                "--image",
+                "--config=picture",
+                "--",
+                "-c",
+                "prompt"
+            ]),
+        );
+        for args in [
+            os(&["a", "diff"]),
+            os(&["--", "exec", "-c", "prompt"]),
+            os(&["a prompt", "--config=x"]),
+        ] {
+            assert_eq!(hoist_session_global_args(&args), args);
+        }
     }
 
     #[test]
