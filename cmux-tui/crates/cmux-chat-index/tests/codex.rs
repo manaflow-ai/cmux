@@ -77,7 +77,8 @@ fn the_newest_state_db_gives_threads_with_names_titles_and_filters() {
     );
     thread(&db, Row { title: Some("AI title"), preview: Some("preview"), ..Row::new("t2") });
     thread(&db, Row { preview: Some("preview text"), ..Row::new("t3") });
-    thread(&db, Row { title: Some("no user event"), user_event: false, ..Row::new("t4") });
+    // No user event and no user text: an empty thread, not a chat.
+    thread(&db, Row { user_event: false, ..Row::new("t4") });
     thread(&db, Row { title: Some("subagent"), nickname: Some("worker"), ..Row::new("t5") });
     thread(&db, Row { title: Some("archived one"), archived: true, ..Row::new("t6") });
     let scan = scan(AdapterKind::Codex, dir.path());
