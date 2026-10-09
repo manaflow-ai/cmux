@@ -4847,6 +4847,137 @@
           }
         }
       }
+    },
+    "terminal.link.inProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal ends when cmux restarts: it could not get its own host process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターミナルは cmux の再起動で終了します: 専用のホストプロセスを起動できませんでした"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ستنتهي هذه الطرفية عند إعادة تشغيل cmux: تعذّر تشغيل عملية مضيف خاصة بها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj terminal se završava kada se cmux ponovo pokrene: nije mogao dobiti vlastiti proces domaćina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminal lukker, når cmux genstarter: den kunne ikke få sin egen værtsproces"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Terminal endet beim Neustart von cmux: Es konnte keinen eigenen Hostprozess erhalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta terminal se cerrará cuando cmux se reinicie: no pudo obtener su propio proceso anfitrión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce terminal se fermera au redémarrage de cmux : il n’a pas pu obtenir son propre processus hôte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo terminale termina al riavvio di cmux: non ha potuto ottenere un proprio processo host"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល់នេះនឹងបញ្ចប់នៅពេល cmux ចាប់ផ្ដើមឡើងវិញ៖ វាមិនអាចទទួលបានដំណើរការម៉ាស៊ីនផ្ទាល់ខ្លួនទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 다시 시작하면 이 터미널이 종료됩니다: 전용 호스트 프로세스를 얻지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne terminalen avsluttes når cmux starter på nytt: den fikk ikke sin egen vertsprosess"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten terminal zakończy się po ponownym uruchomieniu cmux: nie mógł uzyskać własnego procesu hosta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este terminal será encerrado quando o cmux reiniciar: não foi possível obter um processo host próprio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот терминал завершится при перезапуске cmux: не удалось получить собственный процесс хоста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลนี้จะปิดเมื่อ cmux รีสตาร์ต: ไม่สามารถมีโปรเซสโฮสต์ของตัวเองได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu terminal cmux yeniden başladığında kapanır: kendi ana makine işlemini alamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей термінал завершиться після перезапуску cmux: не вдалося отримати власний процес хоста"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal này sẽ kết thúc khi cmux khởi động lại: không thể có tiến trình máy chủ riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 重启时此终端会结束：无法获得独立的宿主进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 重新啟動時此終端機會結束：無法取得獨立的主機程序"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
