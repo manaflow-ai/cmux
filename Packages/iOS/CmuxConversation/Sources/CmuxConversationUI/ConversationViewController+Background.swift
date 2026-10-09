@@ -5,6 +5,17 @@ import UIKit
 /// Conversation backgrounds (iOS 26 Messages): the shared background behind
 /// the transcript, the light or dark style it implies, and the gallery.
 extension ConversationViewController {
+    /// Whether the system scroll pocket alone covers the header over a
+    /// background. On iOS 26 it reaches the header's bottom; on iOS 27 it
+    /// stops near the header's buttons (measured: ~100 of 148 pt), so the
+    /// transcript is also masked with the measured ramp there, as it is
+    /// before iOS 26 where there is no pocket.
+    static var usesSystemTopPocket: Bool {
+        if #available(iOS 27.0, *) { return false }
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     func installBackground() {
         backdropView.frame = view.bounds
         backdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -27,8 +38,16 @@ extension ConversationViewController {
             if traitOverrides.contains(ConversationBackdropTrait.self) { traitOverrides.remove(ConversationBackdropTrait.self) }
         }
         collectionView.backgroundColor = background == nil ? ConversationTheme.background : .clear
-        topEdgeFade.washColor = backdropView.washColor
-        topEdgeFade.isHidden = background?.kind == .photo
+        // A color wash suits only the plain system background. Over any
+        // conversation background Messages uses the system pocket (ChatKit
+        // sets its color to nil); where that pocket falls short of the
+        // header's bottom the transcript is masked with the same ramp too.
+        topEdgeFade.isHidden = background != nil
+        if #available(iOS 26.0, *) {
+            collectionView.topEdgeEffect.isHidden = background == nil
+        }
+        collectionView.topFadeHeaderBottom = background == nil || Self.usesSystemTopPocket
+            ? nil : header.frame.maxY - collectionView.frame.minY
         detailsOverlay?.background = background
     }
 

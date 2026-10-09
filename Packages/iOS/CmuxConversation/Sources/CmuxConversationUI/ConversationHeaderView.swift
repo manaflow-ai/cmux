@@ -240,6 +240,11 @@ final class ConversationHeaderView: UIView {
 /// Messages: a flat 85.5% wash down to 74 pt above the header's bottom, then
 /// an S-shaped ramp that clears 46 pt below it. The system soft edge effect
 /// blurs the whole header height instead, so this replaces it.
+///
+/// Over a conversation background there is no single color to wash toward
+/// (gradients, animated looks, photos), so the transcript is masked with the
+/// same ramp instead (`TranscriptCollectionView.topFadeHeaderBottom`): its
+/// content fades out and the background itself shows under the header.
 final class ConversationTopEdgeFade: UIView {
     /// (offset from the header's bottom, wash opacity)
     static let stops: [(CGFloat, CGFloat)] = [
@@ -249,9 +254,6 @@ final class ConversationTopEdgeFade: UIView {
     static let extent: CGFloat = 46
 
     private let gradient = CAGradientLayer()
-    /// Over a conversation background the wash fades to the background's
-    /// own top color instead of the system background.
-    var washColor: UIColor? { didSet { setNeedsLayout() } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -266,19 +268,26 @@ final class ConversationTopEdgeFade: UIView {
         super.layoutSubviews()
         gradient.frame = bounds
         guard bounds.height > 0 else { return }
-        let headerBottom = bounds.height - Self.extent
-        let color = (washColor ?? ConversationTheme.background).resolvedColor(with: traitCollection)
-        var colors = [color.withAlphaComponent(Self.stops[0].1).cgColor]
-        var locations: [NSNumber] = [0]
-        for (offset, alpha) in Self.stops {
-            colors.append(color.withAlphaComponent(alpha).cgColor)
-            locations.append(NSNumber(value: Double(max(0, headerBottom + offset) / bounds.height)))
-        }
+        let color = ConversationTheme.background.resolvedColor(with: traitCollection)
+        let ramp = Self.ramp(height: bounds.height, headerBottom: bounds.height - Self.extent)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        gradient.colors = colors
-        gradient.locations = locations
+        gradient.colors = ramp.map { color.withAlphaComponent($0.wash).cgColor }
+        gradient.locations = ramp.map { NSNumber(value: Double($0.location)) }
         CATransaction.commit()
+    }
+
+    /// The wash as gradient stops over a span of `height` points whose
+    /// header bottom sits at `headerBottom`: unit locations and wash opacity,
+    /// flat at the top and clear from `extent` below the header down.
+    static func ramp(height: CGFloat, headerBottom: CGFloat) -> [(location: CGFloat, wash: CGFloat)] {
+        guard height > 0 else { return [] }
+        var ramp = [(location: CGFloat(0), wash: stops[0].1)]
+        for (offset, alpha) in stops {
+            ramp.append((min(1, max(0, headerBottom + offset) / height), alpha))
+        }
+        if ramp[ramp.count - 1].location < 1 { ramp.append((1, 0)) }
+        return ramp
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

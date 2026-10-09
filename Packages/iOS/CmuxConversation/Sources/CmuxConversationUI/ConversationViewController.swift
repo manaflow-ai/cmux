@@ -220,7 +220,16 @@ public final class ConversationViewController: UIViewController {
 
         if #available(iOS 26.0, *) {
             // The top edge is ConversationTopEdgeFade (Messages washes, never blurs, there).
+            // Over a conversation background ChatKit clears the pocket color
+            // (`_updateStaticPocketColor`: nil when the transcript background
+            // is active), so the system pocket under the header takes over;
+            // the header is its container (see +Background).
             collectionView.topEdgeEffect.isHidden = true
+            collectionView.topEdgeEffect.style = .soft
+            let top = UIScrollEdgeElementContainerInteraction()
+            top.scrollView = collectionView
+            top.edge = .top
+            header.addInteraction(top)
             collectionView.bottomEdgeEffect.style = .soft
             let bottom = UIScrollEdgeElementContainerInteraction()
             bottom.scrollView = collectionView
@@ -280,6 +289,9 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
         layoutReplyOverlay()
+        if store.background != nil, !Self.usesSystemTopPocket {
+            collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
+        }
     }
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -1096,6 +1108,48 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 final class TranscriptCollectionView: UICollectionView {
     var edgeBottomInset: CGFloat = 0 {
         didSet { if edgeBottomInset != oldValue { safeAreaInsetsDidChange() } }
+    }
+
+    /// Over a conversation background, the header's bottom edge (in this
+    /// view's frame coordinates): the transcript fades out above it with
+    /// `ConversationTopEdgeFade`'s ramp, so the background, not a color
+    /// wash, shows under the header. Nil removes the mask.
+    var topFadeHeaderBottom: CGFloat? {
+        didSet {
+            guard topFadeHeaderBottom != oldValue else { return }
+            if topFadeHeaderBottom == nil {
+                layer.mask = nil
+            } else if layer.mask !== topFadeMask {
+                layer.mask = topFadeMask
+            }
+            lastMaskGeometry = nil
+            setNeedsLayout()
+        }
+    }
+
+    let topFadeMask = CAGradientLayer()
+    private var lastMaskGeometry: (CGFloat, CGFloat)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateTopFadeMask()
+    }
+
+    /// The mask lives in the scroll view's bounds space, so it follows the
+    /// content offset to stay fixed on screen.
+    private func updateTopFadeMask() {
+        guard let headerBottom = topFadeHeaderBottom else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topFadeMask.frame = bounds
+        let geometry = (bounds.height, headerBottom)
+        if lastMaskGeometry.map({ $0 != geometry }) ?? true {
+            lastMaskGeometry = geometry
+            let ramp = ConversationTopEdgeFade.ramp(height: bounds.height, headerBottom: headerBottom)
+            topFadeMask.colors = ramp.map { UIColor.black.withAlphaComponent(1 - $0.wash).cgColor }
+            topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
+        }
+        CATransaction.commit()
     }
 
     override var safeAreaInsets: UIEdgeInsets {
