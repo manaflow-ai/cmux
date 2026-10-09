@@ -737,6 +737,7 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
