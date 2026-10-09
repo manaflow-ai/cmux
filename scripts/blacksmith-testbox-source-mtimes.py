@@ -108,6 +108,11 @@ def drop_foreign_cpu_outputs(target: str) -> None:
         f"source-mtimes: CPU differs from the snapshot (or is unknown); removed "
         f"{removed} native-CPU build dirs ({', '.join(NATIVE_CPU_PACKAGES)})"
     )
+    # Every native output left in target/ is now for this CPU (or absent), so
+    # say so at once. Otherwise a failed `record` at release would commit new
+    # output beside the old host's record, and a box on that old host would
+    # keep the foreign library.
+    write_cpu_record(target)
 
 
 def write_cpu_record(target: str) -> None:

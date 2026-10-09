@@ -154,6 +154,15 @@ class NativeCpuOutputTests(unittest.TestCase):
             self.assertFalse(os.path.exists(path), path)
         self.assertTrue(os.path.isdir(self.portable))
 
+    def test_restore_on_a_new_cpu_rewrites_the_cpu_record(self) -> None:
+        # A later failed `record` must not leave the old host's record beside
+        # output built on this host.
+        self.run_with_cpu("record", "sse2 avx2 avx512f")
+        self.run_with_cpu("restore", "sse2 avx2")
+        os.makedirs(self.native[0])
+        self.run_with_cpu("restore", "sse2 avx2 avx512f")
+        self.assertFalse(os.path.exists(self.native[0]))
+
     def test_a_snapshot_without_a_cpu_record_drops_native_outputs(self) -> None:
         self.run_with_cpu("restore", "sse2 avx2")
         for path in self.native:
