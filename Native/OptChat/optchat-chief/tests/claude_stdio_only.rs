@@ -225,6 +225,7 @@ fn a_compactor_node_on_an_acp_adapter_is_refused() {
         Slots::new(COMPACTOR_SESSIONS),
     ));
     let request = CompactRequest {
+        imported: false,
         node: NodeId::new(0, 1),
         system: "SYS".into(),
         context: "<chat>\nuser: hi\n</chat>".into(),
