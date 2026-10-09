@@ -93,16 +93,27 @@ public struct CloudVMResizePlanValidator: Sendable {
         let planID = (rawLimits["planId"] as? String)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .flatMap { $0.isEmpty ? nil : $0 }
-            ?? "pro"
+            ?? "free"
         let maxMemoryFromLadder = (rawLimits["memoryOptionsMb"] as? [Any])?
             .compactMap(positiveLimit)
             .max()
         // Older control planes sometimes published the whole ladder as
         // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
         // compatibility path expand a plan beyond the current product tier.
-        let productMemoryCeiling = planID == "max"
-            ? 64 * 1_024
-            : planID == "go" ? 4 * 1_024 : 16 * 1_024
+        let productMemoryCeiling: Int
+        switch planID {
+        case "max":
+            productMemoryCeiling = 64 * 1_024
+        case "go":
+            productMemoryCeiling = 4 * 1_024
+        case "pro", "team", "founders", "founders-edition":
+            productMemoryCeiling = 16 * 1_024
+        default:
+            // A missing or unknown plan must fail closed to the free tier;
+            // treating it as Pro would let a stale/malformed list response
+            // preflight sizes the server will reject for that account.
+            productMemoryCeiling = 8 * 1_024
+        }
         let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
             ?? maxMemoryFromLadder
             ?? productMemoryCeiling
