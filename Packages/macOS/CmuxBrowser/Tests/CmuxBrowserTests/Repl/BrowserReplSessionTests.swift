@@ -230,6 +230,10 @@ struct BrowserReplSessionTests {
         let session = makeSession(driver: driver, cwd: work.path, temporaryDirectory: base.appendingPathComponent("tmp").path)
         defer { session.close() }
 
+        // The first cell starts the runtime, which attaches the event sink.
+        let before = await session.evaluate(code: "fs('readFile', { path: \(quoted(file.path)) });")
+        #expect(before.error == "Error: EACCES")
+
         // As native JSON writes it: every "/" escaped.
         let escapedPath = file.path.replacingOccurrences(of: "/", with: "\\/")
         let padding = String(repeating: "x", count: BrowserReplSession.maxEventPayloadBytes + 1024)
