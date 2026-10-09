@@ -52,8 +52,9 @@ struct HostCloseState {
     workers: usize,
     /// Closes queued or in progress.
     pending: usize,
-    /// Closes finished since start; a waiter measures progress with it.
-    finished: u64,
+    /// Steps (signals and finished closes) since start; a waiter measures
+    /// progress with it.
+    steps: u64,
 }
 
 /// Shared queue of hosts that were asked to exit.
@@ -113,31 +114,34 @@ impl TerminalHostCloses {
                 }
             };
             let mut state = self.state.lock().unwrap();
+            // Waiters measure progress, so every step wakes them: a long
+            // signal phase counts too, not only finished closes.
+            state.steps = state.steps.wrapping_add(1);
+            self.idle.notify_all();
             if let Some(close) = close {
                 // Signaled: its wait goes behind the signals still queued.
                 state.queue.push_back(close);
                 continue;
             }
             state.pending -= 1;
-            state.finished = state.finished.wrapping_add(1);
-            // Waiters measure progress, so every finished close wakes them.
-            self.idle.notify_all();
         }
     }
 
-    /// Wait until every queued host close finished, or until no close
-    /// finished for `stall`. Returns whether the queue drained. Each close
-    /// is bounded by its own deadline, so a long queue that keeps finishing
-    /// closes is waited for; a fixed deadline from the first enqueue made
-    /// the hosts at the end of a large teardown miss it.
-    pub(crate) fn wait_idle(&self, stall: Duration) -> bool {
+    /// Wait until every queued host close finished, until no host was
+    /// signaled and no close finished for `stall`, or until `ceiling`.
+    /// Returns whether the queue drained. Each close is bounded by its own
+    /// deadline, so a long queue that keeps progressing is waited for; a
+    /// fixed deadline from the first enqueue made the hosts at the end of a
+    /// large teardown miss it.
+    pub(crate) fn wait_idle(&self, stall: Duration, ceiling: Instant) -> bool {
         let mut state = self.state.lock().unwrap();
-        let mut progress = (state.finished, Instant::now() + stall);
+        let mut progress = (state.steps, Instant::now() + stall);
         while state.pending != 0 {
-            if state.finished != progress.0 {
-                progress = (state.finished, Instant::now() + stall);
+            if state.steps != progress.0 {
+                progress = (state.steps, Instant::now() + stall);
             }
-            let Some(remaining) = progress.1.checked_duration_since(Instant::now()) else {
+            let Some(remaining) = progress.1.min(ceiling).checked_duration_since(Instant::now())
+            else {
                 return false;
             };
             state = self.idle.wait_timeout(state, remaining).unwrap().0;
@@ -280,9 +284,9 @@ impl Mux {
     }
 
     /// Wait until every closed terminal's host has exited or been handed to
-    /// record cleanup, or until no host close finished for `stall`. Returns
-    /// whether all finished.
-    pub fn wait_for_terminal_host_closes(&self, stall: Duration) -> bool {
-        self.terminal_host_closes.wait_idle(stall)
+    /// record cleanup, until the close pool made no progress for `stall`, or
+    /// until `ceiling`. Returns whether all finished.
+    pub fn wait_for_terminal_host_closes(&self, stall: Duration, ceiling: Instant) -> bool {
+        self.terminal_host_closes.wait_idle(stall, ceiling)
     }
 }

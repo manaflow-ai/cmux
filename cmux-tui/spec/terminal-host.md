@@ -507,7 +507,10 @@ was being assembled, the payload is the four new limits in the
 client that receives the 32-byte payload may instead apply the same limits to
 its own parser at that sequence and continue the stream; it must reconnect if
 its own parser then evicts anything. A client that does not apply it
-reconnects as for an empty payload. The owner daemon applies it, so a quota
+reconnects as for an empty payload. Clients must treat any `ResyncRequired`
+payload they do not understand as an empty one (reconnect); this keeps
+older and newer daemons and hosts compatible in both directions. The owner
+daemon applies it, so a quota
 rebalance across many terminals (the daemon's process image budget is split
 by a power-of-two terminal capacity) does not reconnect every host.
 

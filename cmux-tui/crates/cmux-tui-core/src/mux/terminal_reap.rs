@@ -389,7 +389,10 @@ impl Mux {
         }
         // Every host was asked to exit in parallel; wait for them so the
         // caller can rely on no host outliving this call.
-        let drained = self.wait_for_terminal_host_closes(TERMINAL_HOST_CLOSE_WAIT);
+        let drained = self.wait_for_terminal_host_closes(
+            TERMINAL_HOST_CLOSE_WAIT,
+            Instant::now() + END_TERMINALS_CLOSE_CEILING,
+        );
         if !failures.is_empty() && !kept.is_empty() {
             // The handoff is cancelled and the daemon keeps serving: a
             // terminal that did not end must not keep a keep-layout record,
@@ -536,6 +539,10 @@ impl Mux {
         registry.any_kept_tab(&tab_ids)
     }
 }
+
+/// Longest `end_all_terminals` waits for a progressing host-close pool
+/// before it kills the survivors; the CLI allows the whole call 120 s.
+const END_TERMINALS_CLOSE_CEILING: Duration = Duration::from_secs(60);
 
 /// How long `end_all_terminals` waits for hosts that outlived their close
 /// deadline to die after `SIGKILL`.

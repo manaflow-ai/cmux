@@ -64,6 +64,8 @@ impl Mux {
                 continue;
             };
             if record.lifecycle == TerminalLifecycle::Tombstoned {
+                // Closed meanwhile: ended, as the per-terminal close reports.
+                ended.push(terminal_id.clone());
                 continue;
             }
             changed_screens.extend(

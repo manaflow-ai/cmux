@@ -186,14 +186,14 @@ impl KittyInFlightTracker {
         Ok((prefix, partial))
     }
 
-    /// Whether the stream is inside a direct Kitty command this tracker
-    /// retains completely.
     /// Whether a Kitty upload is being assembled: a chunked transmission
     /// still loading, or a Kitty command not yet terminated.
     pub(crate) fn upload_in_progress(&self) -> bool {
         self.loading || matches!(self.scan, KittyStreamScan::Kitty(_) | KittyStreamScan::ApcType(_))
     }
 
+    /// Whether the stream is inside a direct Kitty command this tracker
+    /// retains completely.
     pub(crate) fn has_partial_command(&self) -> bool {
         !self.overflowed
             && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
