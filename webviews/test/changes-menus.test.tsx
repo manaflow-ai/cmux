@@ -88,6 +88,7 @@ describe("Changes file menu", () => {
   test("Escape closes only the menu and restores the file trigger", async () => {
     let escaped = 0;
     const root = await render(
+      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the wrapper checks that Escape does not bubble out of the menu.
       <div
         onKeyDown={(event) => {
           if (event.key === "Escape") escaped += 1;

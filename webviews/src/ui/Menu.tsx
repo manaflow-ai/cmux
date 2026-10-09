@@ -89,12 +89,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   };
   return (
     <MenuContext value={context}>
-      <BaseMenu.Root
-        modal={false}
-        open={isOpen}
-        onOpenChange={setMenuOpen}
-        onOpenChangeComplete={onOpenChangeComplete}
-      >
+      <BaseMenu.Root modal={false} open={isOpen} onOpenChange={setMenuOpen} onOpenChangeComplete={onOpenChangeComplete}>
         {children}
       </BaseMenu.Root>
     </MenuContext>
