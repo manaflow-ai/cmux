@@ -18,6 +18,9 @@ use crate::cli::OutputMode;
 
 /// How long before pipe mode says the Chief has not read the message.
 const NOT_READ_AFTER: Duration = Duration::from_secs(30);
+/// How long pipe mode waits for a reply after the turn's typing went off
+/// with none posted (a turn may end without a reply).
+const REPLY_GRACE: Duration = Duration::from_secs(60);
 /// Messages in the snapshot of a stream reopened after a gap.
 const GAP_TAIL: usize = 50;
 
@@ -48,12 +51,20 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
     let deadline = args.timeout_secs.map(|s| started + Duration::from_secs(s));
     let mut hinted = false;
     let mut printed = 0;
+    let mut ended_at: Option<Instant> = None;
     while !watch.done {
         let now = Instant::now();
         let mut wait =
             deadline.map_or(Duration::from_secs(3600), |d| d.saturating_duration_since(now));
         if !hinted && !watch.read {
             wait = wait.min((started + NOT_READ_AFTER).saturating_duration_since(now));
+        }
+        if watch.ended {
+            let since = *ended_at.get_or_insert(now);
+            if now >= since + REPLY_GRACE {
+                break;
+            }
+            wait = wait.min((since + REPLY_GRACE).saturating_duration_since(now));
         }
         let input = match session.rx.recv_timeout(wait) {
             Ok(input) => input,
@@ -102,7 +113,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
         }
     }
     out.end();
-    if watch.done {
+    if watch.done || watch.ended {
         0
     } else {
         eprintln!("cmux: {}", m.lost);

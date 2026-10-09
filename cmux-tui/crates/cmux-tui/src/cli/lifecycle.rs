@@ -405,6 +405,7 @@ fn run_ensure(
         initial_host_colors: None,
         terminal_reap_grace,
         install_key,
+        chief_tools_socket: None,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {

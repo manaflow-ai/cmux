@@ -130,9 +130,9 @@ extension HomeController {
     /// Hosts scroll to `frame.minY - topInset` (top) or center it.
     public func contentFrame(for item: IdempotencyKey) -> CGRect? {
         let prefix = "part:\(item.rawValue):"
-        guard let i = scene.model.rows.indices.first(where: { scene.model.rows[$0].spec.key.hasPrefix(prefix) && !scene.model.rows[$0].ghost })
+        guard let i = scene.model.rows.firstIndex(where: { $0.spec.key.hasPrefix(prefix) && !$0.ghost }),
+              let spec = scene.model.rows[checked: i]?.spec
         else { return nil }
-        let spec = scene.model.rows[i].spec
         return toHost(CGRect(x: 0, y: scene.layout.contentTop(i), width: scene.size.width, height: spec.height))
     }
 
@@ -143,17 +143,18 @@ extension HomeController {
     public func fieldKeyframes(from old: CGRect, to new: CGRect, send: Bool)
         -> (duration: Double, keyTimes: [Double], frames: [CGRect])? {
         guard let curve = fieldCurve(send: send), curve.duration > 0 else { return nil }
-        let n = max(2, Int((curve.duration * 120).rounded(.up)) + 1)
+        // At most 60 s of keyframes: an infinite duration would never end the loop.
+        let n = max(2, CrashGuard.int((curve.duration * 120).rounded(.up), in: 0...7_200) + 1)
         var times: [Double] = []
         var frames: [CGRect] = []
         for k in 0..<n {
             let t = Double(k) / Double(n - 1)
             let p = CGFloat(curve.progress(t * curve.duration))
             times.append(t)
-            frames.append(CGRect(x: old.minX + (new.minX - old.minX) * p, y: old.minY + (new.minY - old.minY) * p,
-                                 width: old.width + (new.width - old.width) * p, height: old.height + (new.height - old.height) * p))
+            frames.append(k == n - 1 ? new : CGRect(x: old.minX + (new.minX - old.minX) * p, y: old.minY + (new.minY - old.minY) * p,
+                                                   width: old.width + (new.width - old.width) * p,
+                                                   height: old.height + (new.height - old.height) * p))
         }
-        frames[frames.count - 1] = new
         return (curve.duration, times, frames)
     }
 }
@@ -173,10 +174,10 @@ extension HomeController {
     @discardableResult
     public func scroll(to item: IdempotencyKey, anchor: HomeScrollAnchor = .center) -> Bool {
         let prefix = "part:\(item.rawValue):"
-        guard let i = scene.model.rows.indices.first(where: { scene.model.rows[$0].spec.key.hasPrefix(prefix) && !scene.model.rows[$0].ghost })
+        guard let i = scene.model.rows.firstIndex(where: { $0.spec.key.hasPrefix(prefix) && !$0.ghost }),
+              let height = scene.model.rows[checked: i]?.spec.height
         else { return false }
         let top = scene.layout.contentTop(i)
-        let height = scene.model.rows[i].spec.height
         let target: CGFloat = switch anchor {
         case .top: top - scene.topInset - 8
         case .center: top + height / 2 - (scene.topInset + scene.anchorY) / 2

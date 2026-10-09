@@ -10,7 +10,8 @@ import CmuxNextDesign
 @MainActor
 public final class ShareCmuxView: NSView {
     /// The public download page (the same link the team invite email uses).
-    public static let downloadURL = URL(string: "https://cmux.com/download")!  // crash-allow: a constant valid URL
+    /// A constant URL (a test parses it); /dev/null stands in rather than a trap.
+    public static let downloadURL = URL(string: "https://cmux.com/download") ?? URL(fileURLWithPath: "/dev/null")
 
     /// The prefilled message: one localized sentence, a blank line, the link.
     public static var defaultMessage: String { "\(ShareCmuxStrings.message)\n\n\(downloadURL.absoluteString)" }

@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
+        AppProcessRoot.shared.adopt(services)
         self.services = services
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.

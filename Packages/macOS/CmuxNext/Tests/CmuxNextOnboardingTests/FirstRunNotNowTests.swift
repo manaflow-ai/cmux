@@ -3,9 +3,10 @@ import Foundation
 import Testing
 @testable import CmuxNextOnboarding
 
-/// The close button means "not now": the first run comes back at its step
-/// on the next two launches, then stops by itself. A quit or crash mid-step
-/// resumes regardless; Skip or Done end it at once.
+/// "Not now": a launch that showed the first run (closed, quit or crashed)
+/// counts; it comes back at its step on the next two launches, then stops
+/// by itself. Moving to a step gives it its launches back; Skip or Done end
+/// it at once.
 @MainActor
 @Suite struct FirstRunNotNowTests {
     static func stateFile() -> OnboardingStateFile {
@@ -23,7 +24,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         #expect(Self.launch(file) == .start, "never seen")
         try file.markProgress(.chats, interacted: true)
-        try file.markNotNow()
+        // Closed: nothing more is recorded.
         #expect(Self.launch(file) == .resume(.chats))
         // The resumed window only shows its step; the person does not move.
         try file.markProgress(.chats, interacted: false)
@@ -39,28 +40,44 @@ import Testing
         let file = Self.stateFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         try file.markProgress(.chats, interacted: true)
-        try file.markNotNow()
         // Launch 2: shown, then closed again.
         #expect(Self.launch(file) == .resume(.chats))
         try file.markProgress(.chats, interacted: false)
-        try file.markNotNow()
-        // Launch 3: shown, then the quit closes the open window.
+        // Launch 3: shown, then quit with the window open.
         #expect(Self.launch(file) == .resume(.chats))
         try file.markProgress(.chats, interacted: false)
-        try file.markNotNow()
         #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
         #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
     }
 
-    @Test func aQuitMidStepResumesRegardlessOfTheCounter() throws {
+    /// Moving to a step at a shown launch gives the run its two launches back.
+    @Test func movingToAStepGivesTheLaunchesBack() throws {
         let file = Self.stateFile()
         defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
         try file.markProgress(.accounts, interacted: true)
-        try file.markNotNow()
+        #expect(Self.launch(file) == .resume(.accounts))
         #expect(Self.launch(file) == .resume(.accounts))
         // At that launch the person moves on, then quits with the window open.
         try file.markProgress(.importData, interacted: true)
-        for _ in 0..<4 { #expect(Self.launch(file) == .resume(.importData)) }
+        #expect(Self.launch(file) == .resume(.importData))
+        #expect(Self.launch(file) == .resume(.importData))
+        #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
+    }
+
+    /// A record from before launches were counted at the show: a pending
+    /// "not now" keeps its launches; a run in use gets two.
+    @Test func olderRecordsKeepTheirLaunches() throws {
+        let file = Self.stateFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let version = OnboardingStateFile.currentVersion
+        try Data(#"{"version":\#(version),"completed":false,"date":0,"finished":false,"step":"chats","active":false,"launchesLeft":1}"#.utf8).write(to: file.url)
+        #expect(Self.launch(file) == .resume(.chats))
+        #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
+        try Data(#"{"version":\#(version),"completed":false,"date":0,"finished":false,"step":"chats"}"#.utf8).write(to: file.url)
+        #expect(Self.launch(file) == .resume(.chats))
+        #expect(Self.launch(file) == .resume(.chats))
+        #expect(Self.launch(file) == OnboardingStateFile.LaunchShow.none)
     }
 
     @Test func skipOrDoneEndItForGoodAndOldFilesStayDone() throws {

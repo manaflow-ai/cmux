@@ -224,6 +224,15 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
+    // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
+    // restore and registry: also the local app. Never Web or peer.
+    pub const MUX_HARNESS_ADD: &str = "_acpmux/harness/add";
+    pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
+    pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
+    pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// The ACP Registry's agents and how each can start here.
+    pub const MUX_REGISTRY: &str = "_acpmux/registry";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";
