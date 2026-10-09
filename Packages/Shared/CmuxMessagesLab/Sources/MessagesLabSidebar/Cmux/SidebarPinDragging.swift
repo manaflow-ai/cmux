@@ -43,24 +43,24 @@ extension SidebarController {
     @discardableResult
     func beginPinDrag(at p: CGPoint) -> Bool {
         guard pinDragState.drag == nil, placer != nil, query.isEmpty, let h = hit(p) else { return false }
-        let c = snapshot.items[item(h)]
+        guard let c = Self.element(snapshot.items, item(h)) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
         let frame: CGRect
         switch h {
         case let .tile(t):
             frame = tileRect(t)
-            state.drag = SidebarPinDrag(id: c.id, source: .tile, pinned: pinnedItems.map { snapshot.items[$0].id })
+            state.drag = SidebarPinDrag(id: c.id, source: .tile, pinned: pinnedIDs)
         case .row:
             frame = CGRect(x: p.x - tileSize.width / 2, y: p.y - tileSize.height / 2, width: tileSize.width, height: tileSize.height)
-            state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedItems.map { snapshot.items[$0].id })
+            state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
         mouseMoved(nil)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         state.ghost?.removeFromSuperlayer()
         let ghost: CALayer
-        if case let .tile(t) = h { ghost = copyOfTile(tileLayers[t]) } else { ghost = avatarGhost(c) }
+        if case let .tile(t) = h, let tile = Self.element(tileLayers, t) { ghost = copyOfTile(tile) } else { ghost = avatarGhost(c) }
         ghost.frame = frame
         ghost.zPosition = 20
         ghost.shadowOpacity = 0.22
@@ -69,7 +69,7 @@ extension SidebarController {
         ghost.opacity = 0.96
         document.layer?.addSublayer(ghost)
         state.ghost = ghost
-        if case let .tile(t) = h { tileLayers[t].isHidden = true }
+        if case let .tile(t) = h { Self.element(tileLayers, t)?.isHidden = true }
         CATransaction.commit()
         let lift = CABasicAnimation(keyPath: "transform.scale")
         lift.fromValue = 1
@@ -113,6 +113,19 @@ extension SidebarController {
         return ghost
     }
 
+    /// `array[index]`, or nil out of range.
+    static func element<T>(_ array: [T], _ index: Int) -> T? {
+        array.indices.contains(index) ? array[index] : nil // crash-allow: bounds checked on this line
+    }
+
+    /// The pinned tiles' ids in grid order.
+    var pinnedIDs: [ConversationID] { pinnedItems.compactMap { Self.element(snapshot.items, $0)?.id } }
+
+    /// Each shown tile's conversation id (nil: none) and layer.
+    private var shownTiles: [(id: ConversationID?, layer: SidebarRowLayer)] {
+        zip(pinnedItems, tileLayers).map { (Self.element(snapshot.items, $0)?.id, $1) }
+    }
+
     /// The pointer moved to `p`: the ghost follows, the grid makes room where it would land.
     func movePinDrag(to p: CGPoint) {
         let state = pinDragState
@@ -134,8 +147,8 @@ extension SidebarController {
         guard count > 0, p.y < metrics.pinnedHeight(count: count) else { return nil }
         let cols = metrics.columns
         let rows = (count + cols - 1) / cols
-        let col = min(cols - 1, max(0, Int(((p.x - metrics.tileRect(0).minX) / metrics.tileWidth).rounded(.down))))
-        let row = min(rows - 1, max(0, Int((max(0, p.y) / metrics.tileHeight).rounded(.down))))
+        let col = min(cols - 1, max(0, Int(exactly: ((p.x - metrics.tileRect(0).minX) / metrics.tileWidth).rounded(.down)) ?? 0))
+        let row = min(rows - 1, max(0, Int(exactly: (max(0, p.y) / metrics.tileHeight).rounded(.down)) ?? 0))
         return min(row * cols + col, count - 1)
     }
 
@@ -143,10 +156,9 @@ extension SidebarController {
     private func layoutPinPreview(animated: Bool) {
         guard let drag = pinDragState.drag else { return }
         let order = drag.order
-        for t in pinnedItems.indices where t < tileLayers.count {
-            let id = snapshot.items[pinnedItems[t]].id
-            guard id != drag.id, let slot = order.firstIndex(of: id) else { continue }
-            slide(tileLayers[t], to: tileRect(slot), animated: animated)
+        for (id, l) in shownTiles {
+            guard let id, id != drag.id, let slot = order.firstIndex(of: id) else { continue }
+            slide(l, to: tileRect(slot), animated: animated)
         }
         let dy = metrics.pinnedHeight(count: order.count) - pinnedHeight
         for l in listRowLayers() { shift(l, by: dy, animated: animated) }
@@ -158,12 +170,10 @@ extension SidebarController {
         if cancelled { drag.cancel() }
         // Where each tile is drawn now, for the landing once the host has reloaded.
         var drawn: [ConversationID: CGRect] = [:]
-        for t in pinnedItems.indices where t < tileLayers.count {
-            drawn[snapshot.items[pinnedItems[t]].id] = (tileLayers[t].presentation() ?? tileLayers[t]).frame
-        }
+        for (id, l) in shownTiles { if let id { drawn.updateValue((l.presentation() ?? l).frame, forKey: id) } }
         if let ghost = state.ghost {
             let at = (ghost.presentation() ?? ghost).position
-            drawn[drag.id] = CGRect(x: at.x - tileSize.width / 2, y: at.y - tileSize.height / 2, width: tileSize.width, height: tileSize.height)
+            drawn.updateValue(CGRect(x: at.x - tileSize.width / 2, y: at.y - tileSize.height / 2, width: tileSize.width, height: tileSize.height), forKey: drag.id)
         }
         state.drawnGridBottom = pinnedHeight + (listRowLayers().first.map { ($0.presentation() ?? $0).transform.m42 } ?? 0)
         state.drag = nil
@@ -194,10 +204,9 @@ extension SidebarController {
     /// drop's tiles slide from where they were drawn into their new places.
     func pinDragDidReload() {
         if let drag = pinDragState.drag {
-            let now = pinnedItems.map { snapshot.items[$0].id }
-            guard now == drag.pinned, summary(drag.id) != nil else { cancelPinDrag(); return }
+            guard pinnedIDs == drag.pinned, summary(drag.id) != nil else { cancelPinDrag(); return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            if drag.source == .tile, let t = now.firstIndex(of: drag.id), t < tileLayers.count { tileLayers[t].isHidden = true }
+            if drag.source == .tile { shownTiles.first { $0.id == drag.id }?.layer.isHidden = true }
             CATransaction.commit()
             layoutPinPreview(animated: false)
             return
@@ -211,10 +220,9 @@ extension SidebarController {
         state.landing = nil
         let landingID = state.landingID
         var landedAsTile = false
-        for t in pinnedItems.indices where t < tileLayers.count {
-            let l = tileLayers[t], id = snapshot.items[pinnedItems[t]].id
+        for (id, l) in shownTiles {
             l.zPosition = id == landingID ? 1 : 0
-            guard let from = drawn[id] else { continue }
+            guard let id, let from = drawn.first(where: { $0.key == id })?.value else { continue }
             if id == landingID {
                 landedAsTile = true
                 let settle = CABasicAnimation(keyPath: "transform.scale")

@@ -158,9 +158,12 @@ public final class CmuxSidebarView: NSView {
             let w = document.convert(r, to: nil)
             return NSRect(x: w.minX, y: height - w.maxY, width: w.width, height: w.height)
         }
-        let items = controller.snapshot.items
-        let tiles = controller.pinnedItems.enumerated().map { (items[$1].id, true, top(controller.tileRect($0))) }
-        let rows = controller.rowItems.enumerated().map { (items[$1].id, false, top(controller.rowRect($0))) }
+        let tiles = controller.pinnedItems.enumerated().compactMap { t, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, true, top(controller.tileRect(t))) }
+        }
+        let rows = controller.rowItems.enumerated().compactMap { r, i in
+            SidebarController.element(controller.snapshot.items, i).map { ($0.id, false, top(controller.rowRect(r))) }
+        }
         return tiles + rows
     }
 
