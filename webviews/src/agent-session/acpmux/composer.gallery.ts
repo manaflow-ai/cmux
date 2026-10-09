@@ -128,6 +128,26 @@ export default agentPaneEntry({
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
     },
+    // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
+    "context-menu": {
+      note: "Right-click on selected prompt text: Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const field = ctx.find({ selector: ".acpmux-md" });
+        ctx.document.defaultView!.getSelection()!.selectAllChildren(field);
+        const box = field.getBoundingClientRect();
+        field.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 40,
+            clientY: box.top + 12,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+      },
+    },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
     "image-attached": {

@@ -159,11 +159,11 @@ const blockedProfile = (entry: HarnessChoice | undefined) =>
 
 /// A rail tab: one icon in a rounded square, filled while its models show.
 const railTab =
-  "acpmux-mp-rail grid size-9 flex-none cursor-pointer place-items-center rounded-lg border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
-  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border-0 px-2.5 text-left font-[inherit] text-control text-fg disabled:cursor-default disabled:opacity-50";
+  "flex h-[var(--ui-row-height,28px)] w-full cursor-pointer items-center gap-2 rounded-[var(--ui-row-radius,5px)] border-0 px-2 text-left font-[inherit] text-control text-fg disabled:cursor-default disabled:opacity-50";
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
@@ -553,7 +553,7 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-xl bg-menu text-control text-fg shadow-menu"
+          className="acpmux-mp z-[3] flex h-[min(380px,60vh)] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] bg-menu text-control text-fg shadow-menu"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
           style={menuStyle}
@@ -587,7 +587,7 @@ export function ModelPicker(props: ModelPickerProps) {
               onPointerEnter={() => showTab(STARRED, -1)}
               onClick={() => showTab(STARRED, -1, true)}
             >
-              <StarGlyph filled={false} size={17} />
+              <StarGlyph filled={false} size={15} />
             </PickerOption>
             {harnesses.map((entry, index) => [
               index === firstProfile && (
@@ -629,7 +629,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 }}
                 active={index === activeHarness}
               >
-                <AgentMark agent={entry.mark ?? entry.id} size={18} />
+                <AgentMark agent={entry.mark ?? entry.id} size={16} />
                 <span className="sr-only">{entry.name}</span>
               </PickerOption>,
             ])}
@@ -652,7 +652,7 @@ export function ModelPicker(props: ModelPickerProps) {
             )}
           </PickerOptionList>
           <div className="flex min-w-0 flex-1 flex-col">
-            <div className="acpmux-mp-search flex h-10 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
+            <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
                 ref={search}

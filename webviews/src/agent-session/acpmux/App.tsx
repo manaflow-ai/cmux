@@ -2624,6 +2624,7 @@ function AcpmuxPane() {
           blocked={trustAsk.blocked}
           accessory={<DictationButton dictation={dictation} />}
           onImportFile={importFile}
+          onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
         />
       </ImageViewerContext.Provider>
     </>
