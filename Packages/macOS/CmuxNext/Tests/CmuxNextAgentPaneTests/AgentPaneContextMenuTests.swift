@@ -39,7 +39,7 @@ import WebKit
         var copies: [String] = []
         var forks: [Int] = []
         AgentPaneContextMenu.rebuild(menu, target: target, devTools: devTools,
-                                     actions: .init(copy: { copies.append($0) }, fork: { forks.append($0) }))
+                                     actions: .init(copy: { copies.append($0) }, fork: { forks.append($0) }, openImage: {}))
         return (menu, { copies }, { forks })
     }
 
@@ -74,8 +74,28 @@ import WebKit
             item.identifier = NSUserInterfaceItemIdentifier(id)
             menu.addItem(item)
         }
-        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, actions: .init(copy: { _ in }, fork: { _ in }))
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, actions: .init(copy: { _ in }, fork: { _ in }, openImage: {}))
         #expect(Self.titles(menu) == ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"])
+    }
+
+    /// POLISH right-click contract (Leo 2026-10-08): an image in the chat or its gallery offers
+    /// Open Image (the page opens it as its click does) and WebKit's Copy Image, and no other
+    /// WebKit image items.
+    @Test func anImageOffersOpenAndCopyImage() throws {
+        let menu = NSMenu()
+        for id in ["WKMenuItemIdentifierOpenImageInNewWindow", "WKMenuItemIdentifierDownloadImage",
+                   "WKMenuItemIdentifierCopyImage", "WKMenuItemIdentifierShareMenu"] {
+            let item = NSMenuItem(title: id, action: nil, keyEquivalent: "")
+            item.identifier = NSUserInterfaceItemIdentifier(id)
+            menu.addItem(item)
+        }
+        var opened = 0
+        let target = try #require(AgentPaneMessageTarget(report: ["openImage": true]))
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: false,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, openImage: { opened += 1 }))
+        #expect(Self.titles(menu) == [AgentPaneMenuStrings.openImage, "WKMenuItemIdentifierCopyImage"])
+        Self.choose(try #require(menu.items.first))
+        #expect(opened == 1)
     }
 
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
@@ -92,6 +112,7 @@ import WebKit
             == AgentPaneMessageTarget(text: "a", markdown: "*a*", forkSeq: 12))
         #expect(AgentPaneMessageTarget(report: NSNull()) == nil, "the pointer was not on a message")
         #expect(AgentPaneMessageTarget(report: ["text": ""]) == nil)
+        #expect(AgentPaneMessageTarget(report: ["text": "a", "openImage": true]) == AgentPaneMessageTarget(text: "a", opensImage: true))
     }
 
     /// The pane end to end on both hosts: a page report, then the web view's menu hook WebKit runs

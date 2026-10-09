@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
-import { installMessageMenuReporter, messageMenuTarget, plainText, setMessageMenuSource } from "./messageMenu";
+import {
+  installMessageMenuReporter,
+  messageMenuTarget,
+  openReportedImage,
+  plainText,
+  setMessageMenuSource,
+} from "./messageMenu";
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -68,7 +74,9 @@ describe("the agent pane's context menu target", () => {
 describe("the page's report on contextmenu", () => {
   const page = () => {
     const dom = new JSDOM(
-      '<article data-row-id="a1"><p><b id="inside">Fixed</b></p></article><div id="outside"></div>',
+      '<article data-row-id="a1"><p><b id="inside">Fixed</b></p>' +
+        '<button data-open-image id="reply-image"><img id="reply-img"></button></article>' +
+        '<div id="outside"></div><button data-open-image id="tile"><img id="tile-img"></button>',
     );
     const posted: unknown[] = [];
     const remove = installMessageMenuReporter(dom.window.document, () => ({
@@ -78,7 +86,7 @@ describe("the page's report on contextmenu", () => {
       dom.window.document
         .getElementById(id)!
         .dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true }));
-    return { posted, remove, rightClick };
+    return { dom, posted, remove, rightClick };
   };
 
   test("a right-click on a message reports it, anywhere else reports null", () => {
@@ -99,5 +107,29 @@ describe("the page's report on contextmenu", () => {
     const { posted, rightClick } = page();
     rightClick("inside");
     expect(posted).toEqual([null]);
+  });
+
+  // POLISH right-click contract (Leo 2026-10-08): an image in the chat or its gallery offers Open
+  // Image, which opens it as its click does.
+  test("a right-click on an image reports it, and Open Image clicks it", () => {
+    setMessageMenuSource((rowId) => messageMenuTarget(snapshot(), rowId));
+    const { dom, posted, remove, rightClick } = page();
+    const opened: string[] = [];
+    for (const id of ["reply-image", "tile"])
+      dom.window.document.getElementById(id)!.addEventListener("click", () => opened.push(id));
+    rightClick("tile-img");
+    expect(openReportedImage()).toBe(true);
+    rightClick("reply-img");
+    expect(openReportedImage()).toBe(true);
+    rightClick("outside");
+    expect(openReportedImage()).toBe(false);
+    remove();
+    expect(posted).toEqual([
+      { openImage: true },
+      { text: "Fixed in main.rs:\n\n- one\n- two", markdown: "Fixed in `main.rs`:\n\n- one\n- two", forkSeq: 41, openImage: true },
+      null,
+    ]);
+    expect(opened).toEqual(["tile", "reply-image"]);
+    setMessageMenuSource(undefined);
   });
 });
