@@ -45,7 +45,7 @@ final class LinkPreviews: LinkPreviewFetching {
             let now = Date().timeIntervalSince1970
             for (k, v) in saved {
                 if v.ok { cache.updateValue(.some(LinkMetadata(title: v.title, site: v.site, image: v.image)), forKey: k) } // cmux
-                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache.updateValue(.some(nil), forKey: k); negativeAt.updateValue(at, forKey: k) } // cmux
+                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache.updateValue(Optional<LinkMetadata>.none, forKey: k); /* a known failure: the stored value is nil */ negativeAt.updateValue(at, forKey: k) } // cmux
             }
         }
     }
