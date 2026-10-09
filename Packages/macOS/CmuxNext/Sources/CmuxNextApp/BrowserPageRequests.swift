@@ -21,6 +21,17 @@ final class BrowserPageRequests: BrowserTabDelegate {
         didSet {
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+            // A tab an agent-driven page opens is agent-driven from birth,
+            // marked before its page exists (no rebuild on the agent's first
+            // touch, no saved password filled), as its adopted pages are.
+            openers.inheritsFromOpener = { [weak self] child, opener in
+                guard let services = self?.services, let tab = services.locateTab(surface: opener),
+                      services.cache.agentDrivenTabs.contains(tab.id) else { return }
+                services.cache.markAgentDriven(surface: child)
+                if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
+                    services.cache.markAgentDriven(key)
+                }
+            }
         }
     }
     /// Every download of both engines, with a notice when one ends.
