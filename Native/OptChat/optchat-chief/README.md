@@ -624,7 +624,7 @@ nodes never race on one prompt. The prompt changes only when the view
 before the 50k mark changes (a merge of old lines), so consecutive turns
 send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
-later turns skip it. An acpmux without `systemPrompt` keeps the old layout
+the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
 
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
@@ -656,9 +656,12 @@ through it. Two rules keep that true:
   and reads the same two at host start. A route that refuses the 1-hour TTL
   reruns the turn at 5 minutes, and later turns stay at 5 minutes until the
   host restarts or `cache.ttl` is set again (`turn.ttl_refused` trace event).
-  Compactor sessions pin `promptCacheTtl` to 5m, the TTL of their own mark;
-  1h and 5m entries are one cache (measured), so a node still reads what a
-  turn wrote.
+  Compactor nodes on the Claude Code path take the turns' current TTL (one
+  TTL per route, shared with the brain): their mark, their slot's
+  `promptCacheTtl` (plus `FORCE_PROMPT_CACHING_5M` at 5 minutes) and the
+  warm-session key follow it, so a warm session started under the other TTL
+  is not reused. 1h and 5m entries are one cache (measured), so a node reads
+  what a turn wrote either way.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
 `layout.ttl`) and the inspector lays the prompt out from them.
@@ -865,9 +868,9 @@ Trade-offs and risks:
   every marked prompt fails with that 400. The compactor then ends the
   session, retries the node once in a fresh session without the marker, and
   logs `compactor node <id>: Claude Code refused the cache_control marker
-  (...); retrying without it, and later nodes go without it`; later nodes of
-  that host skip the marker (only the system prompt is cached) until it
-  restarts.
+  (...); retrying without it, and the next 10 nodes go without it`; those
+  nodes skip the marker (only the system prompt is cached), then the next
+  node tries it again.
 - **Feature detection.** The host installs the presets with their args and
   a seed `systemPrompt`; an acpmux that does not know a key refuses it
   (`unknown preset key "systemPrompt"`), host.log says `acpmux refused the

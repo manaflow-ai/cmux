@@ -263,6 +263,9 @@ pub struct Settings {
     /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
     /// Claude Code path.
     pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -382,7 +385,7 @@ pub struct Brain {
     noticed: HashSet<String>,
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
-    marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    marker_refused: crate::prompt::MarkLatch,
     /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
     /// host restarts or `cache.ttl` is set again.
     ttl_refused: Arc<std::sync::atomic::AtomicBool>,
@@ -486,7 +489,7 @@ impl Brain {
             steering: None,
             steer_seq: 0,
             draft_failed: false,
-            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -514,6 +517,8 @@ impl Brain {
             mux_pending: HashMap::new(),
         };
         brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
         brain
     }
 
@@ -833,6 +838,7 @@ impl Brain {
             self.chief = next;
             self.ttl_refused
                 .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
