@@ -43,6 +43,19 @@ struct CoderouterProvider: Hashable {
     }
 }
 
+/// The destination chosen for a CodeRouter account setup command.
+enum CoderouterAccountLaunchRoute: Equatable {
+    case focusedTerminal
+    case dedicatedTerminal
+
+    /// Preserve the current sidebar behavior until the agent-safe route is
+    /// fixed: a focused terminal receives the command, otherwise cmux creates
+    /// a new terminal.
+    static func route(hasFocusedTerminal: Bool) -> Self {
+        hasFocusedTerminal ? .focusedTerminal : .dedicatedTerminal
+    }
+}
+
 /// What the Cloud tree's CodeRouter section shows: the selected team's
 /// accounts and whether a refresh is running.
 struct CloudTreeCoderouterSection: Equatable {

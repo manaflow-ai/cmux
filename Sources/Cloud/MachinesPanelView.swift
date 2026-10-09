@@ -571,9 +571,16 @@ struct MachinesPanelView: View {
         // one the sidebar refresh keeps on the selected team and reads back.
         let command = provider.addCommand
 
-        if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
-            panel.sendInput(command + "\r")
-            return
+        switch CoderouterAccountLaunchRoute.route(
+            hasFocusedTerminal: tabManager?.selectedWorkspace?.focusedTerminalInputTarget() != nil
+        ) {
+        case .focusedTerminal:
+            if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
+                panel.sendInput(command + "\r")
+                return
+            }
+        case .dedicatedTerminal:
+            break
         }
 
         Task { @MainActor in
