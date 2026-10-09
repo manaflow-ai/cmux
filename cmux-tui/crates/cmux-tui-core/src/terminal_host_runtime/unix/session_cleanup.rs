@@ -156,16 +156,20 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         let Ok(_pid) = name.parse::<libc::pid_t>() else { continue };
-        let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else { continue };
-        let Some((_, fields)) = stat.rsplit_once(") ") else { continue };
+        let stat = match fs::read_to_string(entry.path().join("stat")) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(()),
+        };
+        let Some((_, fields)) = stat.rsplit_once(") ") else { return Err(()) };
         let mut fields = fields.split_whitespace();
-        let Some(state) = fields.next() else { continue };
-        let Some(_ppid) = fields.next() else { continue };
+        let Some(state) = fields.next() else { return Err(()) };
+        let Some(_ppid) = fields.next() else { return Err(()) };
         let Some(pgid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
-            continue;
+            return Err(());
         };
         let Some(sid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
-            continue;
+            return Err(());
         };
         if sid == session && state != "Z" && pgid > 0 {
             groups.insert(pgid);
