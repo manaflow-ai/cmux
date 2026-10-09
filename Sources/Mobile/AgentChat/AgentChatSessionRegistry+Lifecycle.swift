@@ -107,10 +107,9 @@ extension AgentChatSessionRegistry {
             // is idle, so it must not create a synthetic working state.
             return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
-            // Claude and Grok can deliver their idle reminder asynchronously
-            // after the Stop hook. The reminder is informational regardless
-            // of whether a new prompt has already made the session working,
-            // and must never reopen Needs input or overwrite a later state.
+            // Structured idle reminders are informational regardless of
+            // whether a new prompt has already made the session working, and
+            // must never reopen Needs input or overwrite a later state.
             if event.hookEventName == .notification, event.isIdleReminder {
                 return previous
             }

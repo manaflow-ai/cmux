@@ -1258,6 +1258,7 @@ final class ClaudeHookSessionStore {
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
+            let settlesTurn = depthAfterStop == 0
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1267,13 +1268,13 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: settlesTurn ? agentLifecycle : .running,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
-                updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
+                updateLastNotificationStatus: settlesTurn && updateLastNotificationStatus,
+                runtimeStatus: settlesTurn ? runtimeStatus : .running,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
@@ -30089,7 +30090,8 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             // A completed Claude turn stays idle when the delayed waiting nag
             // arrives. Permission prompts and errors still carry their own state.
-            let idleReminderForCompletedSession = notifyCategory == .idleReminder
+            let idleReminderForCompletedSession = notificationType == "idle_prompt"
+                && notifyCategory == .idleReminder
                 && classifiedSubtitle != "Error"
                 && mappedSession?.agentLifecycle == .idle
             let suppressNeedsInputState = notifyCategory == .idleReminder
@@ -38969,14 +38971,17 @@ export default {
             let suppressPendingWaitingState = summary.notifyCategory == .idleReminder
                 && hasActiveAntigravityBackgroundWork()
 
-            // Stop settles a completed turn to idle, but Grok can deliver its
-            // idle_prompt Notification asynchronously afterwards. Keep that
-            // reminder visible while preserving the completed session's idle
-            // lifecycle; otherwise this late event revives the pane as Needs
-            // input. The Claude-specific path applies the same rule above.
+            // Stop settles a completed turn to idle, but providers can deliver
+            // their structured idle_prompt Notification asynchronously
+            // afterwards. Keep that reminder visible while preserving the
+            // completed session's lifecycle; prose waiting requests remain
+            // real attention events.
+            let isStructuredIdleReminder = AgentHookNotificationClassifier.isStructuredIdleReminder(
+                parsedInput.rawObject
+            )
             let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
                 && summary.status == .needsInput
-                && (def.name == "grok" || def.name == "claude")
+                && isStructuredIdleReminder
                 && (mapped?.agentLifecycle == .idle || mapped?.agentLifecycle == .running)
             let idleReminderForCompletedSession = idleReminderForSettledSession
                 && mapped?.agentLifecycle == .idle
@@ -39155,7 +39160,7 @@ export default {
                 summary: summary
             )
             let notificationJournalKind: AgentJournalEventKind =
-                idleReminderForCompletedSession
+                isStructuredIdleReminder
                     && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
                     ? .idleObserved
                     : (suppressPendingWaitingState

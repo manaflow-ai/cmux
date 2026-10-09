@@ -106,6 +106,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case requestId = "_opencode_request_id"
         case ppid = "_ppid"
         case receivedAt = "_received_at"
+        case isIdleReminder = "_is_idle_reminder"
     }
 
     public init(from decoder: Decoder) throws {
@@ -130,11 +131,12 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
             extra[key.stringValue] = try dynamic.decode(AnyJSON.self, forKey: key)
         }
         self.extraFieldsJSON = extra.isEmpty ? nil : AnyJSON.object(extra).asJSONString
-        self.isIdleReminder = hookEventName == .notification
+        let encodedIdleReminder = try c.decodeIfPresent(Bool.self, forKey: .isIdleReminder) ?? false
+        self.isIdleReminder = encodedIdleReminder || (hookEventName == .notification
             && ["notification_type", "reason"].contains { key in
                 guard case .string(let value) = extra[key] else { return false }
                 return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
-            }
+            })
         // tool_input can be any JSON shape (object, array, scalar, string).
         // We normalize to a string: incoming objects/arrays are re-serialized
         // via JSONSerialization; incoming strings are stored verbatim so
@@ -161,6 +163,9 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)
         try c.encode(receivedAt, forKey: .receivedAt)
+        if isIdleReminder {
+            try c.encode(true, forKey: .isIdleReminder)
+        }
         if let extraFieldsJSON,
            case .object(let extra) = AnyJSON(jsonString: extraFieldsJSON) {
             let knownKeys = Set(CodingKeys.allCases.map(\.stringValue))
