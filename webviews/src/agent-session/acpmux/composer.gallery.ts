@@ -296,6 +296,69 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "reasoning-claude": {
+      note: "Play: Claude's reasoning menu: Low to Max with Extra High, Ultracode (with its line), Ultrathink, then Fast Mode On/Off; the chip reads Medium Fast.",
+      snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "medium",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "low", name: "Low" },
+              { value: "medium", name: "Medium" },
+              { value: "high", name: "High" },
+              { value: "xhigh", name: "Extra High" },
+              { value: "max", name: "Max" },
+              { value: "ultracode", name: "Ultracode" },
+              { value: "ultrathink", name: "Ultrathink" },
+            ],
+          },
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            category: "model_config",
+            currentValue: "on",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
+    "reasoning-codex": {
+      note: "Play: Codex's reasoning menu: Low to Ultra (Xhigh reads Extra High), then Service Tier Standard (Default) and Fast with Codex's own line.",
+      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
+        configOptions: [
+          {
+            id: "reasoning_effort",
+            category: "thought_level",
+            currentValue: "medium",
+            options: ["low", "medium", "high", "xhigh", "max", "ultra"].map((value) => ({ value })),
+          },
+          {
+            id: "fast-mode",
+            category: "model_config",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off", description: "Default speed, normal usage" },
+              { value: "on", name: "On", description: "1.5x speed, increased usage" },
+            ],
+          },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+      },
+    },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
       snapshot: chat(finished, {
@@ -440,3 +503,11 @@ export default agentPaneEntry({
     },
   },
 });
+
+/// A chat snapshot with extra summary fields (the agent's config options).
+function withSummary(
+  snapshot: ReturnType<typeof chat>,
+  summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
+): ReturnType<typeof chat> {
+  return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}

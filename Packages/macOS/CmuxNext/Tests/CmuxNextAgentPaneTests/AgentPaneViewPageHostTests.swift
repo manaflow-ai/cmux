@@ -43,7 +43,7 @@ import Testing
     }
 
     /// A new page subscriber gets the theme, shortcuts, preview state, the edited-files card's
-    /// settings and the composer's, as the old host pushed them after each load.
+    /// settings, the composer's, and the device chats (New Tab cards), as the old host pushed them after each load.
     @Test func aSubscribedPageGetsTheCurrentState() async throws {
         let (view, _) = try pageView()
         defer { view.close() }
@@ -51,11 +51,13 @@ import Testing
         var editedFiles = AgentPaneEditedFilesSetting()
         editedFiles.show = "collapsed"
         view.editedFiles = editedFiles
+        view.deviceChats = [AgentPaneDeviceChat(key: "codex:1", harness: "codex", title: "Fix", updatedAt: Date(timeIntervalSince1970: 2))]
         let received = await subscribe(try #require(view.page))
         // A theme change (the view joining a scope) may push the theme again; that is harmless.
         let kinds = received().compactMap { $0["kind"]?.stringValue }
         #expect(kinds.first == "theme")
-        #expect(Set(kinds) == ["theme", "shortcuts", "preview", "editedFiles", "composer"])
+        #expect(Set(kinds) == ["theme", "shortcuts", "preview", "editedFiles", "deviceChats", "composer"])
+        #expect(received().first { $0["kind"] == "deviceChats" }?["value"] == [["key": "codex:1", "harness": "codex", "title": "Fix", "updatedAt": 2000]])
         #expect(received().first { $0["kind"] == "preview" }?["value"] == .bool(true))
         #expect(received().first { $0["kind"] == "editedFiles" }?["value"] == ["show": "collapsed", "maxRows": 5, "scope": "turn"])
         #expect(received().first { $0["kind"] == "composer" }?["value"] == ["showContextUsage": true])

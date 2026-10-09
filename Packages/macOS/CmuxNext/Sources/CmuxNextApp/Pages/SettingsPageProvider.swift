@@ -24,6 +24,9 @@ final class SettingsPageProvider: PageProvider {
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
+    /// without an app.
+    var agents: AgentHarnessCenter?
     /// Settings > Agents > Harnesses (cx-mg91, `SettingsHarnesses`): its state, and one gesture;
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
@@ -99,6 +102,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.accounts.run":
             guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
             return try await accountsRun(params)
+        case "cmux.settings.agents.state":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return agents.pageState
+        case "cmux.settings.agents.run":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return try await agents.runPage(params)
         case "cmux.settings.harnesses.state":
             guard let harnessesState else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return harnessesState()
@@ -175,6 +184,15 @@ final class SettingsPageProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         if stream == "cmux.settings.accounts.changed", let accountsState {
             return Self.watch(accountsState, onEvent: onEvent)
+        }
+        if stream == "cmux.settings.agents.changed", let agents {
+            // The daemon's harness events reach the list only while a page shows it.
+            agents.beginWatching()
+            let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
+            return PageSubscription {
+                watch.cancel()
+                Task { @MainActor in agents.endWatching() }
+            }
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)

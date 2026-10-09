@@ -768,6 +768,11 @@
       "title" : "DisabledFeatures",
       "type" : "array"
     },
+    "DisableTelemetry" : {
+      "description" : "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).",
+      "title" : "DisableTelemetry",
+      "type" : "boolean"
+    },
     "EnrollmentToken" : {
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
@@ -1044,9 +1049,10 @@
       "type" : "string"
     },
     "layout.stripScrollbar" : {
-      "default" : "auto",
+      "default" : "system",
       "description" : "A thin bar under the columns that shows and moves the visible range.",
       "enum" : [
+        "system",
         "auto",
         "always",
         "off"
@@ -1431,14 +1437,6 @@
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
-    },
-    "sidebar.allChatsRows" : {
-      "default" : 8,
-      "description" : "How many chats the All chats section shows before it scrolls.",
-      "maximum" : 50,
-      "minimum" : 1,
-      "title" : "All Chats Rows",
-      "type" : "number"
     },
     "sidebar.border" : {
       "default" : false,

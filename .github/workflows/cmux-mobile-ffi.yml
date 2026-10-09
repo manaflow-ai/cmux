@@ -4,7 +4,9 @@
 # generated bindings and the xcframework, and in Kotlin against the generated
 # bindings and the host-built library.
 #
-# - rust: fmt, clippy -D warnings and the Rust tests of the three crates.
+# - rust: fmt, clippy -D warnings and the Rust tests of the three crates and
+#   cmux-cloud-wire (the catalog wire types: generated-file drift and the
+#   backend/catalog/cloud-vectors.json round trip).
 # - apple: static libraries for iOS arm64, the iOS simulator (arm64, x86_64)
 #   and macOS (arm64, x86_64) in CmuxMobileFFI.xcframework; `swift test` on the
 #   macOS slice and `xcodebuild test` on an iOS simulator.
@@ -30,7 +32,12 @@ on:
       - "cmux-tui/crates/cmux-terminal-sizing/**"
       - "cmux-tui/crates/cmux-mobile-core/**"
       - "cmux-tui/crates/cmux-mobile-ffi/**"
+      - "cmux-tui/crates/cmux-cloud-wire/**"
       - "schemas/terminal-sizing/**"
+      # The generated wire types (cmux-cloud-wire) and their vector gate.
+      - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-vectors.json"
+      - "backend/packages/protocol/scripts/export-rust-client.ts"
   workflow_dispatch:
     inputs:
       ref:
@@ -73,17 +80,26 @@ jobs:
           workspaces: cmux-tui
           key: cmux-mobile-ffi-rust
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Generated wire types match the catalog
+        working-directory: backend/packages/protocol
+        run: bun scripts/export-rust-client.ts --check
+
       - name: rustfmt
         working-directory: cmux-tui
-        run: cargo fmt --check -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi
+        run: cargo fmt --check -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire
 
       - name: clippy
         working-directory: cmux-tui
-        run: cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi --all-targets -- -D warnings
+        run: cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire --all-targets -- -D warnings
 
       - name: Rust tests (fixtures included)
         working-directory: cmux-tui
-        run: cargo test --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi
+        run: cargo test --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi -p cmux-cloud-wire
 
   apple:
     name: apple (xcframework, Swift tests)

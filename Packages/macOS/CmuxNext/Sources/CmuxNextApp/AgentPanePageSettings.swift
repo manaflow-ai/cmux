@@ -54,6 +54,6 @@ final class AgentPanePageSettings {
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
-        view.composer = composer
+        AgentPaneComposerPush.apply(composer, to: view)
     }
 }

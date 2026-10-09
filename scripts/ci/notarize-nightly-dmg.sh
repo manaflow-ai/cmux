@@ -21,18 +21,21 @@ VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
-# Release channel of the app being packaged: `nightly` (default) or `rc`. It
-# selects the entitlements file and the bundle-metadata check; the packaging,
-# notarization, and stapling steps are identical for both.
+# Release channel of the app being packaged: `nightly` (default), `rc`, or
+# `stable`. It selects the entitlements file and the bundle-metadata check; the
+# packaging, notarization, and stapling steps are identical for all three.
+# `stable` is used only by the nightly-next production-identity notary probe
+# (nightly.yml input notary_probe_production_identity), which publishes nothing.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
-  nightly|rc) ;;
+  nightly|rc) ENTITLEMENTS_NAME="cmux.${CHANNEL}.entitlements" ;;
+  stable) ENTITLEMENTS_NAME="cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or rc)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, rc or stable)" >&2
     exit 2
     ;;
 esac
-APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
+APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/$ENTITLEMENTS_NAME}"
 # A later nightly-next run continues an earlier run's submission: the state file
 # it saved names the Apple submission and the exact signed DMG. The DMG is not
 # rebuilt or resubmitted; Apple is asked for the status, an Accepted one is

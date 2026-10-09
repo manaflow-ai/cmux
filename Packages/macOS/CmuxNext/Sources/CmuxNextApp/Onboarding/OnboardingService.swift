@@ -7,10 +7,10 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import os
 
-/// Owns the onboarding window: shows it on the first launch (once per Mac
-/// account, `OnboardingStateFile`), reopens it from the palette, the menu
-/// and the import and default-app actions, and feeds imported history to
-/// the omnibar at launch.
+/// Owns the onboarding window: it opens only from the palette, the menu,
+/// the import and default-app actions and the browser-data offer, never at
+/// launch (Lawrence 2026-10-09: a launch goes straight to the main window).
+/// Also feeds imported history to the omnibar at launch.
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -21,15 +21,12 @@ final class OnboardingService {
     /// The one onboarding window (set up in `init`).
     private let presenter = OnboardingWindowPresenter()
     var controller: OnboardingWindowController? { presenter.controller }
-    /// The cookie import card on browser pages (cx-367y).
-    private(set) lazy var cookiePrompt = CookieImportPromptService(services: services)
+    /// The browser-data import offer on the first browser tab of a launch.
+    private(set) lazy var browserImportOffer = BrowserImportOfferService(services: services)
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
-
-    /// Shows onboarding on the first launch even in a no-activate test launch.
-    static let forceKey = "CMUX_NEXT_ONBOARDING"
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
@@ -162,26 +159,6 @@ final class OnboardingService {
         }
     }
 
-    /// First launch: show once the first window is up. A no-activate launch
-    /// (agents, tests) skips it unless `CMUX_NEXT_ONBOARDING=1`.
-    func showIfNeeded() {
-        let forced = ProcessInfo.processInfo.environment[Self.forceKey] == "1"
-        guard forced || !services.environment.noActivate else { return }
-        // task-owner: one-shot launch check; ends after one queued file read
-        Task { [weak self] in
-            guard let state = self?.state else { return }
-            let decision = await state.perform { $0.takeLaunchShow() }
-            guard let self, !isShowing else { return }
-            switch decision {
-            case .start: presenter.showFirstRun(resumingAt: nil)
-            // An unfinished first run with launches left (each launch that
-            // showed it counts, closed or quit) resumes at its step.
-            case .resume(let step): presenter.showFirstRun(resumingAt: step)
-            case .none: break
-            }
-        }
-    }
-
     func markDone(completed: Bool) {
         state.write("onboarding state") { try $0.markDone(completed: completed) }
     }
@@ -197,7 +174,26 @@ final class OnboardingService {
         // window's (Import and Sync, a single step) leaves it as it is.
         let firstRun = controller?.model.isFirstRun ?? true
         if firstRun { markDone(completed: completed) }
+        restoreMainWindow()
         land(firstRun: firstRun)
+    }
+
+    /// A launch that gave the tree its first workspace (`FirstWorkspace`,
+    /// `freshWorkspaceID` set in `WindowManager.restore`) shows it on its New
+    /// Tab page at once, not the Home page: nothing was chosen yet (Lawrence
+    /// 2026-10-09: "drop user into main screen asap"). Else nothing.
+    func landOnFirstWorkspace() {
+        guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
+        _ = services.windows.reveal(workspaceID: fresh)
+    }
+
+    /// A minimized main window comes back in place and to the front
+    /// (`OnboardingLanding.restoresMainWindow`).
+    private func restoreMainWindow() {
+        guard let controller = services.windows.active, let window = controller.window,
+              OnboardingLanding.restoresMainWindow(minimized: window.isMiniaturized) else { return }
+        window.deminiaturize(nil)
+        services.windows.bringToFront(controller)
     }
 
     /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue

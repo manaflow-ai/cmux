@@ -67,6 +67,10 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Files: never list, glob or search the whole home folder, or Desktop,
+  Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
+  user names a path there; macOS asks the user for access to each. Search
+  only the folders the work is in, or ask the user where something is.
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
 /// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
@@ -188,14 +192,21 @@ pub fn subagent_system_text(user: Option<&str>, tools: &Tools) -> String {
 /// Claude Code's own breakpoint at the message's end serves the subagent's
 /// later requests.
 pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
-    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+    let task = format!("Your task:\n\n{task}");
+    // An empty chat has no view to give: only the task.
+    let lines = view
+        .lines()
+        .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
+    if lines.count() == 0 {
+        return vec![json!({"type": "text", "text": task})];
+    }
+    turn_blocks(view, &[task])
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
-pub const SPAWN_CWD_DESCRIPTION: &str = "The directory the subagents work in, on the machine you run on (~ is its home). The answer says when it does not exist there.";
-pub const TELL_DESCRIPTION: &str =
-    "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; its report answers it.";
+pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; its report answers it.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark
@@ -432,6 +443,19 @@ pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Live proof subp7: a subagent spawned from an empty chat showed
+    /// "<chat></chat>" as the first lines of its pane. An empty view is left
+    /// out; the task stays.
+    #[test]
+    fn a_subagents_first_message_leaves_out_an_empty_view() {
+        let blocks = subagent_blocks("<chat>\n</chat>\n", "count lines");
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0]["text"], "Your task:\n\ncount lines");
+        let full = subagent_blocks("<chat>\n0+1|user: hi\n</chat>\n", "t");
+        assert!(full.len() > 1);
+    }
+
     use super::*;
 
     #[test]

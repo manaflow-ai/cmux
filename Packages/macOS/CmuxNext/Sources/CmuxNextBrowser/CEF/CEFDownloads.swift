@@ -183,7 +183,8 @@ final class CEFDownloads {
             item.complete(.failed("no free file name"))
             return
         }
-        let item = BrowserDownload(sourceURL: URL(string: url), filename: placement.finalURL.lastPathComponent)
+        let item = BrowserDownload(sourceURL: URL(string: url), filename: placement.finalURL.lastPathComponent,
+                                   suggestedFilename: DownloadDestination.sanitizedFilename(suggestedName))
         item.destination = placement.finalURL
         item.placement = placement
         item.update(received: 0, total: total)

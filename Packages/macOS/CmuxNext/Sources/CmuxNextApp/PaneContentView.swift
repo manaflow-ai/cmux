@@ -60,6 +60,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
+    /// Browsers this pane showed before, kept in place and hidden, oldest
+    /// first (`PaneContentView+Parking`).
+    var parked: [ParkedContent] = []
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
@@ -208,25 +211,20 @@ final class PaneContentView: NSView, PaneContentChrome {
         if hosted !== view { releaseBand() }
         if holds, kept != nil {
             // The page that never showed leaves; what shows stays for this hold.
-            paintHold.handOff { [contentHost] page in
-                if page.superview === contentHost { page.removeFromSuperview() }
-            }
+            paintHold.handOff { [weak self] page in self?.retire(page) }
         } else {
             // An earlier switch still waiting on a first frame ends now.
             endPaintHold()
         }
+        var leaving: NSView?
         if overBackdrop, let hosted, hosted !== view, keepsBackdrop(hosted) {
             // Left in place as the New Tab page's backdrop: it stays, so no hold.
             holds = false
         } else if hosted !== view, !holds {
-            hosted?.removeFromSuperview()
+            leaving = hosted
         }
         if !overBackdrop { dropBackdrop(keeping: view) }
-        if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
-            view.frame = contentHost.bounds
-            view.autoresizingMask = [.width, .height]
-            contentHost.addSubview(view)
-        }
+        if let view { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
@@ -235,6 +233,9 @@ final class PaneContentView: NSView, PaneContentChrome {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }
         content = view
+        // After the incoming view is in: a browser that leaves stays parked
+        // here, and the keyboard it held goes to what shows now.
+        if let leaving { retire(leaving) }
         if let inner = innerChrome {
             // A toolbar or bookmarks bar height change moves the strip and
             // the content: lay out again, then report (v4 review b).
