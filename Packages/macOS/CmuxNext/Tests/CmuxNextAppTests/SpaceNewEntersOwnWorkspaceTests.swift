@@ -59,7 +59,8 @@ import Testing
             }
         }
 
-        let state = Mutex(State())
+        final class Box: Sendable { let value = Mutex(State()) }
+        let state = Box()
         let socket: ScriptedDaemonSocket
 
         init() throws {
@@ -72,18 +73,18 @@ import Testing
                 switch request["cmd"]?.stringValue {
                 case "identify":
                     let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.profiles]).map { "\"\($0)\"" }.joined(separator: ",")
-                    let revision = state.withLock { $0.revision }
+                    let revision = state.value.withLock { $0.revision }
                     return [ok(#"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"\#(SpaceNewEntersOwnWorkspaceTests.session)","generation":"g1","workspace_revision":\#(revision)}"#)]
                 case "list-workspaces":
-                    return [ok(state.withLock { $0.tree })]
+                    return [ok(state.value.withLock { $0.tree })]
                 case "list-personal":
-                    return [ok(state.withLock { $0.personal })]
+                    return [ok(state.value.withLock { $0.personal })]
                 case "list-agents":
                     return [ok(#"{"agents":[]}"#)]
                 case "create-profile":
                     let room = request["profile"]?.stringValue ?? "prof_new"
                     let name = request["name"]?.stringValue ?? "Space"
-                    let snapshot = state.withLock { state -> String in
+                    let snapshot = state.value.withLock { state -> String in
                         state.rooms.append((room, name))
                         state.personalRevision += 1
                         return state.room(state.rooms.count - 1)
@@ -91,7 +92,7 @@ import Testing
                     return [personalChanged, ok(#"{"profile":\#(snapshot),"changed":true}"#)]
                 case "pin-workspace":
                     let key = request["workspace_key"]?.stringValue ?? "", room = request["profile"]?.stringValue ?? ""
-                    state.withLock { state in
+                    state.value.withLock { state in
                         state.pins.removeAll { $0.key == key }
                         state.pins.append((key, room))
                         state.personalRevision += 1
@@ -99,7 +100,7 @@ import Testing
                     return [personalChanged, ok(#"{"changed":true}"#)]
                 case "create-workspace":
                     let key = request["key"]?.stringValue ?? UUID().uuidString.lowercased()
-                    let (workspace, revision) = state.withLock { state -> (Int, Int) in
+                    let (workspace, revision) = state.value.withLock { state -> (Int, Int) in
                         state.nextID += 1
                         state.workspaces.append(Workspace(id: state.nextID, key: key, terminal: false))
                         state.revision += 1
@@ -108,7 +109,7 @@ import Testing
                     return [treeChanged, ok(#"{"workspace":\#(workspace),"key":"\#(key)","workspace_revision":\#(revision),"replayed":false}"#)]
                 case "create-terminal":
                     let key = request["key"]?.stringValue ?? ""
-                    let workspace = state.withLock { state -> Int? in
+                    let workspace = state.value.withLock { state -> Int? in
                         guard let index = state.workspaces.firstIndex(where: { $0.key == key }) else { return nil }
                         state.workspaces[index].terminal = true
                         state.revision += 1
@@ -154,9 +155,9 @@ import Testing
         #expect(run.outcome == .ran, "space.new: \(run.outcome)")
 
         try await Self.waitUntil("the new space's workspace is created and mirrored") {
-            services.daemon.store.workspaces.count == 2 && daemon.state.withLock { $0.rooms.count == 2 }
+            services.daemon.store.workspaces.count == 2 && daemon.state.value.withLock { $0.rooms.count == 2 }
         }
-        let (room, newKey, pins) = daemon.state.withLock { state in
+        let (room, newKey, pins) = daemon.state.value.withLock { state in
             (state.rooms[1].id, state.workspaces[1].key, state.pins.map { "\($0.key)=\($0.room)" })
         }
         #expect(pins == ["\(newKey)=\(room)"], "the new workspace must be pinned to the new space, pins: \(pins)")
