@@ -74,7 +74,7 @@ extension PaletteController {
     }
 
     /// `scope`'s page with every provider's items loaded, built headless.
-    private func loadedPage(_ scope: PaletteScopeID) async -> (PalettePageSpec, PageState)? {
+    func loadedPage(_ scope: PaletteScopeID) async -> (PalettePageSpec, PageState)? {
         configureScopes()
         guard scope == .root || model.navigation.graph.contains(scope), let page = page(forScope: scope, context: nil) else { return nil }
         let state = PageState(kind: .list(page))
