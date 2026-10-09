@@ -1614,13 +1614,16 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     );
 }
 
-/// Claude Code without the model in its own table answers a failed call
-/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
-/// the compactor falls back to the turn model then too.
+/// Claude Code's "[claude-code:unrecognized_model]" is a warning (2.1.287
+/// prints it and runs claude-haiku-5-5): it never switches the compactor
+/// to the turn model; only a real refusal or API error does.
 #[test]
-fn an_unrecognized_model_counts_as_unavailable() {
-    assert!(optchat_chief::compactor::is_model_unavailable(
+fn the_unrecognized_model_warning_keeps_the_model() {
+    assert!(!optchat_chief::compactor::is_model_unavailable(
         r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        "There's an issue with the selected model (claude-haiku-5-5). It may not exist or you may not have access to it."
     ));
     assert!(!optchat_chief::compactor::is_model_unavailable(
         "API Error: 529 overloaded"
@@ -1690,17 +1693,18 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
 }
 
-/// Claude Code 2.1.287 does not know `claude-haiku-5-5`
-/// ("[claude-code:unrecognized_model]") but takes the `haiku` alias, which
-/// it maps to its current Haiku. A Claude Code compactor asks for the
-/// alias; the Messages API route keeps the full id; another harness keeps
-/// its own default.
+/// A Claude Code compactor asks for the full id `claude-haiku-5-5`: Claude
+/// Code 2.1.287 only warns that it does not list it
+/// ("[claude-code:unrecognized_model]") and runs it, while its `haiku`
+/// alias is Haiku 4.5 (measured on a subscription: 52 s and no prompt
+/// caching for one node, against 1.3 s at effort low). Another harness
+/// keeps its own default.
 #[test]
 fn the_compactor_model_resolves_per_harness() {
     use optchat_chief::compactor::compactor_model_for;
     assert_eq!(
         compactor_model_for(Family::Claude).as_deref(),
-        Some("haiku")
+        Some("claude-haiku-5-5")
     );
     assert_eq!(compactor_model_for(Family::Codex), None);
     assert_eq!(compactor_model_for(Family::Other), None);
