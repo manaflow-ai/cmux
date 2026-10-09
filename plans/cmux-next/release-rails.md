@@ -322,3 +322,10 @@ cmux-old never reads cmux_vm, so the migrations stay in place; if they must go, 
 Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) uses the same pattern
 through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
 `--rollback`, new VMs only); it is not needed now either.
+
+## Lessons from the first production attempts (2026-10-09)
+
+- **One owner, lock first.** Two sessions prepared the production cmux_vm apply at the same time; the single-owner decision reached one of them after its run had started. A production DB step takes the rails lock (`db-release.ts apply` holds it) and announces its one owner before any role or grant is made.
+- **Rehearsal login.** A PlanetScale-managed owner role gets a new password on a branch copy, so a rehearsal that reuses the main branch login fails with `password authentication failed`. The rehearsal now uses the copied login only for a SQL owner and resets the copy's own owner record for a PlanetScale-role owner (rehearsal.ts; the reset refuses any branch that is not `rh-*`).
+- **PITR lag.** The copy is a point-in-time restore of the target 6 minutes back. A role or grant younger than that is not on the copy. Wait more than 6 minutes after creating the owner role or the bootstrap grant before a rehearsal.
+- **Bootstrap of the schema.** `CREATE SCHEMA cmux_vm AUTHORIZATION <owner>` is refused on PlanetScale (the admin role cannot SET ROLE to the owner). The bootstrap that works: a temporary admin role (`pscale role create <db> main <name> --inherited-roles postgres --ttl 90m`), `GRANT CREATE ON DATABASE postgres TO <owner>` as that role, wait past the PITR lag, apply, then `REVOKE CREATE ON DATABASE postgres FROM <owner>` as the same role (a grant made by the temporary role blocks its clean delete), then delete the temporary role by exact id. The owner never keeps database CREATE after the bootstrap (the apply refuses it in production).
