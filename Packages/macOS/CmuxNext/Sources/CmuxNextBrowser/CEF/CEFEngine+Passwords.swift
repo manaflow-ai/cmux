@@ -115,14 +115,14 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
     // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
     // dropped (never copied to another thread) and the reveal ends as not found.
     guard Thread.isMainThread else {
-        // crash-allow: runs in a main-queue block
+        // main-proof: a DispatchQueue.main block runs on the main thread
         DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address).finish(nil) } }
         return
     }
     // Integers cross into the main-actor closure (a raw buffer is not Sendable); the closure runs
     // synchronously, while the bytes are still valid.
     let base = UInt(bitPattern: bytes)
-    // crash-allow: checked Thread.isMainThread just above
+    // main-proof: guarded by Thread.isMainThread above
     MainActor.assumeIsolated {
         let buffer = UnsafeRawPointer(bitPattern: base).map { UnsafeRawBufferPointer(start: $0, count: length) }
         PasswordRevealBox.take(address).finish(buffer)

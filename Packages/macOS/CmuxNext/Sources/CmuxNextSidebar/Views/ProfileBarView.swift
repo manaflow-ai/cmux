@@ -50,6 +50,9 @@ final class ProfileBarView: NSView {
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
+    /// Like every sidebar control, the first click on a window that is not
+    /// key switches the space instead of only activating the window (cx-i3ra).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     // MARK: Geometry
 

@@ -20,9 +20,11 @@ struct WorkspaceSpawn: Sendable {
     /// Where the new workspace goes in its window's sidebar; nil puts it at
     /// the `workspaces.newPlacement` slot (`NewWorkspaceDefaultSlot`).
     var slot: WorkspaceSlot?
-    /// False keeps the daemon's place when `slot` is nil: a batch that
-    /// recreates saved workspaces in order, or a caller that places the
-    /// workspace itself (into a personal group).
+    /// False keeps the daemon's place when `slot` is nil: a caller that
+    /// places the workspace itself (into a personal group). The daemon puts
+    /// a workspace of its own session at `workspaces.newPlacement` too (with
+    /// `afterCurrent` after the session's active workspace, not the window's),
+    /// so a batch that must keep its order names a slot.
     var placesBySetting = true
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.

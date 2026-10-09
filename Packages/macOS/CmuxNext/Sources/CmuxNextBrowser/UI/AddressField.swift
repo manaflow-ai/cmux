@@ -141,7 +141,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     // MARK: Paste and Go
 
     /// The field editor's context menu (the field is its delegate).
-    @objc func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+    @objc(textView:menu:forEvent:atIndex:) func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
         guard let title = pasteAndGoTitle?() else { return menu }
         let item = NSMenuItem(title: title, action: #selector(performPasteAndGo(_:)), keyEquivalent: "")
         item.target = self

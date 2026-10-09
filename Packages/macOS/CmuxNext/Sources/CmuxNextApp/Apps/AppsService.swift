@@ -34,7 +34,13 @@ final class AppsService {
     /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
     private var webStorePages: [String: PageWebView] = [:]
     /// The App Store tabs (internal page), one store model per tab.
-    private(set) lazy var storePages = AppStorePages { [unowned self] in makeStoreModel() }
+    /// Captures the store's parts, not the service, so a page set that outlives
+    /// the service still makes models.
+    private(set) lazy var storePages = AppStorePages { [weak self, registry = self.registry, host = self.host, previewHost = self.previewHost, storage = self.storage] in
+        Self.makeStoreModel(registry: registry, host: host, previewHost: previewHost, storage: storage) {
+            self?.services.locationTrail.pageHistoryDidChange()
+        }
+    }
     /// Runs previews of apps that are not installed (sample data, no grant).
     private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
@@ -150,9 +156,11 @@ final class AppsService {
         return provider
     }
 
-    private func makeStoreModel() -> AppStoreModel {
+    private static func makeStoreModel(registry: AppRegistry, host: AppHost, previewHost: AppHost, storage: AppStorageStore,
+                                       onNavigate: @escaping () -> Void) -> AppStoreModel {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
         model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        model.onNavigate = onNavigate
         return model
     }
 
@@ -209,6 +217,11 @@ extension AppsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
         storePages.tabClosed(key)
+    }
+
+    /// The native store's page history (the React store keeps its own).
+    func history(for key: String) -> (any PageHistory)? {
+        webStorePages[key] == nil ? storePages.model(for: key) : nil
     }
 
     /// The React page's fragment for a listing or the Installed tab.

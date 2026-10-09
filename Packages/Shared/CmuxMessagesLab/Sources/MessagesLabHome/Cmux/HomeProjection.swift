@@ -85,8 +85,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.controller = controller
         core = ProjectionCore(me: me)
         let media = self.media
-        core.media = { [unowned media] in media.asset($0) }
-        if let linkPreviews { core.links = { [unowned linkPreviews] in linkPreviews.cached($0) } }
+        core.media = { [weak media] in media?.asset($0) }
+        if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }

@@ -14,6 +14,15 @@ enum CrashStrings {
         String(localized: "app.restart.showLog", defaultValue: "Show Crash Log", bundle: .module)
     }
 
+    static var report: String {
+        String(localized: "app.restart.report", defaultValue: "Report", bundle: .module)
+    }
+
+    /// "Cause: NSRangeException: ..."; `cause` is not translated.
+    static func cause(_ cause: String) -> String {
+        String(format: String(localized: "app.restart.cause", defaultValue: "Cause: %@", bundle: .module), cause)
+    }
+
     static var dismiss: String {
         String(localized: "app.restart.dismiss", defaultValue: "Dismiss", bundle: .module)
     }

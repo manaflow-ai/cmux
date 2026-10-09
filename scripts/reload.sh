@@ -1513,25 +1513,35 @@ fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
+  # An nx-remote build of a tree no artifacts run published (a newer push
+  # replaces a pending run on a busy branch, and uncommitted edits are never
+  # published) builds the client set here instead of waiting up to 45 min; the
+  # bundle then takes it as CMUX_TUI_CLIENT_LOCAL. Fleet builds already pass it.
+  if [[ -n "${NX_JOB_ID:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
+    ! "$PWD/scripts/cmux-next/pin-cmux-tui.sh" probe 2>/dev/null | grep -q ': ready ('; then
+    CMUX_TUI_CLIENT_LOCAL="$("$PWD/scripts/cmux-next/build-cmux-tui-client.sh" --print-path)" || exit 1
+    export CMUX_TUI_CLIENT_LOCAL
+    echo "==> cmux-next: bundling the cmux-tui client set built on this host, $CMUX_TUI_CLIENT_LOCAL"
+  fi
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
 fi
 
-# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
-# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
-# tagged reload outside CI may reuse that commit-addressed cache, but never runs
-# Cargo on the developer machine.
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
+# builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
+# --check-build-allowed decides); a developer machine reuses the
+# commit-addressed cache but never runs Cargo.
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
 elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
   if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
     echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
-    "$PWD/scripts/cmux-next/build-acpmux.sh"
+  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
     export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
-    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
   else
-    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
     exit 1
   fi
 fi
@@ -1543,8 +1553,8 @@ fi
 if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
   if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
-  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
-    "$PWD/scripts/cmux-next/build-optchat-chief.sh"
+  elif "$PWD/scripts/cmux-next/build-optchat-chief.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh" || exit 1
     export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
     export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
   fi

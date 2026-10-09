@@ -115,7 +115,8 @@ public struct AppTheme: Hashable, Sendable {
         let isDark = AppColor.luminance(bg) < AppColor.luminance(fg)
         var t: [Token: ThemeRGB] = [:]
         let q = AppColor.quantized
-        t[.window] = q(bg)
+        let window = q(bg)
+        t[.window] = window
         t[.content] = q(bg)
         t[.sidebar] = q(bg.mixed(toward: fg, (isDark ? 0.04 : 0.035) * tint))
         t[.elevated] = q(isDark ? bg.mixed(toward: fg, 0.075 * tint) : bg.mixed(toward: .white, 0.7 * tint))
@@ -124,10 +125,11 @@ public struct AppTheme: Hashable, Sendable {
         t[.pressed] = q(bg.mixed(toward: fg, (isDark ? 0.12 : 0.09) * tint))
         t[.separator] = q(bg.mixed(toward: fg, isDark ? 0.13 : 0.11))
         func on(_ names: [Token], _ minimum: Double) -> [AppColor.Constraint] {
-            names.map { AppColor.Constraint(on: t[$0]!, minimum: minimum) }
+            // Every surface token is set above; the window color stands in for one that is not.
+            names.map { AppColor.Constraint(on: t[$0] ?? window, minimum: minimum) }
         }
 
-        let onAccentWanted = isDark ? t[.window]! : ThemeRGB.white
+        let onAccentWanted = isDark ? window : ThemeRGB.white
         let fgLightness = AppColor.oklch(fg).l
         let seed = AppColor.fromOKLCH(AppColor.OKLCH(l: fgLightness, c: 0, h: 0))
         let accent = AppColor.fit(seed, on(plainSurfaces, uiMinimum) + [AppColor.Constraint(on: onAccentWanted, minimum: textMinimum)],

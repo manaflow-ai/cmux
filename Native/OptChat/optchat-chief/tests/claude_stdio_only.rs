@@ -11,10 +11,10 @@ use std::time::Duration;
 use cmux_chief::policy::harness::is_route;
 use common::*;
 use optchat_chief::acpmux::Family;
+use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_chief::compactor::{AcpmuxCompactor, CompactorSpec, Slots};
 use optchat_chief::harness_gate::{admit, admit_profile};
 use optchat_chief::trace::Trace;
-use optchat_core::JOBS;
 use optchat_host::{CompactModel, CompactRequest, NodeId};
 use serde_json::{Value, json};
 
@@ -209,6 +209,7 @@ fn compactor_spec(dir: &std::path::Path) -> CompactorSpec {
         effort: None,
         timeout: Duration::from_secs(30),
         chief: "h0me".into(),
+        user_env: Default::default(),
     }
 }
 
@@ -220,7 +221,7 @@ fn a_compactor_node_on_an_acp_adapter_is_refused() {
     let compactor = Arc::new(AcpmuxCompactor::new(
         agents.clone(),
         compactor_spec(dir.path()),
-        Slots::new(JOBS),
+        Slots::new(COMPACTOR_SESSIONS),
     ));
     let request = CompactRequest {
         node: NodeId::new(0, 1),

@@ -100,7 +100,7 @@ final class TabDragSession: NSObject {
         }
         resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
                                                                 queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) }
+            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
         }
         self.drag = drag
         focusDragBegan(item, from: pane)

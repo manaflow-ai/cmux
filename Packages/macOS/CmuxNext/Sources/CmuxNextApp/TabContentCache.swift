@@ -108,7 +108,7 @@ final class TabContentCache {
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
     /// action registry, `ExtensionMenuRouter`).
-    var makeExtensionMenuHandler: ((String) -> any ExtensionMenuHandling)?
+    var makeExtensionMenuHandler: ((String) -> (any ExtensionMenuHandling)?)?
     /// Page `key`'s docked DevTools opened (and takes the keyboard) or
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?

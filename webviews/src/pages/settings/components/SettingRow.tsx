@@ -1,5 +1,6 @@
 import { useId } from "react";
-import { useSettingsState } from "../context";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { useSettingsState, useStore } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
@@ -9,6 +10,28 @@ import { t, text } from "../strings";
 import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
+
+/**
+ * The menu of a setting's title and help (right-click): copy its cmux.json key, or reset it (the
+ * row's Reset control's path). Every row that edits a setting uses it, including the Theme page's
+ * own rows (cx-64hi).
+ */
+export function useRowMenu(key: string): ContextMenuItem[] {
+  const state = useSettingsState();
+  const store = useStore();
+  const managed = managedOf(state, key);
+  const customized = state.rows.get(key)?.customized ?? false;
+  return [
+    { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(key) },
+    {
+      id: "reset",
+      label: t("settingsPage.resetToDefault"),
+      separatorBefore: true,
+      disabled: !customized || managed !== null || !state.connected || !state.readable,
+      onSelect: () => void store.reset(key),
+    },
+  ];
+}
 
 /** One setting: title and one-line help on the left, its editor on the right. */
 export function SettingRow({
@@ -30,6 +53,7 @@ export function SettingRow({
   const disabled = !state.connected || !state.readable || managed !== null;
   const diagnostics = state.diagnostics.get(row.key);
   const error = state.errors.get(row.key);
+  const menu = useRowMenu(row.key);
   return (
     <div
       className="row"
@@ -45,7 +69,7 @@ export function SettingRow({
     >
       {diagnostics && <RowNotice settingKey={row.key} messages={diagnostics} disabled={disabled} />}
       <div className="row-main">
-        <div className="row-label">
+        <ContextMenu className="row-label" items={menu}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>
@@ -70,7 +94,7 @@ export function SettingRow({
               {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}
-        </div>
+        </ContextMenu>
         <div className="row-control">
           <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
           <ResetButton

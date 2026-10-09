@@ -182,12 +182,34 @@ describe("team VM taint after a member removal (cx-q4f3)", { timeout: 60_000 }, 
     // Only an owner or admin deletes it, by its exact id.
     const stays: Principal = { identity: `session:user_00000000000000077009`, kind: "session", user: "user_00000000000000077009", team: t.team }
     expect((await t.admin(stays, "team_vm.retired.delete", { vm: first.vm })).error?.code).toBe("auth.forbidden")
-    const del = await t.admin(t.ownerP, "team_vm.retired.delete", { vm: first.vm })
+    const del = await t.admin(t.ownerP, "team_vm.retired.delete", { vm: first.vm, files_copied: true })
     expect(del.ok, JSON.stringify(del)).toBe(true)
     expect((await t.status()).retired).toEqual([])
     const gone = await inDO(vmStub(t.team), async (_i, st) => st.storage.sql.exec(`SELECT 1 FROM fake_vm WHERE id = ?`, first.vm).toArray().length)
     expect(gone).toBe(0)
-    expect((await t.admin(t.ownerP, "team_vm.retired.delete", { vm: s.vm })).error?.code).toBe("selector.not_found")
+    expect((await t.admin(t.ownerP, "team_vm.retired.delete", { vm: s.vm, files_copied: true })).error?.code).toBe("selector.not_found")
+  })
+
+  it("retired.delete without the owner's files_copied confirmation answers team_vm.retired_files_unconfirmed and keeps the VM (cx-zr9i)", async () => {
+    const t = await fresh()
+    const first = await t.wake()
+    expect((await t.op(t.memberP, "team_vm.ssh_cert", { public_key: await sshLine("ed25519"), class: "agent" })).ok).toBe(true)
+    await t.remove(t.member)
+    expect((await t.admin(t.ownerP, "team_vm.rebuild", { epoch: first.epoch })).ok).toBe(true)
+    await fireAlarm(vmStub(t.team))
+    // /srv/team stays only on the paused old VM until journal replay exists: deleting it needs the owner's word that it was copied off.
+    for (const params of [{ vm: first.vm }, { vm: first.vm, files_copied: false }, { vm: first.vm, files_copied: "yes" }]) {
+      const r = await t.admin(t.ownerP, "team_vm.retired.delete", params)
+      expect(r.ok, JSON.stringify(r)).toBe(false)
+      expect(r.error?.code).toBe("team_vm.retired_files_unconfirmed")
+    }
+    expect((await t.status()).retired).toEqual([expect.objectContaining({ vm: first.vm, state: "paused" })])
+    const kept = await inDO(vmStub(t.team), async (_i, st) => st.storage.sql.exec<{ state: string }>(`SELECT state FROM fake_vm WHERE id = ?`, first.vm).toArray()[0])
+    expect(kept?.state).toBe("paused")
+    expect((await t.auditSummaries()).some((a) => a.op === "team_vm.taint_audit" && a.detail?.action === "retired_deleted")).toBe(false)
+    // A member still gets auth.forbidden first (the confirmation never leaks the role check).
+    expect((await t.admin(t.memberP, "team_vm.retired.delete", { vm: first.vm })).error?.code).toBe("auth.forbidden")
+    expect((await t.admin(t.ownerP, "team_vm.retired.delete", { vm: first.vm, files_copied: true })).ok).toBe(true)
   })
 
   it("a failed pause keeps members out until the provider confirms it, and retries with backoff", async () => {
@@ -211,6 +233,40 @@ describe("team VM taint after a member removal (cx-q4f3)", { timeout: 60_000 }, 
     await vmStub(t.team).fakeAlarm(10 * 60_000)
     expect((await t.status()).retired).toEqual([expect.objectContaining({ vm: first.vm, state: "paused" })])
     expect((await t.op(staysP, "team_vm.ssh_cert", { public_key: await sshLine("ed25519"), class: "agent" })).ok).toBe(true)
+  })
+})
+
+describe("team_vm.accounts is fenced to the current epoch's install (cx-n3fb)", { timeout: 60_000 }, () => {
+  const vmInstall = (team: string) => inDO(vmStub(team), async (instance) => (instance.boundEngine?.currentState?.vm_install ?? null) as string | null)
+  const boundInstall = async (team: string, epoch: number, vm: string): Promise<string> => {
+    await fireAlarm(vmStub(team))
+    const bound = await vmInstall(team)
+    if (bound) return bound
+    const install = "inst_00000000000000077101"
+    await inDO(vmStub(team), async (instance) => instance.submitSystem("team_vm.bind_install", { install, epoch, vm }, `bind_install:${epoch}:${install}`))
+    expect(await vmInstall(team)).toBe(install)
+    return install
+  }
+
+  it("answers the current epoch's install, and refuses another install, an old epoch's install and a team without a VM", async () => {
+    const t = await fresh()
+    const vmP = (id: string): Principal => t.install(t.owner, ["read", "mutate-own"], "team-vm", id)
+    const accounts = (p: Principal) => (t.stub as any).readOp(t.team, p, "team_vm.accounts", {})
+    // No team VM record yet: no install is current.
+    expect(await accounts(vmP("inst_00000000000000077102"))).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
+    const first = await t.wake()
+    const current = await boundInstall(t.team, first.epoch, first.vm)
+    expect(await accounts(vmP(current))).toMatchObject({ ok: true })
+    expect(await accounts(vmP("inst_00000000000000077103"))).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
+    // Owners and admins in a session are not an install: unchanged.
+    expect(await accounts(t.ownerP)).toMatchObject({ ok: true })
+    // A rebuild moves the epoch: the old install is no longer current.
+    expect((await t.op(t.memberP, "team_vm.ssh_cert", { public_key: await sshLine("ed25519"), class: "agent" })).ok).toBe(true)
+    await t.remove(t.member)
+    expect((await t.admin(t.ownerP, "team_vm.rebuild", { epoch: first.epoch })).ok).toBe(true)
+    await fireAlarm(vmStub(t.team))
+    expect((await t.status()).epoch).toBe(first.epoch + 1)
+    expect(await accounts(vmP(current))).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
   })
 })
 

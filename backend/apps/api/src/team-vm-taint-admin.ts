@@ -32,6 +32,10 @@ export const vmAdminExternal = async (deps: VmAdminDeps, p: Principal, frame: { 
   if (p.kind !== "session" || p.agent || (role !== "owner" && role !== "admin")) return fail("auth.forbidden", "only team owners and admins act on the team VM, in a person's session")
   const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
+  // A rebuild does not carry /srv/team (no journal replay yet): only the owner's word that the files were copied off deletes the paused VM (cx-zr9i).
+  if (frame.op === "team_vm.retired.delete" && (frame.params as { files_copied?: unknown } | null)?.files_copied !== true) {
+    return fail("team_vm.retired_files_unconfirmed", "copy the team files (/srv/team) off the paused VM first, then delete it with files_copied: true")
+  }
   const d = decodeParams<{ epoch?: number; vm?: string; users?: ReadonlyArray<string> }>(def, frame.params)
   if (!d.ok) return fail(d.code, d.message)
   // The caller's identity scopes the key, so two owners' requests never share a replay.

@@ -1023,6 +1023,13 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmAccountUser = {
+  readonly user: string
+  readonly uid: number
+  readonly class: SshCertClass
+  readonly principals: ReadonlyArray<string>
+}
+
 export type TeamVmError = {
   readonly code: string
   readonly message: string
@@ -2648,6 +2655,14 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
+  readonly "team_vm.accounts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly users: ReadonlyArray<TeamVmAccountUser>
+    }
+  }
   /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
   readonly "team_vm.ensure_awake": {
     readonly params: {
@@ -2730,10 +2745,11 @@ export interface CloudOps {
       readonly epoch: number
     }
   }
-  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited. */
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.retired.delete": {
     readonly params: {
       readonly vm: string
+      readonly files_copied: true
     }
     readonly result: {
       readonly vm: string
@@ -3239,6 +3255,7 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
   "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },

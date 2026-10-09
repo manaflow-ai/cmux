@@ -93,6 +93,7 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -109,6 +110,8 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -136,8 +139,6 @@ on:
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -153,6 +154,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -193,6 +204,7 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -209,6 +221,8 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -713,10 +727,12 @@ jobs:
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
+          bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
+          bash scripts/cmux-next/tests/private-bun.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
@@ -727,6 +743,8 @@ jobs:
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+          bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
 
@@ -886,6 +904,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
       - name: Setup Node
@@ -1049,6 +1072,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -1251,6 +1279,11 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
       - name: Setup Node
@@ -1416,6 +1449,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -1723,6 +1761,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).

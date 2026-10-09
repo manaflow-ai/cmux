@@ -158,7 +158,7 @@ public final class TerminalSurfaceView: NSView {
         for name in names {
             windowObservers.append(center.addObserver(forName: name, object: newWindow, queue: .main) { [weak self] note in
                 let name = note.name
-                MainActor.assumeIsolated { self?.windowStateChanged(name) }
+                MainActor.assumeIsolated { self?.windowStateChanged(name) } // main-proof: observer on queue: .main
             })
         }
     }

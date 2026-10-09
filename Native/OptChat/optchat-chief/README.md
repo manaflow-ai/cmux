@@ -88,6 +88,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
   (the preset's `systemPrompt` on Claude; CLAUDE.md when acpmux takes none;
   AGENTS.md on other harnesses).
+- `zoom("a<N>")` (`chief zoom a<N> [AT]`) gives a subagent's whole chat from
+  its acpmux session, one `i|kind: text` line per entry (its task and later
+  prompts as `user`, replies `talk`, tool calls `tool`, results `echo`; never
+  the view it got), in pages of 30,000 characters that say where to go on.
+  Every report ends with `Full chat: zoom("a<N>")`. Subagents may zoom a
+  subagent too.
 - Subagents get `zoom` and `date` only (`optchat-chief mcp --role subagent`;
   `chief` refuses spawn/tell under `OPTCHAT_SUBAGENT=1`, and the socket refuses
   them from a subagent). Their tool calls stay in their own session.
@@ -99,7 +105,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the subagent finishes, the workspace is renamed `✓ a<N> · <task>` (daemon
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
-  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
+  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
+  (daemon `close-workspace` by key, into the closed history) instead of the
+  done mark.
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
@@ -115,18 +124,41 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   failed. The Chief is told to repeat only that. Before 2026-10-06 the answer
   always said "each in its own cmux workspace", and a headless brain without
   an app socket told the user about workspaces that did not exist.
-- When ALL of one spawn's subagents finished a turn, their reports (each one's
-  last reply) reach the chat as ONE `user` message, `[a1] report\n\n[a2] report`.
-  It is queued like a human message: it starts a turn when the Chief is idle,
-  and on acpmux it stops a working turn once no tool runs (the next fresh turn
-  takes it; the native engine delivers it at the next tool boundary). A
-  subagent that runs again later (a `tell`, the user writing in its chat)
-  reports alone.
+- Each subagent's report (its last reply) reaches the chat as its own `user`
+  message, `[a<N>] report`, when it finishes a turn; the Chief never waits for
+  the other subagents of its spawn. It is queued like a human message: it
+  starts a turn when the Chief is idle, and on acpmux it stops a working turn
+  once no tool runs (the next fresh turn takes it; the native engine delivers
+  it at the next tool boundary). Reports queued while the Chief is busy go
+  into one turn. A run the user stopped (stop in its pane, `session/cancel`)
+  reports `[a<N>] (stopped by the user) ...` quietly: the next turn logs it,
+  and it starts no turn. A subagent that runs again later (a `tell`, the user
+  writing in its chat) reports again when it finishes.
+
+- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
+  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
+  subagent starts, with the view of that moment and its task, when another
+  finishes. The queue lives in the host's memory: a host that restarts
+  reports a still-queued subagent as not started.
+- A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
+  after the view, before its new messages (never logged).
+- `chief.stop` stops the running turn and every subagent at work
+  (`session/cancel` on each; their reports come quiet) and drops the queued
+  ones; it answers `{"stopped": true, "subagents": [...]}`.
+- A subagent prompt the harness fails ends that run with `[a<N>] (failed:
+  <error>)`, never a subagent that waits forever.
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-No cache marker is added to a subagent's first message: one spawn's subagents
-start together, so none could read another's entry.
+A Claude spawn of several subagents is single-flight on the shared view: the
+first subagent starts alone, its first message marked at the view's last whole
+block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
+a route refused our marks), and its session told the same TTL
+(`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`, or `FORCE_PROMPT_CACHING_5M=1`), so the API
+never sees a 1h mark after a 5m one. The rest start when its response began
+streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
+later, and read that entry. The trace's `spawn.warm` says whether the first
+spoke and how long the wait took.
 
 ## Engine: harness, model and effort per turn
 
@@ -287,6 +319,7 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_SUBAGENT_HARNESS` | the Chief's harness | section 9: the subagents' harness |
 | `OPTCHAT_SUBAGENT_MODEL` | harness default | the subagents' model |
 | `OPTCHAT_SUBAGENT_WORKSPACES` | on | `0`: no cmux workspace per subagent |
+| `OPTCHAT_CACHE_TTL` | the Chief setting `cache.ttl`, else `1h` on the Claude Code path and `5m` on the native engine | `5m` or `1h`: the TTL of every cache mark of a turn (see Cache marks and TTL) |
 | `OPTCHAT_TRACE_FULL` | off | `1`: whole texts and tool arguments in the trace (debugging only) |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 | `OPTCHAT_BACKUP_REMOTE` | `optchat/settings.json` `backup.remote`, else on with `gh auth` except tagged dev homes | `on`/`off`: push the text export to `manaflow-ai/chief-memory-<home id>` after each turn (see State and storage) |
@@ -562,7 +595,7 @@ acpmux):
 
 | harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
 | --- | --- | --- | --- | --- |
-| Claude family (claude, claude-sr) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
+| Claude family (claude, claude-sr) | turn preset `systemPrompt` = the constant system text; prompt = the view in 4-line blocks with ONE `cache_control` mark (`optchat_core::mark_piece`, 1 hour by default), then the new messages; no CLAUDE.md | slot preset `systemPrompt` = the same system text; the context in 4-line blocks with one 5-minute mark; then the step | Claude Code's own breakpoints (its system blocks, the request end) plus ours, all of one TTL | 2026-10-08, capture proxy: a warm turn reads everything up to our mark; see Cache marks and TTL |
 | codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | upstream key (thread id): 2nd turn read 12,032 of 56,632 (21%), 2nd node 12,032 of 48,653 (25%). Fork with the Chief's keys (2026-10-04, see Codex): 2nd turn read 56,064 of ~56,630 (99%) in 6 of 8 runs; 2nd node 44,800 of 45,662 (98%) in 3 of 5 |
 | any other acpmux harness | as codex | as codex | whatever the harness does with a byte-stable prefix | not measured |
 
@@ -591,8 +624,51 @@ nodes never race on one prompt. The prompt changes only when the view
 before the 50k mark changes (a merge of old lines), so consecutive turns
 send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
-later turns skip it. An acpmux without `systemPrompt` keeps the old layout
+the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
+
+**Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
+sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its
+tools, a marked system block of its own, our system prompt (marked), our
+user blocks, then a mid-conversation system message (cwd, model, date,
+deferred tools, agent types, skills) with its own mark at the request end.
+That message comes after the view, so it is written again each turn (about
+1,800 tokens through `sr`, whose shared configuration lists the user's
+skills, with Task and Agent denied as turns do) but never moves the prefix. Two consecutive turns send
+the same bytes up to the earlier turn's mark, and the later turn reads
+through it. Two rules keep that true:
+
+- Our mark sits on the last whole 4-line block of the view, but never more
+  than 16 blocks (`MARK_REACH`) past the last turn's mark: the API looks back
+  only 20 blocks from a mark, so a turn that added more than 80 view lines (a
+  long tool run) would otherwise write the whole view again. Such a turn
+  writes the new lines once and the next turns catch up.
+- Every mark of one request has one TTL, since the API refuses a 1h mark
+  after a 5m one. On the Claude Code path our mark is 1 hour by default
+  (a human reply 5 to 60 minutes later still reads the view), and each turn
+  writes `promptCacheTtl` into the session directory's Claude Code project
+  settings so Claude Code's own marks match. `OPTCHAT_CACHE_TTL` (`5m` or
+  `1h`) at host start (Claude Code's own `FORCE_PROMPT_CACHING_5M` or
+  `CLAUDE_CODE_PROMPT_CACHE_TTL` in the host env win over it, since every
+  turn's harness inherits them), else the Chief setting `cache.ttl`
+  (`optchat-chief settings set cache.ttl 5m`, from the next turn), picks
+  another TTL. The native engine (a direct API call) defaults to 5 minutes
+  and reads the same two at host start. A route that refuses the 1-hour TTL
+  reruns the turn at 5 minutes, and later turns stay at 5 minutes until the
+  host restarts or `cache.ttl` is set again (`turn.ttl_refused` trace event).
+  Compactor nodes on the Claude Code path take the turns' current TTL (one
+  TTL per route, shared with the brain): their mark, their slot's
+  `promptCacheTtl` (plus `FORCE_PROMPT_CACHING_5M` at 5 minutes) and the
+  warm-session key follow it, so a warm session started under the other TTL
+  is not reused. 1h and 5m entries are one cache (measured), so a node reads
+  what a turn wrote either way.
+
+`turn.start` records the marked piece and the TTL (`layout.mark`,
+`layout.ttl`) and the inspector lays the prompt out from them.
+`optchat-core/tests/cache_replay_long.rs` replays 10,000 messages (batch
+merges, 9 tree levels, human gaps, long tool runs, resumes) against a model
+of the API's cache: warm turns read at least 95% of their prefix in every
+50-turn window with 1-hour marks.
 
 **Codex.** Its request is `instructions`, the tool list, the permission and
 environment messages (cwd, shell, date), AGENTS.md, then our blocks, so
@@ -701,8 +777,10 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   transcript of it is deleted, and host.log gets one line with the node's
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
   prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
-  most JOBS (8) compactor sessions live at once, main and fallback model
-  together. Nothing pretends to be Claude Code and no API key is involved:
+  most COMPACTOR_SESSIONS (16) compactor sessions live at once, main and
+  fallback model together; the main compactor keeps up to WARM_SESSIONS (4)
+  of them started ahead, so a node prompts a ready Claude Code process (one
+  node per session: each node needs a fresh conversation). Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
@@ -790,9 +868,9 @@ Trade-offs and risks:
   every marked prompt fails with that 400. The compactor then ends the
   session, retries the node once in a fresh session without the marker, and
   logs `compactor node <id>: Claude Code refused the cache_control marker
-  (...); retrying without it, and later nodes go without it`; later nodes of
-  that host skip the marker (only the system prompt is cached) until it
-  restarts.
+  (...); retrying without it, and the next 10 nodes go without it`; those
+  nodes skip the marker (only the system prompt is cached), then the next
+  node tries it again.
 - **Feature detection.** The host installs the presets with their args and
   a seed `systemPrompt`; an acpmux that does not know a key refuses it
   (`unknown preset key "systemPrompt"`), host.log says `acpmux refused the
@@ -978,10 +1056,17 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `zoom("Name")`; the mid-turn line says a message interrupts at once.
 - **view.json** is the `memory/checkpoint` state row of the SQLite store,
   written after every message.
-- **Single-flight** waits for the writer's reply, not its first streamed
-  byte (a compaction reply is one line).
-- **Model.** The compactor stays Claude Sonnet 5.5 at medium effort (spec:
-  Haiku at xhigh): untested here.
+- **Single-flight** releases waiting calls at the writer's response start
+  (on acpmux: its first streamed output), and the prefix then counts as
+  written for 5 minutes, so later calls on it go at once.
+- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+  (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
+  `compactor-model` pick another). An account without the model builds
+  with the turn model, logged once. Haiku and the turns' model have
+  separate cache entries, so compactions read only each other's.
+- **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay
+  under 4,000 requests a minute. The acpmux compactor runs at most 16
+  sessions (Claude Code processes on one sticky account); the rest wait.
 - **Long messages.** A message over 200,000 characters is still logged
   whole and cut in its compaction call only (STEP_MESSAGE), not split.
 - **Failed compactions** are retried after the fixed 10 s wait (and at the

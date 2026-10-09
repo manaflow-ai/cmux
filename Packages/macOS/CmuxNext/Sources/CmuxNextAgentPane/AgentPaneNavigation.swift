@@ -4,7 +4,8 @@ import WebKit
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
 /// document. A clicked http(s) link opens outside the pane after a real user gesture
 /// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
-/// turn's preview card, `URL.isAgentPanePreview`); every other navigation is cancelled.
+/// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
+/// `AgentPaneRenderFrame`); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
@@ -60,7 +61,10 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
-        if !mainFrame { return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel }
+        if !mainFrame {
+            if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
+            return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
+        }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         return .cancel
     }
