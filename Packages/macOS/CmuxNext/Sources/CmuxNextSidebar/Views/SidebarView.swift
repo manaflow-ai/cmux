@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
+import CmuxNextWakeups
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -8,17 +9,12 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
     case cloud
     case status
 }
-/// The sidebar's content: the titlebar row (its buttons remain mounted),
-/// the workspace list, and footer accessory slots. Workspace search lives in
-/// the command palette (Go to Workspace), not here. Place it in a glass
-/// panel, or use `SidebarContainerView`, which adds the panel, width, and
-/// resize handle.
+/// The sidebar's content: titlebar row, workspace list, and footer slots.
+/// `SidebarContainerView` adds the glass panel, width, and resize handle.
 public final class SidebarView: NSView {
     public let model: SidebarModel
     private var notificationObservers: [NSObjectProtocol] = []
-    /// Height reserved at the top for the window's traffic lights (the
-    /// toolbar buttons sit in this row, trailing). Nil follows
-    /// `Metrics.titlebarHeight`, read at layout time.
+    /// Height reserved at the top for traffic lights; nil follows the metric.
     public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
@@ -36,17 +32,13 @@ public final class SidebarView: NSView {
     /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
-    /// Item sections above and below the workspace list
-    /// (plans/cmux-next/sidebar-sections.md); each scrolls inside past its
-    /// share of the height. The footer section never scrolls: it is pinned
-    /// at the bottom, under the band below (`footerRegion`).
+    /// Item sections above and below the workspace list; the footer is pinned.
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
     let footerRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
-    // Built in the sections setup (no IUOs).
     lazy var aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
     lazy var belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
     /// The hairline between the top band and the list (quiet look). The
