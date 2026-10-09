@@ -63,8 +63,8 @@ final class SidebarBackButton: NSButton {
         wantsLayer = true
         target = self
         action = #selector(pressed)
-        refusesFirstResponder = true
-        _ = hover
+        // Hover follows the pointer and the button's frame (cx-3wu5).
+        hover.followPointer()
         restyle()
     }
 

@@ -14,7 +14,7 @@ enum QuitFailureContent {
         case .listWorkspaces: QuitStrings.failedListWorkspaces(failure.message)
         case .closeWorkspace(let name): QuitStrings.failedCloseWorkspace(name, failure.message)
         case .shutdownDaemon: QuitStrings.failedShutdown(failure.message)
-        case .unsupported: QuitStrings.failedUnsupported(failure.message)
+        case .unsupported: RefusalStrings.needsDaemonCapability(failure.message)
         case .endAgents: QuitStrings.failedEndAgents(failure.message)
         }
     }

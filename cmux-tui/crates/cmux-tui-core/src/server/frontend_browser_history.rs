@@ -3,6 +3,7 @@
 //! per-tab session history (`frontend-browser-history-v1`).
 
 use super::*;
+use crate::Actor;
 
 /// Opaque per-tab session history (back/forward entries, scroll) for
 /// frontend-rendered browsers: `set-frontend-browser-history` and
@@ -48,7 +49,7 @@ const fn activate_by_default() -> bool {
     true
 }
 
-pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Value> {
+pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyhow::Result<Value> {
     let NewTabParams {
         url,
         engine,
@@ -74,7 +75,8 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Val
     let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
     let (surface, replayed) = match idempotency_key {
         Some(key) => {
-            let outcome = mux.new_frontend_browser_tab_keyed(
+            let outcome = mux.new_frontend_browser_tab_keyed_as(
+                &origin_gate::connection_actor(mux, client),
                 pane,
                 record,
                 size,
@@ -84,7 +86,8 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewTabParams) -> anyhow::Result<Val
             (outcome.surface, outcome.replayed)
         }
         None => (
-            mux.new_frontend_browser_tab_placed(
+            mux.new_frontend_browser_tab_placed_as(
+                &origin_gate::connection_actor(mux, client),
                 pane,
                 record,
                 size,
@@ -132,10 +135,16 @@ pub(super) struct GetParams {
     surface: SurfaceId,
 }
 
-pub(super) fn update(mux: &Mux, params: UpdateTabParams) -> anyhow::Result<Value> {
+pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
     let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
-    let (record, changed) =
-        mux.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, owner)?;
+    let (record, changed) = mux.update_frontend_browser_tab_with_owner_as(
+        actor,
+        surface,
+        url,
+        title,
+        favicon_url,
+        owner,
+    )?;
     Ok(json!({
         "surface": surface,
         "url": record.url,

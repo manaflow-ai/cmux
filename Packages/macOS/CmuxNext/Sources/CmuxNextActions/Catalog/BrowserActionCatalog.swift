@@ -246,8 +246,10 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "openLinkInDefaultBrowser",
                 title: String(localized: "action.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser", bundle: .module),
                 keywords: ["browser", "link", "external"], category: .browser, symbol: "arrow.up.forward.app",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser open-link-in-default"
+                surfaces: [.contextMenu], arguments: [BrowserHitActionCatalog.linkURL], targets: [.tab],
+                cliName: "browser open-link-in-default",
+                // The page's and the terminal's link rows (cx-k9go); left out while cmux is the default browser.
+                surfacePlan: ActionSurfacePlan(contextMenus: [ActionSurfaceCatalog.p(.browserLink, .navigate, 5)])
             ),
             ActionDescriptor(
                 id: "browserScreenshotPage",

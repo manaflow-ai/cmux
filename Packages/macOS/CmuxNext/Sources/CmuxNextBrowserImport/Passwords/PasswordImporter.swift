@@ -56,6 +56,10 @@ public struct PasswordImporter: Sendable {
     }
 
     public func run(_ profile: BrowserSourceProfile, intoProfile profileID: String) async throws -> PasswordImportReport {
+        #if CMUX_NO_PASSWORD_IMPORT
+        // The cx-f58x notary test build has no browser password readers.
+        throw Failure.unsupportedBrowser
+        #else
         if profile.browser.family == .firefox, !profile.browser.refusesSessionData {
             guard destination.isAvailable else { throw Failure.storeUnavailable }
             return try await store(try await readFirefox(profile), intoProfile: profileID)
@@ -81,8 +85,10 @@ public struct PasswordImporter: Sendable {
             throw Failure.unreadable
         }
         return try await store(read, intoProfile: profileID)
+        #endif
     }
 
+    #if !CMUX_NO_PASSWORD_IMPORT
     /// Reads with no primary password first; asks the person once when the profile has one.
     private func readFirefox(_ profile: BrowserSourceProfile) async throws -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         do {
@@ -107,6 +113,8 @@ public struct PasswordImporter: Sendable {
             throw Failure.unreadable
         }
     }
+
+    #endif
 
     private func store(_ read: (logins: [ImportedLogin], skipped: LoginSkipCounts), intoProfile profileID: String) async throws -> PasswordImportReport {
         let (logins, skipped) = read

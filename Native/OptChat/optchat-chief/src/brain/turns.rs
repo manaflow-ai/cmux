@@ -170,7 +170,7 @@ impl Brain {
                 };
                 let _ = tx.send(Input::TurnEnded {
                     key: start.key,
-                    outcome,
+                    outcome: Box::new(outcome),
                 });
             });
         if let Err(e) = spawned {
@@ -635,6 +635,18 @@ impl Brain {
         engine
     }
 
+    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// with its family when that is not the default harness's.
+    pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
+        let engine = self.turn_engine.as_ref()?;
+        let family = self.family_of(&engine.harness);
+        Some(crate::subagents::SpawnEngine {
+            harness: engine.harness.clone(),
+            model: engine.model.clone(),
+            other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
+        })
+    }
+
     /// A harness's family (the default harness is Claude in a brain made
     /// without acpmux's metadata when it has a turn preset).
     fn family_of(&self, harness: &str) -> crate::acpmux::Family {
@@ -709,6 +721,10 @@ impl Brain {
                 "requests": s.requests,
                 "tools": s.tools,
                 "tool_errors": s.tool_errors,
+                // Time to first token (parity item 10): the session's start,
+                // then the first request's first token.
+                "start_ms": s.start_ms,
+                "ttft_ms": s.ttft_ms,
                 // What answered (harness_gate): the engine panel reads these.
                 "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
                 "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
@@ -729,14 +745,26 @@ impl Brain {
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
         self.trace_end(key, &outcome, superseded);
+        // A failure names the harness that ran the turn, and the one it
+        // stood in for when acpmux moved the session onto a fallback.
+        let failed = match outcome.harness.as_deref() {
+            Some(h) if h.requested != h.profile => {
+                format!(
+                    "turn failed on {} (fallback for {})",
+                    h.profile, h.requested
+                )
+            }
+            Some(h) => format!("turn failed on {}", h.profile),
+            None => "turn failed".to_owned(),
+        };
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
             (None, Some(error)) if outcome.refused => format!("(turn {error})"),
-            (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
+            (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
             (Some(reply), None) => reply,
-            (None, Some(error)) => format!("(turn failed: {error})"),
+            (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
         if superseded {

@@ -19,6 +19,12 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(unix)]
 mod macos;
+#[cfg(unix)]
+mod open_files;
+#[cfg(unix)]
+pub use open_files::{
+    OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit, restore_open_file_limit_in_child,
+};
 
 /// Stable classification for failures at the PTY allocation boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

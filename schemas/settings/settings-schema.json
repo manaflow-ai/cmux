@@ -765,10 +765,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingTab.help",
-        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingTab",
       "keywords" : [
@@ -815,10 +812,7 @@
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
-      "help" : {
-        "key" : "settings.app.warnBeforeClosingAgentSession.help",
-        "text" : "Ask before closing a terminal tab whose agent is still working."
-      },
+      "help" : null,
       "kept_on_reset_all" : false,
       "key" : "app.warnBeforeClosingAgentSession",
       "keywords" : [
@@ -2364,6 +2358,134 @@
       "title" : {
         "key" : "settings.layout.tileBrowsers",
         "text" : "Split for Browsers Too"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "top",
+        "afterCurrent",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.afterCurrentWorkspace",
+            "text" : "After Current Workspace"
+          },
+          "value" : "afterCurrent"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaces.newPlacement.help",
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.newPlacement",
+      "keywords" : [
+        "workspace",
+        "new",
+        "cmd-n",
+        "position",
+        "order",
+        "top",
+        "bottom",
+        "after",
+        "sidebar",
+        "placement"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "newPlacement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.workspaces.newPlacement",
+        "text" : "New Workspace Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupByComputer.help",
+        "text" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupByComputer",
+      "keywords" : [
+        "sidebar",
+        "computer",
+        "machine",
+        "cloud",
+        "remote",
+        "group",
+        "section",
+        "header",
+        "flat",
+        "list"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupByComputer"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.sidebar.groupByComputer",
+        "text" : "Group Workspaces by Computer"
       },
       "validation" : "portable"
     },
@@ -8733,6 +8855,74 @@
     },
     {
       "accepts" : [
+        "hover",
+        "always"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.spacesVisibility.help",
+        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.spacesVisibility",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "rooms",
+        "profiles",
+        "dots",
+        "hover",
+        "hide",
+        "show",
+        "always",
+        "visibility"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "spacesVisibility"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.spacesVisibility",
+        "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "allItems",
         "workspacesOnly"
       ],
@@ -14917,7 +15107,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "confirm",
+      "default" : "open",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -15992,7 +16182,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "871c83cb0e29ba68ccd5d289f2d4e311c4356e93ed011fa3188644555bd80d4e",
+  "schema_hash" : "6d0539d97941e3a6aae7b0640d12e06342f401d3f8adbaf21b7a481f807a01ad",
   "sections" : [
     {
       "id" : "general",

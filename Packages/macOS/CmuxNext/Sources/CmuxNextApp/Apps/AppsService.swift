@@ -24,8 +24,11 @@ final class AppsService {
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
     private var coderouterPage: CodeRouterPageTab?
     private var fingerprints: [String: Int] = [:]
-    private var store: AppStoreWindowController?
-    private var storeModel: AppStoreModel?
+    /// An App Store request made while no main window could hold it (S22:
+    /// the App Store is never a window of its own); the first window that
+    /// mounts a pane shows it (`windowDidShowContent`).
+    private var waitingStore: (appID: String?, installed: Bool, focus: Bool)?
+    var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
     /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
@@ -57,7 +60,6 @@ final class AppsService {
         // task-owner: one-shot registry scan at launch; an open store lists the result.
         Task { [weak self] in
             await self?.registry.load()
-            self?.storeModel?.refresh()
             self?.storePages.refreshAll()
         }
     }
@@ -80,8 +82,9 @@ final class AppsService {
     /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
     /// view, opens it as a background tab (internal page `app-store`, one
     /// per window). `appID` opens that listing, `installed` the Installed
-    /// tab. Falls back to the App Store window when no main window can
-    /// hold it.
+    /// tab. With no main window that can hold it, the request waits for
+    /// one (a closed window comes back, or a new one opens), as Settings
+    /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
@@ -91,21 +94,19 @@ final class AppsService {
             } else {
                 storePages.present(key, appID: appID, installed: installed)
             }
+            waitingStore = nil
             return
         }
-        if store == nil {
-            // No disk I/O here: the catalog reads the registry's launch scan.
-            let model = makeStoreModel()
-            storeModel = model
-            let controller = AppStoreWindowController(model: model)
-            controller.onClose = { [weak self] in
-                self?.store = nil
-                self?.storeModel = nil
-            }
-            store = controller
-        }
-        store?.setThemeScope(services.windows.active?.themeScope ?? .app)
-        store?.present(appID: appID, installed: installed)
+        waitingStore = (appID, installed, focus)
+        if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
+    }
+
+    /// The first window opened or a window mounted a pane: a request that
+    /// waited runs again (a user run shows the top page as soon as a window
+    /// exists; an automation run still waits until a pane can hold its tab).
+    func windowDidShowContent() {
+        guard let request = waitingStore else { return }
+        showStore(appID: request.appID, installed: request.installed, focus: request.focus)
     }
 
     /// Opens an app's page as a tab of the active window (one per window),
@@ -152,10 +153,9 @@ final class AppsService {
     private func makeStoreModel() -> AppStoreModel {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
         model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        model.onNavigate = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
-
-    var storeWindow: NSWindow? { store?.window }
 
     /// Posts `<family>.changed` for streams an app listens to, when the
     /// published mirror changed for that family.
@@ -210,6 +210,11 @@ extension AppsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
         storePages.tabClosed(key)
+    }
+
+    /// The native store's page history (the React store keeps its own).
+    func history(for key: String) -> (any PageHistory)? {
+        webStorePages[key] == nil ? storePages.model(for: key) : nil
     }
 
     /// The React page's fragment for a listing or the Installed tab.

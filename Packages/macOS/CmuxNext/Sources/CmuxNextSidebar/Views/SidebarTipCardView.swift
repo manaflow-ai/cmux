@@ -2,10 +2,12 @@ import AppKit
 import CmuxNextDesign
 
 /// The "Did you know" card above the footer (BOTTOM-LEFT-CARDS K1), in the
-/// update card's slot and style (theme surface, hairline border): "Did you
-/// know?", the feature, its one-line benefit, a quiet "Try It" button with
-/// the feature's shortcut beside it, and an x that hides this tip for good.
-/// Hidden without a tip.
+/// update card's slot: "Did you know?", the feature, its one-line benefit, a
+/// quiet "Try It" button with the feature's shortcut beside it, and an x that
+/// hides this tip for good. Hidden without a tip. It floats on Liquid Glass
+/// with the theme's glass tint, like the other cmux-next overlays (cx-367y);
+/// under Reduce Transparency the same `OverlaySurfaceView` draws an opaque
+/// theme fill with a hairline.
 final class SidebarTipCardView: NSView {
     var onTry: ((String) -> Void)?
     var onDismiss: ((String) -> Void)?
@@ -16,12 +18,20 @@ final class SidebarTipCardView: NSView {
     private let shortcutLabel = NSTextField(labelWithString: "")
     let tryButton = SidebarUpdateButton()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { 9 }, label: "")
+    /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
+    let surface: OverlaySurfaceView
+    /// The lines and buttons, flipped, over the surface.
+    private let content = SidebarTipCardContent()
 
-    override init(frame: NSRect) {
+    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
+        surface = OverlaySurfaceView(interactive: true, cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         super.init(frame: frame)
-        wantsLayer = true
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
+        surface.translatesAutoresizingMaskIntoConstraints = true
+        // The lines sit in a sibling view above the material, not inside the glass's own content
+        // view: a build against the macOS 26 SDK drew the card empty on macOS 27 (nxdog75).
+        addSubview(surface)
+        addSubview(content)
+        content.material = { [weak surface] in surface?.material ?? .liquidGlass }
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
@@ -34,7 +44,7 @@ final class SidebarTipCardView: NSView {
         tryButton.isQuiet = true
         tryButton.onPress = { [weak self] in if let id = self?.tip?.id { self?.onTry?(id) } }
         closeButton.onPress = { [weak self] in if let id = self?.tip?.id { self?.onDismiss?(id) } }
-        [eyebrowLabel, titleLabel, benefitLabel, shortcutLabel, tryButton, closeButton].forEach(addSubview)
+        [eyebrowLabel, titleLabel, benefitLabel, shortcutLabel, tryButton, closeButton].forEach(content.addSubview)
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -43,7 +53,6 @@ final class SidebarTipCardView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `tip`, or hides the view for nil.
@@ -60,7 +69,7 @@ final class SidebarTipCardView: NSView {
         tryButton.configure(title: tip.tryTitle, enabled: true, help: [tip.title, tip.benefit].joined(separator: ". "))
         closeButton.label = tip.dismissLabel
         needsLayout = true
-        needsDisplay = true
+        applyColors()
     }
 
     // MARK: Geometry
@@ -80,7 +89,11 @@ final class SidebarTipCardView: NSView {
     override func layout() {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight
-        layer?.cornerRadius = Metrics.space3
+        surface.frame = b
+        surface.cornerRadius = Metrics.space3
+        content.layer?.cornerRadius = Metrics.space3
+        content.layer?.cornerCurve = .continuous
+        content.frame = b
         eyebrowLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
         benefitLabel.font = Typography.caption
@@ -101,10 +114,8 @@ final class SidebarTipCardView: NSView {
                                      width: max(0, b.width - pad - shortcutX), height: line.caption)
     }
 
-    override func updateLayer() {
+    private func applyColors() {
         performWithTheme {
-            layer?.backgroundColor = Palette.elevatedBackground.cgColor
-            layer?.borderColor = Palette.separator.cgColor
             eyebrowLabel.textColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             benefitLabel.textColor = Palette.textSecondary
@@ -114,13 +125,48 @@ final class SidebarTipCardView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        applyColors()
+        surface.applyTheme()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
     }
 
     // MARK: Tests
 
+    /// The text lines (eyebrow, title, benefit, shortcut).
+    var lineViews: [NSView] { [eyebrowLabel, titleLabel, benefitLabel, shortcutLabel] }
+
     /// Every line as shown, top to bottom.
     var shownText: [String] {
         [eyebrowLabel, titleLabel, benefitLabel].map(\.stringValue) + [tryButton.title] + (shortcutLabel.isHidden ? [] : [shortcutLabel.stringValue])
+    }
+}
+
+/// The tip card's lines, flipped, over the glass: a light theme veil keeps
+/// them legible over a bright backdrop image; the opaque fill needs none.
+private final class SidebarTipCardContent: NSView {
+    /// The card's material (the surface beneath); the veil is for glass only.
+    var material: () -> OverlayMaterial = { .liquidGlass }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        performWithTheme {
+            layer?.backgroundColor = material() == .opaque
+                ? NSColor.clear.cgColor
+                : Palette.elevatedBackground.withAlphaComponent(0.32).cgColor
+        }
     }
 }
