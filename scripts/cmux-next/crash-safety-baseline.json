@@ -62,9 +62,6 @@
   }
  },
  "swift": {
-  "as_bang": {
-   "CmuxNextSettings": 4
-  },
   "assume_isolated": {
    "CmuxHomeRender": 3,
    "CmuxMobileSupport": 3,
@@ -114,7 +111,7 @@
    "CmuxNextRemote": 2,
    "CmuxNextRemoteView": 1,
    "CmuxNextResources": 2,
-   "CmuxNextSettings": 10,
+   "CmuxNextSettings": 6,
    "CmuxNextSidebar": 8,
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
@@ -130,7 +127,6 @@
    "MessagesLabSidebar": 1
   },
   "precondition": {
-   "CmuxNextSettings": 2,
    "CmuxNextSidebar": 1
   },
   "unchecked": {
