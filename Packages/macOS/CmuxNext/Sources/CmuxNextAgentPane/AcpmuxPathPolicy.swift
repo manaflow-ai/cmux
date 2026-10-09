@@ -103,7 +103,7 @@ nonisolated enum AcpmuxPathPolicy {
                               gestureRoots: scope.gestureRoots.compactMap(canonical).filter { !homeOrAbove($0) },
                               home: userHome)
         // The agent-home folder is a root once it exists (a running chat may still name it).
-        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path {
+        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path, !homeOrAbove(path) {
             context.roots.append(path)
         }
         var params = object["params"]

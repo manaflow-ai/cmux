@@ -18,6 +18,9 @@ export function newTabScreenActions(deps: {
   /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
   runShell(command: string, cwd?: string): void;
   inputReady?(token: string): void;
+  /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
+  /// runs only with a folder it took; the home folder is asked about once.
+  requestFolder?(cwd: string, start: (folder: string) => void): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -26,11 +29,19 @@ export function newTabScreenActions(deps: {
     onAsk(harness, text, picked) {
       remember(harness);
       deps.leave();
-      // The project picked on the page, else the chat's start folder (the host named it); never
-      // the page's inherited folder, which is `~` in a fresh workspace (cx-nn3e).
-      const folder = picked ?? deps.chatCwd;
-      const params: Record<string, unknown> = { harness, ...(folder ? { cwd: folder } : {}) };
-      ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
+      const start = (folder?: string) =>
+        ignore(
+          callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}) }).then(() =>
+            text ? callNative("chat.send", { text }) : undefined,
+          ),
+        );
+      // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
+      // pick, so the chat starts in its start folder (the host named it). A real pick goes through
+      // the host first (cx-nn3e).
+      if (picked && picked !== cwd) {
+        if (deps.requestFolder) deps.requestFolder(picked, start);
+        else start(picked);
+      } else start(deps.chatCwd);
     },
     onOpen: (url) => {
       if (url.startsWith("file://"))

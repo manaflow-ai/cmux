@@ -2707,6 +2707,7 @@ function AcpmuxPane() {
                 callNative,
                 cwd: newTab.cwd,
                 chatCwd: startFolder,
+                requestFolder,
                 leave: () => setNewTab(undefined),
                 selectSession,
                 showAllChats,

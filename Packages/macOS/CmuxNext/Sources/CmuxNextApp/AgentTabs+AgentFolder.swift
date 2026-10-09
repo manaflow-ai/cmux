@@ -19,7 +19,10 @@ extension AgentTabStore {
         }
         model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
-            return await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource)
+            guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
+            // The relay roots and makes agent-home: only this app's own folder for the workspace.
+            if answer.agentHome != Self.agentHomes?.path(for: workspace.id) { answer.agentHome = nil }
+            return answer
         }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
