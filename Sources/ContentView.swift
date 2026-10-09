@@ -10191,7 +10191,12 @@ struct ContentView: View {
                 ripgrepExecutable: executable?.url.path,
                 ripgrepPrefixArguments: executable?.prefixArguments ?? []
             )
-            let paths = cachedPaths ?? await service.snapshot(rootPath: rootPath)
+            let paths: [String]
+            if let cachedPaths {
+                paths = cachedPaths
+            } else {
+                paths = await service.snapshot(rootPath: rootPath)
+            }
             guard !Task.isCancelled else { return }
             let results = await service.search(paths: paths, query: query)
             guard !Task.isCancelled else { return }
