@@ -20,6 +20,13 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         chats?.onContentChange = { [weak self] in self?.contentChange?() }
     }
 
+    /// A section left the window's layout: its app mount ends on the supervisor
+    /// (All chats follows its setting instead).
+    func release(_ contribution: String) {
+        guard contribution != SidebarChatsView.contribution else { return }
+        provider.release(contribution)
+    }
+
     /// Unmounts every app section of this window on the supervisor.
     func releaseAll() {
         provider.releaseAll()

@@ -74,6 +74,15 @@ extension SidebarView {
         aboveRegion.update(content(shownAbove), width: width)
         belowRegion.update(content(shownBelow.filter { !isFooter($0) }), width: width)
         footerRegion.update(content(shownBelow.filter(isFooter)), width: width)
+        releaseAppSections(shown: shownAbove + shownBelow)
+    }
+
+    /// App sections no band shows any more release their content; one that
+    /// moved between bands is still shown and keeps it.
+    private func releaseAppSections(shown: [LayoutSection]) {
+        let live = Set(shown.filter { $0.content == .app }.compactMap(\.contribution))
+        for gone in shownAppContributions.subtracting(live) { appSections?.release(gone) }
+        shownAppContributions = live
     }
 
     /// Lays out the bands between `top` and the bottom: the pinned footer
