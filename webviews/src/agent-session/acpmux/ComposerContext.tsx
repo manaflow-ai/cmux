@@ -41,7 +41,6 @@ export function ComposerContext({
   localName,
   movedTo,
   onMove,
-  onBrowseFolder,
   busy = false,
   onConnect,
 }: {
@@ -100,26 +99,17 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const moves = started && onMove !== undefined && !busy;
   const branch = summary?.branch;
-  // A new chat picks its folder from the menu; a started chat moves to the one picked (dogfood 09).
-  const folderMenu = selectedComputer === "local" && (moves || (!readOnly && projectChoices !== undefined));
-  const browseMove = onBrowseFolder
-    ? () => {
-        void onBrowseFolder().then((cwd) => {
-          if (cwd && cwd !== currentFolder) onMove?.(cwd);
-        });
-      }
-    : undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {readOnly && !moves && !currentFolder ? null : folderMenu ? (
+        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
             folders={folders}
             current={currentFolder}
-            onPick={(cwd) => (moves ? onMove?.(cwd) : onProject?.(cwd))}
-            onBrowse={moves ? browseMove : onBrowseProject}
+            onPick={(cwd) => onProject?.(cwd)}
+            onBrowse={onBrowseProject}
           />
         ) : (
           <LocationPicker
