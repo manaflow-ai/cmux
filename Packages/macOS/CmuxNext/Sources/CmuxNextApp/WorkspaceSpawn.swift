@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// What a new workspace's first terminal starts with. The keyboard, menu,
@@ -86,6 +87,15 @@ struct WorkspaceSpawn: Sendable {
     }
 }
 
+extension WorkspaceSpawn {
+    /// The Terminal template (`tabs.newTabTemplate`) skips the page: a new workspace starts on a terminal.
+    func honoring(_ template: NewTabTemplate?) -> WorkspaceSpawn {
+        var spawn = self
+        if template == .terminal { spawn.opensNewTabPage = false }
+        return spawn
+    }
+}
+
 extension WindowManager {
     /// Creates a workspace with one terminal, or on the New Tab page
     /// (`opensNewTabPage`), and returns its id. The terminal gets this app's
@@ -131,7 +141,7 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
-        if let page = try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
+        if let page = try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(created), command: spawn.command, cwd: cwd,

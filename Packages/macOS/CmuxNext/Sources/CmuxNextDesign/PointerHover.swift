@@ -199,43 +199,35 @@ public final class PointerHover: NSObject {
 }
 
 /// Key-window changes refresh that window's hover (`PointerHover`).
+///
+/// Block observers on `queue: .main`, not selectors: AppKit may post these
+/// off the main thread, and a selector into this main-actor class trapped
+/// there (#18771). `queue: .main` runs the block inline when the post is on
+/// main, so key changes and closes keep their synchronous order.
 @MainActor
-private final class KeyWindowObserver: NSObject {
-    private var observers: [NSObjectProtocol] = []
+private final class KeyWindowObserver {
+    private var tokens: [any NSObjectProtocol] = []
 
-    override init() {
-        super.init()
+    init() {
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                // main-proof: NotificationCenter delivers this block on the main operation queue.
-                let window = notification.object as? NSWindow
-                Task { @MainActor [weak self] in self?.keyWindowChanged(window) }
+            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated { PointerHover.refresh(in: window) } // main-proof: observer on queue: .main
             })
         }
         #if DEBUG
-        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] notification in
-            // main-proof: NotificationCenter delivers this block on the main operation queue.
-            let window = notification.object as? NSWindow
-            Task { @MainActor [weak self] in self?.windowWillClose(window) }
+        // A closed window's synthesized pointer must not pass to a new window
+        // that reuses its address.
+        tokens.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            guard let window = note.object as? NSWindow else { return }
+            let key = ObjectIdentifier(window)
+            MainActor.assumeIsolated { PointerHover.debugPointers[key] = nil } // main-proof: observer on queue: .main
         })
         #endif
     }
 
     isolated deinit {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
-    }
-
-    #if DEBUG
-    /// A closed window's synthesized pointer must not pass to a new window
-    /// that reuses its address.
-    private func windowWillClose(_ window: NSWindow?) {
-        guard let window else { return }
-        PointerHover.debugPointers[ObjectIdentifier(window)] = nil
-    }
-    #endif
-
-    private func keyWindowChanged(_ window: NSWindow?) {
-        PointerHover.refresh(in: window)
+        for token in tokens { NotificationCenter.default.removeObserver(token) }
     }
 }

@@ -12,7 +12,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The window's one material and tint.
     public let backdropView = WindowMaterialView(frame: .zero)
     private let reduceTransparency: @MainActor () -> Bool
-    private var displayOptionsObserver: NSObjectProtocol?
+    private var displayOptionsObserver: (any NSObjectProtocol)?
 
     public init(content: NSView,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
@@ -26,18 +26,17 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
+        // queue: .main: the workspace center may post off main; a selector
+        // into this main-actor view trapped there.
         displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            // main-proof: NSWorkspace delivers this block on the main operation queue.
-            MainActor.assumeIsolated { self?.displayOptionsChanged() }
+            MainActor.assumeIsolated { self?.repaint() } // main-proof: observer on queue: .main
         }
     }
 
     isolated deinit {
-        if let displayOptionsObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver)
-        }
+        if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
     }
 
     @available(*, unavailable)
@@ -65,8 +64,6 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         super.viewDidChangeEffectiveAppearance()
         repaint()
     }
-
-    private func displayOptionsChanged() { repaint() }
 
     private func repaint() {
         if let window { paintWindowSurface(of: window) }
