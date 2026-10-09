@@ -223,15 +223,15 @@ final class ReverseRelayStderrCapture: @unchecked Sendable {
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        if let authenticationFailure = RemoteRelayAuthenticationFailure.detect(in: stderr) {
-            return authenticationFailure.canonicalDiagnostic
-        }
         if let forwardFailure = lines.last(where: {
             $0.localizedCaseInsensitiveContains(
                 "remote port forwarding failed for listen"
             )
         }) {
             return forwardFailure
+        }
+        if let authenticationFailure = RemoteRelayAuthenticationFailure.detect(in: stderr) {
+            return authenticationFailure.canonicalDiagnostic
         }
         return RemoteSessionCoordinator.bestErrorLine(stderr: stderr)
     }

@@ -393,6 +393,54 @@ struct RemoteSessionReverseRelayTransportTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("A mixed auth and forwarding diagnostic remains retryable")
+    func mixedAuthenticationAndForwardingFailureRemainsRetryable() async throws {
+        let host = ReverseRelayRecoveryHost()
+        let clock = ManualBrokerClock()
+        let runner = RecordingProcessRunner { request in
+            if Self.isControlCommand("forward", in: request.arguments) {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "Control socket connect: No such file or directory"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            host: host,
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            clock: clock
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+        _ = try #require(await launches.next())
+        launcher.emitTermination(
+            detail: "Permission denied (publickey).\n" +
+                "Error: remote port forwarding failed for listen port 64044"
+        )
+
+        let status = try #require(await statuses.next())
+        #expect(status.state == .bootstrapping)
+        #expect(status.detail == nil)
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        #expect(coordinator.queue.sync {
+            coordinator.parkedState == nil &&
+                coordinator.reverseRelayRestartToken != nil
+        })
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A standalone SSH authentication failure is surfaced immediately", arguments: [
         "private-user@example.test: Permission denied (publickey).",
         "Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures",

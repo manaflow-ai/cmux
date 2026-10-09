@@ -57,6 +57,7 @@ struct RemoteSessionReverseRelayStartupTests {
             "debug1: echo Too many authentication failures",
             "Permission denied (secret-canary).",
             "user@example.test: Permission denied (publickey). secret-canary",
+            "Permission denied (publickey).\nError: remote port forwarding failed for listen port 64044",
             "Load key /tmp/key: Permission denied",
             "Error: remote port forwarding failed for listen port 64044",
             "ssh: connect to host example.test port 22: Connection refused",

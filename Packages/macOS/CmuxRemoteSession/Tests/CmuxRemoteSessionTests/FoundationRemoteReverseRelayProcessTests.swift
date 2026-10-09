@@ -80,6 +80,42 @@ struct FoundationRemoteReverseRelayProcessTests {
         #expect(process.terminationStatus == 255)
     }
 
+    @Test("Termination prioritizes a retryable forwarding failure over auth markers")
+    func terminationPrioritizesForwardingFailure() async throws {
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            printf 'Permission denied (publickey).\\n' >&2
+            printf 'Error: remote port forwarding failed for listen port 64044\\n' >&2
+            exit 255
+            """,
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+        let relayProcess = FoundationRemoteReverseRelayProcess(
+            process: process,
+            stderrPipe: stderrPipe
+        )
+        let (details, continuation) = AsyncStream<String?>.makeStream()
+
+        try process.run()
+        relayProcess.captureTermination { detail in
+            continuation.yield(detail)
+            continuation.finish()
+        }
+
+        var iterator = details.makeAsyncIterator()
+        #expect(
+            await iterator.next()
+                == "Error: remote port forwarding failed for listen port 64044"
+        )
+        #expect(process.terminationStatus == 255)
+    }
+
     @Test("Termination bounds draining inherited stderr writers")
     func terminationBoundsInheritedStderr() async throws {
         let process = Process()

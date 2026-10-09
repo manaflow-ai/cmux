@@ -34,6 +34,13 @@ enum RemoteRelayAuthenticationFailure: Equatable, Sendable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
+        // A forwarding failure is retryable even if a preceding proxy or SSH
+        // diagnostic contains an authentication marker. Never park a session
+        // on a mixed diagnostic that includes the forwarding failure.
+        guard !lines.contains(where: isRemotePortForwardingFailure) else {
+            return nil
+        }
+
         for line in lines.reversed() {
             guard !line.lowercased().hasPrefix("debug") else { continue }
             if let methods = permissionDeniedMethods(in: line) {
@@ -47,6 +54,12 @@ enum RemoteRelayAuthenticationFailure: Equatable, Sendable {
             }
         }
         return nil
+    }
+
+    private static func isRemotePortForwardingFailure(_ line: String) -> Bool {
+        line.localizedCaseInsensitiveContains(
+            "remote port forwarding failed for listen"
+        )
     }
 
     private static func permissionDeniedMethods(in line: String) -> String? {
