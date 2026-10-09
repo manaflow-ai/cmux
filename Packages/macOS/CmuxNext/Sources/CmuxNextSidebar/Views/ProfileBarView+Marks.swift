@@ -71,6 +71,11 @@ extension ProfileBarView {
         return base.blended(withFraction: active ? 0.05 : 0.2, of: Palette.stripStep) ?? base
     }
 
+    /// A mark's color: `base` softened toward the strip step `step`.
+    static func markColor(base: NSColor, step: NSColor, active: Bool) -> NSColor {
+        base.blended(withFraction: active ? 0.05 : 0.2, of: step) ?? base
+    }
+
     // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {
         let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
