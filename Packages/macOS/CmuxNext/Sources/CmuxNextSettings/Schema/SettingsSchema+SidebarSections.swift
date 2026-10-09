@@ -59,7 +59,6 @@ nonisolated enum SidebarSectionSettingsSchema {
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.showChatsDescriptor(group: sidebar),
-            SidebarSectionsSetting.allChatsRowsDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),

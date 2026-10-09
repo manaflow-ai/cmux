@@ -189,3 +189,56 @@ fn a_turn_with_no_events_for_the_idle_limit_ends_and_runs_again() {
         "the turn made no progress for 10 minutes and was stopped"
     ));
 }
+
+/// The idle watchdog counts only the harness's own events: messages steered
+/// into a silent turn (acpmux echoes each one to the turn) never keep it
+/// alive (coordinator rule for E18/E19, 2026-10-09).
+#[test]
+fn steers_into_a_silent_turn_never_reset_the_idle_watchdog() {
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(dir.path());
+    s.turn_idle_limit = Some(Duration::from_millis(400));
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![json!({"dir": "mux", "kind": "turn_started", "msg": {}})]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::configured(dir, script, owner(), s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.answer_never = true;
+        inner.steering = true;
+    }
+    h.connect();
+    h.say("user_local", "hello");
+    let begin = Instant::now();
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        assert!(begin.elapsed() < Duration::from_secs(10), "no first prompt");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    let start = Instant::now();
+    let mut steered = 0;
+    while start.elapsed() < Duration::from_millis(2500)
+        && h.agents.inner.lock().unwrap().prompts.len() < 2
+    {
+        while let Ok(input) = h.rx.try_recv() {
+            h.brain.step(input);
+        }
+        steered += 1;
+        h.say("user_local", &format!("more {steered}"));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let steers = h.agents.inner.lock().unwrap().steers.len();
+    assert!(steers > 0, "no message was steered into the turn");
+    assert!(
+        h.agents.inner.lock().unwrap().prompts.len() >= 2,
+        "{steers} steers kept the silent turn alive for {:?}",
+        start.elapsed()
+    );
+    h.settle();
+}

@@ -1431,14 +1431,6 @@
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
     },
-    "sidebar.allChatsRows" : {
-      "default" : 8,
-      "description" : "How many chats the All chats section shows before it scrolls.",
-      "maximum" : 50,
-      "minimum" : 1,
-      "title" : "All Chats Rows",
-      "type" : "number"
-    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",

@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
+import { makeServiceKeys, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, makeStackTeamMembership, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { makeMemoryMembershipCache, MEMBERSHIP_POSITIVE_TTL_MS } from "../../src/auth/membership-cache.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
@@ -164,6 +165,7 @@ const services = Layer.mergeAll(
     markDeleted: (_t, _kind, id) => Effect.sync(() => void deleted.add(id)),
   }),
   Layer.succeed(AuditStore, { append: (entry) => Effect.sync(() => void audit.push({ ...entry, at: entry.at.toISOString() })) }),
+  Layer.succeed(ServiceKeys, makeServiceKeys([])),
   Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash) => Effect.sync(() => Option.fromNullable(keys.get(hash))),
     findActiveById: (tenant, id) => Effect.sync(() => Option.fromNullable([...keys.values()].find((key) => key.tenantId === tenant && key.id === id))),
