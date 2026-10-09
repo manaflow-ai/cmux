@@ -264,7 +264,8 @@ describe("T3 model picker", () => {
 
   test("a harness switch in flight draws the new harness's mark and name together", async () => {
     await render({ ...snapshot(), switching: { harness: "codex", name: "Codex", phase: "starting" } });
-    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("codex");
+    // Codex draws the OpenAI mark.
+    expect(modelButton().querySelector(".agent-mark")?.getAttribute("data-agent")).toBe("openai");
     expect(modelButton().textContent).toContain("Codex");
     expect(modelButton().textContent).not.toContain("Opus 5.5");
   });
