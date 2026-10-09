@@ -18,6 +18,8 @@ final class DesktopNotifier: NSObject {
         var body: String
         var surface: UInt64?
         var sound: String?
+        /// The status badge PNG the banner carries (OSC 7501 alerts), else nil.
+        var attachment: Data?
     }
 
     /// Banner clicked: the notification id and its tab's surface handle.
@@ -39,7 +41,7 @@ final class DesktopNotifier: NSObject {
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
               defaultSound: Bool, attachment: Data? = nil) {
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
-                             sound: defaultSound ? "default" : nil))
+                             sound: defaultSound ? "default" : nil, attachment: attachment))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
