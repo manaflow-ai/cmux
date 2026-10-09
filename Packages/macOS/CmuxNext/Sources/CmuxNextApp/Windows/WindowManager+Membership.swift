@@ -104,18 +104,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state). Showing another
-    /// workspace ends the window's Cloud creation view (the creation goes on
-    /// in its row); a repair (`keepsCreation`) and the creation's own
-    /// workspace keep it until that workspace is mirrored.
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
     func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
-        if !keepsCreation, let shown = state.cloudCreation, let workspaceID,
-           services.cloud.creations.creation(shown)?.workspaceID != workspaceID {
-            state.cloudCreation = nil
-        }
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID)
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
         recordSaver.stateDidChange(state)
     }
 

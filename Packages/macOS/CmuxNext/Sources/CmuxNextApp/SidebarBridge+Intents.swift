@@ -12,8 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
-        // A Cloud creation's row (cx-lu8f) is no workspace: no daemon command.
-        if handleCreationRow(intent, state: state) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)

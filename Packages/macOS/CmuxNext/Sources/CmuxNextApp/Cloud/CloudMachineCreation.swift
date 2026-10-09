@@ -102,6 +102,13 @@ final class CloudCreations {
         return all.first { $0.rowID == row }
     }
 
+    /// Whether `workspaceID` is the opened workspace of the creation `state`
+    /// shows: showing it keeps the creation view until it is mirrored.
+    func opens(_ workspaceID: String?, shownIn state: WindowState) -> Bool {
+        guard let workspaceID, let shown = state.cloudCreation else { return false }
+        return creation(shown)?.workspaceID == workspaceID
+    }
+
     /// The creations window `id` lists, oldest first.
     func shown(in id: String) -> [CloudMachineCreation] { all.filter { $0.windowID == id } }
 

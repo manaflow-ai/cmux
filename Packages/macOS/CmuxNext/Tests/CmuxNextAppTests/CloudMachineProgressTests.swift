@@ -173,7 +173,7 @@ import Testing
     @Test func theCreationHasASelectableRowAtOnce() throws {
         let creations = CloudCreations()
         let creation = creations.begin(window: "w1")
-        let sections = SidebarBridge.addingCreations(creations.shown(in: "w1"), to: [
+        let sections = CloudCreationRows.adding(creations.shown(in: "w1"), to: [
             SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("a"), title: "a"))]),
         ])
         let row = try #require(sections.flatMap(\.workspaces).first { $0.id.rawValue == creation.rowID })
