@@ -1833,6 +1833,10 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    outputs:
+      # nightly-next is arm64 only, so its one matrix leg sets this; publish
+      # waits for a later run when Apple had not accepted the build in time.
+      notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -2424,17 +2428,18 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        # Published nightly-next hands Apple the exact signed DMG and records
-        # the state for continuation; it never staples or publishes before a
-        # later Accepted result. Private nightly/RC paths keep the bounded wait.
+        # Published nightly-next waits at most 20m (usually a few minutes):
+        # an Accepted build is stapled and published by this run, and one still
+        # in Apple's queue is handed to the next nightly-next run through the
+        # recovery artifact below. Private nightly/RC paths keep the 40m wait.
         timeout-minutes: 50
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: 40m
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && '20m' || '40m' }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
@@ -2492,7 +2497,8 @@ jobs:
               state[key] = value
           if state.get("dmg_sha256") != actual_sha:
               raise SystemExit("notarization state SHA-256 does not match the signed DMG")
-          if state.get("submit_exit", "0") != "0":
+          # A bounded wait that ran out exits nonzero after a successful upload.
+          if state.get("submit_exit", "0") != "0" and state.get("wait_timed_out") != "true":
               raise SystemExit("notarization submit exited nonzero; refusing automatic continuation")
           submission_id = state.get("submission_id", "")
           if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
@@ -2558,11 +2564,11 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
       - name: Gate distribution with syspolicy_check
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -2591,7 +2597,7 @@ jobs:
           fi
 
       - name: Upload nightly variant artifacts
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
@@ -2638,7 +2644,7 @@ jobs:
     needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.track != 'nightly-next' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true'
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
