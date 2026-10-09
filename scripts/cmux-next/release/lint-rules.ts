@@ -306,7 +306,8 @@ export const statementProblems = (stmts: ReadonlyArray<ParsedStatement>, tree: s
         break
       case "CommentStmt": {
         const o = b.object
-        const parts = ((o?.List?.items ?? (o?.String ? [o] : [])) as Array<Node>).map((i) => i.String?.sval)
+        // COMMENT ON TYPE carries a TypeName; the others a name list or a bare name.
+        const parts = ((o?.TypeName?.names ?? o?.List?.items ?? (o?.String ? [o] : [])) as Array<Node>).map((i) => i.String?.sval)
         // Exact name depth per object kind; the first part is the schema (backend: public or unqualified).
         const depth: Record<string, number> = { OBJECT_SCHEMA: 1, OBJECT_TABLE: 2, OBJECT_INDEX: 2, OBJECT_SEQUENCE: 2, OBJECT_TYPE: 2, OBJECT_COLUMN: 3 }
         const want = depth[b.objtype]
