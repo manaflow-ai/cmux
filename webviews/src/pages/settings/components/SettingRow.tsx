@@ -11,6 +11,28 @@ import { Highlight } from "./Highlight";
 import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
 
+/**
+ * The menu of a setting's title and help (right-click): copy its cmux.json key, or reset it (the
+ * row's Reset control's path). Every row that edits a setting uses it, including the Theme page's
+ * own rows (cx-64hi).
+ */
+export function useRowMenu(key: string): ContextMenuItem[] {
+  const state = useSettingsState();
+  const store = useStore();
+  const managed = managedOf(state, key);
+  const customized = state.rows.get(key)?.customized ?? false;
+  return [
+    { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(key) },
+    {
+      id: "reset",
+      label: t("settingsPage.resetToDefault"),
+      separatorBefore: true,
+      disabled: !customized || managed !== null || !state.connected || !state.readable,
+      onSelect: () => void store.reset(key),
+    },
+  ];
+}
+
 /** One setting: title and one-line help on the left, its editor on the right. */
 export function SettingRow({
   row,
@@ -25,25 +47,13 @@ export function SettingRow({
   filtered?: boolean;
 }) {
   const state = useSettingsState();
-  const store = useStore();
   const labelId = useId();
   const managed = managedOf(state, row.key);
   const customized = state.rows.get(row.key)?.customized ?? false;
   const disabled = !state.connected || !state.readable || managed !== null;
   const diagnostics = state.diagnostics.get(row.key);
   const error = state.errors.get(row.key);
-  // Right-click on the setting's title or help: copy its cmux.json key, or reset it (the row's
-  // Reset control's path).
-  const menu: ContextMenuItem[] = [
-    { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(row.key) },
-    {
-      id: "reset",
-      label: t("settingsPage.resetToDefault"),
-      separatorBefore: true,
-      disabled: !customized || managed !== null || !state.connected || !state.readable,
-      onSelect: () => void store.reset(row.key),
-    },
-  ];
+  const menu = useRowMenu(row.key);
   return (
     <div
       className="row"

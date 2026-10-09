@@ -1,10 +1,12 @@
 import AppKit
+import os
 
 /// VoiceOver and automation element for one layer-drawn tab or chip. The
 /// strip view is its parent and keeps `accessibilityFrameInParentSpace`
 /// in sync with the layer frame.
 /// AppKit calls accessibility on the main thread, but `NSAccessibilityElement`
-/// is not main-actor isolated, so the callbacks hop with `assumeIsolated`.
+/// is not main-actor isolated, so the callbacks check the thread and then
+/// enter the main actor with `assumeIsolated`.
 nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     nonisolated(unsafe) var onPress: (@MainActor () -> Void)?
     nonisolated(unsafe) var onClose: (@MainActor () -> Void)?
@@ -18,25 +20,38 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
     }
 
     override func accessibilityPerformPress() -> Bool {
-        guard let onPress else { return false }
-        MainActor.assumeIsolated { onPress() }
+        guard let onPress, Self.onMain("press") else { return false }
+        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
         return true
     }
 
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
         super.setAccessibilityFocused(accessibilityFocused)
-        guard let onFocus else { return }
-        // crash-allow: AppKit sends accessibility setters on the main thread (see the type comment).
-        MainActor.assumeIsolated { onFocus(accessibilityFocused) }
+        guard let onFocus, Self.onMain("focus") else { return }
+        MainActor.assumeIsolated { onFocus(accessibilityFocused) } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        guard let onClose else { return nil }
-        let name = MainActor.assumeIsolated { Strings.axClose }
+        guard let onClose, Self.onMain("custom actions") else { return nil }
+        let name = MainActor.assumeIsolated { Strings.axClose } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
         return [NSAccessibilityCustomAction(name: name) {
-            MainActor.assumeIsolated { onClose() }
+            guard Self.onMain("close") else { return false }
+            MainActor.assumeIsolated { onClose() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
             return true
         }]
+    }
+
+    /// Faults from accessibility callbacks that arrive off the main thread.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "tabs.accessibility")
+
+    /// AppKit calls accessibility on the main thread; anywhere else the
+    /// callback refuses (a fault, no handler runs) instead of trapping.
+    private static func onMain(_ callback: String) -> Bool {
+        guard Thread.isMainThread else {
+            logger.fault("tab accessibility \(callback, privacy: .public) off the main thread; refused")
+            return false
+        }
+        return true
     }
 }
 

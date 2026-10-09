@@ -13,9 +13,11 @@
 //! (`Engine::Native`, the host's own Messages API loop) asks the brain for
 //! queued messages at every tool boundary, so MASTER's "messages the user
 //! sends while you work reach you between tool calls" holds. The acpmux
-//! engine cannot: claude-sr reports no steering. There a human message
-//! stops the running turn (`session/cancel`; its steps are already in the
-//! log) and the next fresh turn takes the message with the view of
+//! engine steers the message into the running session (`steer.rs`; acpmux's
+//! Claude Code adapter writes it to claude's stdin, read at the next tool
+//! boundary). A session that cannot steer (another harness, an older
+//! acpmux) stops the running turn (`session/cancel`; its steps are already
+//! in the log) and the next fresh turn takes the message with the view of
 //! everything the stopped turn did. A turn that hangs is stopped by
 //! `Settings::turn_limit`.
 
@@ -30,6 +32,7 @@ mod prewarm;
 mod recover;
 mod side;
 mod spawns;
+mod steer;
 mod turns;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -70,6 +73,11 @@ pub enum Input {
         key: String,
         /// The prompt blocks to deliver: the messages' images, then their text.
         reply: Sender<Vec<serde_json::Value>>,
+    },
+    /// A steer's outcome (`steer.rs`): Ok once the harness read it.
+    Steered {
+        id: u64,
+        result: Result<(), String>,
     },
     TurnEnded {
         key: String,
@@ -358,6 +366,10 @@ pub struct Brain {
     owner_stopped: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
+    /// The steer on its way into the running turn (`steer.rs`), and the
+    /// last steer's number.
+    steering: Option<steer::Steering>,
+    steer_seq: u64,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -466,6 +478,8 @@ impl Brain {
             stop_wanted: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
+            steering: None,
+            steer_seq: 0,
             marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
@@ -564,7 +578,9 @@ impl Brain {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.phase == Phase::Idle && !self.queue.iter().any(Queued::wakes)
+        self.phase == Phase::Idle
+            && !self.queue.iter().any(Queued::wakes)
+            && self.steering.is_none()
     }
 
     /// When the outbox timer fires, if armed.
@@ -621,6 +637,7 @@ impl Brain {
                 let blocks = self.boundary(&key);
                 let _ = reply.send(blocks);
             }
+            Input::Steered { id, result } => self.steered(id, result),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
