@@ -229,18 +229,126 @@ struct BrowserReplPinnedFileAccessTests {
         let readAccess = try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: [BrowserReplFileRoot(path: scratch.root)]) { $0 }
         #expect(readAccess.path == scratch.root, "read access went to \(readAccess.path), not the session's root")
     }
+    /// A child frame loads its file by path too, after its navigation is
+    /// decided. Before macOS 27, a link another session swaps in below the
+    /// root after the frame's navigation was checked, or before a reload of
+    /// the frame, must not lead the frame outside the session's directories.
+    @Test("A child frame's file load after a link was swapped in below the root reads nothing outside it")
+    func aChildFrameLoadAfterALinkSwapReadsNothingOutside() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        let report = "<script>parent.postMessage(document.body.innerText, '*')</script>"
+        try manager.createDirectory(atPath: scratch.root + "/frame", withIntermediateDirectories: true)
+        try Data("""
+            <script>window.messages = []; addEventListener('message', event => messages.push(String(event.data)))</script>
+            <iframe src="frame/inner.html"></iframe>
+            """.utf8).write(to: URL(fileURLWithPath: scratch.root + "/index.html"))
+        try Data("<p>own frame</p>\(report)".utf8).write(to: URL(fileURLWithPath: scratch.root + "/frame/inner.html"))
+        try Data("<p>outside secret</p>\(report)".utf8).write(to: URL(fileURLWithPath: scratch.outside + "/inner.html"))
+        let roots = [BrowserReplFileRoot(path: scratch.root)]
+        let url = URL(fileURLWithPath: scratch.root + "/index.html")
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let waiter = FileLoadWaiter(roots: roots)
+        webView.navigationDelegate = waiter
+        _ = try BrowserReplFileSandbox.withPinnedFileAccess(url.absoluteString, roots: roots, in: webView) { readAccess in
+            webView.loadFileURL(url, allowingReadAccessTo: readAccess)
+        }
+        await waiter.wait()
+        let first = try await webView.evaluateJavaScript("messages.join('|')") as? String
+        #expect(first?.contains("own frame") == true, "the frame did not show its own page: \(String(describing: first))")
+
+        /// Reloads the frame and returns what it showed, if its response
+        /// was admitted.
+        func reloadFrame(_ query: String) async throws -> String? {
+            _ = try await webView.callAsyncJavaScript("""
+                const frame = document.querySelector('iframe')
+                window.frameDone = new Promise(resolve => {
+                    frame.addEventListener('load', resolve, { once: true })
+                    addEventListener('message', resolve, { once: true })
+                })
+                frame.src = 'frame/inner.html?\(query)'
+                """, contentWorld: .page)
+            guard await waiter.childFrameResponse() else { return nil }
+            return try await webView.callAsyncJavaScript("await window.frameDone; return messages.join('|')", contentWorld: .page) as? String
+        }
+        // Another session moves the frame's directory away and a link to a
+        // directory outside takes its name, after the frame's navigation
+        // was decided and before the browser opens the file.
+        waiter.afterChildFrameDecision = {
+            try? manager.moveItem(atPath: scratch.root + "/frame", toPath: scratch.root + "/frame-old")
+            try? manager.createSymbolicLink(atPath: scratch.root + "/frame", withDestinationPath: scratch.outside)
+        }
+        let swappedAfterDecision = try await reloadFrame("after-decision")
+        #expect(swappedAfterDecision?.contains("outside secret") != true, "the frame read a file outside the session's directories through a link swapped in after its navigation was decided")
+        waiter.afterChildFrameDecision = nil
+        let swappedBefore = try await reloadFrame("after-swap")
+        #expect(swappedBefore?.contains("outside secret") != true, "a reload of the frame read a file outside the session's directories through the swapped link")
+    }
+
+    /// The rename log is shared by every session: renames in one session's
+    /// directories, however many, say nothing about a directory on another
+    /// session's file path.
+    @Test("Many REPL renames in one root do not refuse a pinned load in another")
+    func manyRenamesInOneRootDoNotRefuseAnother() throws {
+        let busy = try Scratch()
+        defer { busy.remove() }
+        let quiet = try Scratch()
+        defer { quiet.remove() }
+        try FileManager.default.createDirectory(atPath: quiet.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: quiet.root + "/site/index.html"))
+        try Data("x".utf8).write(to: URL(fileURLWithPath: busy.root + "/a"))
+        let url = URL(fileURLWithPath: quiet.root + "/site/index.html")
+        let pin = try BrowserReplFileSandbox.pinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: quiet.root)]) { $0 }
+        let fileSystem = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: busy.root))
+        for _ in 0..<1500 {
+            _ = try fileSystem.perform("rename", arguments: ["from": "a", "to": "b"]).get()
+            _ = try fileSystem.perform("rename", arguments: ["from": "b", "to": "a"]).get()
+        }
+        #expect(pin.admitsResponse(url), "renames in another root refused a pinned load")
+    }
+
+    /// However many directories REPL renames touch after it, a rename in a
+    /// directory on a pinned file's path still refuses its response.
+    @Test("A rename on a pinned file's path refuses it after renames in many other directories of its root")
+    func aRenameOnThePathRefusesAfterManyOtherDirectories() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        try Data("x".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/a"))
+        for index in 0..<1500 {
+            try manager.createDirectory(atPath: scratch.root + "/d\(index)", withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: URL(fileURLWithPath: scratch.root + "/d\(index)/a"))
+        }
+        let url = URL(fileURLWithPath: scratch.root + "/site/index.html")
+        let pin = try BrowserReplFileSandbox.pinnedFileAccess(url.absoluteString, roots: [BrowserReplFileRoot(path: scratch.root)]) { $0 }
+        let fileSystem = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root))
+        _ = try fileSystem.perform("rename", arguments: ["from": "site/a", "to": "site/b"]).get()
+        for index in 0..<1500 {
+            _ = try fileSystem.perform("rename", arguments: ["from": "d\(index)/a", "to": "d\(index)/b"]).get()
+        }
+        #expect(!pin.admitsResponse(url), "a rename on the pinned file's path was forgotten after renames in other directories")
+    }
+
 }
 
 /// Resumes once the main frame's load finished, failed or was refused.
 /// With `roots`, it governs the web view's file loads as the app's
-/// navigation delegate does for a tab a session created: every main-frame
-/// file navigation is pinned when it is decided, and refused when the
+/// navigation delegate does for a tab a session created: every file
+/// navigation of a frame is pinned when it is decided, and refused when the
 /// check refuses it.
 @MainActor
 final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Never>?
     private var done = false
     private let roots: [BrowserReplFileRoot]?
+    /// Runs once a child frame's file navigation was pinned and allowed,
+    /// before the browser opens the file.
+    var afterChildFrameDecision: (() -> Void)?
+    private var childFrameResults: [Bool] = []
+    private var childFrameContinuation: CheckedContinuation<Bool, Never>?
 
     init(roots: [BrowserReplFileRoot]? = nil) {
         self.roots = roots
@@ -251,20 +359,36 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         await withCheckedContinuation { continuation = $0 }
     }
 
+    /// Whether the next child frame's file load was admitted: `false` when
+    /// its navigation or its response was refused.
+    func childFrameResponse() async -> Bool {
+        if !childFrameResults.isEmpty { return childFrameResults.removeFirst() }
+        return await withCheckedContinuation { childFrameContinuation = $0 }
+    }
+
     private func finish() {
         done = true
         continuation?.resume()
         continuation = nil
     }
 
-    /// Pins a main frame's file navigation as the app's navigation
-    /// delegate does (``BrowserReplPinnedFileLoads/pinNavigation(to:roots:in:)``).
+    private func noteChildFrame(_ admitted: Bool) {
+        if let childFrameContinuation {
+            self.childFrameContinuation = nil
+            childFrameContinuation.resume(returning: admitted)
+        } else {
+            childFrameResults.append(admitted)
+        }
+    }
+
+    /// Pins a frame's file navigation as the app's navigation delegate
+    /// does (``BrowserReplPinnedFileLoads/pinNavigation(to:roots:in:)``).
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        guard let roots, navigationAction.targetFrame?.isMainFrame == true,
+        guard let roots, let frame = navigationAction.targetFrame,
               let url = navigationAction.request.url, url.isFileURL else {
             decisionHandler(.allow)
             return
@@ -272,14 +396,15 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
         do {
             try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, roots: roots, in: webView)
             decisionHandler(.allow)
+            if !frame.isMainFrame { afterChildFrameDecision?() }
         } catch {
             decisionHandler(.cancel)
-            finish()
+            if frame.isMainFrame { finish() } else { noteChildFrame(false) }
         }
     }
 
-    /// Admits a main frame's response as the app's navigation delegate
-    /// does (``BrowserReplPinnedFileLoads``).
+    /// Admits a frame's response as the app's navigation delegate does
+    /// (``BrowserReplPinnedFileLoads``).
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationResponse: WKNavigationResponse,
@@ -292,6 +417,9 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
             in: webView
         )
         decisionHandler(admitted ? .allow : .cancel)
+        if !navigationResponse.isForMainFrame, navigationResponse.response.url?.isFileURL == true {
+            noteChildFrame(admitted)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish() }
