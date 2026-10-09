@@ -491,6 +491,22 @@ impl AcpmuxCompactor {
         }
     }
 
+    /// The trace's `compactor.capacity`: the exhausted route, the error's
+    /// status and retry-after, and the route the node fails over to (null:
+    /// none, the node waits).
+    fn trace_capacity(&self, node: NodeId, route: &str, error: &ModelError, failed_over: bool) {
+        self.trace.emit(
+            "compactor.capacity",
+            json!({
+                "node": node.name(),
+                "route": route,
+                "status": optchat_host::error_class(&error.message).map(|c| c.status),
+                "retry_after_s": optchat_host::capacity_wait(&error.message).map(|w| w.as_secs()),
+                "failover": failed_over.then(|| self.alternate.clone()).flatten(),
+            }),
+        );
+    }
+
     /// `error` says the first route is exhausted (a capacity error with its
     /// wait): build on the alternate until the wait ends, and say so once.
     /// False: no alternate, or already on it, or another error.
@@ -1056,16 +1072,24 @@ impl CompactModel for AcpmuxCompactor {
         followups: &[Followup],
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
+        let route = self.harness();
         let result = match self.call_inner(request, followups, started) {
             // The account cannot use the model: the node again, fresh, on the fallback.
             Err(e) if followups.is_empty() && self.switch_model(&e) => {
                 self.end(request);
                 self.call_inner(request, followups, started)
             }
-            // The first route is exhausted: the node again, fresh, on the other.
-            Err(e) if followups.is_empty() && self.fail_over(&e) => {
-                self.end(request);
-                self.call_inner(request, followups, started)
+            // The route is exhausted: one trace event per wait, then the node
+            // again, fresh, on the other route when there is one.
+            Err(e) if followups.is_empty() && optchat_host::capacity_wait(&e.message).is_some() => {
+                let failed_over = self.fail_over(&e);
+                self.trace_capacity(request.node, &route, &e, failed_over);
+                if failed_over {
+                    self.end(request);
+                    self.call_inner(request, followups, started)
+                } else {
+                    Err(e)
+                }
             }
             other => other,
         };
