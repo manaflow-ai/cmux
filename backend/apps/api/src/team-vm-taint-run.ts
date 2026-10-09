@@ -73,7 +73,7 @@ export const adminAction = async (d: TaintRunDeps, req: AdminRequest): Promise<A
   return r.ok ? { ok: true, value: { vm: row.vm, deleted: true }, tainted_by: row.tainted_by, epoch: row.epoch } : r
 }
 
-/** Pauses every retired VM due for a try; a failure is committed and retried by the alarm with backoff. */
+/** Retires (budget spent, then paused: no inbound traffic resumes it) every retired VM due for a try; a failure is committed and retried by the alarm with backoff. */
 export const pauseRetired = async (d: TaintRunDeps, now: number = Date.now()): Promise<void> => {
   const due = (d.state()?.retired ?? []).filter((r) => r.state === "pausing" && (r.pause_retry_at ?? r.at) <= now)
   if (due.length === 0) return
@@ -82,7 +82,7 @@ export const pauseRetired = async (d: TaintRunDeps, now: number = Date.now()): P
     const attempt = r.pause_attempts ?? 0
     try {
       if (!driver) throw new DriverError("team_vm.not_configured", "no team VM provider", false)
-      await driver.pauseVm(r.vm)
+      await driver.retireVm(r.vm)
     } catch (e) {
       // A VM deleted outside cmux is as good as paused: nothing of it runs.
       if (!(e instanceof DriverError && e.code === "team_vm.vm_missing")) {
