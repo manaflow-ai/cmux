@@ -522,7 +522,7 @@ extension ConversationViewController {
     /// When the X starts to show and how long it fades in, measured on
     /// Messages: iOS 26.5 ~0.38 s then ~0.2 s; iOS 27.0 ~0.28 s then ~0.05 s.
     static var replyCloseDelay: TimeInterval {
-        if #available(iOS 27, *) { return 0.22 }
+        if #available(iOS 27, *) { return 0.27 }
         return 0.32
     }
     static var replyCloseFade: TimeInterval {

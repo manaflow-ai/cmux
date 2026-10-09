@@ -81,7 +81,7 @@ final class MessageCell: UICollectionViewCell {
         repliesLabel.textColor = .systemBlue
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit
-        timeLabel.font = ConversationTheme.timestampFont
+        timeLabel.font = ConversationTheme.timestampDrawerFont
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
@@ -346,7 +346,7 @@ final class MessageCell: UICollectionViewCell {
         // The time waits just past the trailing edge until a swipe reveals it.
         timeLabel.sizeToFit()
         let anchor = cellLayout.contentFrame
-        timeLabel.setUntransformedFrame(CGRect(x: contentView.bounds.width + 8, y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
+        timeLabel.setUntransformedFrame(CGRect(x: TimestampDrawerLabelGeometry.minX(width: contentView.bounds.width, labelWidth: timeLabel.bounds.width, fraction: 0), y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
         replyIndicator.place(at: replyIndicatorCenter)
         applyShifts()
     }
@@ -443,10 +443,16 @@ final class MessageCell: UICollectionViewCell {
         shiftable.transform = CGAffineTransform(translationX: x, y: 0)
         footerLabel.transform = CGAffineTransform(translationX: model.isOutgoing ? -reveal : 0, y: 0)
         failedBadge.transform = shiftable.transform
-        // The time slides in from just past the edge (no fade), a little
-        // faster than the bubbles, and ends at the 16 pt margin.
-        timeLabel.alpha = timestampReveal > 0 ? 1 : 0
-        timeLabel.transform = CGAffineTransform(translationX: -Self.timeTravel(forTimeWidth: timeLabel.bounds.width) * timestampReveal, y: 0)
+        // The time slides in from just past the edge, a little faster than
+        // the bubbles, to 17 pt inside it; iOS 27 also fades it in.
+        timeLabel.alpha = TimestampDrawerLabelGeometry.alpha(fraction: timestampReveal, fadesIn: Self.timestampFadesIn)
+        let width = contentView.bounds.width
+        let labelWidth = timeLabel.bounds.width
+        timeLabel.transform = CGAffineTransform(
+            translationX: TimestampDrawerLabelGeometry.minX(width: width, labelWidth: labelWidth, fraction: timestampReveal)
+                - TimestampDrawerLabelGeometry.minX(width: width, labelWidth: labelWidth, fraction: 0),
+            y: 0
+        )
     }
 
     /// ChatKit parks the indicator at the balloon's resting leading edge
@@ -510,11 +516,29 @@ final class MessageCell: UICollectionViewCell {
         return text
     }
 
-    /// The time waits 8 pt past the trailing edge and travels to the 16 pt margin.
-    static func timeTravel(forTimeWidth width: CGFloat) -> CGFloat { width + 24 }
-    /// Bubble travel that clears the widest time by 17 pt (58 pt for "3:16 AM").
-    static func timestampRevealDistance(forTimeWidth width: CGFloat) -> CGFloat { (width + 16).rounded() }
-    var timeLabelWidth: CGFloat { timeLabel.bounds.width }
+    /// iOS 27 Messages fades swipe times in as the square of the reveal.
+    static var timestampFadesIn: Bool {
+        if #available(iOS 27, *) { return true }
+        return false
+    }
+
+    /// Bubble travel at a full reveal: ChatKit's drawer width, a fixed margin
+    /// plus the wider of 11:00 AM and 11:00 PM in the drawer font, whatever
+    /// times are on screen.
+    static func timestampRevealDistance(font: UIFont = ConversationTheme.timestampDrawerFont) -> CGFloat {
+        var components = DateComponents()
+        components.hour = 11
+        let morning = Calendar.current.date(from: components) ?? Date()
+        components.hour = 23
+        let evening = Calendar.current.date(from: components) ?? Date()
+        let widest = [morning, evening].map {
+            ($0.formatted(date: .omitted, time: .shortened) as NSString).size(withAttributes: [.font: font]).width
+        }.max() ?? 0
+        return TimestampDrawerPhysics.drawerWidth(widestReferenceTime: widest, margin: timestampDrawerMargin)
+    }
+
+    /// 58 pt with "11:00 AM" at 50.07 pt, as Messages on an iPhone 17 Pro.
+    static let timestampDrawerMargin: CGFloat = 7
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
