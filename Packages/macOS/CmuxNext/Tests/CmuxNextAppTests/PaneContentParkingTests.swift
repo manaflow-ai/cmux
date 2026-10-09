@@ -123,4 +123,25 @@ struct PaneContentParkingTests {
         #expect(browsers[0].superview == nil, "the oldest leaves")
         #expect(browsers[1].superview === pane.contentHost)
     }
+
+    /// cx-ollo's render window takes a background tab an agent drives: a
+    /// browser parked hidden in a pane counts as background, moves there and
+    /// shows; the pane takes it back when it shows the tab.
+    @Test func anAgentDrivenParkedBrowserRendersInItsRenderWindow() async throws {
+        let (pane, window) = pane()
+        defer { window.close() }
+        let (driven, _) = browser()
+        let (other, _) = browser()
+        pane.show(driven)
+        pane.show(other)
+        #expect(driven.isHidden)
+        let renderWindows = AgentRenderWindows()
+        defer { renderWindows.release(tabID: "driven") }
+        #expect(renderWindows.keepRendering(tabID: "driven", chrome: driven, webView: nil), "a parked browser moves to its render window")
+        #expect(driven.window != nil && driven.window !== window)
+        #expect(!driven.isHiddenOrHasHiddenAncestor, "it renders there")
+        pane.show(driven)
+        #expect(driven.window === window, "the pane takes it back")
+        #expect(!driven.isHidden)
+    }
 }
