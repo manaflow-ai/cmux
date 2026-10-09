@@ -93,3 +93,62 @@ fn a_port_held_by_a_process_with_an_inspector_is_refused() {
     let refused = listen(&["--inspect=0"]).expect("an inspector process is refused");
     assert!(refused.contains("inspect"), "{refused}");
 }
+
+/// macOS and Linux both read another process's environment: a listener
+/// whose process has NODE_OPTIONS=--inspect=0 is refused.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn an_inspector_in_the_environment_is_read_from_a_live_process() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("python3")
+        .args(["-c", "import socket,sys; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(); print(s.getsockname()[1], flush=True); sys.stdin.read()"])
+        .env("NODE_OPTIONS", "--inspect=0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let port: u16 = line.trim().parse().unwrap();
+    let verdict = system_connected_check()(SocketAddr::from(([127, 0, 0, 1], port)));
+    drop(child.stdin.take());
+    let _ = child.wait();
+    assert!(verdict.is_some(), "NODE_OPTIONS was not read");
+}
+
+/// A DevTools endpoint is refused by what it answers, whatever opened it
+/// (`inspector.open()`, a renamed process title, chrome://inspect): a
+/// listener that answers `/json/version` like V8 or Chrome is refused.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_port_that_answers_like_devtools_is_refused() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    let server = r#"
+import http.server, json
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"Browser": "node.js/v22.0.0", "Protocol-Version": "1.1"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+print(srv.server_address[1], flush=True)
+srv.serve_forever()
+"#;
+    let mut child =
+        Command::new("python3").args(["-c", server]).stdout(Stdio::piped()).spawn().unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    let port: u16 = line.trim().parse().unwrap();
+    let verdict = system_connected_check()(SocketAddr::from(([127, 0, 0, 1], port)));
+    let _ = child.kill();
+    let _ = child.wait();
+    let refused = verdict.expect("a DevTools endpoint is refused");
+    assert!(refused.contains("DevTools"), "{refused}");
+}

@@ -147,3 +147,62 @@ fn procargs2_parses_args_and_env() {
     assert_eq!(env, ["PATH=/usr/bin", "NODE_OPTIONS=--x"]);
     assert!(parse_procargs2(&[1, 0]).is_none());
 }
+
+/// Node reads NODE_OPTIONS with double quotes, and option names with `_`
+/// as well as `-`; `--inspect-brk-node` opens an inspector too.
+#[test]
+fn quoted_and_underscored_inspector_options_are_read() {
+    let h = holder(NODE, &["node", "a.js"], &[r#"NODE_OPTIONS=--inspect="127.0.0.1:9333""#]);
+    assert!(holder_refusal(&h, 9333, false).is_some(), "quoted");
+    let h = holder(NODE, &["node", "--inspect_brk=9334", "a.js"], &[]);
+    assert!(holder_refusal(&h, 9334, false).is_some(), "underscore");
+    let h = holder(NODE, &["node", "--inspect-brk-node=9335", "a.js"], &[]);
+    assert!(holder_refusal(&h, 9335, false).is_some(), "brk-node");
+    let h = holder("/opt/x/browser", &["browser", "-remote-debugging-port=9336"], &[]);
+    assert!(holder_refusal(&h, 9336, false).is_some(), "single dash");
+}
+
+/// A deleted runtime binary (Linux names it `node (deleted)`) is still a
+/// runtime on its default inspector port.
+#[test]
+fn a_deleted_runtime_keeps_its_default_inspector_ports() {
+    let h = holder("/usr/bin/node (deleted)", &["node"], &[]);
+    assert!(holder_refusal(&h, 9229, false).is_some());
+}
+
+/// BUN_INSPECT over a Unix socket opens no TCP port: the dev server stays
+/// allowed.
+#[test]
+fn bun_inspect_over_a_unix_socket_opens_no_port() {
+    let h = holder("/usr/local/bin/bun", &["bun", "a.ts"], &["BUN_INSPECT=ws+unix:///tmp/b.sock"]);
+    assert_eq!(holder_refusal(&h, 3000, false), None);
+}
+
+/// `process.title` writes over the argument area and pads it with NULs:
+/// the environment after the padding is still read.
+#[test]
+fn procargs2_reads_the_environment_after_an_overwritten_title() {
+    let mut data = 3i32.to_le_bytes().to_vec();
+    data.extend(b"/opt/homebrew/bin/node\0\0next-server\0\0\0\0\0NODE_OPTIONS=--inspect=9333\0\0");
+    let (args, env) = parse_procargs2(&data).unwrap();
+    assert_eq!(args, ["next-server", "", ""]);
+    assert_eq!(env, ["NODE_OPTIONS=--inspect=9333"]);
+}
+
+/// Chromium browsers that ship V8 in their own framework (Arc, Dia,
+/// Vivaldi, Opera), and their helpers under the framework, are Chromium
+/// family.
+#[test]
+fn bundles_with_a_v8_snapshot_in_a_framework_are_chromium_family() {
+    let root = std::env::temp_dir().join(format!("cmux-egress-arc-{}", std::process::id()));
+    let resources = "Arc.app/Contents/Frameworks/ArcCore.framework/Versions/A/Resources";
+    std::fs::create_dir_all(root.join(resources)).unwrap();
+    std::fs::write(root.join(resources).join("v8_context_snapshot.arm64.bin"), b"").unwrap();
+    let helper = "Arc.app/Contents/Frameworks/ArcCore.framework/Versions/A/Helpers/Browser Helper.app/Contents/MacOS";
+    std::fs::create_dir_all(root.join(helper)).unwrap();
+    std::fs::create_dir_all(root.join("Arc.app/Contents/MacOS")).unwrap();
+    let family = |rel: &str| bundle_is_chromium_family(&root.join(rel).display().to_string());
+    assert!(family("Arc.app/Contents/MacOS/Arc"));
+    assert!(family(&format!("{helper}/Browser Helper")));
+    let _ = std::fs::remove_dir_all(&root);
+}
