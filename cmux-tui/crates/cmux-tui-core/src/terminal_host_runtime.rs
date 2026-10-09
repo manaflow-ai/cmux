@@ -4235,11 +4235,6 @@ mod unix {
             self.publish_child_wait_predicate(&self.pty_drained);
         }
 
-        fn terminal_session_id(&self) -> Option<libc::pid_t> {
-            self.adopted_session
-                .or_else(|| self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()))
-        }
-
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
             let mut groups = Vec::with_capacity(2);
             // The wait thread observes exit with WNOWAIT, then takes this lock
@@ -4249,25 +4244,16 @@ mod unix {
             let _signal = self.child_signal_lock.lock().unwrap();
             let child_reserved =
                 !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
-            // Capture every live process group in the PTY session before the
-            // leader receives HUP. Background jobs can create their own group,
-            // and adopted leaders may be gone by the later KILL escalation.
-            // Revalidate the captured groups on each signal so an emptied
-            // group or an unrelated reused group is never addressed.
             // SAFETY: getpgrp has no preconditions.
             let host_group = unsafe { libc::getpgrp() };
-            let session_cleanup = {
-                let mut cleanup = self.session_cleanup.lock().unwrap();
-                if signal == libc::SIGHUP {
-                    *cleanup = self
-                        .terminal_session_id()
-                        .and_then(|session| SessionCleanup::capture(session, host_group));
-                    cleanup.clone()
-                } else {
-                    cleanup.clone()
-                }
-            };
-            if let Some(cleanup) = session_cleanup {
+            let mut session_cleanup = self.session_cleanup.lock().unwrap();
+            if signal == libc::SIGHUP {
+                let session = self
+                    .adopted_session
+                    .or_else(|| self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok()));
+                *session_cleanup = SessionCleanup::capture(session, host_group);
+            }
+            if let Some(cleanup) = session_cleanup.as_ref() {
                 cleanup.signal(signal, host_group);
             }
             if child_reserved

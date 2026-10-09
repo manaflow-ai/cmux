@@ -20,7 +20,8 @@ pub(super) struct SessionCleanup {
 }
 
 impl SessionCleanup {
-    pub(super) fn capture(session: libc::pid_t, host_group: libc::pid_t) -> Option<Self> {
+    pub(super) fn capture(session: Option<libc::pid_t>, host_group: libc::pid_t) -> Option<Self> {
+        let session = session?;
         if session <= 0 || session == current_session() {
             return None;
         }
