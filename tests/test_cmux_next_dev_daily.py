@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import unittest
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -77,6 +80,38 @@ class DevDailyWorkflowContract(unittest.TestCase):
         self.assertIn('exists process "cmux NEXT DEV"', updater)
         for forbidden in ("pkill", "killall", "pgrep"):
             self.assertNotIn(forbidden, updater)
+
+    def test_publisher_checksum_survives_download_to_new_directory(self):
+        publisher = PUBLISHER.read_text(encoding="utf-8")
+        self.assertIn('cd "$(dirname "$archive")"', publisher)
+        self.assertIn('shasum -a 256 "$(basename "$archive")"', publisher)
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as download_dir:
+            source_archive = Path(source_dir) / "cmux-NEXT-DEV.zip"
+            source_archive.write_bytes(b"portable checksum fixture\n")
+            subprocess.run(
+                [
+                    "bash",
+                    "-eu",
+                    "-c",
+                    '(cd "$(dirname "$1")" && shasum -a 256 "$(basename "$1")") > "$1.sha256"',
+                    "checksum-fixture",
+                    str(source_archive),
+                ],
+                check=True,
+            )
+
+            downloaded_archive = Path(download_dir) / source_archive.name
+            downloaded_checksum = Path(f"{downloaded_archive}.sha256")
+            shutil.copy2(source_archive, downloaded_archive)
+            shutil.copy2(Path(f"{source_archive}.sha256"), downloaded_checksum)
+            verified = subprocess.run(
+                ["shasum", "-a", "256", "-c", downloaded_checksum.name],
+                cwd=download_dir,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
 
 
 if __name__ == "__main__":
