@@ -337,6 +337,7 @@ describe("acpmux transcript accessibility", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const copied: string[] = [];
     const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    const execCommand = Object.getOwnPropertyDescriptor(dom.window.document, "execCommand");
     Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true,
       value: { writeText: async (text: string) => void copied.push(text) },
@@ -357,6 +358,24 @@ describe("acpmux transcript accessibility", () => {
           },
         ],
       },
+      {
+        id: "selection-4",
+        version: 1,
+        at: 4,
+        kind: "userShell",
+        shell: {
+          id: "shell-1",
+          command: "bun test",
+          startedAt: 4,
+          endedAt: 5,
+          status: "failed",
+          exitCode: 1,
+          output: "failed output",
+          truncated: false,
+          error: "boom",
+          version: 1,
+        },
+      },
     ];
     const key = (node: HTMLElement, init: KeyboardEventInit) =>
       act(async () => {
@@ -367,6 +386,7 @@ describe("acpmux transcript accessibility", () => {
         root.render(
           createElement(VirtualTranscript, {
             rows: conversation,
+            sessionId: "session-one",
             onToggleActivity: () => {},
             expanded: new Set<string>(),
           }),
@@ -378,31 +398,68 @@ describe("acpmux transcript accessibility", () => {
 
       await key(row("selection-1"), { key: "ArrowDown", shiftKey: true });
       expect(dom.window.document.activeElement).toBe(row("selection-2"));
-      expect(row("selection-1").getAttribute("aria-selected")).toBe("true");
-      expect(row("selection-2").getAttribute("aria-selected")).toBe("true");
-      expect(row("selection-3").hasAttribute("aria-selected")).toBe(false);
+      expect(row("selection-1").getAttribute("data-transcript-selected")).toBe("true");
+      expect(row("selection-2").getAttribute("data-transcript-selected")).toBe("true");
+      expect(row("selection-3").hasAttribute("data-transcript-selected")).toBe(false);
 
       await key(row("selection-2"), { key: "ArrowDown", shiftKey: true });
       expect(dom.window.document.activeElement).toBe(row("selection-3"));
-      expect([...conversation].map((entry) => row(entry.id).getAttribute("aria-selected"))).toEqual([
+      expect([...conversation].map((entry) => row(entry.id).getAttribute("data-transcript-selected"))).toEqual([
         "true",
         "true",
         "true",
+        null,
       ]);
-      await key(row("selection-3"), { key: "c", ctrlKey: true });
-      expect(copied).toEqual(["first prompt\n\nsecond reply\n\nRun tests\nok"]);
+      expect(row("selection-4").hasAttribute("data-transcript-selected")).toBe(false);
+      await key(row("selection-3"), { key: "ArrowDown", shiftKey: true });
+      expect(dom.window.document.activeElement).toBe(row("selection-4"));
+      expect(row("selection-4").getAttribute("data-transcript-selected")).toBe("true");
+      await key(row("selection-4"), { key: "c", ctrlKey: true });
+      expect(copied).toEqual(["first prompt\n\nsecond reply\n\nRun tests\nok\n\n$ bun test\nfailed output\nboom"]);
 
-      await key(row("selection-3"), { key: "Escape" });
-      expect(row("selection-1").hasAttribute("aria-selected")).toBe(false);
-      expect(row("selection-3").getAttribute("data-transcript-active")).toBe("true");
-      const copyButton = row("selection-2").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
+      await key(row("selection-4"), { key: "Escape" });
+      expect(row("selection-1").hasAttribute("data-transcript-selected")).toBe(false);
+      expect(row("selection-4").getAttribute("data-transcript-active")).toBe("true");
+      expect(row("selection-1").querySelector<HTMLButtonElement>(".acpmux-row__copy")?.tabIndex).toBe(-1);
+      expect(row("selection-3").querySelector<HTMLButtonElement>(".acpmux-row__copy")?.tabIndex).toBe(-1);
+      const copyButton = row("selection-3").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
       await act(async () => copyButton.click());
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(copied.at(-1)).toBe("second reply");
+      expect(copied.at(-1)).toBe("Run tests\nok");
+
+      const nextConversation = conversation.map((entry, index) => ({
+        ...entry,
+        version: entry.version + 1,
+        ...(index === 0 ? { text: "new prompt" } : {}),
+      }));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: nextConversation,
+            sessionId: "session-two",
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      expect(row("selection-1").getAttribute("data-transcript-active")).toBe("true");
+      expect(row("selection-1").hasAttribute("data-transcript-selected")).toBe(false);
+
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => Promise.reject(new Error("denied")) },
+      });
+      Object.defineProperty(dom.window.document, "execCommand", { configurable: true, value: () => false });
+      const failedCopy = row("selection-3").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
+      await act(async () => failedCopy.click());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(failedCopy.getAttribute("aria-label")).toBe("Copy");
     } finally {
       await act(async () => root.unmount());
       if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
       else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+      if (execCommand) Object.defineProperty(dom.window.document, "execCommand", execCommand);
+      else delete (dom.window.document as unknown as Record<string, unknown>).execCommand;
       restore();
     }
   });
