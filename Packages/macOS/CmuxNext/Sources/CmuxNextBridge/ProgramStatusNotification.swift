@@ -56,6 +56,17 @@ public struct ProgramStatusNotification: Hashable, Sendable {
             .flatMap { record in reason(record).map { ProgramStatusNotification(record: record, reason: $0) } }
     }
 
+    /// Whether a `terminal` notification reads like an OSC 7501 alert ("<name>
+    /// <verb>" at the verb's level) whose record may not have arrived yet:
+    /// the session events stream can deliver the record after the
+    /// notification, so the app waits briefly for it before the banner.
+    public static func looksLikeAlert(title: String, level: NotificationLevel) -> Bool {
+        Reason.allCases.contains { reason in
+            let suffix = " " + verb(reason)
+            return Self.level(reason) == level && title.hasSuffix(suffix) && title.count > suffix.count
+        }
+    }
+
     /// The daemon's notification text limits (terminal_metadata.rs).
     static let titleLimit = 256
     static let bodyLimit = 1024

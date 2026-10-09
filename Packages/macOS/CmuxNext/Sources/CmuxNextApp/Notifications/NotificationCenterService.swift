@@ -22,6 +22,9 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
+    /// OSC 7501 alerts held until their record arrives, by notification id
+    /// (`NotificationCenterService+ProgramStatus`).
+    @ObservationIgnored var heldProgramAlerts: [UInt64: Task<Void, Never>] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored private var lastSeen: UInt64 = 0
@@ -195,8 +198,21 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
-        // An OSC 7501 done for a terminal the user can see is read at once.
         let program = programStatus(of: notification, source: source, located: located)
+        if program == nil, source == .terminal,
+           ProgramStatusNotification.looksLikeAlert(title: notification.title, level: notification.level) {
+            holdUntilRecord(notification, located: located) { [weak self] found in
+                self?.deliver(notification, source: source, located: located, decision: decision, program: found)
+            }
+            return
+        }
+        deliver(notification, source: source, located: located, decision: decision, program: program)
+    }
+
+    /// The rest of an arrival once its OSC 7501 record (if any) is known.
+    func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
+                 decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
+        // An OSC 7501 done for a terminal the user can see is read at once.
         if let program, !program.notifies(visibility: visibility(of: located)) {
             note("program status \(program.reason.rawValue) visible: read at once")
             acknowledge(located.tab)
