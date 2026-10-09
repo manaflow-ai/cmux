@@ -10,13 +10,16 @@ import Testing
 
     @Test func opensAndClosesPairAndTheLastCloseEndsTheTranscript() {
         var pager = HomeTranscriptPager()
-        #expect(!pager.close(id), "a close with no open does nothing")
+        let r1 = pager.close(id)
+        #expect(!r1, "a close with no open does nothing")
         pager.open(id)
         pager.open(id)
         #expect(pager.viewers[id] == 2)
-        #expect(!pager.close(id))
+        let r2 = pager.close(id)
+        #expect(!r2)
         #expect(pager.isShown(id))
-        #expect(pager.close(id))
+        let r3 = pager.close(id)
+        #expect(r3)
         #expect(!pager.isShown(id))
     }
 
@@ -34,9 +37,12 @@ import Testing
 
     @Test func oneOlderPageReadRunsAtATime() {
         var pager = HomeTranscriptPager()
-        #expect(pager.beginOlder(id))
-        #expect(!pager.beginOlder(id))
+        let r4 = pager.beginOlder(id)
+        #expect(r4)
+        let r5 = pager.beginOlder(id)
+        #expect(!r5)
         pager.endOlder(id)
-        #expect(pager.beginOlder(id))
+        let r6 = pager.beginOlder(id)
+        #expect(r6)
     }
 }
