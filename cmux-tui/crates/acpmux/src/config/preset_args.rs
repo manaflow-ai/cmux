@@ -4,7 +4,7 @@
 //! is one argv word handed to the process as it is (no shell, so quoting,
 //! globs and `$(…)` stay literal and an empty string is a real empty
 //! argument). They are an allowlist: on a Claude stdio command line only
-//! `--tools ""` (no tools), `--strict-mcp-config` (no MCP servers, as no
+//! `--tools ""` (no tools) or `--tools <built-in names>` (only those), `--strict-mcp-config` (no MCP servers, as no
 //! `--mcp-config` may be given), `--no-session-persistence`,
 //! `--setting-sources project` (no user or local settings: no user MCP
 //! servers, hooks or plugins; the project's own settings, its denied tools
@@ -107,10 +107,11 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
     while let Some(arg) = words.next() {
         match arg.as_str() {
             "--tools" => match words.next().map(String::as_str) {
-                Some("") => {}
+                Some(list) if list.is_empty() || is_builtin_list(list) => {}
                 _ => {
                     return Err(
-                        "args: --tools takes only an empty value (\"\": no tools)".to_owned()
+                        "args: --tools takes an empty value (\"\": no tools) or a comma list of built-in tool names (\"Bash,Read\")"
+                            .to_owned(),
                     );
                 }
             },
@@ -126,13 +127,25 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
             "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
-                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value or built-in names, \"--setting-sources\" with \"project\"); set systemPrompt for a system prompt file",
                     CLAUDE_ALLOWED.join(", ")
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// A comma list of built-in tool names (`Bash,Read`): letters and digits,
+/// starting with a letter, none empty. No rule (`Bash(rm:*)`), no MCP tool
+/// (`mcp__…`), no wildcard, no `default` (Claude Code's word for every
+/// built-in): the list only narrows the built-ins offered.
+fn is_builtin_list(list: &str) -> bool {
+    list.split(',').all(|name| {
+        name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+            && name.bytes().all(|b| b.is_ascii_alphanumeric())
+            && !name.eq_ignore_ascii_case("default")
+    })
 }
 
 /// A preset name that can name a directory: ASCII letters, digits, `-`,
@@ -232,6 +245,17 @@ mod tests {
         );
     }
 
+    /// `--tools` with a list of built-in names: the session offers only
+    /// those, so a built-in Claude Code adds later is not offered.
+    #[test]
+    fn tools_with_a_list_of_builtin_names_pass() {
+        assert_eq!(
+            claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]),
+            Ok(())
+        );
+        assert_eq!(claude(&["--tools", "Read"]), Ok(()));
+    }
+
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
@@ -264,7 +288,13 @@ mod tests {
         refuses_setting_sources_equals_project: ["--setting-sources=project"];
         refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
         refuses_a_bare_word: ["hello"];
-        refuses_tools_with_a_value: ["--tools", "Bash"];
+        refuses_tools_with_a_rule: ["--tools", "Bash(rm:*)"];
+        refuses_tools_with_an_mcp_tool: ["--tools", "mcp__x__y"];
+        refuses_tools_with_a_space: ["--tools", "Bash, Read"];
+        refuses_tools_with_an_empty_name: ["--tools", "Bash,,Read"];
+        refuses_tools_with_a_wildcard: ["--tools", "*"];
+        refuses_tools_default: ["--tools", "default"];
+        refuses_tools_default_in_a_list: ["--tools", "Read,Default"];
         refuses_tools_without_a_value: ["--tools"];
         refuses_tools_equals_empty: ["--tools="];
         refuses_tools_equals_value: ["--tools=Bash"];

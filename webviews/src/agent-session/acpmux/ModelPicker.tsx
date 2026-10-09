@@ -17,7 +17,7 @@ import { currentLanguage, useT } from "./i18n";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
   PickerButton,
   PickerComboboxInput,

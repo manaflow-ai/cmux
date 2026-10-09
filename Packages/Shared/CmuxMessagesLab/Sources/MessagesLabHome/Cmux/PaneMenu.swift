@@ -12,7 +12,7 @@ extension ChatController {
     func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
-        let current = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
+        let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
         // incoming 59 -> 91, outgoing (72,147,247) -> (45,89,192), in about 0.22 s after
@@ -74,7 +74,7 @@ extension ChatController {
     /// Tapback Details…: who reacted, with what (a popover at the bubble).
     /// cmux: names from the HomeStore conversation's participants.
     func showTapbackDetails(_ hit: MessagesWindowView.Hit) {
-        let st = store.state
+        guard let st = store?.state else { return }
         let lines = hit.row.reactions.map { r -> String in
             let who = st.conversation.participants.first { $0.id == r.senderId }?.displayName ?? r.senderId
             let what: String

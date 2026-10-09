@@ -86,7 +86,8 @@ extension NSView {
         defer { ThemeContext.pop() }
         var result: T?
         effectiveAppearance.performAsCurrentDrawingAppearance { result = body() }
-        return result!
+        // The block runs synchronously, so `result` is set; otherwise run `body` without the appearance.
+        return result ?? body()
     }
 }
 

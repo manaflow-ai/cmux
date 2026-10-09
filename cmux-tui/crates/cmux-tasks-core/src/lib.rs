@@ -6,6 +6,21 @@
 //! checker and the operation catalog entries. It performs no I/O; the
 //! service crate (`cmux-tasks`) adds the op log, snapshots and transport.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 pub mod catalog;
 pub mod event;
 pub mod ids;

@@ -104,7 +104,14 @@ RUST = {
 }
 ENV_WRITE = re.compile(r"\b(setenv|unsetenv|putenv)\s*\(|\benviron\s*(\[[^\]]*\]\s*)?=(?!=)")
 ENV_ALLOWLIST = os.path.join(HERE, "env-write-allowlist.json")
-INLINE_TESTS = re.compile(r"#\[cfg\(test\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+# A test-only cfg: `cfg(test)`, or `cfg(all(...))` with `test` as one of its
+# top-level predicates (`cfg(all(test, unix))`). Never `any(test, ...)` or
+# `not(test)`: those also compile outside tests.
+_CFG_ITEM = r'(?:(?:any|all|not)\([^()]*\)|\w+\s*=\s*"[^"]*"|\w+)'
+_TEST_CFG = (r"(?:test|all\(\s*(?:" + _CFG_ITEM + r"\s*,\s*)*test\s*(?:,\s*" + _CFG_ITEM
+             + r"\s*)*,?\s*\))")
+INLINE_TESTS = re.compile(r"#\[cfg\(" + _TEST_CFG
+                          + r"\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 

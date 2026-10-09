@@ -198,7 +198,10 @@ pub fn verify(
         Some(last) => manifest.sequence == last.sequence,
         None => false,
     };
-    let min = SemVer::release(parse_version(&manifest.min_cmux_version).expect("checked"));
+    // Checked by validation above; a failure here is still an invalid manifest.
+    let min = SemVer::release(parse_version(&manifest.min_cmux_version).ok_or_else(|| {
+        ManifestError::Invalid(format!("min cmux version {:?}", manifest.min_cmux_version))
+    })?);
     let running = SemVer::parse(ctx.running_cmux).ok_or_else(|| {
         ManifestError::Invalid(format!("running cmux version {:?}", ctx.running_cmux))
     })?;
