@@ -142,6 +142,7 @@ use remote_relay::handle_connection_message;
 mod responses;
 mod rows;
 mod screen_json;
+mod server_stats;
 mod session_stream;
 mod split_kind;
 mod split_respawn;
