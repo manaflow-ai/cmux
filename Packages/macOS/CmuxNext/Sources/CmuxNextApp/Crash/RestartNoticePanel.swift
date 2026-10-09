@@ -17,9 +17,11 @@ final class RestartNoticePanel {
     private weak var parent: NSWindow?
     private var observers: [any NSObjectProtocol] = []
     private let onShowLog: (() -> Void)?
+    private let onReport: (() -> Void)?
 
-    init(text: String, onShowLog: (() -> Void)?) {
+    init(text: String, onShowLog: (() -> Void)?, onReport: (() -> Void)? = nil) {
         self.onShowLog = onShowLog
+        self.onReport = onReport
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -45,6 +47,11 @@ final class RestartNoticePanel {
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         var views: [NSView] = [label]
+        if onReport != nil {
+            let report = NSButton(title: CrashStrings.report, target: self, action: #selector(report))
+            report.bezelStyle = .accessoryBarAction
+            views.append(report)
+        }
         if onShowLog != nil {
             let show = NSButton(title: CrashStrings.showLog, target: self, action: #selector(showLog))
             show.bezelStyle = .accessoryBarAction
@@ -102,6 +109,8 @@ final class RestartNoticePanel {
     }
 
     @objc private func showLog() { onShowLog?() }
+
+    @objc private func report() { onReport?() }
 
     @objc func dismiss() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }

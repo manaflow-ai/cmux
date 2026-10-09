@@ -85,8 +85,10 @@ struct SidebarGroupFlow {
     func move(_ ids: [SidebarWorkspaceID], into group: CmuxNextSidebar.GroupID, _ intent: SidebarIntent) {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids)
         let life = bridge.life, ending = life.emptied(by: members, into: id)
-        bridge.model.apply(intent)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: { bridge.resync() }) { connection in
+        // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
+        let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) },
+                    failed: failed, applied: applied) { connection in
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(id))

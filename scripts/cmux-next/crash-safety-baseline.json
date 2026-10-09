@@ -62,9 +62,6 @@
   }
  },
  "swift": {
-  "assume_isolated": {
-   "CmuxNextSidebar": 3
-  },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
    "CmuxNextAgentCursor": 1,
