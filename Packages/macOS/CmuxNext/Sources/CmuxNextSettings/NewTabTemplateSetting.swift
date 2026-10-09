@@ -22,7 +22,6 @@ nonisolated extension NewTabTemplate {
     public static let fallback: NewTabTemplate = .default
 
     static func parse(_ root: JSONValue) -> (NewTabTemplate?, SettingsDiagnostic?) {
-        return (nil, nil) // red: not read yet
         guard let value = root.value(at: configPath) else { return (nil, nil) }
         guard let text = value.stringValue, let template = NewTabTemplate(rawValue: text) else {
             let choices = NewTabTemplate.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
