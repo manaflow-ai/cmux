@@ -14,7 +14,7 @@
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
   --cv-code-bg: color-mix(in srgb, var(--cv-fg) 11%, transparent); /* #3e3f39 inline code */
-  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, transparent); /* #373833 */
+  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, var(--agent-page-bg)); /* #373833 */
   --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
@@ -64,7 +64,8 @@
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
-  background: var(--cv-bubble);
+  background: color-mix(in srgb, var(--agent-highlight, var(--cv-fg)) 10%, var(--agent-page-bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-highlight, var(--cv-fg)) 18%, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
@@ -458,6 +459,34 @@ pre.cv-math-source {
 .acpmux-row {
   left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
+.acpmux-row.acpmux-user {
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--agent-highlight, var(--cv-fg)) 42%, transparent);
+}
+.acpmux-row.acpmux-assistant {
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--agent-accent-soft, var(--cv-fg)) 34%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-row.acpmux-user,
+  .acpmux-row.acpmux-assistant {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row.acpmux-user,
+  .acpmux-row.acpmux-assistant {
+    transition: border-color var(--agent-motion-hover, 120ms) var(--agent-ease-out, ease-out);
+  }
+}
+.acpmux-row.acpmux-user:hover,
+.acpmux-row.acpmux-user:focus-within {
+  border-inline-start-color: color-mix(in srgb, var(--agent-highlight, var(--cv-fg)) 72%, transparent);
+}
+.acpmux-row.acpmux-assistant:hover,
+.acpmux-row.acpmux-assistant:focus-within {
+  border-inline-start-color: color-mix(in srgb, var(--agent-accent-soft, var(--cv-fg)) 58%, transparent);
 }
 .acpmux-permission {
   padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));

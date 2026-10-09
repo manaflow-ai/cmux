@@ -3581,10 +3581,15 @@ describe("transcript reading continuity", () => {
         scroller.scrollTop = 0;
         scroller.dispatchEvent(new dom.window.Event("scroll"));
       });
-      await act(async () => root.render(createElement(VirtualTranscript, {
-        rows: [...rows, { id: "live-answer", version: 1, at: 999, kind: "assistant", text: "New output" }],
-        onToggleActivity: () => {}, expanded: new Set<string>(),
-      })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [...rows, { id: "live-answer", version: 1, at: 999, kind: "assistant", text: "New output" }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(selection.toString()).toBe(text);
       expect(bubble.isConnected).toBe(true);
       act(() => {
@@ -3629,31 +3634,47 @@ describe("transcript reading continuity", () => {
   });
 });
 
-
 test("Worked for retains focus when details open and the reader scrolls away", async () => {
   const restore = fakeViewport({ width: 760, height: 600 });
   const root = createRoot(dom.window.document.getElementById("root")!);
   let expanded = new Set<string>();
   const disclosure: AcpmuxRow = { id: "worked-focus", version: 1, at: 999, kind: "worked", durationMs: 42000 };
-  const draw = () => root.render(createElement(VirtualTranscript, {
-    rows: [...rows, disclosure, ...(expanded.size ? [{ id: "details", version: 1, at: 1000, kind: "notice", text: "Work details" }] : [])],
-    expanded,
-    onToggleActivity: (id: string) => { expanded = expanded.has(id) ? new Set() : new Set([id]); draw(); },
-  }));
+  const draw = () =>
+    root.render(
+      createElement(VirtualTranscript, {
+        rows: [
+          ...rows,
+          disclosure,
+          ...(expanded.size ? [{ id: "details", version: 1, at: 1000, kind: "notice", text: "Work details" }] : []),
+        ],
+        expanded,
+        onToggleActivity: (id: string) => {
+          expanded = expanded.has(id) ? new Set() : new Set([id]);
+        },
+      }),
+    );
   try {
     await act(async () => draw());
-    const button = document.querySelector<HTMLButtonElement>(".cv-worked.is-toggle")!;
+    const button = document.querySelector<HTMLButtonElement>('[data-row-id="worked-focus"] .cv-worked.is-toggle')!;
     act(() => button.focus());
     // Native buttons synthesize this click for both Enter and Space. The gallery play
     // drives the actual keys; jsdom does not implement default keyboard activation.
     act(() => button.click());
+    await act(async () => draw());
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(button);
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    act(() => { scroller.scrollTop = 0; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
     expect(document.activeElement).toBe(button);
     act(() => button.click());
+    await act(async () => draw());
     expect(button.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(button);
-  } finally { await act(async () => root.unmount()); restore(); }
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
 });

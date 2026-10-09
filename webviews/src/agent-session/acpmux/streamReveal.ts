@@ -30,7 +30,10 @@ export class StreamReveal {
   static readonly minCharsPerSecond = 40;
   static readonly maxBacklogMs = 900;
   static readonly catchUpMs = 250;
-  static readonly finishMs = 180;
+  /// A finished delta drains over a short, predictable horizon. Keeping this below one
+  /// sixth of a second makes a final burst feel attached to the reply instead of a second
+  /// animation after the model has finished.
+  static readonly finishMs = 150;
   static readonly stallMs = 600;
   /// A longer gap between frames (a hidden pane, a long task) counts as this long.
   static readonly maxFrameMs = 100;
@@ -47,6 +50,8 @@ export class StreamReveal {
   private smoothedRate = 0;
   private drainUntil: number | undefined;
   private readonly reduceMotion: boolean;
+  private segmentedText = "";
+  private graphemeBoundaries: number[] | undefined;
 
   constructor(options: StreamRevealOptions = {}) {
     this.shown = options.initial?.length ?? 0;
@@ -79,7 +84,7 @@ export class StreamReveal {
     }
     if (elapsed > 0)
       this.shown = Math.min(text.length, this.shown + (this.charsPerSecond(time, elapsed, done) * elapsed) / 1000);
-    return StreamReveal.cut(text, Math.floor(this.shown));
+    return this.cut(text, Math.floor(this.shown));
   }
 
   private arrived(time: number, chars: number): void {
@@ -130,10 +135,25 @@ export class StreamReveal {
     return Math.max(StreamReveal.minCharsPerSecond, rate + ((backlog - target) / StreamReveal.correctMs) * 1000);
   }
 
-  /// `end`, moved off the middle of a surrogate pair.
-  private static cut(text: string, end: number): number {
+  /// `end`, moved back to a grapheme boundary. `Intl.Segmenter` keeps emoji ZWJ sequences,
+  /// regional-indicator flags, combining marks and Indic conjuncts together. The small fallback
+  /// retains the old surrogate-pair guarantee on engines without Segmenter.
+  private cut(text: string, end: number): number {
     if (end <= 0 || end >= text.length) return Math.max(0, Math.min(end, text.length));
+    if (typeof Intl.Segmenter === "function") {
+      if (this.segmentedText !== text || !this.graphemeBoundaries) {
+        const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+        this.graphemeBoundaries = [...segmenter.segment(text)].map((part) => part.index + part.segment.length);
+        this.segmentedText = text;
+      }
+      let boundary = 0;
+      for (const candidate of this.graphemeBoundaries) {
+        if (candidate > end) break;
+        boundary = candidate;
+      }
+      return boundary;
+    }
     const code = text.charCodeAt(end - 1);
-    return code >= 0xd800 && code <= 0xdbff ? end + 1 : end;
+    return code >= 0xd800 && code <= 0xdbff ? end - 1 : end;
   }
 }

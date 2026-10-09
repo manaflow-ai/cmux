@@ -106,6 +106,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { Thinking } from "./conversation/Thinking";
+import { useRetainedRows } from "./conversation/useRetainedRows";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
@@ -594,6 +595,7 @@ export function VirtualTranscript({
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
+  const retainedRows = useRetainedRows(ref);
   const [width, setWidth] = useState(760);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
@@ -824,8 +826,8 @@ export function VirtualTranscript({
       />
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
-          {rows.slice(range.first, range.last).map((row, index) => {
-            const absoluteIndex = range.first + index;
+          {rows.flatMap((row, absoluteIndex) => {
+            if ((absoluteIndex < range.first || absoluteIndex >= range.last) && !retainedRows.has(row.id)) return [];
             const kind = rowKind(row);
             const Component = registry[kind] ?? NoticeRow;
             const isExpanded = expanded.has(row.id);

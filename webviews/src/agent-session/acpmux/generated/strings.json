@@ -731,7 +731,8 @@
     "turn.retryLabel": "Send this prompt again",
     "turn.signInAgain": "Sign in again",
     "turn.stopped": "You stopped after {time}",
-    "turn.worked": "Worked for {time}"
+    "turn.worked": "Worked for {time}",
+    "turn.working": "Working for {time}"
   },
   "ar": {
     "adopt.live.fork": "تفريعها",
@@ -1465,7 +1466,8 @@
     "turn.retryLabel": "إرسال هذا الـ prompt مرة أخرى",
     "turn.signInAgain": "سجّل الدخول مرة أخرى",
     "turn.stopped": "أوقفت بعد {time}",
-    "turn.worked": "عمل لمدة {time}"
+    "turn.worked": "عمل لمدة {time}",
+    "turn.working": "يعمل لمدة {time}"
   },
   "bs": {
     "adopt.live.fork": "Račvaj",
@@ -2199,7 +2201,8 @@
     "turn.retryLabel": "Pošalji ovaj prompt ponovo",
     "turn.signInAgain": "Ponovo se prijavi",
     "turn.stopped": "Zaustavili ste nakon {time}",
-    "turn.worked": "Radio {time}"
+    "turn.worked": "Radio {time}",
+    "turn.working": "Radi {time}"
   },
   "da": {
     "adopt.live.fork": "Forgren den",
@@ -2933,7 +2936,8 @@
     "turn.retryLabel": "Send denne prompt igen",
     "turn.signInAgain": "Log ind igen",
     "turn.stopped": "Du stoppede efter {time}",
-    "turn.worked": "Arbejdede i {time}"
+    "turn.worked": "Arbejdede i {time}",
+    "turn.working": "Arbejder i {time}"
   },
   "de": {
     "adopt.live.fork": "Abzweigen",
@@ -3667,7 +3671,8 @@
     "turn.retryLabel": "Diesen Prompt erneut senden",
     "turn.signInAgain": "Erneut anmelden",
     "turn.stopped": "Du hast nach {time} gestoppt",
-    "turn.worked": "Gearbeitet für {time}"
+    "turn.worked": "Gearbeitet für {time}",
+    "turn.working": "Arbeitet seit {time}"
   },
   "es": {
     "adopt.live.fork": "Bifurcar",
@@ -4401,7 +4406,8 @@
     "turn.retryLabel": "Enviar este prompt de nuevo",
     "turn.signInAgain": "Volver a iniciar sesión",
     "turn.stopped": "Detuviste tras {time}",
-    "turn.worked": "Trabajó durante {time}"
+    "turn.worked": "Trabajó durante {time}",
+    "turn.working": "Trabajando durante {time}"
   },
   "fr": {
     "adopt.live.fork": "La dupliquer",
@@ -5135,7 +5141,8 @@
     "turn.retryLabel": "Renvoyer ce prompt",
     "turn.signInAgain": "Se reconnecter",
     "turn.stopped": "Vous avez arrêté après {time}",
-    "turn.worked": "A travaillé pendant {time}"
+    "turn.worked": "A travaillé pendant {time}",
+    "turn.working": "Travaille depuis {time}"
   },
   "it": {
     "adopt.live.fork": "Biforcala",
@@ -5869,7 +5876,8 @@
     "turn.retryLabel": "Invia di nuovo questo prompt",
     "turn.signInAgain": "Accedi di nuovo",
     "turn.stopped": "Hai interrotto dopo {time}",
-    "turn.worked": "Ha lavorato per {time}"
+    "turn.worked": "Ha lavorato per {time}",
+    "turn.working": "Lavora da {time}"
   },
   "ja": {
     "adopt.live.fork": "フォーク",
@@ -6603,7 +6611,8 @@
     "turn.retryLabel": "このプロンプトをもう一度送信",
     "turn.signInAgain": "もう一度サインイン",
     "turn.stopped": "{time} 後に停止しました",
-    "turn.worked": "{time} 作業しました"
+    "turn.worked": "{time} 作業しました",
+    "turn.working": "{time} 作業中"
   },
   "km": {
     "adopt.live.fork": "បំបែកវា",
@@ -7337,7 +7346,8 @@
     "turn.retryLabel": "ផ្ញើប្រអប់បញ្ចូលនេះម្តងទៀត",
     "turn.signInAgain": "ចូលគណនីម្ដងទៀត",
     "turn.stopped": "អ្នកបានបញ្ឈប់បន្ទាប់ពី {time}",
-    "turn.worked": "បានធ្វើការរយៈពេល {time}"
+    "turn.worked": "បានធ្វើការរយៈពេល {time}",
+    "turn.working": "កំពុងធ្វើការរយៈពេល {time}"
   },
   "ko": {
     "adopt.live.fork": "포크",
@@ -8071,7 +8081,8 @@
     "turn.retryLabel": "이 프롬프트를 다시 보내기",
     "turn.signInAgain": "다시 로그인",
     "turn.stopped": "{time} 후에 중지함",
-    "turn.worked": "{time} 동안 작업함"
+    "turn.worked": "{time} 동안 작업함",
+    "turn.working": "{time} 동안 작업 중"
   },
   "nb": {
     "adopt.live.fork": "Forgren den",
@@ -8805,7 +8816,8 @@
     "turn.retryLabel": "Send denne prompten på nytt",
     "turn.signInAgain": "Logg inn på nytt",
     "turn.stopped": "Du stoppet etter {time}",
-    "turn.worked": "Jobbet i {time}"
+    "turn.worked": "Jobbet i {time}",
+    "turn.working": "Jobber i {time}"
   },
   "pl": {
     "adopt.live.fork": "Rozgałęź",
@@ -9539,7 +9551,8 @@
     "turn.retryLabel": "Wyślij ten prompt ponownie",
     "turn.signInAgain": "Zaloguj się ponownie",
     "turn.stopped": "Zatrzymano po {time}",
-    "turn.worked": "Pracował przez {time}"
+    "turn.worked": "Pracował przez {time}",
+    "turn.working": "Pracuje od {time}"
   },
   "pt-BR": {
     "adopt.live.fork": "Bifurcar",
@@ -10273,7 +10286,8 @@
     "turn.retryLabel": "Enviar este prompt novamente",
     "turn.signInAgain": "Entrar novamente",
     "turn.stopped": "Você interrompeu após {time}",
-    "turn.worked": "Trabalhou por {time}"
+    "turn.worked": "Trabalhou por {time}",
+    "turn.working": "Trabalhando por {time}"
   },
   "ru": {
     "adopt.live.fork": "Ответвить",
@@ -11007,7 +11021,8 @@
     "turn.retryLabel": "Отправить этот запрос снова",
     "turn.signInAgain": "Войти снова",
     "turn.stopped": "Вы остановили через {time}",
-    "turn.worked": "Работал {time}"
+    "turn.worked": "Работал {time}",
+    "turn.working": "Работает {time}"
   },
   "th": {
     "adopt.live.fork": "แยกออกมา",
@@ -11741,7 +11756,8 @@
     "turn.retryLabel": "ส่งพรอมต์นี้อีกครั้ง",
     "turn.signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
     "turn.stopped": "คุณหยุดหลังจาก {time}",
-    "turn.worked": "ทำงานเป็นเวลา {time}"
+    "turn.worked": "ทำงานเป็นเวลา {time}",
+    "turn.working": "กำลังทำงานเป็นเวลา {time}"
   },
   "tr": {
     "adopt.live.fork": "Çatalla",
@@ -12475,7 +12491,8 @@
     "turn.retryLabel": "Bu istemi tekrar gönder",
     "turn.signInAgain": "Tekrar giriş yap",
     "turn.stopped": "{time} sonra durdurdunuz",
-    "turn.worked": "Şu kadar çalıştı: {time}"
+    "turn.worked": "Şu kadar çalıştı: {time}",
+    "turn.working": "{time} süredir çalışıyor"
   },
   "uk": {
     "adopt.live.fork": "Відгалузити",
@@ -13209,7 +13226,8 @@
     "turn.retryLabel": "Надіслати цей запит ще раз",
     "turn.signInAgain": "Увійти знову",
     "turn.stopped": "Ви зупинили через {time}",
-    "turn.worked": "Працював {time}"
+    "turn.worked": "Працював {time}",
+    "turn.working": "Працює {time}"
   },
   "vi": {
     "adopt.live.fork": "Tách nhánh",
@@ -13943,7 +13961,8 @@
     "turn.retryLabel": "Gửi lại lời nhắc này",
     "turn.signInAgain": "Đăng nhập lại",
     "turn.stopped": "Bạn đã dừng sau {time}",
-    "turn.worked": "Đã làm việc trong {time}"
+    "turn.worked": "Đã làm việc trong {time}",
+    "turn.working": "Đang làm việc trong {time}"
   },
   "zh-Hans": {
     "adopt.live.fork": "分叉",
@@ -14677,7 +14696,8 @@
     "turn.retryLabel": "再次发送此提示",
     "turn.signInAgain": "重新登录",
     "turn.stopped": "你在 {time} 后停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "turn.working": "已工作 {time}"
   },
   "zh-Hant": {
     "adopt.live.fork": "分叉",
@@ -15411,6 +15431,7 @@
     "turn.retryLabel": "再次傳送此提示",
     "turn.signInAgain": "重新登入",
     "turn.stopped": "你在 {time} 後停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "turn.working": "已工作 {time}"
   }
 }
