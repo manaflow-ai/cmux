@@ -673,6 +673,52 @@ fn a_page_loaded_before_the_relay_attached_is_loaded() {
     assert_eq!(info["loadState"], "load", "{info}");
 }
 
+/// A provider session's plain `tabs.list()` is its own tabs (opened or
+/// driven), as on headless; `{all: true}` lists every tab the app announced,
+/// of both engines, for claims (`tabs.use(id)`). Before, a plain list showed
+/// every tab of the session's engine, in every workspace.
+#[test]
+fn a_plain_tabs_list_is_the_sessions_own_tabs_and_all_lists_both_engines() {
+    let (app, provider) = FakeApp::start(vec![
+        tab("W", "webkit"),
+        tab("other", "webkit"),
+        tab("c1", "cef"),
+        tab("new", "webkit"),
+    ]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({})).unwrap();
+    session.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    let ids = |rows: Value| {
+        let mut ids: Vec<String> = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["targetId"].as_str().unwrap().to_owned())
+            .collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids(session.call("tabs.list", &json!({})).unwrap()), ["W", "new"]);
+    assert_eq!(
+        ids(session.call("tabs.list", &json!({"all": true})).unwrap()),
+        ["W", "c1", "new", "other"]
+    );
+    drop(app);
+}
+
+/// A WebKit session drives a Chromium tab it claimed: the call goes to that
+/// tab's engine (the CDP relay), never refused. Before: "tab c1 is a cef tab;
+/// this session runs on webkit".
+#[test]
+fn a_webkit_session_drives_a_claimed_chromium_tab() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let session = engine(&provider, "webkit");
+    let info = session.call("tab.info", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(info["loadState"], "load", "{info}");
+    assert!(app.cdp_messages("c1").iter().any(|m| m["method"] == "Target.getTargetInfo"));
+}
+
 /// A WebKit session's URL still goes to the app (its driver navigates).
 #[test]
 fn a_webkit_tabs_open_passes_the_url_to_the_app() {
