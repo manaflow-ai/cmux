@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f46c2209bd97b12e14f9bb0634256dfec41d2c623c8d41dcac3469f3191963e7",
+  "catalog_sha256": "eab9d28370a56c146f777a0c7098143b7011259e57f333c20970201d4a55a81f",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -215,6 +215,24 @@
       "class": "mutation"
     },
     "pane.zoom": {
+      "class": "mutation"
+    },
+    "project.add": {
+      "class": "mutation"
+    },
+    "project.list": {
+      "class": "read"
+    },
+    "project.observe": {
+      "class": "mutation"
+    },
+    "project.remove": {
+      "class": "mutation"
+    },
+    "project.sync": {
+      "class": "mutation"
+    },
+    "project.update": {
       "class": "mutation"
     },
     "request.cancel": {

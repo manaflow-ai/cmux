@@ -402,6 +402,18 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "project.list")]
+    ProjectList,
+    #[serde(rename = "project.observe")]
+    ProjectObserve,
+    #[serde(rename = "project.add")]
+    ProjectAdd,
+    #[serde(rename = "project.update")]
+    ProjectUpdate,
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+    #[serde(rename = "project.sync")]
+    ProjectSync,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -622,6 +634,7 @@ impl ResourceOperation {
                 | Self::ClosedList
                 | Self::WindowRecordList
                 | Self::SidebarLayoutGet
+                | Self::ProjectList
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

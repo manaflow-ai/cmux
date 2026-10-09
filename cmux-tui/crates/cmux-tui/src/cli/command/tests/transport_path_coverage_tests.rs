@@ -111,6 +111,14 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // own sidebar actions and intent log.
                         | "sidebar_layout.get"
                         | "sidebar_layout.update"
+                        // The project list is the app's and its importers'
+                        // (plans/cmux-next/projects.md); no CLI verb yet.
+                        | "project.list"
+                        | "project.observe"
+                        | "project.add"
+                        | "project.update"
+                        | "project.remove"
+                        | "project.sync"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"

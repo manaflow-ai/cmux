@@ -48,6 +48,10 @@ pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
 pub(crate) mod projects;
+pub(crate) mod projects_ops;
+#[cfg(test)]
+mod projects_protocol_tests;
+pub(crate) mod projects_store;
 #[cfg(test)]
 mod projects_tests;
 pub(crate) mod room_delete;

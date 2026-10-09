@@ -181,9 +181,21 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.engine.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.engine.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.stop": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.update": {
       "scope": "chief:write",
@@ -947,6 +959,30 @@
     },
     "participants.add": {
       "scope": "participants:write",
+      "class": "mutation"
+    },
+    "project.add": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.list": {
+      "scope": "project:read",
+      "class": "read"
+    },
+    "project.observe": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.sync": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.update": {
+      "scope": "project:write",
       "class": "mutation"
     },
     "push.target.register": {

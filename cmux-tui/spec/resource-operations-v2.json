@@ -29,6 +29,7 @@
     "closed",
     "window_record",
     "sidebar_layout",
+    "project",
     "git_checkpoint",
     "conversation"
   ],
@@ -8206,6 +8207,190 @@
       },
       "extra": false
     },
+    "ProjectSourceSeen": {
+      "kind": "object",
+      "fields": {
+        "first_seen_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the source first reported the project (Unix ms)."
+        },
+        "last_seen_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the source last reported it (Unix ms)."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the project was last used there (Unix ms)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectOverlay": {
+      "kind": "object",
+      "fields": {
+        "rename": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The user's name for the project."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Pinned by the user (listed first)."
+        },
+        "hidden": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Hidden by the user; stays hidden on every resync."
+        },
+        "order": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "The user's order among pinned projects."
+        }
+      },
+      "extra": false
+    },
+    "ProjectSnapshot": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Canonical absolute path (realpath, no trailing slash): the project's id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The display name: the user's rename, else the folder's last component."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The latest last_used_ms of its sources (Unix ms); 0 for none."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "ProjectSourceSeen"
+            }
+          },
+          "description": "Per source id (claude-code, codex, vscode, zed, user, ...): when it reported the project."
+        },
+        "overlay": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ProjectOverlay"
+          },
+          "description": "The user's edits; a resync never changes them."
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "present",
+              "missing"
+            ]
+          },
+          "description": "missing: gone from every source and from disk (shown dimmed, removable, never deleted automatically)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectList": {
+      "kind": "object",
+      "fields": {
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSnapshot"
+            }
+          },
+          "description": "Pinned first (by order), then the most recently used."
+        }
+      },
+      "extra": false
+    },
+    "ProjectObservation": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "An absolute folder path; the store canonicalizes it."
+        },
+        "last_used_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the folder was last used in the source (Unix ms)."
+        }
+      },
+      "extra": false
+    },
+    "ProjectChange": {
+      "kind": "object",
+      "fields": {
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The paths whose project changed (each also a session.events state_upsert or state_delete of resource project)."
+        }
+      },
+      "extra": false
+    },
     "ConversationPartRef": {
       "kind": "object",
       "fields": {
@@ -14509,6 +14694,355 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "project.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "An existing folder; the store canonicalizes it. Adds source user and unhides the project."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "validation.invalid with refused_path for /, the home folder, temp dirs and agent homes; invalid_path for a missing folder."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "Case-insensitive match on the name or the path."
+          },
+          "include_hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also list hidden projects."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "At most this many (default and maximum 500)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ProjectList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.observe": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (ASCII letters, digits, - _ .; never user)."
+          },
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "ProjectObservation"
+              }
+            },
+            "description": "The paths the source reports, at most 2000."
+          },
+          "complete": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The entries are everything the source knows: a path it no longer lists loses this source."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Refused paths (/, the home folder, temp dirs, agent homes) are skipped, never an error.",
+          "A known path updates only this source's times; the user's overlay is never changed; a hidden project stays hidden."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The project's canonical path."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A project a source still reports is hidden (so a resync does not bring it back); any other one is deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.sync": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Marks a project no source reports and that is gone from disk missing, and a missing one back on disk present. Sent at daemon start and on app activation; never on a timer."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The project's canonical path."
+          },
+          "rename": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The user's name (1 to 256 bytes); null clears it."
+          },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Pin or unpin."
+          },
+          "hidden": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Hide or show."
+          },
+          "order": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "int32"
+              }
+            },
+            "description": "The order among pinned projects; null clears it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "An unknown path is validation.invalid with unknown_project."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
