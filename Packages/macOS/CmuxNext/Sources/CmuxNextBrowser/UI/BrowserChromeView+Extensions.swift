@@ -39,7 +39,7 @@ extension BrowserChromeView {
     /// while it is open.
     public func presentExtensionsMenu(for id: String? = nil) {
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self else { return }
                 if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
             }

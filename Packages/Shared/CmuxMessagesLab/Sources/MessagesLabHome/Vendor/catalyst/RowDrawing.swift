@@ -131,8 +131,9 @@ enum PartRenderer {
             BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
             _ = lines
             if let md = p.markdown {
-                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity),
-                                  mode: MarkdownOverlay.active ? .skipScrollable : .all)
+                // Every block, at its scroll offset (thread view, morph and menu copies of the row are
+                // complete); a live cell masks the bitmap under its overlays (MarkdownOverlay).
+                MarkdownDraw.draw(ctx, md, body: body, outgoing: p.outgoing, offsets: MarkdownScroll.all(md.identity))
             } else if let tl = p.text { drawText(ctx, tl, in: body, outgoing: p.outgoing) }
         case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
             // Messages' loading card: a grey rounded square, an activity spinner

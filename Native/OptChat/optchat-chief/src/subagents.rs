@@ -20,13 +20,13 @@
 //!   subagent directory is used.
 //! - Its tools are zoom and date (its own MCP server says `--role
 //!   subagent`), not spawn. Its tool calls stay in its own session.
-//! - The brain (brain/spawns.rs) watches the sessions: when all of one
-//!   spawn's subagents finished a turn, their reports reach the chat as ONE
-//!   `user` message, `[id] report` each.
+//! - The brain (brain/spawns.rs) watches the sessions: when a
+//!   subagent finishes a turn, its report reaches the chat as its own
+//!   `user` message, `[id] report`.
 //!
 //! Deviation: `tell` reaches a running subagent after its current turn
-//! (acpmux queues the prompt; claude-sr offers no steering), not between its
-//! tool calls.
+//! (acpmux queues the prompt), not between its tool calls; it does not
+//! steer yet.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,12 @@ pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
 /// Most tasks one spawn starts.
 pub const MAX_TASKS: usize = 8;
+/// Most subagents at work at once; a spawn over it queues the rest, which
+/// start as others finish.
+pub const MAX_LIVE: usize = 16;
+/// Longest a Claude spawn waits for its first subagent's response to start
+/// (the shared view's cache entry then exists) before it starts the rest.
+pub const WARM_WAIT: Duration = Duration::from_secs(20);
 /// Longest `spawn` waits for the view to settle (section 6).
 pub const SETTLE_LIMIT: Duration = Duration::from_secs(240);
 /// Prompt ids of the host's own prompts to a subagent start with this; any
@@ -60,6 +66,12 @@ pub const PROMPT_PREFIX: &str = "optchat-";
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
+    /// The ids over `MAX_LIVE`: they wait for a free slot.
+    pub queued: Vec<String>,
+    /// The TTL of the turns' cache marks (`Brain::turn_cache_ttl`), None
+    /// once a route refused our marks: a Claude subagent's first message
+    /// is marked at the view's end with it.
+    pub ttl: Option<crate::prompt::CacheTtl>,
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
@@ -114,6 +126,15 @@ pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A queued subagent's launch.
+struct Waiting {
+    spawn: String,
+    task: String,
+    floor: Option<String>,
+    launch: SubagentSettings,
+    ttl: Option<crate::prompt::CacheTtl>,
+}
+
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
 pub struct Spawner {
     chat: Arc<OptChat>,
@@ -128,6 +149,11 @@ pub struct Spawner {
     /// OPTCHAT_SUBAGENT_HARNESS pins the subagent harness: a spawn never
     /// follows the turn's engine.
     pinned: bool,
+    /// Queued subagents' launches, by id, kept until a slot frees (in memory:
+    /// a restarted host reports them as not started).
+    waiting: Mutex<BTreeMap<String, Waiting>>,
+    /// `WARM_WAIT` (shorter in tests).
+    warm_wait: Duration,
     log: crate::brain::Log,
 }
 
@@ -148,6 +174,8 @@ impl Spawner {
             workspaces: None,
             no_workspace_reason: "this Chief host has nowhere to make cmux workspaces".to_owned(),
             pinned: false,
+            waiting: Mutex::new(BTreeMap::new()),
+            warm_wait: WARM_WAIT,
             log,
         }
     }
@@ -205,6 +233,12 @@ impl Spawner {
         s
     }
 
+    /// How long a Claude spawn waits for its first subagent's response.
+    pub fn with_warm_wait(mut self, wait: Duration) -> Spawner {
+        self.warm_wait = wait;
+        self
+    }
+
     /// Why there are no workspaces (said in each spawn answer without them).
     pub fn with_no_workspace_reason(mut self, reason: impl Into<String>) -> Spawner {
         self.no_workspace_reason = reason.into();
@@ -222,6 +256,7 @@ impl Spawner {
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
     /// where it lives, or that it has none and why.
+    #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
         spawn: &str,
@@ -230,7 +265,9 @@ impl Spawner {
         view: &str,
         floor: Option<&str>,
         s: &SubagentSettings,
-    ) -> Result<String, String> {
+        ttl: Option<crate::prompt::CacheTtl>,
+        warm: Option<Sender<()>>,
+    ) -> Result<(String, bool), String> {
         let began = Instant::now();
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
         let admitted =
@@ -238,6 +275,18 @@ impl Spawner {
                 crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
                 crate::harness_gate::refusal(&reason)
             })?;
+        // A Claude session on a preset with a system prompt takes the cached
+        // layout: our one mark ends the shared view, with the turns' TTL, and
+        // Claude Code is told the same TTL (the API refuses a 1h mark after a
+        // 5m one).
+        let mark = ttl
+            .filter(|_| admitted.family == crate::acpmux::Family::Claude)
+            .filter(|_| {
+                s.preset
+                    .as_deref()
+                    .is_some_and(|p| self.agents.system_prompt(p))
+            })
+            .and_then(|ttl| crate::prompt::Mark::last_whole(view, ttl));
         // The workspace key is chosen first, so the session starts knowing
         // its workspace (CMUX_WORKSPACE_ID; acpmux per-session env).
         let key = self
@@ -266,6 +315,7 @@ impl Spawner {
             env: key
                 .iter()
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
+                .chain(mark.map(|m| ttl_env(m.ttl)))
                 .collect(),
         };
         let session = self.agents.new_session(&spec)?;
@@ -285,11 +335,22 @@ impl Spawner {
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
         self.agents.start_prompt(
             &session,
-            crate::prompt::subagent_blocks(view, task),
+            match mark {
+                Some(mark) => {
+                    crate::prompt::cached_layout_marked(
+                        "",
+                        view,
+                        &format!("Your task:\n\n{task}"),
+                        Some(mark),
+                    )
+                    .blocks
+                }
+                None => crate::prompt::subagent_blocks(view, task),
+            },
             &prompt_id,
             tx,
         )?;
-        self.forward_answer(id, rx);
+        self.forward_answer(id, rx, warm.map(|w| (session.clone(), w)));
         self.trace.emit(
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
@@ -301,7 +362,10 @@ impl Spawner {
                 "subagent.workspace",
                 json!({"id": id, "spawn": spawn, "error": self.trace.text(&self.no_workspace_reason)}),
             );
-            return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
+            return Ok((
+                format!("no cmux workspace ({})", self.no_workspace_reason),
+                mark.is_some(),
+            ));
         };
         let name = crate::workspaces::name(id, task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
@@ -318,7 +382,7 @@ impl Spawner {
                     key,
                     name,
                 });
-                Ok(note)
+                Ok((note, mark.is_some()))
             }
             Err(e) => {
                 (self.log)(&format!("subagent {id}: opening its workspace: {e}"));
@@ -326,7 +390,10 @@ impl Spawner {
                     "subagent.workspace",
                     json!({"id": id, "spawn": spawn, "error": self.trace.text(&e)}),
                 );
-                Ok(format!("no cmux workspace (opening it failed: {e})"))
+                Ok((
+                    format!("no cmux workspace (opening it failed: {e})"),
+                    mark.is_some(),
+                ))
             }
         }
     }
@@ -382,18 +449,36 @@ impl Spawner {
         }
     }
 
-    /// Sends the prompt's answer (token use, cost) to the brain.
-    fn forward_answer(&self, id: &str, rx: std::sync::mpsc::Receiver<TurnSignal>) {
+    /// Sends the prompt's answer (token use, cost) to the brain; with
+    /// `warm`, also says once when the response started streaming (the
+    /// request's cache entry exists), as the compactor's single-flight does.
+    fn forward_answer(
+        &self,
+        id: &str,
+        rx: std::sync::mpsc::Receiver<TurnSignal>,
+        warm: Option<(String, Sender<()>)>,
+    ) {
         let tx = self
             .tx
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let id = id.to_owned();
+        let agents = self.agents.clone();
+        let mut warm = warm;
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed => {}
+                    TurnSignal::Changed => {
+                        let spoke = warm.as_ref().is_some_and(|(session, _)| {
+                            agents.events(session, 0).is_ok_and(|events| {
+                                events.iter().any(|e| crate::acpmux::is_output(&e.kind))
+                            })
+                        });
+                        if spoke && let Some((_, started)) = warm.take() {
+                            let _ = started.send(());
+                        }
+                    }
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -402,6 +487,87 @@ impl Spawner {
                 }
             }
         });
+    }
+}
+
+impl Spawner {
+    /// The queue starter: the brain sends a queued subagent's id when a slot
+    /// frees, and it starts here with the view of that moment and its task.
+    pub fn queue_starter(self: &Arc<Self>) -> Sender<String> {
+        let (tx, rx) = channel::<String>();
+        let me = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("subagent-queue".into())
+            .spawn(move || {
+                while let Ok(id) = rx.recv() {
+                    let Some(me) = me.upgrade() else { return };
+                    me.start_waiting(&id);
+                }
+            })
+            .ok();
+        tx
+    }
+
+    fn start_waiting(&self, id: &str) {
+        let waiting = self
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        let fail = |error: &str| {
+            let _ = self.send(Input::SubagentFailed {
+                id: id.to_owned(),
+                error: error.to_owned(),
+            });
+        };
+        let Some(w) = waiting else {
+            return fail("the Chief host restarted while it waited for a free slot");
+        };
+        if !self.chat.settle(None, Some(SETTLE_LIMIT)) {
+            return fail("the memory was still summarizing when its slot freed");
+        }
+        let view = self.chat.render_view().text;
+        match self.start_one(
+            &w.spawn,
+            id,
+            &w.task,
+            &view,
+            w.floor.as_deref(),
+            &w.launch,
+            w.ttl,
+            None,
+        ) {
+            Ok((note, _)) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
+            Err(e) => fail(&e),
+        }
+    }
+
+    /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
+    pub fn agent_chat_page(&self, id: &str, at: u64, page: u64) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::SubSession {
+            id: id.to_owned(),
+            reply,
+        })?;
+        let session = answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+            .ok_or_else(|| format!("no subagent {id} with a session"))?;
+        let events = self.agents.events(&session, 0)?;
+        let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
+        Ok(crate::agent_chat::page(id, &text, at, page))
+    }
+}
+
+/// The session env that gives Claude Code the TTL of our mark.
+fn ttl_env(ttl: crate::prompt::CacheTtl) -> (String, String) {
+    match ttl {
+        crate::prompt::CacheTtl::OneHour => {
+            ("CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(), "1h".to_owned())
+        }
+        crate::prompt::CacheTtl::FiveMinutes => {
+            ("FORCE_PROMPT_CACHING_5M".to_owned(), "1".to_owned())
+        }
     }
 }
 
@@ -479,10 +645,53 @@ impl Orchestrator for Spawner {
         let mut started = Vec::new();
         let mut lines = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
-            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref(), &launch) {
-                Ok(note) => {
+            if plan.queued.contains(id) {
+                self.waiting
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(
+                        id.clone(),
+                        Waiting {
+                            spawn: plan.spawn.clone(),
+                            task: task.clone(),
+                            floor: floor.clone(),
+                            launch: launch.clone(),
+                            ttl: plan.ttl,
+                        },
+                    );
+                lines.push(format!(
+                    "- {id}: queued ({MAX_LIVE} subagents are at work, the most at once; it starts when one finishes)"
+                ));
+                continue;
+            }
+            // Single flight on the shared view: the first subagent starts
+            // alone; the rest once its response began, so they read the
+            // view's cache entry instead of each writing it.
+            let first = started.is_empty();
+            let rest = plan.ids.iter().filter(|i| !plan.queued.contains(i)).count() > 1;
+            let (warm_tx, warm_rx) = channel();
+            let warm = (first && rest).then_some(warm_tx);
+            match self.start_one(
+                &plan.spawn,
+                id,
+                task,
+                &view,
+                floor.as_deref(),
+                &launch,
+                plan.ttl,
+                warm,
+            ) {
+                Ok((note, marked)) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
+                    if first && rest && marked {
+                        let wait = Instant::now();
+                        let spoke = warm_rx.recv_timeout(self.warm_wait).is_ok();
+                        self.trace.emit(
+                            "spawn.warm",
+                            json!({"spawn": plan.spawn, "first": id, "started": spoke, "ms": wait.elapsed().as_millis() as u64}),
+                        );
+                    }
                 }
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
@@ -494,8 +703,10 @@ impl Orchestrator for Spawner {
                 }
             }
         }
-        let head = if started.is_empty() {
+        let head = if started.is_empty() && plan.queued.is_empty() {
             "No subagent started.".to_owned()
+        } else if started.is_empty() {
+            format!("Queued {}.", plan.queued.join(", "))
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };
@@ -503,9 +714,13 @@ impl Orchestrator for Spawner {
             .map(|n| format!("\nDirectory: {n}."))
             .unwrap_or_default();
         Ok(format!(
-            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. When all of them finish, their reports reach you as one message, \"[id] report\" each; never wait or poll for them. tell(id, message) sends one more instructions.",
+            "{head}{dir_note}\n{}\nTell the user only what these lines say about workspaces. Each one's report reaches you as a message, \"[id] report\", when it finishes; never wait or poll for them. tell(id, message) sends one more instructions.",
             lines.join("\n")
         ))
+    }
+
+    fn agent_chat(&self, id: &str, at: u64) -> Result<String, String> {
+        self.agent_chat_page(id, at, crate::agent_chat::PAGE)
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {

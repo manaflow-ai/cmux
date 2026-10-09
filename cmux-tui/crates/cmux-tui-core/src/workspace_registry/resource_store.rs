@@ -2288,6 +2288,21 @@ pub(crate) fn complete_terminal_close_patch(
     let mut deltas = deltas.clone();
     let changes =
         deltas.as_array_mut().context("terminal close resource deltas are not an array")?;
+    // Sets, not scans: a batch end of N terminals checks N tombstones against
+    // a patch of O(N) changes (nx-scale 1b).
+    let mut tombstoned = patch
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            ResourceChange::TombstoneTerminal { public_id, .. } => Some(public_id.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let mut deleted = changes
+        .iter()
+        .filter(|change| change["kind"] == "delete" && change["resource"] == "terminal")
+        .filter_map(|change| change["id"].as_str().map(str::to_string))
+        .collect::<HashSet<_>>();
 
     for (terminal_id, expected_incarnation) in terminals {
         let Some(public_id) = transaction
@@ -2302,25 +2317,13 @@ pub(crate) fn complete_terminal_close_patch(
             continue;
         };
         let public_id = TerminalPublicId::parse(public_id)?;
-        let has_tombstone = patch.changes.iter().any(|change| {
-            matches!(
-                change,
-                ResourceChange::TombstoneTerminal { public_id: candidate, .. }
-                    if candidate == &public_id
-            )
-        });
-        if !has_tombstone {
+        if tombstoned.insert(public_id.clone()) {
             patch.changes.push(ResourceChange::TombstoneTerminal {
                 public_id: public_id.clone(),
                 expected_incarnation: expected_incarnation.clone(),
             });
         }
-        let has_delete_delta = changes.iter().any(|change| {
-            change["kind"] == "delete"
-                && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(public_id.as_str())
-        });
-        if !has_delete_delta {
+        if deleted.insert(public_id.as_str().to_string()) {
             changes.push(json!({
                 "kind": "delete",
                 "sequence": changes.len(),

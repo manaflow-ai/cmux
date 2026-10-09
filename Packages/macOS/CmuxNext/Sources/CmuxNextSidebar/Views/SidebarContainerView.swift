@@ -132,6 +132,12 @@ public final class SidebarContainerView: NSView {
         sidebarView.beginRename(workspace: id)
     }
 
+    /// The group whose name is being edited, if any (cx-rcby).
+    public var editingGroup: GroupID? {
+        if case let .group(id)? = sidebarView.list.inlineRename.session?.key { return id }
+        return nil
+    }
+
     /// Starts inline rename of a group, showing the sidebar first when it
     /// is hidden.
     public func beginRename(group id: GroupID) {

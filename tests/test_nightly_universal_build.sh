@@ -435,17 +435,32 @@ if ! awk '
   exit 1
 fi
 
-# Published nightly-next must hand Apple the signed DMG asynchronously and
-# retain state for continuation. It cannot run distribution policy, appcast or
-# release publication from the unaccepted build job.
+# Published nightly-next waits for Apple in the job, bounded so a slow queue
+# cannot hold the Mac: Accepted builds are stapled and published by this run,
+# and a wait that runs out hands the exact submission to the next nightly-next
+# run through the recovery artifact. Nothing unaccepted reaches distribution
+# policy, the appcast or publication.
 for expected in \
   "id: notarize-nightly" \
-  "CMUX_NOTARY_SUBMIT_ONLY: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}" \
+  "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && '20m' || '40m' }}" \
+  "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && 'true' || 'false' }}" \
+  "notary_pending: \${{ steps.notarize-nightly.outputs.submission_pending }}" \
   "- name: Prepare pending notarization recovery artifact" \
-  "- name: Upload pending notarization recovery artifact" \
-  "needs.decide.outputs.track != 'nightly-next'"; do
+  "- name: Upload pending notarization recovery artifact"; do
   if ! grep -Fq -- "$expected" "$WORKFLOW_FILE"; then
-    echo "FAIL: nightly-next recovered notarization contract is missing: $expected"
+    echo "FAIL: nightly-next bounded notarization contract is missing: $expected"
+    exit 1
+  fi
+done
+if grep -Fq "CMUX_NOTARY_SUBMIT_ONLY:" "$WORKFLOW_FILE"; then
+  echo "FAIL: published nightly-next must wait for Apple in the job, not submit only"
+  exit 1
+fi
+ACCEPTED_ONLY="needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'"
+for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts (nightly)" "Upload nightly variant artifacts"; do
+  step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' "$WORKFLOW_FILE")"
+  if [ "$step_if" != "$ACCEPTED_ONLY" ]; then
+    echo "FAIL: $step must run only for an Accepted build: $step_if"
     exit 1
   fi
 done
@@ -746,7 +761,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.track != 'nightly-next' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true'" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true'" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
