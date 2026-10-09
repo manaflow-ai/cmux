@@ -340,11 +340,13 @@ async function stripePersonalCheckout(
     // currently active row (even behind a newer canceled one) means the portal
     // is the right destination; the portal also recovers past-due/unpaid and
     // cancel-at-period-end states, but it cannot start a new subscription
-    // after a terminal cancellation.
+    // after a terminal cancellation. A plan switch keeps a scheduled
+    // cancellation, so a cancelling subscriber gets the plain portal and Renew.
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       if (
         plan !== GO_PLAN_ID && stripeBillingStatus.hasActiveSubscription &&
+        !stripeBillingStatus.cancelAtPeriodEnd &&
         stripeBillingStatus.activePlanId !== plan
       ) {
         portalURL.searchParams.set("flow", "switch_plan");
