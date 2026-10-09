@@ -293,6 +293,24 @@ impl ProviderEngine {
             return Err(DriverError::closed("the session was closed"));
         }
         announce();
+        if method == "tabs.close" {
+            // A tab the session opened is the session's, not the person's:
+            // the agent's close closes it as the session's end would (a
+            // store close kept out of Reopen Closed), on either engine.
+            if self.created_tabs().remove(target_id) {
+                let mut close = json!({"targetId": target_id, "reason": SESSION_END_REASON,
+                    "timeoutMs": SESSION_END_CLOSE_MS});
+                if let Some(timeout) = params.get("timeoutMs") {
+                    close["timeoutMs"] = timeout.clone();
+                }
+                return self.provider.call("tabs.close", &close).map(Reply::Value);
+            }
+            // Any other tab is the person's layout: a Chromium session
+            // closes nothing (the app's WebKit driver only lets the tab go).
+            if engine == "cef" {
+                return Ok(Reply::Value(Value::Null));
+            }
+        }
         // Only the session's end names a close reason (it keeps those tabs
         // out of Reopen Closed); the agent's own close never does.
         let mut params = std::borrow::Cow::Borrowed(params);
