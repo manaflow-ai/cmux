@@ -117,3 +117,22 @@ describe("AgentsProvider with a fake ACP agent", () => {
     await expect(p.create({ harness: "nope" })).rejects.toMatchObject({ code: "bad_request" });
   });
 });
+
+describe("codex-acp terminal output meta", () => {
+  it("accumulates terminal_output_delta into the tool output and notes non-zero exits", async () => {
+    const { applyTerminalMeta } = await import("../src/providers/agents.ts");
+    const acc = new Map<string, string>();
+    const item: any = { id: "tool-1", kind: "tool", toolKind: "execute", title: "t", status: "running", locations: [] };
+    applyTerminalMeta(item, acc, { terminal_output_delta: { data: "stdout-42\n" } });
+    applyTerminalMeta(item, acc, { terminal_output_delta: { data: "Darwin\n" }, terminal_exit: { exit_code: 0 } });
+    expect(item.output).toBe("stdout-42\nDarwin\n");
+    const failed: any = { id: "tool-2", kind: "tool", toolKind: "execute", title: "t", status: "running", locations: [] };
+    applyTerminalMeta(failed, acc, { terminal_output_delta: { data: "nope\n" } });
+    applyTerminalMeta(failed, acc, { terminal_exit: { exit_code: 2 } });
+    expect(failed.output).toBe("nope\nexit 2");
+    const silent: any = { id: "tool-3", kind: "tool", toolKind: "execute", title: "t", status: "running", locations: [] };
+    applyTerminalMeta(silent, acc, { terminal_exit: { exit_code: 0 } });
+    expect(silent.output).toBe("exit 0");
+    expect(acc.size).toBe(0);
+  });
+});

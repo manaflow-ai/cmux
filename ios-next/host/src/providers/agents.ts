@@ -63,6 +63,8 @@ interface SessionState {
   turnCount: number;
   itemSeq: number;
   permissions: Map<string, (optionId: string | null) => void>;
+  /** Streamed terminal output per tool item (codex-acp `_meta.terminal_output_delta`). */
+  terminalOutput: Map<string, string>;
   loadingHistory: boolean;
   pendingEmits: Map<string, NodeJS.Timeout>;
   dirtyItems: Set<string>;
@@ -415,6 +417,7 @@ export class AgentsProvider extends EventEmitter<AgentsProviderEvents> {
       turnCount: 0,
       itemSeq: 0,
       permissions: new Map(),
+      terminalOutput: new Map(),
       loadingHistory: false,
       pendingEmits: new Map(),
       dirtyItems: new Set(),
@@ -612,6 +615,7 @@ export class AgentsProvider extends EventEmitter<AgentsProviderEvents> {
           locations: (u.locations ?? []).map((l) => ({ path: l.path, ...(l.line != null ? { line: l.line } : {}) })),
         };
         applyToolContent(item, u.content, u.rawInput, u.rawOutput);
+        applyTerminalMeta(item, s.terminalOutput, u._meta);
         this.upsert(s, item, true);
         return;
       }
@@ -627,6 +631,7 @@ export class AgentsProvider extends EventEmitter<AgentsProviderEvents> {
         if (u.status) item.status = mapToolStatus(u.status);
         if (u.locations) item.locations = u.locations.map((l) => ({ path: l.path, ...(l.line != null ? { line: l.line } : {}) }));
         applyToolContent(item, u.content ?? undefined, u.rawInput, u.rawOutput);
+        applyTerminalMeta(item, s.terminalOutput, u._meta);
         if (!existing) this.finalizeStreaming(s);
         this.upsert(s, item, true);
         return;
@@ -1038,6 +1043,29 @@ export function applyToolContent(item: ToolItem, content: acp.ToolCallContent[] 
   if (item.output === undefined || terminalOnly) {
     const out = rawOutputText(rawOutput);
     if (out) item.output = truncate(stripFences(out), MAX_OUTPUT);
+  }
+}
+
+/**
+ * codex-acp sends a `terminal` content block and streams the command's output
+ * in `_meta.terminal_output_delta.data` (appended per update), with
+ * `_meta.terminal_exit.exit_code` at the end. Accumulate it into the tool
+ * output so the row shows the real stdout.
+ */
+export function applyTerminalMeta(item: ToolItem, acc: Map<string, string>, meta: unknown): void {
+  if (!meta || typeof meta !== "object") return;
+  const m = meta as { terminal_output_delta?: { data?: unknown }; terminal_output?: { data?: unknown }; terminal_exit?: { exit_code?: unknown } };
+  const delta = m.terminal_output_delta?.data ?? m.terminal_output?.data;
+  if (typeof delta === "string" && delta) {
+    const full = (acc.get(item.id) ?? "") + delta;
+    acc.set(item.id, full.length > MAX_OUTPUT * 2 ? full.slice(-MAX_OUTPUT * 2) : full);
+    item.output = truncate(full, MAX_OUTPUT);
+  }
+  const exit = m.terminal_exit?.exit_code;
+  if (typeof exit === "number") {
+    acc.delete(item.id);
+    if (!item.output) item.output = `exit ${exit}`;
+    else if (exit !== 0) item.output = `${item.output.replace(/\n$/, "")}\nexit ${exit}`;
   }
 }
 
