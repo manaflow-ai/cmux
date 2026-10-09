@@ -2077,15 +2077,26 @@ fn the_probe_is_named_probe_not_a_node_span() {
     let sink = lines.clone();
     let compactor = compactor(&agents, dir.path())
         .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap())
-        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
     assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
     let lines = lines.lock().unwrap();
-    assert!(lines.iter().all(|l| !l.contains("9223372036854775808")), "{lines:?}");
-    assert!(lines.iter().any(|l| l.starts_with("compactor probe (")), "{lines:?}");
+    assert!(
+        lines.iter().all(|l| !l.contains("9223372036854775808")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("compactor probe (")),
+        "{lines:?}"
+    );
     let mut events = Vec::new();
     for entry in std::fs::read_dir(&traces).unwrap().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
-        events.extend(text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()));
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
     }
     let node = events.iter().find(|e| e["ev"] == "node").unwrap();
     assert_eq!(node["node"], "probe");
