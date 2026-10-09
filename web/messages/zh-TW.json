@@ -30,6 +30,14 @@
       "message": "這台機器建立於 Cloud 更新之前，無法連線。",
       "action": "請建立一台新機器，用 cmux vm pull 和 cmux vm push 複製檔案，然後刪除這台機器。"
     },
+    "networkRuleCapacity": {
+      "title": "網路規則已達上限",
+      "message": "網路政策已儲存，但未套用：cmux Cloud 的網路規則已達上限。",
+      "action": "已通知 cmux 團隊。請移除這台機器不再需要的網域，或聯絡支援團隊。在此之前，這台機器的網路存取可能與已儲存的政策不一致。"
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "網路政策已儲存，但未套用。請再次儲存以重試。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",

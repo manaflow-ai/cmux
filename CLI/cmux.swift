@@ -1258,6 +1258,7 @@ final class ClaudeHookSessionStore {
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
+            let settlesTurn = depthAfterStop == 0
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1267,13 +1268,13 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: settlesTurn ? agentLifecycle : .running,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
-                updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
+                updateLastNotificationStatus: settlesTurn && updateLastNotificationStatus,
+                runtimeStatus: settlesTurn ? runtimeStatus : .running,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
@@ -30286,7 +30287,8 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             // A completed Claude turn stays idle when the delayed waiting nag
             // arrives. Permission prompts and errors still carry their own state.
-            let idleReminderForCompletedSession = notifyCategory == .idleReminder
+            let idleReminderForCompletedSession = notificationType == "idle_prompt"
+                && notifyCategory == .idleReminder
                 && classifiedSubtitle != "Error"
                 && mappedSession?.agentLifecycle == .idle
             let suppressNeedsInputState = notifyCategory == .idleReminder
@@ -39166,6 +39168,26 @@ export default {
             let suppressPendingWaitingState = summary.notifyCategory == .idleReminder
                 && hasActiveAntigravityBackgroundWork()
 
+            // Stop settles a completed turn to idle, but providers can deliver
+            // their structured idle_prompt Notification asynchronously
+            // afterwards. Keep that reminder visible while preserving the
+            // completed session's lifecycle; prose waiting requests remain
+            // real attention events.
+            let isStructuredIdleReminder = AgentHookNotificationClassifier.isStructuredIdleReminder(
+                input.rawObject
+            )
+            let idleReminderForSettledSession = summary.notifyCategory == .idleReminder
+                && summary.status == .needsInput
+                && isStructuredIdleReminder
+                && (mapped?.agentLifecycle == .idle || mapped?.agentLifecycle == .running)
+            let idleReminderForCompletedSession = idleReminderForSettledSession
+                && mapped?.agentLifecycle == .idle
+            let idleReminderForActiveSession = idleReminderForSettledSession
+                && mapped?.agentLifecycle == .running
+            let idleReminderAfterSessionEnd = idleReminderForCompletedSession
+                && mapped?.hookEventName == "SessionEnd"
+            let suppressIdleReminderState = suppressPendingWaitingState || idleReminderForSettledSession
+
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.notification.summary agent=\(def.name) session=\(agentHookDebugShort(sessionId)) status=\(summary.status?.rawValue ?? "nil") fallback=\(summary.isFallback ? 1 : 0) subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
@@ -39255,7 +39277,7 @@ export default {
                 return
             }
 
-            if !sessionId.isEmpty {
+            if !sessionId.isEmpty, !idleReminderAfterSessionEnd {
                 let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
@@ -39263,8 +39285,14 @@ export default {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
-                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
+                let lifecycle = idleReminderForCompletedSession
+                    ? .idle
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)))
+                let storedRuntimeStatus = idleReminderForCompletedSession
+                    ? .idle
+                    : (idleReminderForActiveSession ? .running :
+                        (suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)))
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (notificationCompletesTurn
@@ -39284,8 +39312,13 @@ export default {
                         hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
+                        lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
@@ -39308,8 +39341,13 @@ export default {
                         hookEventName: persistedHookEventName,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
+                        lastNotificationStatus: idleReminderForCompletedSession ? .idle : summary.status,
+                        // Rebuilt summaries are display-only. Preserve the
+                        // status marker even while background work keeps the
+                        // session running; the empty hook carries no new
+                        // lifecycle fact.
+                        updateLastNotificationStatus: !rebuiltFromStoredSummary
+                            && !idleReminderForActiveSession,
                         runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil,
                         deadline: cursorShellNeedsApproval ? cursorShellDeadline : nil
@@ -39327,10 +39365,13 @@ export default {
                 summary: summary
             )
             let notificationJournalKind: AgentJournalEventKind =
-                suppressPendingWaitingState
+                isStructuredIdleReminder
                     && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
-                    ? .stateChanged
-                    : mappedJournalKind
+                    ? .idleObserved
+                    : (suppressPendingWaitingState
+                        && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
+                        ? .stateChanged
+                        : mappedJournalKind)
             emitJournal(
                 notificationJournalKind,
                 workspaceId: workspaceId,
@@ -39437,9 +39478,9 @@ export default {
             }
 
             switch summary.status {
-            case .needsInput? where suppressPendingWaitingState:
-                // Suppressed pending waiting cue: leave the Running pill in
-                // place; the fullyIdle turn boundary reconciles.
+            case .needsInput? where suppressIdleReminderState:
+                // Suppressed waiting cue: leave the already-settled lifecycle
+                // in place; a late idle reminder does not reopen attention.
                 break
             case .needsInput?:
                 let statusValue = agentNeedsInputStatusValue(for: def)
@@ -39504,8 +39545,14 @@ export default {
                         transcriptPath: localTranscriptPath(mapped: mapped),
                         pid: localAgentPID(mapped: mapped),
                         launchCommand: relayOrigin ? nil : mapped.launchCommand,
+                        agentLifecycle: .idle,
+                        hookEventName: "SessionEnd",
                         lastSubtitle: nil,
                         lastBody: nil,
+                        lastNotificationStatus: nil,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: .idle,
+                        updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -39760,6 +39807,30 @@ export default {
             transcriptPath: parsedInput.transcriptPath
         ) {
             event["context"] = context
+        }
+        if hookEventName == "Notification" {
+            // Preserve the provider's structured idle marker for the sidebar
+            // lifecycle reducer. The notification body is intentionally not
+            // copied into Feed telemetry, but these discriminator fields let
+            // it distinguish an idle reminder from a real request.
+            if AgentHookNotificationClassifier.isStructuredIdleReminder(fallbackObject) {
+                // Some providers nest `notificationType` under `notification`,
+                // `data`, or `extra`. Keep one typed marker at the feed
+                // boundary so WorkstreamEvent and the mobile reducer do not
+                // need to recover provider-specific nesting after telemetry
+                // compaction.
+                event["_is_idle_reminder"] = true
+            }
+            if let notificationType = firstString(
+                in: fallbackObject,
+                keys: ["notification_type", "notificationType"]
+            ), notificationType.caseInsensitiveCompare("idle_prompt") == .orderedSame {
+                event["notification_type"] = "idle_prompt"
+            }
+            if let reason = firstString(in: fallbackObject, keys: ["reason"]),
+               reason.caseInsensitiveCompare("idle_prompt") == .orderedSame {
+                event["reason"] = "idle_prompt"
+            }
         }
         enrichUserPromptSubmitFeedEvent(
             &event,
@@ -42252,6 +42323,12 @@ export default {
             transcriptPath: firstString(in: stdinObj, keys: ["transcript_path", "transcriptPath"])
         ) {
             eventDict["context"] = context
+        }
+        if hookEventName == "Notification",
+           AgentHookNotificationClassifier.isStructuredIdleReminder(stdinObj) {
+            // Preserve nested provider markers after the feed payload is
+            // compacted to its common schema.
+            eventDict["_is_idle_reminder"] = true
         }
         enrichUserPromptSubmitFeedEvent(
             &eventDict,

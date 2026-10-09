@@ -512,6 +512,14 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_keepalive_busy.sh
 
+      - name: Testbox source mtimes restore only unchanged files
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_testbox_source_mtimes.py
+
+      - name: Testbox target prune keeps the warm disk bounded
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_target_prune.sh
+
       - name: The retired Testbox approve helper approves nothing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_approve.sh
@@ -522,7 +530,7 @@ jobs:
 
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -742,6 +750,10 @@ jobs:
       - name: Validate pull request caches are read-only
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate signing secrets are read only in protected environments
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}

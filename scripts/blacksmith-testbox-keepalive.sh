@@ -105,10 +105,47 @@ busy_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/blacksmith-testbox-bus
 [[ -f "$busy_check" ]] || printf 'warning: %s is missing; commands in the checkout do not count as use\n' "$busy_check" >&2
 last_activity="$(date +%s)"
 idle_timeout_seconds=$((idle_timeout_minutes * 60))
+# The owner ends a box with scripts/blacksmith-testbox-release.sh, which writes
+# this marker. `blacksmith testbox stop` destroys the VM before any post step
+# runs, so the warm target dir sticky disk is never committed on that path. A
+# clean exit here lets the job succeed and the sticky disk post step commit.
+release_marker="$HOME/.testbox-release"
+rm -f "$release_marker"
+repo_root="${GITHUB_WORKSPACE:-$working_directory}"
+# Copy the release helpers now: `blacksmith testbox run` later syncs a
+# candidate worktree over scripts/, which may lack or change them.
+script_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/testbox-release.XXXXXX")"
+for helper in blacksmith-testbox-target-prune.sh blacksmith-testbox-source-mtimes.py; do
+  cp "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$helper" "$script_dir/" \
+    || echo "warning: missing $helper; the warm target dir is committed unpruned" >&2
+done
+
+release_runner() {
+  printf '%s; releasing the Testbox runner\n' "$1"
+  # Bound the commit size. A prune failure must not fail the job: the
+  # sticky disk would then skip the commit and keep the previous snapshot.
+  local target_dir="$repo_root/cmux-tui/target"
+  timeout 900 bash "$script_dir/blacksmith-testbox-target-prune.sh" "$target_dir" \
+    || echo "warning: target prune failed; committing as is" >&2
+  # Record source mtimes next to the artifacts, so the next box can treat
+  # unchanged sources as unchanged. Without it the next box rebuilds every
+  # workspace crate; that is slower, never wrong.
+  if [[ -d "$target_dir" ]]; then
+    timeout 300 python3 -I "$script_dir/blacksmith-testbox-source-mtimes.py" record \
+      "$repo_root" "$target_dir/.cmux-testbox-source-mtimes.tsv" \
+      || echo "warning: could not record source mtimes" >&2
+  fi
+  sync || true
+  phone_home_with_retry completed || echo "warning: could not report completed" >&2
+  exit 0
+}
 
 while :; do
   sleep 30
   now="$(date +%s)"
+  if [[ -e "$release_marker" ]]; then
+    release_runner "release requested"
+  fi
   if ss -tnp 2>/dev/null | grep -Eq ":${runner_ssh_port}([^0-9]|$)"; then
     last_activity="$now"
   elif bash "$busy_check" "$working_directory" "$$"; then
@@ -122,8 +159,6 @@ while :; do
     fi
   fi
   if (( now - last_activity >= idle_timeout_seconds )); then
-    printf 'idle for %s s; releasing the Testbox runner\n' "$((now - last_activity))"
-    phone_home_with_retry completed || echo "warning: could not report completed" >&2
-    exit 0
+    release_runner "idle for $((now - last_activity)) s"
   fi
 done
