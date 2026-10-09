@@ -328,6 +328,10 @@ impl Mux {
             // (cx-6so.49); best effort, after the exit latch.
             #[cfg(unix)]
             {
+                #[cfg(debug_assertions)]
+                if matches!(end, TerminalEnd::HostLost(_)) {
+                    host_loss_log_test_delay();
+                }
                 let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
                 if let Some(root) = root
                     && let Some(cause) = crate::terminal_loss_log::record_host_loss(
@@ -513,5 +517,19 @@ impl Mux {
         self.publish_resource_event();
         self.finish_terminal_exit_detach(effects);
         Ok(true)
+    }
+}
+
+/// Debug builds only: `CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS` holds the
+/// owner between a host loss's exit commit and its loss log, so integration
+/// tests can read the tab in that window. Bounded so a stray setting cannot
+/// wedge an owner; release builds have no seam.
+#[cfg(all(unix, debug_assertions))]
+fn host_loss_log_test_delay() {
+    if let Ok(delay) = std::env::var("CMUX_TUI_TEST_HOST_LOSS_LOG_DELAY_MS")
+        && let Ok(delay) = delay.parse::<u64>()
+        && delay > 0
+    {
+        std::thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
 }
