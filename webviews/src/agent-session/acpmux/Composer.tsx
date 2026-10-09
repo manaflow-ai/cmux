@@ -23,7 +23,13 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { readDurableDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
+import {
+  readDurableDraft,
+  readPersistedDraft,
+  seededText,
+  useDraftActionsVersion,
+  writePersistedDraft,
+} from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -162,6 +168,9 @@ export function Composer({
   blocked,
 }: Props) {
   const t = useT();
+  // The native action map is replaced on reconnect while the session stays the same. Subscribe
+  // so a durable read retries as soon as that map is available again.
+  const draftActionsVersion = useDraftActionsVersion();
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
@@ -316,7 +325,7 @@ export function Composer({
     return () => {
       current = false;
     };
-  }, [sessionId]);
+  }, [sessionId, draftActionsVersion]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;

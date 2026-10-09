@@ -32,7 +32,7 @@ import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
-import { composerDraft } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
@@ -1806,6 +1806,7 @@ function AcpmuxPane() {
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
         };
+        notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
           restore: restorePrompt,
           opened: (sessionId) => {
@@ -1885,6 +1886,7 @@ function AcpmuxPane() {
       directClient.current?.close();
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
+      notifyDraftActionsChanged();
     };
     // Both are stable for the pane's life (a state initializer and the provider's client).
   }, [harnessSwitch, queryClient]);
