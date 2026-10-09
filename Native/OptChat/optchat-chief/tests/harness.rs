@@ -907,3 +907,48 @@ fn codex_sessions_run_the_chiefs_own_codex_when_installed() {
     let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, true, "SYS").unwrap();
     assert!(!claude.env.contains_key("CODEX_PATH"));
 }
+
+/// Lawrence 2026-10-09: "ensure the subagents are the ACP subagents so it
+/// will be visible in the cmux UI". A Chief turn can start a subagent only
+/// with `spawn` (an acpmux session with its own workspace): Claude Code's
+/// Task/Agent tools are not offered, and an isolated codex turn runs with
+/// codex's native subagents off. This test fails if either comes back.
+#[test]
+fn a_chief_turn_starts_subagents_only_through_spawn() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{TURN_TOOLS, turn_isolation_args, turn_preset};
+    for native in ["Task", "Agent"] {
+        assert!(
+            !TURN_TOOLS.contains(&native),
+            "{native} must stay out of TURN_TOOLS"
+        );
+    }
+    let args = turn_isolation_args();
+    let tools = args
+        .iter()
+        .position(|a| a == "--tools")
+        .and_then(|k| args.get(k + 1))
+        .expect("an isolated Claude turn passes an explicit tool allowlist");
+    assert!(
+        tools.split(',').all(|t| t != "Task" && t != "Agent"),
+        "{tools}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(
+        codex.env.get("CODEX_HOME").map(std::path::PathBuf::from),
+        Some(paths.turn_codex.clone()),
+        "an isolated codex turn runs on the Chief's own CODEX_HOME"
+    );
+    let config: toml::Table = optchat_chief::codex_home::codex_turn_config(None)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        config["features"]["multi_agent"].as_bool(),
+        Some(false),
+        "codex native subagents stay off on Chief turns"
+    );
+}
