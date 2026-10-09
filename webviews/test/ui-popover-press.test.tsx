@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act, useState } from "react";
-import { usePopoverTrigger } from "../src/agent-session/acpmux/popoverTrigger";
+import { usePopoverTrigger } from "../src/ui/popoverTrigger";
 import { Popover } from "../src/ui/Popover";
 import { UiProvider } from "../src/ui/UiProvider";
 import { installDom, render, settle, unmount, restoreDom } from "./viewer-empty-dom";

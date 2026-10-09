@@ -9,7 +9,7 @@ import { ProjectBadge } from "./ProjectBadge";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
-import { usePopoverTrigger } from "./popoverTrigger";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
