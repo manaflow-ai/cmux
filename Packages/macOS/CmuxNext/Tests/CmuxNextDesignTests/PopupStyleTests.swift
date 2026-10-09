@@ -55,7 +55,8 @@ struct PopupStyleTests {
         let panel = HoverCardPanel()
         #expect(!panel.hasShadow)
         #expect(panel.glass.cornerRadius == PopupStyle.cornerRadius)
-        #expect(panel.glass.shadow?.shadowBlurRadius == PopupStyle.shadowBlur)
+        let host = try #require(panel.contentView as? PopupHostView)
+        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.shadowAlpha))
         let body = NSView()
         body.widthAnchor.constraint(equalToConstant: 200).isActive = true
         body.heightAnchor.constraint(equalToConstant: 80).isActive = true
@@ -64,7 +65,17 @@ struct PopupStyleTests {
         #expect(panel.cardFrame.size == CGSize(width: 200, height: 80))
         #expect(panel.frame == panel.cardFrame.insetBy(dx: -PopupStyle.shadowMargin, dy: -PopupStyle.shadowMargin))
         #expect(panel.cardFrame.minX == 200)
+        #expect(host.shadowLayer.shadowPath?.boundingBox == host.card.frame)
         parent.removeChildWindow(panel)
         panel.orderOut(nil)
+        parent.close()
+    }
+
+    /// A window not yet placed (zero size) leaves the card's frame finite.
+    @Test func anUnplacedHostKeepsAFiniteCard() {
+        let host = PopupHostView(card: NSView())
+        host.setFrameSize(.zero)
+        host.layoutSubtreeIfNeeded()
+        #expect(!host.card.frame.isNull && host.card.frame.minX.isFinite)
     }
 }

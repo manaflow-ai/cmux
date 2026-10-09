@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The Cmd-K menu: every command of the selected item on a small glass
-/// popup (`PopupStyle`), filterable by typing. Rebuilt when it opens or its filter changes
+/// popup (`PopupStyle`; the palette's own shadow covers it), filterable by typing. Rebuilt when it opens or its filter changes
 /// (a handful of rows), so it needs no reuse.
 final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
@@ -20,8 +20,6 @@ final class PaletteActionsMenuView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         glass.translatesAutoresizingMaskIntoConstraints = true
-        // A menu: the popup style's one shadow (`PopupStyle`).
-        glass.shadow = PopupStyle.shadow()
         glass.contentView.addSubview(content)
         separator.wantsLayer = true
         [title, separator, filter].forEach(content.addSubview)

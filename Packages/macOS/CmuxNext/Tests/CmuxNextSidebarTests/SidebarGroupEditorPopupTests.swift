@@ -12,6 +12,6 @@ import Testing
         let card = try #require(host.card as? OverlaySurfaceView)
         #expect(!panel.hasShadow)
         #expect(card.cornerRadius == PopupStyle.cornerRadius)
-        #expect(card.shadow?.shadowBlurRadius == PopupStyle.shadowBlur)
+        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.shadowAlpha))
     }
 }

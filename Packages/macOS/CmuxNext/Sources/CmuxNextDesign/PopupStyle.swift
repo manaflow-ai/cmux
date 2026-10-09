@@ -43,22 +43,36 @@ public enum PopupStyle {
 }
 
 /// A popover window's content view: its card inset by
-/// `PopupStyle.shadowMargin`, casting the popup shadow into that band. The
-/// window draws no shadow of its own and stays clear around the card; a
-/// pointer in the band reaches whatever is under it.
+/// `PopupStyle.shadowMargin`, with the popup shadow in that band. The host
+/// draws the shadow itself, on a layer behind the card shaped by the card's
+/// rounded rect and cut away under it, so it is the same on glass,
+/// vibrancy and opaque cards, on a card that masks to its bounds, and never
+/// darkens a translucent card. The window draws no shadow of its own. A
+/// click on the band's clear pixels reaches the window beneath; one on its
+/// faint shadow stays with the popover, which ignores it (`hitTest`).
 @MainActor
 public final class PopupHostView: NSView {
     public let card: NSView
+    /// The layer that casts the popup shadow (behind the card).
+    public let shadowLayer = CALayer()
+    private let shadowCutout = CAShapeLayer()
 
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
     public init(card: NSView) {
         self.card = card
         super.init(frame: .zero)
+        wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = true
-        card.wantsLayer = true
         if let surface = card as? OverlaySurfaceView { surface.cornerRadius = PopupStyle.cornerRadius }
-        card.shadow = PopupStyle.shadow()
+        shadowLayer.shadowColor = NSColor.black.cgColor
+        shadowLayer.shadowOpacity = Float(PopupStyle.shadowAlpha)
+        // Core Animation's radius is about half a CSS blur.
+        shadowLayer.shadowRadius = PopupStyle.shadowBlur / 2
+        shadowLayer.shadowOffset = CGSize(width: 0, height: -PopupStyle.shadowOffset)
+        shadowCutout.fillRule = .evenOdd
+        shadowLayer.mask = shadowCutout
+        layer?.addSublayer(shadowLayer)
         addSubview(card)
     }
 
@@ -75,8 +89,25 @@ public final class PopupHostView: NSView {
         placeCard()
     }
 
+    /// The card fills the host less the band. A host smaller than the band
+    /// (a window not yet placed) leaves the card where it is.
     private func placeCard() {
-        card.frame = bounds.insetBy(dx: PopupStyle.shadowMargin, dy: PopupStyle.shadowMargin)
+        let margin = PopupStyle.shadowMargin
+        guard bounds.width >= 2 * margin, bounds.height >= 2 * margin else { return }
+        let frame = bounds.insetBy(dx: margin, dy: margin)
+        card.frame = frame
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let shape = CGPath(roundedRect: frame, cornerWidth: PopupStyle.cornerRadius, cornerHeight: PopupStyle.cornerRadius,
+                           transform: nil)
+        shadowLayer.frame = bounds
+        shadowLayer.shadowPath = shape
+        let cutout = CGMutablePath()
+        cutout.addRect(bounds)
+        cutout.addPath(shape)
+        shadowCutout.frame = bounds
+        shadowCutout.path = cutout
+        CATransaction.commit()
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
