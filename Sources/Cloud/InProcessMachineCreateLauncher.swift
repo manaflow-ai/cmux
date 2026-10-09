@@ -188,6 +188,10 @@ enum InProcessMachineCreateLauncher {
             } else {
                 var summary = try await dependencies.create(invocation, idempotencyKey(operationID: operationID))
                 machineID = summary.id
+                // A create may finish after the coordinator has tombstoned the
+                // operation. Fence cancellation before admitting its receipt so
+                // a late completion cannot repopulate another lifecycle.
+                try Task.checkCancellation()
                 let receipt = "OK machine=\(summary.id)\n"
                 output += receipt
                 onOutput(receipt)
