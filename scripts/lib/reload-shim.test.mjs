@@ -17,18 +17,11 @@ import test from "node:test";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const reloadScript = path.join(repoRoot, "scripts/reload.sh");
+const shimInstaller = path.join(repoRoot, "scripts/lib/cmux-dev-shim-install");
 
 function shimWriterSource() {
-  const source = fs.readFileSync(reloadScript, "utf8");
-  const probeStart = source.indexOf("reload_socket_is_live() {");
-  const probeEnd = source.indexOf("\n}\n\nreload_cleanup_tag_state_with_lock", probeStart);
-  const start = source.indexOf("write_dev_cli_shim() {");
-  const end = source.indexOf("\n}\n\nselect_cmux_shim_target", start);
-  assert.notEqual(probeStart, -1, "reload.sh must contain the shared socket probe");
-  assert.notEqual(probeEnd, -1, "reload.sh socket probe must end before tag cleanup");
-  assert.notEqual(start, -1, "reload.sh must contain the shim writer");
-  assert.notEqual(end, -1, "reload.sh shim writer must end before target selection");
-  return source.slice(probeStart, probeEnd + 2) + "\n" + source.slice(start, end + 2);
+  // The one source of the shim (also bundled as Resources/bin/cmux-dev-shim-install).
+  return fs.readFileSync(shimInstaller, "utf8");
 }
 
 function pointerWriterSource() {
@@ -50,11 +43,10 @@ function tagStateTransactionSource() {
 }
 
 function socketProbeSource() {
-  const source = fs.readFileSync(reloadScript, "utf8");
+  const source = fs.readFileSync(shimInstaller, "utf8");
   const start = source.indexOf("reload_socket_is_live() {");
-  const end = source.indexOf("\n}\n\nreload_cleanup_tag_state_with_lock", start);
-  assert.notEqual(start, -1, "reload.sh must contain the shared socket probe");
-  assert.notEqual(end, -1, "reload.sh socket probe must end before tag cleanup");
+  const end = source.indexOf("\n}\n", start);
+  assert.notEqual(start, -1, "the shim installer must contain the shared socket probe");
   return source.slice(start, end + 2);
 }
 
@@ -635,6 +627,42 @@ test("reload shim skips an app pointer whose dev build is no longer running", ()
     const result = runShim(shim, cleanEnvironment(root));
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), "stable");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The Tag Opener and reload-cloud.sh refresh a user's shim from the build
+// they open, through the installer the build carries; a file that is not a
+// managed shim is never touched.
+function runInstaller(args) {
+  return spawnSync("bash", [shimInstaller, ...args], { cwd: repoRoot, encoding: "utf8" });
+}
+
+test("the shim installer refreshes a managed shim of either header and keeps a user's own cmux", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-shim-installer-"));
+  try {
+    for (const header of ["managed by scripts/reload.sh", "managed by reload-cloud.sh"]) {
+      const target = path.join(root, `cmux-${header.length}`);
+      writeExecutable(target, `#!/usr/bin/env bash\n# cmux dev shim (${header})\necho old\n`);
+      const result = runInstaller(["refresh", target]);
+      assert.equal(result.status, 0, result.stderr);
+      const text = fs.readFileSync(target, "utf8");
+      assert.match(text, /cmux dev shim \(managed by scripts\/reload\.sh\)/);
+      assert.match(text, /last-app-cli/);
+      assert.equal(fs.statSync(target).mode & 0o111, 0o111);
+    }
+    const own = path.join(root, "own-cmux");
+    writeExecutable(own, "#!/bin/sh\necho mine\n");
+    const refused = runInstaller(["install", own]);
+    assert.equal(refused.status, 3);
+    assert.equal(fs.readFileSync(own, "utf8"), "#!/bin/sh\necho mine\n");
+
+    const absent = path.join(root, "absent-cmux");
+    assert.equal(runInstaller(["refresh", absent]).status, 0);
+    assert.equal(fs.existsSync(absent), false, "refresh never creates a shim");
+    assert.equal(runInstaller(["install", absent]).status, 0);
+    assert.match(fs.readFileSync(absent, "utf8"), /managed by scripts\/reload\.sh/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
