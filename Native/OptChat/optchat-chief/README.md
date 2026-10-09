@@ -105,7 +105,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the subagent finishes, the workspace is renamed `✓ a<N> · <task>` (daemon
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
-  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
+  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
+  (daemon `close-workspace` by key, into the closed history) instead of the
+  done mark.
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
@@ -638,7 +641,9 @@ through it. Two rules keep that true:
   (a human reply 5 to 60 minutes later still reads the view), and each turn
   writes `promptCacheTtl` into the session directory's Claude Code project
   settings so Claude Code's own marks match. `OPTCHAT_CACHE_TTL` (`5m` or
-  `1h`) at host start, else the Chief setting `cache.ttl`
+  `1h`) at host start (Claude Code's own `FORCE_PROMPT_CACHING_5M` or
+  `CLAUDE_CODE_PROMPT_CACHE_TTL` in the host env win over it, since every
+  turn's harness inherits them), else the Chief setting `cache.ttl`
   (`optchat-chief settings set cache.ttl 5m`, from the next turn), picks
   another TTL. The native engine (a direct API call) defaults to 5 minutes
   and reads the same two at host start. A route that refuses the 1-hour TTL

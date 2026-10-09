@@ -144,7 +144,10 @@ fn the_chiefs_cache_ttl_setting_picks_five_minutes() {
         assert_eq!(m.len(), 1);
         assert_eq!(blocks[m[0]]["cache_control"], json!({"type": "ephemeral"}));
     }
-    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "5m");
+    assert_eq!(
+        session_settings(&h, "settings.json")["promptCacheTtl"],
+        "5m"
+    );
 }
 
 /// The API's answer to a 1h mark after a 5m one, or from a route without
@@ -177,13 +180,23 @@ fn a_route_that_refuses_the_one_hour_ttl_reruns_the_turn_at_five_minutes() {
     h.settle();
     {
         let inner = h.agents.inner.lock().unwrap();
-        assert_eq!(inner.prompts.len(), 2, "the refused prompt, then the same turn again");
+        assert_eq!(
+            inner.prompts.len(),
+            2,
+            "the refused prompt, then the same turn again"
+        );
         let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
         assert_eq!(a[markers(a)[0]]["cache_control"], ONE_HOUR());
-        assert_eq!(b[markers(b)[0]]["cache_control"], json!({"type": "ephemeral"}));
+        assert_eq!(
+            b[markers(b)[0]]["cache_control"],
+            json!({"type": "ephemeral"})
+        );
         assert_eq!(texts(a), texts(b));
     }
-    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "5m");
+    assert_eq!(
+        session_settings(&h, "settings.json")["promptCacheTtl"],
+        "5m"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert!(!sends[0].1.contains("cache_control"), "{sends:?}");
@@ -191,7 +204,10 @@ fn a_route_that_refuses_the_one_hour_ttl_reruns_the_turn_at_five_minutes() {
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     let c = &inner.prompts[2];
-    assert_eq!(c[markers(c)[0]]["cache_control"], json!({"type": "ephemeral"}));
+    assert_eq!(
+        c[markers(c)[0]]["cache_control"],
+        json!({"type": "ephemeral"})
+    );
 }
 
 #[test]
@@ -200,7 +216,10 @@ fn the_pooled_session_reads_the_ttl_before_the_first_turn() {
     // reads promptCacheTtl then, so the file must hold it already.
     let mut h = claude_harness(None);
     h.connect();
-    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "1h");
+    assert_eq!(
+        session_settings(&h, "settings.json")["promptCacheTtl"],
+        "1h"
+    );
 }
 
 #[test]
@@ -241,15 +260,25 @@ fn a_session_pooled_before_a_ttl_change_reruns_its_turn_once_at_the_old_ttl() {
     assert_eq!(ttl(0), ONE_HOUR());
     assert_eq!(ttl(1), json!({"type": "ephemeral"}));
     assert_eq!(ttl(2), ONE_HOUR(), "the rerun matches the pooled session");
-    assert_eq!(ttl(3), json!({"type": "ephemeral"}), "the setting holds after it");
+    assert_eq!(
+        ttl(3),
+        json!({"type": "ephemeral"}),
+        "the setting holds after it"
+    );
     drop(inner);
-    assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "5m");
+    assert_eq!(
+        session_settings(&h, "settings.json")["promptCacheTtl"],
+        "5m"
+    );
 }
 
 /// The TTL Claude Code gives its own marks from its settings: the env
 /// FORCE_PROMPT_CACHING_5M wins, then `promptCacheTtl`, then a subscription
 /// login's 1 hour (Claude Code 2.1.287; the worst case for our marks).
-fn harness_ttl(settings: &Value, env: Option<&std::collections::BTreeMap<String, String>>) -> &'static str {
+fn harness_ttl(
+    settings: &Value,
+    env: Option<&std::collections::BTreeMap<String, String>>,
+) -> &'static str {
     let forced = settings["env"]["FORCE_PROMPT_CACHING_5M"] == "1"
         || env.is_some_and(|e| e.get("FORCE_PROMPT_CACHING_5M").map(String::as_str) == Some("1"));
     if forced {
@@ -281,7 +310,11 @@ fn assert_non_increasing(harness: &str, ours: &[&str], what: &str) {
 
 #[test]
 fn turn_requests_never_put_a_one_hour_mark_after_a_five_minute_one_for_either_setting() {
-    for chief in [None, Some(json!({"cache": {"ttl": "5m"}})), Some(json!({"cache": {"ttl": "1h"}}))] {
+    for chief in [
+        None,
+        Some(json!({"cache": {"ttl": "5m"}})),
+        Some(json!({"cache": {"ttl": "1h"}})),
+    ] {
         let mut h = claude_harness(chief.clone());
         fill(&h.chat, 0, 1_200);
         h.connect();
@@ -294,7 +327,11 @@ fn turn_requests_never_put_a_one_hour_mark_after_a_five_minute_one_for_either_se
             .iter()
             .map(|&k| ttl_of(&blocks[k]["cache_control"]))
             .collect();
-        assert_non_increasing(harness_ttl(&settings, None), &ours, &format!("turn, setting {chief:?}"));
+        assert_non_increasing(
+            harness_ttl(&settings, None),
+            &ours,
+            &format!("turn, setting {chief:?}"),
+        );
     }
 }
 
@@ -331,7 +368,10 @@ fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
             &format!("compactor preset {}", preset.name),
         );
         assert_eq!(
-            preset.env.get("FORCE_PROMPT_CACHING_5M").map(String::as_str),
+            preset
+                .env
+                .get("FORCE_PROMPT_CACHING_5M")
+                .map(String::as_str),
             Some("1"),
             "{}: Claude Code's own marks pinned to 5m",
             preset.name
@@ -347,6 +387,49 @@ fn a_five_minute_setting_forces_claude_codes_marks_to_five_minutes() {
     h.say("user_local", "one");
     h.settle();
     for file in ["settings.json", "settings.local.json"] {
-        assert_eq!(session_settings(&h, file)["env"]["FORCE_PROMPT_CACHING_5M"], "1", "{file}");
+        assert_eq!(
+            session_settings(&h, file)["env"]["FORCE_PROMPT_CACHING_5M"],
+            "1",
+            "{file}"
+        );
     }
+}
+
+#[test]
+fn the_host_env_picks_the_ttl_and_a_forced_five_minute_harness_wins() {
+    use optchat_chief::prompt::{CacheTtl, cache_ttl_from_env};
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| {
+            pairs
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string())
+        }
+    };
+    assert_eq!(cache_ttl_from_env(&env(&[])), None);
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "1h")])),
+        Some(CacheTtl::OneHour)
+    );
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "5m")])),
+        Some(CacheTtl::FiveMinutes)
+    );
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("OPTCHAT_CACHE_TTL", "2h")])),
+        None
+    );
+    // Claude Code's own switches reach every turn's harness through the
+    // host env: our marks follow them, or the API refuses the request.
+    assert_eq!(
+        cache_ttl_from_env(&env(&[
+            ("OPTCHAT_CACHE_TTL", "1h"),
+            ("FORCE_PROMPT_CACHING_5M", "1")
+        ])),
+        Some(CacheTtl::FiveMinutes)
+    );
+    assert_eq!(
+        cache_ttl_from_env(&env(&[("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m")])),
+        Some(CacheTtl::FiveMinutes)
+    );
 }

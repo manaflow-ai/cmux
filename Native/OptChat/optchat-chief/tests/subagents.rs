@@ -79,6 +79,7 @@ fn script() -> Script {
 struct FakeWorkspaces {
     opened: Mutex<Vec<(String, String)>>,
     renamed: Mutex<Vec<(String, String)>>,
+    closed: Mutex<Vec<String>>,
 }
 
 impl Workspaces for FakeWorkspaces {
@@ -96,6 +97,11 @@ impl Workspaces for FakeWorkspaces {
 
     fn place(&self) -> String {
         "the test app".to_owned()
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        self.closed.lock().unwrap().push(key.to_owned());
+        Ok(())
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
@@ -684,4 +690,25 @@ fn after_a_restart_each_report_arrives_once() {
     };
     assert_eq!(count("a1"), 1, "{log:?}");
     assert_eq!(count("a2"), 1, "{log:?}");
+}
+
+#[test]
+fn the_close_setting_closes_a_finished_subagents_workspace() {
+    let mut s = setup();
+    s.h.brain.set_sub_close_on_finish(true);
+    spawn(&mut s, &["list the files in ~/"]).unwrap();
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.settle();
+    let deadline = std::time::Instant::now() + WAIT;
+    while s.workspaces.closed.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        s.workspaces.closed.lock().unwrap().clone(),
+        vec!["ws-1".to_owned()]
+    );
+    assert!(
+        s.workspaces.renamed.lock().unwrap().is_empty(),
+        "closed, not renamed"
+    );
 }

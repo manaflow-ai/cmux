@@ -819,7 +819,8 @@ final class LongTextStore: @unchecked Sendable {
     /// (MarkdownStore.showsSource) lays its markdown text out as plain text.
     func layout(_ text: String, width: CGFloat, message: ID? = nil) -> LongTextLayout {
         let idx = index(for: text)!
-        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
+        // cmux: a plain message (MarkdownStore.isPlain) is laid out as plain text too.
+        let md = idx.markdown && !(message.map { MarkdownStore.shared.showsSource($0) || MarkdownStore.shared.isPlain($0) } ?? false)
         let wk = md || !idx.markdown ? width : -width
         lock.lock()
         let id = ObjectIdentifier(idx)

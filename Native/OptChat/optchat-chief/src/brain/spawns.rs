@@ -274,8 +274,9 @@ impl Brain {
         crate::trace::requests(&self.trace, &scope, fold.requests());
     }
 
-    /// Renames a subagent's workspace: done mark on, or off when it runs again.
-    fn mark_workspace(&self, id: &str, done: bool) {
+    /// Renames a subagent's workspace: done mark on, or off when it runs
+    /// again; or, under the close setting, closes it when it finishes.
+    fn mark_workspace(&mut self, id: &str, done: bool) {
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
@@ -283,10 +284,24 @@ impl Brain {
         let Some(key) = sub.workspace.clone() else {
             return;
         };
+        let title = sub.title.clone();
+        if done && self.sub_close_on_finish {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.workspace = None;
+            }
+            self.save();
+            let (log, id) = (self.log.clone(), id.to_owned());
+            std::thread::spawn(move || {
+                if let Err(e) = workspaces.close(&key) {
+                    log(&format!("subagent {id}: closing its workspace: {e}"));
+                }
+            });
+            return;
+        }
         let name = if done {
-            crate::workspaces::done_name(&sub.title)
+            crate::workspaces::done_name(&title)
         } else {
-            sub.title.clone()
+            title.clone()
         };
         let log = self.log.clone();
         let id = id.to_owned();

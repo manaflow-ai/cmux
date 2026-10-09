@@ -6,11 +6,11 @@
 //!
 //! One node, one session: `deny-all`, every tool denied, and the
 //! compactor's own acpmux preset, which the session REQUIRES (acpmux refuses
-//! to start it without the preset, so it never falls back to the user's
-//! `~/.claude`). The preset points `CLAUDE_CONFIG_DIR` at the compactor's
-//! own configuration (`optchat/compactor-claude`, separate from the turn
-//! agent's), turns off auto-memory, CLAUDE.md files, bundled skills and
-//! Claude Code's own refusal fallback. The session's cwd is a slot
+//! to start it without the preset). The session signs in with the user's
+//! Claude login (no `CLAUDE_CONFIG_DIR` of its own: an empty one has no
+//! login); the preset turns off auto-memory, CLAUDE.md files, bundled
+//! skills and Claude Code's own refusal fallback, and the slot's project
+//! settings deny every tool and every hook. The session's cwd is a slot
 //! directory under the system temporary directory, outside any directory
 //! with instruction files. The request maps onto the session's prompts.
 //! On a Claude harness whose acpmux takes a preset `systemPrompt`, the
@@ -1319,10 +1319,12 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // No cmux agent tools (acpmux `agent_tools.rs`); `--strict-mcp-config`
     // already keeps them out, this says so for every harness.
     env.insert("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned());
-    env.insert(
-        "CLAUDE_CONFIG_DIR".to_owned(),
-        paths.compactor_config.display().to_string(),
-    );
+    // No CLAUDE_CONFIG_DIR of its own (cx-1hpt): the user's Claude login
+    // lives with the user's Claude home, and a plain `claude` compactor in
+    // an empty one cannot sign in. The slot's project settings (every tool
+    // denied, no hooks, no auto-memory, no bundled skills), the env below
+    // and the preset's flags keep the session isolated; `end` deletes its
+    // transcript there.
     // One sticky subrouter account for every node of this Chief, so nodes
     // read each other's cached context (claude-sr; harmless elsewhere).
     env.insert(
