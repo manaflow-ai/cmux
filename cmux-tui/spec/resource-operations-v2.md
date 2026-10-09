@@ -6,15 +6,15 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/2` transports 196 operations for exactly one local mux
+`cmux.protocol/2` transports 204 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 60 | Reads state and forbids an idempotency key |
-| `mutation` | 118 | Requires an idempotency key and returns a mutation result |
-| `stream_open` | 5 | Opens a connection-owned typed stream |
+| `read` | 64 | Reads state and forbids an idempotency key |
+| `mutation` | 121 | Requires an idempotency key and returns a mutation result |
+| `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
 The 40 mutations with an external effect may return the non-retryable
@@ -32,6 +32,7 @@ correlation, and idempotency metadata.
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
 | `closed` | 2 | `closed.list`, `closed.reopen` |
+| `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
 | `frontend_projection` | 2 | `frontend_projection.get`, `frontend_projection.put` |
 | `git` | 9 | `git.checkpoint.create`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.diff`, `git.files.search`, `git.status` |
 | `machine` | 2 | `machine.get`, `machine.list` |

@@ -8,6 +8,20 @@ use crate::conversation_store::ConversationStore;
 use crate::remote_relay_state::{RelayLock, RelayStateError, lock_checked};
 
 impl Mux {
+    /// `conversation.draft`'s replay and rate gate (memory only).
+    pub(crate) fn admit_conversation_draft(
+        &self,
+        conversation: &str,
+        turn: &str,
+        seq: u64,
+        fresh: bool,
+        text_bytes: usize,
+        now: Instant,
+    ) -> Result<bool, crate::conversation_drafts::DraftRefusal> {
+        let mut gate = self.conversations.drafts.lock().unwrap_or_else(PoisonError::into_inner);
+        gate.admit(conversation, turn, seq, fresh, text_bytes, now)
+    }
+
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).

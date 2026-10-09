@@ -1,0 +1,92 @@
+//! `cmux chief` messages in English and Japanese, like the rest of the CLI
+//! (crate::localization picks the language from the locale).
+
+pub(super) struct Messages {
+    pub usage: &'static str,
+    pub help: &'static str,
+    pub you: &'static str,
+    pub chief: &'static str,
+    pub typing: &'static str,
+    pub hint: &'static str,
+    pub no_chief: &'static str,
+    pub no_conversations: &'static str,
+    pub brain_socket: &'static str,
+    pub machine_unsupported: &'static str,
+    pub needs_tty: &'static str,
+    pub empty_message: &'static str,
+    pub not_read: &'static str,
+    pub timed_out: &'static str,
+    pub lost: &'static str,
+    pub rejected: &'static str,
+    pub unknown_command: &'static str,
+    pub control_unsupported: &'static str,
+    pub stop_idle: &'static str,
+    pub thoughts_on: &'static str,
+    pub thoughts_off: &'static str,
+    pub attachment: &'static str,
+    pub work: &'static str,
+    pub question: &'static str,
+    pub retracted: &'static str,
+}
+
+static ENGLISH: Messages = Messages {
+    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (exit 124)\n  --history N          chat: show the last N messages first (default 20)\n  --json               pipe mode: print the reply messages as JSON lines",
+    help: "Enter sends. Alt+Enter or Ctrl+J adds a line. Up and Down recall sent messages.\nCtrl+C stops the Chief's turn (or clears the input); Ctrl+D quits.\n/model [NAME]   show or set the Chief's model\n/effort [LEVEL] show or set the Chief's effort\n/thoughts       show or hide the Chief's thinking\n/help           this text\n/quit           leave (the Chief keeps working)",
+    you: "You",
+    chief: "Chief",
+    typing: "Chief is working…",
+    hint: "Enter send · Alt+Enter new line · /help",
+    no_chief: "no Chief conversation on this session yet; open Home in the cmux app once, or pass the session that runs your Chief with --session or --socket",
+    no_conversations: "this session has no conversations (capability local-conversations-v1 is missing); update the cmux app or daemon",
+    brain_socket: "{socket} is a Chief brain's own session: a client there acts as the Chief, not as you. Use your app's session instead",
+    machine_unsupported: "cmux chief does not take --machine yet; run it on the machine whose session holds the Chief, or pass --socket",
+    needs_tty: "cmux chief needs a terminal for the chat; pass -p TEXT or pipe text on stdin to send one message",
+    empty_message: "nothing to send: the message is empty",
+    not_read: "the Chief has not read the message yet; is its brain running? (still waiting, Ctrl+C to leave)",
+    timed_out: "no reply within the timeout; the message stays in the conversation",
+    lost: "the session closed the connection",
+    rejected: "the session refused the message: {reason}",
+    unknown_command: "unknown command {command}; /help lists the commands",
+    control_unsupported: "this needs a newer cmux daemon (capability chief-control-v1); use the engine bar in Home for now",
+    stop_idle: "the Chief is not working; Ctrl+D quits",
+    thoughts_on: "showing the Chief's thinking",
+    thoughts_off: "hiding the Chief's thinking",
+    attachment: "[attachment {name}]",
+    work: "[work {status}]",
+    question: "[question] {prompt}",
+    retracted: "(message removed)",
+};
+
+static JAPANESE: Messages = Messages {
+    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (終了コード 124)\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --json               パイプモード: 返信を JSON Lines で出力",
+    help: "Enter で送信。Alt+Enter または Ctrl+J で改行。上下キーで送信済みメッセージを呼び出します。\nCtrl+C で Chief のターンを停止 (または入力を消去)、Ctrl+D で終了します。\n/model [NAME]   Chief のモデルを表示または設定\n/effort [LEVEL] Chief の effort を表示または設定\n/thoughts       Chief の思考の表示を切り替え\n/help           このテキスト\n/quit           終了 (Chief は作業を続けます)",
+    you: "あなた",
+    chief: "Chief",
+    typing: "Chief が作業中…",
+    hint: "Enter 送信 · Alt+Enter 改行 · /help",
+    no_chief: "このセッションにはまだ Chief の会話がありません。cmux アプリで Home を一度開くか、Chief が動くセッションを --session または --socket で指定してください",
+    no_conversations: "このセッションは会話に対応していません (local-conversations-v1 がありません)。cmux アプリまたはデーモンを更新してください",
+    brain_socket: "{socket} は Chief の頭脳専用のセッションです。そこでのクライアントはあなたではなく Chief として動きます。アプリのセッションを使ってください",
+    machine_unsupported: "cmux chief はまだ --machine に対応していません。Chief のセッションがあるマシンで実行するか、--socket を指定してください",
+    needs_tty: "チャットには端末が必要です。メッセージを 1 件送るには -p TEXT を指定するか、標準入力にテキストを渡してください",
+    empty_message: "送信する内容がありません: メッセージが空です",
+    not_read: "Chief はまだメッセージを読んでいません。頭脳は動いていますか? (待機中、Ctrl+C で終了)",
+    timed_out: "時間内に返信がありませんでした。メッセージは会話に残っています",
+    lost: "セッションが接続を閉じました",
+    rejected: "セッションがメッセージを拒否しました: {reason}",
+    unknown_command: "不明なコマンド {command} です。/help でコマンドを確認してください",
+    control_unsupported: "これには新しい cmux デーモン (chief-control-v1) が必要です。今は Home のエンジンバーを使ってください",
+    stop_idle: "Chief は作業していません。Ctrl+D で終了します",
+    thoughts_on: "Chief の思考を表示します",
+    thoughts_off: "Chief の思考を隠します",
+    attachment: "[添付 {name}]",
+    work: "[作業 {status}]",
+    question: "[質問] {prompt}",
+    retracted: "(メッセージは削除されました)",
+};
+
+/// The messages for the CLI's language.
+pub(super) fn messages() -> &'static Messages {
+    let japanese = crate::localization::catalog_for_locale("ja");
+    if std::ptr::eq(crate::localization::catalog(), japanese) { &JAPANESE } else { &ENGLISH }
+}
