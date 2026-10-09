@@ -151,8 +151,9 @@ import UniformTypeIdentifiers
         ])
         let host = CALayer()
         host.frame = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        host.isGeometryFlipped = true
         let holder = CALayer()
+        // Scale about the bottom-left corner, not the center.
+        holder.anchorPoint = .zero
         holder.frame = host.bounds
         holder.sublayerTransform = CATransform3DMakeScale(scale, scale, 1)
         host.addSublayer(holder)
@@ -182,7 +183,16 @@ import UniformTypeIdentifiers
                   let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info, provider: provider,
                                       decode: nil, shouldInterpolate: false, intent: .defaultIntent) else { throw SheetError.noImage }
-            images.append(image)
+            // The texture's first row is the bottom of the layer tree.
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let flip = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { throw SheetError.noImage }
+            flip.translateBy(x: 0, y: CGFloat(height))
+            flip.scaleBy(x: 1, y: -1)
+            flip.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            guard let upright = flip.makeImage() else { throw SheetError.noImage }
+            images.append(upright)
         }
         layer.removeFromSuperlayer()
         return images
@@ -244,6 +254,27 @@ import UniformTypeIdentifiers
                 body += "<figure>\(Self.img(Self.gif(images), "image/gif", width: 240))<figcaption>\(set.tunableTitle) (<code>\(set.rawValue)</code>)</figcaption></figure>"
             }
             body += "</div>"
+        }
+        // The export path (StatusIconSet.image, for notification attachments):
+        // the same marks drawn still by Core Graphics, 16 pt, in each look.
+        body += "<h2>Exported still images (StatusIconSet.image, 16 pt)</h2>"
+        for look in Self.looks {
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(nil, input: look.input, animated: false)
+            var rows = "<tr><th></th>" + Self.states.map { "<th>\($0.0)</th>" }.joined() + "</tr>"
+            for set in StatusIconSet.allCases {
+                rows += "<tr><td>\(set.tunableTitle)</td>"
+                for state in Self.states {
+                    let image = scope.perform { set.image(state: state.1, pointSize: 16, appearance: scope.appearance) }
+                    let data = image.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }.map(Self.png) ?? Data()
+                    rows += "<td>" + (data.isEmpty ? "" : Self.img(data, "image/png", width: 16)) + "</td>"
+                }
+                rows += "</tr>"
+            }
+            let background = look.tokens.surfaceBackground.withAlpha(1).nsColor.usingColorSpace(.sRGB) ?? .black
+            let hex = String(format: "#%02x%02x%02x", Int(background.redComponent * 255), Int(background.greenComponent * 255), Int(background.blueComponent * 255))
+            body += "<h3>\(look.name)</h3><table style=\"background:\(hex);color:#888\">\(rows)</table>"
+            Self.scopes.append(scope)
         }
         var legend = ""
         for set in StatusIconSet.allCases {
