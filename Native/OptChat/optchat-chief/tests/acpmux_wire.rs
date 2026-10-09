@@ -127,6 +127,21 @@ fn serve_with(
                         "_acpmux/presets" if fail_presets => send(
                             json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found: _acpmux/presets"}}),
                         ),
+                        // A steer: acpmux answers once the harness read it, or
+                        // refuses when the session cannot steer now.
+                        "session/prompt"
+                            if req["params"]["_meta"]["acpmux"]["steer"] == json!(true) =>
+                        {
+                            if req["params"]["prompt"][0]["text"] == "refuse" {
+                                send(
+                                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "steer.unavailable: the session has no running turn that its agent can steer"}}),
+                                );
+                            } else {
+                                send(reply(
+                                    json!({"stopReason": "steered", "_meta": {"acpmux": {"steer": true}}}),
+                                ));
+                            }
+                        }
                         "session/prompt" => {
                             let prompt_id = req["params"]["_meta"]["acpmux"]["promptId"]
                                 .as_str()
@@ -550,5 +565,52 @@ fn query_harnesses_reads_the_daemons_harness_metadata() {
     assert_eq!(
         *methods.lock().unwrap(),
         vec!["initialize".to_owned(), "_acpmux/harnesses".to_owned()]
+    );
+}
+
+/// Parity items 4 and 7 over the wire: the next turn's session is hinted to
+/// acpmux's pool (`_acpmux/prewarm`), and a message is steered into a
+/// running turn (a steered `session/prompt` with `steerOnly`).
+#[test]
+fn prewarm_and_steer_go_over_the_wire() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
+    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    connect(&acpmux);
+    let name = compactor_preset().name;
+    assert_eq!(acpmux.prewarm("claude-sr", Some(&name), dir.path()), Ok(()));
+    let text = |t: &str| vec![json!({"type": "text", "text": t})];
+    assert_eq!(
+        acpmux.steer("s-1", text("also this"), "optchat-steer:k:1"),
+        Ok(())
+    );
+    assert!(
+        acpmux
+            .steer("s-1", text("refuse"), "optchat-steer:k:2")
+            .is_err()
+    );
+    let requests = requests.lock().unwrap();
+    let prewarm = requests
+        .iter()
+        .find(|r| r["method"] == "_acpmux/prewarm")
+        .expect("a prewarm hint");
+    assert_eq!(
+        prewarm["params"],
+        json!({"harness": "claude-sr", "preset": name, "cwd": dir.path()})
+    );
+    let steer = requests
+        .iter()
+        .find(|r| r["method"] == "session/prompt")
+        .expect("a steer");
+    assert_eq!(steer["params"]["sessionId"], "s-1");
+    assert_eq!(
+        steer["params"]["_meta"]["acpmux"],
+        json!({"promptId": "optchat-steer:k:1", "steer": true, "steerOnly": true})
     );
 }

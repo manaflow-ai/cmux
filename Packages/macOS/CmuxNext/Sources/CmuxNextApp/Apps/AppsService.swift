@@ -101,7 +101,9 @@ final class AppsService {
         if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
-    /// A window mounted a pane: a request that waited for one runs now.
+    /// The first window opened or a window mounted a pane: a request that
+    /// waited runs again (a user run shows the top page as soon as a window
+    /// exists; an automation run still waits until a pane can hold its tab).
     func windowDidShowContent() {
         guard let request = waitingStore else { return }
         showStore(appID: request.appID, installed: request.installed, focus: request.focus)
@@ -151,6 +153,7 @@ final class AppsService {
     private func makeStoreModel() -> AppStoreModel {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
         model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        model.onNavigate = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
 
@@ -207,6 +210,11 @@ extension AppsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
         storePages.tabClosed(key)
+    }
+
+    /// The native store's page history (the React store keeps its own).
+    func history(for key: String) -> (any PageHistory)? {
+        webStorePages[key] == nil ? storePages.model(for: key) : nil
     }
 
     /// The React page's fragment for a listing or the Installed tab.

@@ -438,6 +438,12 @@ pub struct Agents {
     pub session_harness: Option<String>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
+    pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// The sessions steer (deliver between tool calls); else a steer fails.
+    pub steering: bool,
+    /// Every steer delivered: (session, blocks).
+    pub steers: Vec<(String, Vec<Value>)>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -520,6 +526,17 @@ impl FakeAgents {
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
             let _ = tx.send(TurnSignal::Changed);
+        }
+    }
+
+    /// Waits until `n` steers were delivered.
+    pub fn wait_steers(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.steers.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no steer {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
         }
     }
 
@@ -691,6 +708,31 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn steer(&self, session: &str, blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        drop(inner);
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().prewarms.push((
+            harness.to_owned(),
+            preset.map(str::to_owned),
+            cwd.to_owned(),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -741,6 +783,7 @@ pub fn settings(dir: &Path) -> Settings {
         codex_preset: None,
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
     }
 }
 

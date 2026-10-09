@@ -1119,3 +1119,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_macos_stubs.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_notary_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_guards_route.py"
+lane = "linux-guard"

@@ -1,5 +1,5 @@
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
-import { IconPickerOps } from "../../pages/icon-picker/host";
+import { CLIPBOARD_WRITE, IconPickerOps } from "../../pages/icon-picker/host";
 import { MockIconPickerHost } from "../../pages/icon-picker/mockHost";
 import type { IconPickerPageVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
@@ -8,8 +8,10 @@ import { fixtureElement, fixtureSteps } from "./settingsPasswords";
 
 export function iconPickerFixtureOps(state: IconPickerPageVariant): Record<string, HostOp> {
   const provider = new MockIconPickerHost();
+  // Frequently Used and the remembered tone come from the variant's saved prefs.
+  provider.prefs = state.prefs ?? null;
   return Object.fromEntries(
-    Object.values(IconPickerOps)
+    [...Object.values(IconPickerOps), CLIPBOARD_WRITE]
       .filter((op) => op !== IconPickerOps.session)
       .map((op) => [
         op,

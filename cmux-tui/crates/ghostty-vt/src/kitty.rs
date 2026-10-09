@@ -75,7 +75,7 @@ fn record_pixel_cache_miss() {}
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
-    loading: bool,
+    pub(crate) loading: bool,
     overflowed: bool,
     max_bytes: usize,
 }

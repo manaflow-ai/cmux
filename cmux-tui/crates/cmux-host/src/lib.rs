@@ -24,6 +24,7 @@
 //! - [`run_roles`]: `cmux host run` without a bind agent (macOS).
 //! - [`status`]: `cmux host status`.
 //! - [`cloud`]: the Cloud machine agent role (bind, status reports, events).
+//! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
 //!
@@ -52,3 +53,4 @@ pub mod retry;
 pub mod roles;
 pub mod run_roles;
 pub mod status;
+pub mod team_ssh;

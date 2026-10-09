@@ -64,9 +64,12 @@ impl Brain {
                 return;
             };
             match daemon.op(&conversation, &key, &op) {
-                Ok(_) => {
+                Ok(change) => {
                     if is_message {
                         self.last_agent_send = Some(now_ms());
+                    }
+                    if let Some(cmux_conversation::Change::Message { message }) = change {
+                        self.sent(&key, &message.id);
                     }
                 }
                 Err(OpError::Rejected(reason)) if reason.contains("actor_mismatch") => {

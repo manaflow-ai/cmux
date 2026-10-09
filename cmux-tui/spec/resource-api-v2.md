@@ -162,10 +162,25 @@ then this session's live workspaces without a personal row in session order;
 the default `order: "session"` keeps the session order. To put a workspace
 right after a group at a boundary, a client sends `workspace.place`, then the
 group's `top_index`, in that order. Compatibility: a workspace this session
-creates gets its personal row (last, ungrouped) in the commit that creates
-it, by every creation path, with its `workspace_placement` change in that
-commit's `session.events` batch and no personal journal record of its own,
-so a group place counts it from the start. The commit bumps
+creates gets its personal row in the commit that creates it, by every
+creation path and every client, at the place `workspaces.newPlacement` names
+in the daemon machine's settings file (read by the daemon itself:
+`CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else classic
+`cmux.json` before the app's first launch; the managed layer is not read):
+`top` (the default, also for a missing or unknown value) right after the home workspace's row,
+else first, ungrouped, so before every group at that place; `afterCurrent`
+right after the session's active workspace before the commit, in its group
+(`top` when there is none, it has no row, it is the home workspace, or the
+new workspace is pinned to a room other than the group's);
+`bottom` last, ungrouped. Several workspaces of one commit keep their order.
+The home workspace (`workspace.ensure_home`) always takes the top, and a
+reopened workspace is created last and then takes its closed row's place.
+The creation's `session.events` batch carries a `workspace_placement`
+change for each new row and each row it moved, and a `workspace_group`
+change for each group whose `top_index` moved, and no personal journal
+record of its own, so a group place counts it from the start. A caller that
+wants another place sends `workspace.place` after the creation; that later
+write wins. The commit bumps
 `personal_revision` but sends no raw `personal-changed` event, so raw
 `list-personal` readers see the row on their next refetch; a
 workspace reopened with a key that already has a row keeps that row. Older

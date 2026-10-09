@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "./cx";
 
 /** An action in the standalone context menu. */
@@ -21,11 +22,14 @@ export interface ContextMenuProps {
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
  * It owns only the context-menu gesture; regular menus and selects should use `Menu`/`Select`.
+ * A right-click over selected text keeps the host's native menu (Copy).
+ * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
+ * transform animation, such as a settings category's enter animation) is placed relative to that
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf).
  */
 export function ContextMenu({ items, children, className }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
-  const menu = useRef<HTMLDivElement>(null);
   const enabled = items.filter((item) => !item.disabled);
   const close = () => setPoint(null);
   const run = (item: ContextMenuItem | undefined) => {
@@ -33,9 +37,6 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
     close();
     item.onSelect();
   };
-  useEffect(() => {
-    if (point) menu.current?.focus();
-  }, [point]);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -53,16 +54,18 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
     <div
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
+        if (window.getSelection()?.isCollapsed === false) return;
         event.preventDefault();
         setActive(0);
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
       {children}
-      {point ? (
+      {point ? createPortal(
         <div className="ui-context-menu-backdrop" onPointerDown={close}>
           <div
-            ref={menu}
+            // Takes focus when it opens, so Up/Down/Return work.
+            ref={(node) => node?.focus()}
             className="ui-popup ui-context-menu"
             role="menu"
             tabIndex={-1}
@@ -88,7 +91,8 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

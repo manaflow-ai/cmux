@@ -6,10 +6,18 @@ extension WindowController {
     /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights
     /// and the toggle's glyph. Strips under the top row relay out after it.
     func observeSidebarHidden() {
+        // Each frame of the sidebar's width animation collapses or restores the
+        // toolbar band; strips under it follow in the same layout pass.
+        root.onToolbarBandPresenceChange = { [weak self] in
+            for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
+        }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in Observations({ model.isHidden }) {
                 guard let self else { return }
+                if hidden { services.hoverCards.suppress(.sidebarHide) }
+                else { services.hoverCards.unsuppress(.sidebarHide) }
+                if hidden { services.hoverCards.dismiss(.action) }
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
                 root.layoutSubtreeIfNeeded()

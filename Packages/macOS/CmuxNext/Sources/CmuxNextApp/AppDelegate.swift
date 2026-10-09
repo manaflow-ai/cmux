@@ -28,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ghosttyKeybinds: GhosttyKeybindSync?
     /// Watches the exact Ghostty files libghostty loaded and reloads them live.
     private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
+    /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`,
+    /// which owns their broker).
+    private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -115,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             #if DEBUG
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
+            // An App Store request made while no window existed shows in this window (S22).
+            if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
             if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {
@@ -156,6 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         services.pageHostPool.noteLikely()
         AgentTabImport.start(services)
+        // Other apps' sign-ins, before any request a launch by one delivers.
+        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
+        self.webAuthHandler = webAuthHandler
+        WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
@@ -288,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// tabs; links in this build's scheme (`cmux://tab/…`) run `link.open`;
     /// `<scheme>://auth-callback` from the browser fallback of sign-in goes
     /// to Cloud auth.
-    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+    @objc(handleURLEvent:reply:) private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
         routeOpenedURL(url)
     }

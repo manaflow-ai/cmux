@@ -16200,6 +16200,32 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-acp-inspector",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.toggleInspector",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show ACP Inspector",
+      "title_key" : "action.agentPane.toggleInspector",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent quick",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -23129,58 +23155,6 @@
       "title_table" : "SidebarSectionActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action sidebar-group-by-none",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarBackground"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.groupBy.none",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "title" : "Group by None",
-      "title_key" : "action.sidebar.groupBy.none",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action sidebar-group-by-folder",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarBackground"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.groupBy.folder",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "title" : "Group by Folder",
-      "title_key" : "action.sidebar.groupBy.folder",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "sidebar reset",
       "context_menu" : "offered",
@@ -26298,7 +26272,7 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "newRow",
+              "id" : "newColumn",
               "kind" : "action",
               "order" : 0,
               "visible_when" : {
@@ -26311,7 +26285,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitLeft",
+              "id" : "newRow",
               "kind" : "action",
               "order" : 1,
               "visible_when" : {
@@ -26324,7 +26298,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "splitUp",
+              "id" : "splitLeft",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -26337,7 +26311,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "newColumn",
+              "id" : "splitUp",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -28367,32 +28341,6 @@
               "id" : "workspaceGroup.expandAll",
               "kind" : "action",
               "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.groupBy.none",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.groupBy.folder",
-              "kind" : "action",
-              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

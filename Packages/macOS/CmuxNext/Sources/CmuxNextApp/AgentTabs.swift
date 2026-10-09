@@ -41,6 +41,9 @@ final class AgentTabStore {
     /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
     /// where the pane still selects it (AppServices: every pane controller).
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
+    /// The pane host for agent tab `key` when its session runs on another machine whose session
+    /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
+    var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
     /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
@@ -231,22 +234,36 @@ final class AgentTabStore {
         return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
     }
 
-    /// The tab's pane view, made on first show. Nil for a tab whose session runs on another
-    /// machine's acpmux: this Mac does not attach to it.
+    /// The tab's pane view, made on first show. A tab whose session runs on another machine is
+    /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
+    /// pane then shows the "runs on" notice).
     func view(for key: String) -> AgentPaneView? {
         let key = resolve(key)
         if let view = views[key] { return view }
-        guard let (record, store) = lookup(key), record.host == localHost else { return nil }
+        guard let (record, store) = lookup(key) else { return nil }
+        let local = record.host == localHost
+        guard let paneHost = local ? host : remoteHost(key) else { return nil }
+        // A tab this run did not open and that has no chat yet is a New Tab page the store
+        // restored after a relaunch: it opens as the page again, not as an empty chat.
+        if local, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil, !linkedSessions.contains(key) {
+            newTabPages[key] = firstPageNewTab?(nil)
+        }
         let model = AgentPaneModel(
-            host: host,
+            host: paneHost,
             sessionId: sessions[key] ?? record.session,
-            seed: seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store),
-            newTab: newTabPages[key]?.page,
-            allowsTabConversion: true
+            seed: local ? (seeds.removeValue(forKey: key) ?? firstChatSeed(of: key, in: store)) : nil,
+            newTab: local ? newTabPages[key]?.page : nil,
+            allowsTabConversion: local
         )
-        model.sessionMustExist = linkedSessions.contains(key)
+        model.sessionMustExist = linkedSessions.contains(key) || !local
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         wire(model, key: key)
+        if !local {
+            // This Mac's git reads would read this Mac's folders, not the chat's machine's, and
+            // the other machine's store keeps its own record of the session (no bind from here).
+            model.onGit = nil
+            model.onSessionChange = nil
+        }
         guard let view = makeView(model) else { return nil }
         views[key] = view
         track(key, in: store)

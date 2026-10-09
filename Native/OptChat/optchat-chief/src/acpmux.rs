@@ -104,7 +104,8 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
-    /// New events that matter for the log (not text chunks): fetch them.
+    /// New events that matter for the log (not text chunks, but for a
+    /// prompt's first, which says its response started): fetch them.
     Changed,
     /// The prompt's answer: the turn ended (or never started, on an error).
     Done(Result<Value, String>),
@@ -174,6 +175,24 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
+    /// Delivers `blocks` into `session`'s running turn between its tool
+    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
+    /// read them. Err: the session could not take them now (no running turn,
+    /// a harness that does not steer); nothing was delivered.
+    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+        Err("steering is not supported".into())
+    }
+    /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
+    /// session of `harness` and `preset` in `cwd`, so the next `session/new`
+    /// of exactly that shape takes a harness that is already up.
+    fn prewarm(
+        &self,
+        _harness: &str,
+        _preset: Option<&str>,
+        _cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -226,7 +245,7 @@ pub struct Preset {
 pub struct Acpmux {
     socket: PathBuf,
     client: Mutex<Option<Arc<RpcClient>>>,
-    turns: Arc<Mutex<HashMap<String, Sender<TurnSignal>>>>,
+    turns: Arc<Mutex<HashMap<String, TurnRoute>>>,
     /// The turn sessions' preset, used when installed (else a turn runs with
     /// the harness's own configuration, and host.log says so).
     preset: Option<Preset>,
@@ -379,13 +398,13 @@ impl Acpmux {
                         .client
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                    for (_, tx) in this
+                    for (_, turn) in this
                         .turns
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .drain()
                     {
-                        let _ = tx.send(TurnSignal::Lost);
+                        let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
                     if linked && !crate::acpmux_daemon::reachable(&this.socket) {
@@ -457,7 +476,23 @@ impl Acpmux {
 }
 
 /// Sends a notification to the turn that owns its session, or to the brain.
-fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Notification) {
+/// A running prompt's signals.
+struct TurnRoute {
+    tx: Sender<TurnSignal>,
+    /// The harness streamed output in this prompt already.
+    spoke: bool,
+}
+
+/// The first streamed output of a prompt: its response has started (the
+/// API's `message_start` came, so the request's cache entry exists).
+pub(crate) fn is_output(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_message_chunk" | "agent_thought_chunk" | "usage_update"
+    )
+}
+
+fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification) {
     let session = n
         .params
         .get("sessionId")
@@ -472,13 +507,17 @@ fn route(turns: &Mutex<HashMap<String, Sender<TurnSignal>>>, sink: &Sink, n: Not
                 .or_else(|| n.params.get("kind"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if !is_noise(kind)
-                && let Some(tx) = turns
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get(session)
-            {
-                let _ = tx.send(TurnSignal::Changed);
+            let mut turns = turns
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(turn) = turns.get_mut(session) {
+                // Chunks are noise but for the first one, which says the
+                // response started (the compactor's single-flight waits for it).
+                let first = is_output(kind) && !turn.spoke;
+                turn.spoke |= is_output(kind);
+                if first || !is_noise(kind) {
+                    let _ = turn.tx.send(TurnSignal::Changed);
+                }
             }
         }
         "_acpmux/session_changed" => {
@@ -623,7 +662,13 @@ impl AgentPort for Acpmux {
         self.turns
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session.to_owned(), signals.clone());
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
         let answer = client.start(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
@@ -697,6 +742,52 @@ impl AgentPort for Acpmux {
             .request("_acpmux/permission_respond", params)
             .map(|_| ())
             .map_err(|e| format!("permission_respond: {e}"))
+    }
+
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        // No timeout: acpmux answers when the harness reads the message, at
+        // its next tool boundary, however long the running tool takes.
+        let answer = self.client()?.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
+        );
+        match answer.recv() {
+            Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("steered") => Ok(()),
+            Ok(Ok(v)) => Err(format!("acpmux did not steer the message ({v})")),
+            Ok(Err(e)) => Err(format!("steer: {e}")),
+            Err(_) => Err("steer: the acpmux connection closed".into()),
+        }
+    }
+
+    fn prewarm(
+        &self,
+        harness: &str,
+        preset: Option<&str>,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        // The same preset `new_session` gives a session that names none.
+        let ready = self
+            .ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let preset = match preset {
+            Some(name) if ready.contains(name) => Some(name.to_owned()),
+            Some(_) => return Ok(()),
+            None => self
+                .preset
+                .as_ref()
+                .filter(|p| ready.contains(&p.name))
+                .map(|p| p.name.clone()),
+        };
+        let mut params = json!({"harness": harness, "cwd": cwd});
+        if let Some(preset) = preset {
+            params["preset"] = json!(preset);
+        }
+        self.client()?
+            .request("_acpmux/prewarm", params)
+            .map(|_| ())
+            .map_err(|e| format!("prewarm: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {
