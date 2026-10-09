@@ -130,6 +130,7 @@ final class AgentRenderPanel: NSPanel {
     /// detection on, a window no pixel of which is on a display counts as
     /// occluded, and the page stops rendering.
     private static func setOcclusionDetection(_ enabled: Bool, on webView: WKWebView) {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard webView.responds(to: selector) else { return }
         typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
