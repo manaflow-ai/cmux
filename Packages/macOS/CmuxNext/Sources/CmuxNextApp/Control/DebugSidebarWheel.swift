@@ -12,8 +12,9 @@ import CmuxNextSettings
 /// Params: `x`, `y` (window points from the top left), `dy`, `dx` (lines for
 /// a wheel, points per event for a trackpad), `count` (events, default 1),
 /// `trackpad` (one gesture: began, changed..., ended), `window`.
-/// Each event carries the time it is posted, like the window server's, so
-/// a wheel's paging interval holds as it does for a real wheel.
+/// `interval_ms` (default 16, a trackpad's event rate) spaces the events'
+/// timestamps from the time of the call, so a swipe's release velocity and
+/// a wheel's paging interval read as they do for real input.
 @MainActor enum DebugSidebarWheel {
     static func post(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
@@ -26,6 +27,8 @@ import CmuxNextSettings
         let dy = Int32(params["dy"]?.intValue ?? 0), dx = Int32(params["dx"]?.intValue ?? 0)
         let count = max(1, params["count"]?.intValue ?? 1)
         let trackpad = params["trackpad"]?.boolValue ?? false
+        let interval = UInt64(max(0, params["interval_ms"]?.intValue ?? 16)) * 1_000_000
+        let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         var sent = 0
         var routes: Set<String> = []
         let hit = window.contentView.flatMap { $0.hitTest($0.superview?.convert(point, from: nil) ?? point) }
@@ -33,7 +36,7 @@ import CmuxNextSettings
             guard let event = CGEvent(scrollWheelEvent2Source: nil, units: trackpad ? .pixel : .line,
                                       wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else { continue }
             event.location = location
-            event.timestamp = CGEventTimestamp(clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+            event.timestamp = CGEventTimestamp(start + UInt64(index) * interval)
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
             if trackpad {
