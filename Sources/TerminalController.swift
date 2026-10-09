@@ -36,6 +36,8 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    /// Posted on the main thread by a browser panel when its main frame commits a new document.
+    static let browserMainFrameDidCommit = Notification.Name("cmux.browserMainFrameDidCommit")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
     static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
@@ -449,11 +451,6 @@ class TerminalController {
     let controlCommandCoordinator = ControlCommandCoordinator()
     nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
-    private struct V2BrowserElementRefEntry {
-        let surfaceId: UUID
-        let selector: String
-    }
-
     private struct V2BrowserPendingDialog {
         let type: String
         let message: String
@@ -468,9 +465,7 @@ class TerminalController {
     private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
     private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
-    private var v2BrowserNextElementOrdinal: Int = 1
-    private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
-    private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
+    private var v2BrowserDocumentState = BrowserAutomationDocumentState()
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
@@ -488,6 +483,7 @@ class TerminalController {
         )
     )
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserMainFrameCommitObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(
         surfaceIds: [UUID],
@@ -506,12 +502,11 @@ class TerminalController {
         }
         for surfaceId in uniqueSurfaceIds {
             removeLocalSizingHost(surfaceID: surfaceId)
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDocumentState.removeSurface(surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
         for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
@@ -732,6 +727,20 @@ class TerminalController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
+            }
+        }
+        browserMainFrameCommitObserver = NotificationCenter.default.addObserver(
+            forName: .browserMainFrameDidCommit,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let surfaceId = note.userInfo?["surfaceId"] as? UUID else { return }
+            // The panel posts from its main-thread commit callback and this
+            // observer is on the main queue, so the block runs before the post
+            // returns. Drop the old page's frame and refs here, not in a
+            // deferred task, so no command can use them against the new page.
+            MainActor.assumeIsolated {
+                self?.v2BrowserDocumentState.mainFrameDidCommit(surfaceID: surfaceId)
             }
         }
     }
@@ -1926,6 +1935,7 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
+        case "remote.tmux.attach_progress": return v2RemoteTmuxAttachProgress(id: request.id, params: request.params)
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
@@ -3916,7 +3926,7 @@ class TerminalController {
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
     nonisolated func v2VmCall(
         id: Any?,
-        timeoutSeconds: TimeInterval = 17 * 60,
+        timeoutSeconds: TimeInterval? = 17 * 60,
         transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
@@ -3930,13 +3940,18 @@ class TerminalController {
             }
             semaphore.signal()
         }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
+        if let timeoutSeconds {
+            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                task.cancel()
+                return v2Error(
+                    id: id,
+                    code: "timeout",
+                    message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                )
+            }
+        } else {
+            // Opt-in for operations that enforce their own lifecycle deadline.
+            semaphore.wait()
         }
         switch result {
         case .success(let payload):
@@ -6819,10 +6834,7 @@ class TerminalController {
 
     private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
         v2MainSync {
-            let ref = "@e\(v2BrowserNextElementOrdinal)"
-            v2BrowserNextElementOrdinal += 1
-            v2BrowserElementRefs[ref] = V2BrowserElementRefEntry(surfaceId: surfaceId, selector: selector)
-            return ref
+            v2BrowserDocumentState.allocateElementRef(selector: selector, surfaceID: surfaceId)
         }
     }
 
@@ -6837,14 +6849,13 @@ class TerminalController {
         }()
 
         if let refKey {
-            guard let entry = v2MainSync({ v2BrowserElementRefs[refKey] }), entry.surfaceId == surfaceId else { return nil }
-            return entry.selector
+            return v2MainSync { v2BrowserDocumentState.selector(forElementRef: refKey, surfaceID: surfaceId) }
         }
         return trimmed
     }
 
     private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
-        v2MainSync { v2BrowserFrameSelectorBySurface[surfaceId] }
+        v2MainSync { v2BrowserDocumentState.frameSelector(surfaceID: surfaceId) }
     }
 
     /// A WKWebView that has never committed a navigation has no JavaScript context, so the
@@ -9912,46 +9923,89 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const frame = document.querySelector(\(selectorLiteral));
-              if (!frame) return { ok: false, error: 'not_found' };
-              if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
-              try {
-                const sameOrigin = !!frame.contentDocument;
-                if (!sameOrigin) return { ok: false, error: 'cross_origin' };
-              } catch (_) {
-                return { ok: false, error: 'cross_origin' };
-              }
-              return { ok: true };
-            })()
-            """
-            switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
+            // Restoring a discarded page commits a document. Let that happen before
+            // noting which document the frame is checked in.
+            _ = v2EnsureBrowserDocumentLoaded(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId)
+            let document = v2MainSync { v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }
+            let probe = v2BrowserProbeFrame(ctx, selector: selector)
+            // If the page committed a new document while the frame was being checked,
+            // the answer describes a page that is gone, whatever the answer was.
+            let stale = V2CallResult.err(
+                code: "stale_state",
+                message: "Browser page changed before the frame was selected",
+                data: ["selector": selector]
+            )
+            guard v2MainSync({ v2BrowserDocumentState.documentGeneration(surfaceID: surfaceId) }) == document else {
+                return stale
+            }
+            switch probe {
+            case .scriptFailed(let message):
                 return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   ok {
-                    v2MainSync {
-                        v2BrowserFrameSelectorBySurface[surfaceId] = selector
-                    }
-                    return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
+            case .sameOriginFrame:
+                let selected = v2MainSync {
+                    v2BrowserDocumentState.selectFrame(selector, surfaceID: surfaceId, checkedInDocument: document)
                 }
-                if let dict = value as? [String: Any],
-                   let errorText = dict["error"] as? String,
-                   errorText == "cross_origin" {
-                    return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
-                }
+                guard selected else { return stale }
+                return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
+            case .crossOrigin:
+                return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
+            case .notFound:
                 return .err(code: "not_found", message: "Frame not found", data: ["selector": selector])
             }
         }
     }
 
+    private enum V2BrowserFrameProbe {
+        case sameOriginFrame
+        case crossOrigin
+        case notFound
+        case scriptFailed(String)
+    }
+
+    /// Checks that `selector` names a same-origin frame in the document commands currently run in.
+    ///
+    /// - Parameter afterDocumentParsed: Wait up to two seconds for the document to finish
+    ///   parsing first. A navigation is reported at commit, when the frame element may not
+    ///   exist yet; the wait is bounded in the page so a stalled parser cannot hold the command.
+    private nonisolated func v2BrowserProbeFrame(
+        _ ctx: V2BrowserPanelContext,
+        selector: String,
+        afterDocumentParsed: Bool = false
+    ) -> V2BrowserFrameProbe {
+        let selectorLiteral = v2JSONLiteral(selector)
+        let waitForParse = afterDocumentParsed
+            ? "if (document.readyState === 'loading') { await new Promise((resolve) => { document.addEventListener('DOMContentLoaded', resolve, { once: true }); setTimeout(resolve, 2000); }); }"
+            : ""
+        let script = """
+        (async () => {
+          \(waitForParse)
+          const frame = document.querySelector(\(selectorLiteral));
+          if (!frame) return { ok: false, error: 'not_found' };
+          if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
+          try {
+            const sameOrigin = !!frame.contentDocument;
+            if (!sameOrigin) return { ok: false, error: 'cross_origin' };
+          } catch (_) {
+            return { ok: false, error: 'cross_origin' };
+          }
+          return { ok: true };
+        })()
+        """
+        switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
+        case .failure(let message):
+            return .scriptFailed(message)
+        case .success(let value):
+            let dict = value as? [String: Any]
+            if dict?["ok"] as? Bool == true {
+                return .sameOriginFrame
+            }
+            return dict?["error"] as? String == "cross_origin" ? .crossOrigin : .notFound
+        }
+    }
+
     private func v2BrowserFrameMain(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, _ in
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDocumentState.selectMainFrame(surfaceID: surfaceId)
             return .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -11274,23 +11328,7 @@ class TerminalController {
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
-            let storageScript = """
-            (() => {
-              const readStorage = (st) => {
-                const out = {};
-                if (!st) return out;
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return out;
-              };
-              return {
-                local: readStorage(window.localStorage),
-                session: readStorage(window.sessionStorage)
-              };
-            })()
-            """
+            let storageScript = v2BrowserControl.storageSnapshotScript()
 
             let storageValue: Any
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
@@ -11307,7 +11345,7 @@ class TerminalController {
             let stateSnapshot = v2MainSync {
                 (
                     url: ctx.browserPanel.currentURL?.absoluteString ?? "",
-                    frameSelector: v2BrowserFrameSelectorBySurface[ctx.surfaceId]
+                    frameSelector: v2BrowserDocumentState.frameSelector(surfaceID: ctx.surfaceId)
                 )
             }
 
@@ -11353,12 +11391,7 @@ class TerminalController {
             let targetURL = (raw["url"] as? String)
                 .flatMap { $0.isEmpty ? nil : URL(string: $0) }
             let context = v2MainSync {
-                if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                    v2BrowserFrameSelectorBySurface[ctx.surfaceId] = frameSelector
-                } else {
-                    v2BrowserFrameSelectorBySurface.removeValue(forKey: ctx.surfaceId)
-                }
-                return (
+                (
                     store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
                     fallbackURL: targetURL ?? ctx.browserPanel.currentURL,
                     browserPanel: ctx.browserPanel,
@@ -11368,6 +11401,30 @@ class TerminalController {
 
             let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
+                restoreFrameSelection: {
+                    // The loaded page replaces whatever frame was selected. The saved
+                    // selector is applied only if it still names a same-origin frame
+                    // there; otherwise commands stay in the main frame.
+                    let document = v2MainSync {
+                        v2BrowserDocumentState.selectMainFrame(surfaceID: ctx.surfaceId)
+                        return v2BrowserDocumentState.documentGeneration(surfaceID: ctx.surfaceId)
+                    }
+                    guard let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty,
+                          case .sameOriginFrame = v2BrowserProbeFrame(
+                              ctx,
+                              selector: frameSelector,
+                              afterDocumentParsed: true
+                          ) else {
+                        return
+                    }
+                    v2MainSync {
+                        _ = v2BrowserDocumentState.selectFrame(
+                            frameSelector,
+                            surfaceID: ctx.surfaceId,
+                            checkedInDocument: document
+                        )
+                    }
+                },
                 installCookies: {
                     guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
                         return true
@@ -11399,22 +11456,7 @@ class TerminalController {
                     guard let storage = raw["storage"] as? [String: Any] else {
                         return true
                     }
-                    let storageLiteral = v2JSONLiteral(storage)
-                    let script = """
-                    (() => {
-                      const payload = \(storageLiteral);
-                      const apply = (st, data) => {
-                        if (!st || !data || typeof data !== 'object') return;
-                        st.clear();
-                        for (const [k, v] of Object.entries(data)) {
-                          st.setItem(String(k), v == null ? '' : String(v));
-                        }
-                      };
-                      apply(window.localStorage, payload.local);
-                      apply(window.sessionStorage, payload.session);
-                      return true;
-                    })()
-                    """
+                    let script = v2BrowserControl.storageRestoreScript(storageLiteral: v2JSONLiteral(storage))
                     switch v2RunBrowserJavaScript(
                         context.webView,
                         browserPanel: context.browserPanel,
@@ -16721,6 +16763,9 @@ class TerminalController {
     deinit {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)
+        }
+        if let browserMainFrameCommitObserver {
+            NotificationCenter.default.removeObserver(browserMainFrameCommitObserver)
         }
         // No stop() here: the controller is an app-lifetime singleton, so
         // deinit never runs; listener teardown is applicationWillTerminate's

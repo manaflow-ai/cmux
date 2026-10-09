@@ -6,11 +6,12 @@ public import Foundation
 /// newcomer is a different bundle that shares the id (a locally built Release
 /// app, a copy in Downloads, a tool launching a build under a profiler), that
 /// killed the user's running app and its live agent sessions without a final
-/// session save (incident 2026-09-26). Now only a relaunch of the same bundle
-/// replaces the running one; any other bundle yields to it.
+/// session save (incident 2026-09-26). Ordinary launches now yield to an
+/// existing instance, including a relaunch of the same bundle. Deliberate
+/// reload tooling must opt into replacement explicitly.
 public struct SingleInstanceConflictPolicy: Sendable {
     public enum Action: Equatable, Sendable {
-        /// The same bundle relaunched itself: ask the older instance to quit.
+        /// This launch is explicitly authorized to replace the older instance.
         case replaceExisting
         /// A different bundle: leave the running app alone and exit.
         case yieldToExisting
@@ -31,10 +32,22 @@ public struct SingleInstanceConflictPolicy: Sendable {
         self.environment = environment
     }
 
-    public func action(currentBundleURL: URL, existingBundleURL: URL?) -> Action {
-        if environment[Self.allowReplacingEnvironmentKey] == "1" { return .replaceExisting }
-        guard let existingBundleURL else { return .yieldToExisting }
-        return Self.canonical(currentBundleURL) == Self.canonical(existingBundleURL) ? .replaceExisting : .yieldToExisting
+    public func action(
+        currentBundleURL _: URL,
+        existingBundleURL _: URL?
+    ) -> Action {
+        // Keep the deliberate reload escape hatch independent of bundle-path
+        // discovery. The old behavior allowed this override to replace an
+        // instance even when LaunchServices did not report its bundle URL.
+        if environment[Self.allowReplacingEnvironmentKey] == "1" {
+            return .replaceExisting
+        }
+        return .yieldToExisting
+    }
+
+    /// Whether two bundle URLs resolve to the same installed application.
+    public static func isSameBundle(_ lhs: URL, _ rhs: URL) -> Bool {
+        canonical(lhs) == canonical(rhs)
     }
 
     private static func canonical(_ url: URL) -> String {

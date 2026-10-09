@@ -12,6 +12,34 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### CJK punctuation keeps the resolver's font
+
+- Branch: `fix-10733-cjk-punctuation-width`
+  ([manaflow-ai/ghostty#265](https://github.com/manaflow-ai/ghostty/pull/265)),
+  based on the current cmux pin `01f4e0fe2`.
+- Commits: `b970b6677` (regression test), `17357e12a` (fix).
+- Summary: the bidi run iterator no longer replaces a neutral character's
+  resolved font with the preceding run's face. In `看——Ghostty` and `你……好`,
+  the punctuation now uses its resolved narrow font instead of overflowing
+  its one-cell slot with PingFang SC's full-width glyph. Explicit codepoint
+  maps are also respected. itijah still owns bidi direction and visual order.
+- Coverage: CoreText's `shape CJK punctuation preserves resolved fonts`
+  exercises the reported strings, spacing/Latin/line-start controls, explicit
+  fallback and codepoint maps, and cursor/selection boundaries. The
+  `build-ghosttykit.yml` packaging lane runs it and the shaper regression suite.
+  Test-only commit `b970b6677` failed with expected primary index 0, actual
+  PingFang index 3 in [run 37702657286](https://github.com/manaflow-ai/cmux/actions/runs/37702657286).
+  The fixed regression passed 74/74 tests and the native shaper suite
+  passed 122/122 tests in
+  [run 37702833993](https://github.com/manaflow-ai/cmux/actions/runs/37702833993).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-17357e12a0ac4a50841d8635ef593d4aaa6552c1-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `edc3f83d1c196310c4db643db5bc6a7e77b9a495a65361596776a84a988de7b0`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: preserve resolver-selected fonts in both the visual boundary
+  scan and the logical contents pass of `src/font/shaper/run.zig`. Do not
+  reintroduce coverage-only neutral coalescing; a face containing a codepoint
+  does not mean its glyph fits that codepoint's terminal cell width.
+
 ### Layer display after teardown no longer reaches the freed renderer
 
 - Branch: `fix-metal-layer-display-cb-uaf`
@@ -180,8 +208,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `01f4e0fe2`, the script-aware CJK fallback
-sizing fix on top of `e2a26bc94` (the layer display teardown fix,
+The submodule pinned by this branch is `17357e12a`, the punctuation font
+selection fix on top of `01f4e0fe2`. The previous pin `01f4e0fe2` is the
+script-aware CJK fallback sizing fix on top of `e2a26bc94` (the layer display teardown fix,
 manaflow-ai/ghostty#258). Artifact
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-01f4e0fe2d8c492a5b61d0e316c3086d644ca8aa-crashsubdir-cmux-crash-sentry-off-noi18n-v2
 has SHA-256 `6bae252ae9ec57b5135dc58f8c78dbaeaf01611c3c3e18e75b6e1993dffab5ec`, pinned in

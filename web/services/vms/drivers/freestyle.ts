@@ -1091,7 +1091,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
-            if (options.forked) await this.awaitForkDaemon(vm, vmId);
+            if (options.forked) await this.awaitForkDaemon(vm);
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
@@ -1705,17 +1705,16 @@ export class FreestyleProvider implements VMProvider {
    * repair that one state, and wait for this machine's listener so the
    * machine is never reported ready while attach would be refused.
    */
-  private async awaitForkDaemon(vm: Vm, vmId: string): Promise<void> {
+  private async awaitForkDaemon(vm: Vm): Promise<void> {
     const ready = await this.execResult(
       vm,
       devboxForkDaemonReadyCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS),
       (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
     );
     if (!ready || ready.exitCode !== 0) {
-      throw new ProviderError(
-        "freestyle",
-        `forked machine ${vmId} did not start its daemon: ${(ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500)}`,
-      );
+      const diagnostic = (ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500);
+      console.error("[freestyle] fork daemon readiness failed", diagnostic);
+      throw new ProviderError("freestyle", "forked machine daemon did not become ready");
     }
   }
 
