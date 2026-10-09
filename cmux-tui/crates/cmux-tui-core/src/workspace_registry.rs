@@ -29,11 +29,14 @@ use crate::resource::{
 };
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
+pub use open_guard::RegistryQuarantined;
+use open_guard::preflight_unsupported_schema;
 
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
+mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -2372,18 +2375,23 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        let connection = open_registry_database(&db_path)
-            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-        platform::restrict_file(&db_path)?;
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            machine_id,
-            resource_effect_pepper,
-            Some(session_guard),
-            Some(lease),
-            Some(db_path),
-        )
+        let relock = || {
+            Ok((acquire_session_guard(&root, session_name)?, SessionLease::acquire(&session_lock)?))
+        };
+        open_guard::open_or_quarantine(&db_path, relock, || {
+            let connection = open_registry_database(&db_path)
+                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+            platform::restrict_file(&db_path)?;
+            Self::initialize(
+                connection,
+                session_name.to_string(),
+                machine_id,
+                resource_effect_pepper,
+                Some(session_guard),
+                Some(lease),
+                Some(db_path.clone()),
+            )
+        })
     }
 
     fn initialize(
@@ -2701,9 +2709,9 @@ impl WorkspaceRegistry {
                 )
                 .optional()?;
             if violation.is_some() {
-                anyhow::bail!(
-                    "saved session data could not be loaded; start a new session or restore this session from a backup"
-                );
+                return Err(open_guard::integrity_error(
+                    "saved session data could not be loaded; start a new session or restore this session from a backup",
+                ));
             }
         }
         if needs_sensitive_receipt_cleanup {
@@ -2752,7 +2760,8 @@ impl WorkspaceRegistry {
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
+            let message = format!("workspace registry integrity check failed: {quick_check}");
+            return Err(open_guard::integrity_error(message));
         }
         {
             let tx = connection.unchecked_transaction()?;
@@ -4989,42 +4998,6 @@ pub(crate) fn canonical_json(value: &Value) -> anyhow::Result<String> {
     Ok(output)
 }
 
-fn preflight_unsupported_schema(
-    database_path: &Path,
-) -> Option<UnsupportedWorkspaceRegistrySchema> {
-    // This probe only improves a writer-conflict error. Initialization remains
-    // authoritative, so read-only I/O and SQL failures must not block startup.
-    try_preflight_unsupported_schema(database_path).ok().flatten()
-}
-
-fn try_preflight_unsupported_schema(
-    database_path: &Path,
-) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
-    let connection = open_registry_database_read_only(database_path)?;
-    connection.busy_timeout(std::time::Duration::from_millis(500))?;
-    let has_meta: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_meta {
-        return Ok(None);
-    }
-    let Some(found) = meta_value(&connection, "schema_version")? else {
-        return Ok(None);
-    };
-    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
-    if found <= SCHEMA_VERSION {
-        return Ok(None);
-    }
-    Ok(Some(UnsupportedWorkspaceRegistrySchema {
-        found,
-        newest_supported: SCHEMA_VERSION,
-        database_path: Some(database_path.to_path_buf()),
-        registry_id: meta_value(&connection, "registry_id")?,
-    }))
-}
-
 pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
     Ok(connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
@@ -6053,6 +6026,3 @@ mod personal_tests;
 
 #[cfg(test)]
 mod actor_migration_tests;
-
-#[cfg(test)]
-mod open_guard_tests;

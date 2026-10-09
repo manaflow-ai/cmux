@@ -5993,7 +5993,7 @@ fn saved_session_integrity_failure_has_actionable_public_copy() {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "saved-session-integrity-seed");
     }
-    let connection = Connection::open(&database).unwrap();
+    let connection = Connection::open(database).unwrap();
     connection.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
     connection
         .execute(
@@ -6004,21 +6004,10 @@ fn saved_session_integrity_failure_has_actionable_public_copy() {
     drop(connection);
 
     let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
-    assert!(
-        error.to_string().starts_with(
-            "saved session data could not be loaded; start a new session or restore this session from a backup"
-        ),
-        "{error:#}"
+    assert_eq!(
+        error.downcast::<RegistryQuarantined>().unwrap().reason,
+        "saved session data could not be loaded; start a new session or restore this session from a backup"
     );
-    // The damaged registry is kept aside, not left where a reset or a new
-    // session would overwrite it.
-    assert!(!database.exists(), "{error:#}");
-    let recovery = root.join(session_storage_component("session")).join("registry-recovery");
-    let kept = fs::read_dir(&recovery)
-        .unwrap()
-        .flat_map(|batch| fs::read_dir(batch.unwrap().path()).unwrap())
-        .any(|file| file.unwrap().file_name() == WORKSPACE_REGISTRY_FILE);
-    assert!(kept);
     fs::remove_dir_all(root).unwrap();
 }
 

@@ -1,7 +1,7 @@
 //! A registry that cannot be opened keeps its files: they move aside together
 //! and no empty registry is created on top of them.
 
-use super::*;
+use super::super::*;
 
 fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-guard-{label}-{}", new_uuid_v4()))
