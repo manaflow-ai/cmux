@@ -479,4 +479,50 @@ describe("T3 model picker", () => {
     expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
     expect(modelRows()[2]!.getAttribute("aria-selected")).toBe("true");
   });
+
+  // Leo (POLISH.md, "press-drag-release works on every menu"): press the chip, drag onto a model,
+  // release to pick it, as a native menu does.
+  test("press-drag-release on the chip picks the model under the release", async () => {
+    await render();
+    const pointer = (type: string, target: EventTarget, x: number) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 0 });
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        pointerType: { value: "mouse" },
+        button: { value: 0 },
+      });
+      return act(async () => target.dispatchEvent(event));
+    };
+    await pointer("pointerdown", modelButton(), 0);
+    expect(menu()).not.toBeNull();
+    const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
+    const at = doc.elementFromPoint;
+    doc.elementFromPoint = () => sonnet;
+    try {
+      await pointer("pointermove", doc, 40);
+      await pointer("pointerup", doc, 40);
+    } finally {
+      doc.elementFromPoint = at;
+    }
+    expect(calls).toEqual(["model claude-sonnet-5-5"]);
+    expect(menu()).toBeNull();
+  });
+
+  // Leo (dogfood 2026-10-08: the picker's shadow "too dark", rows "tonka toys big"): the picker
+  // draws the shared popover surface (ui/popupSurface.css) with compact rows.
+  test("the picker uses the shared popover radius and shadow and compact rows", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const classes = (element: Element | null | undefined) => element?.getAttribute("class")?.split(/\s+/) ?? [];
+    expect(classes(menu())).toContain("rounded-[var(--ui-popup-radius,8px)]");
+    expect(classes(menu())).toContain("shadow-menu");
+    const tailwind = await Bun.file(new URL("./tailwind.css", import.meta.url)).text();
+    expect(/--shadow-menu:[^;]*var\(--ui-popup-shadow[,)]/.test(tailwind)).toBe(true);
+    for (const row of modelRows()) {
+      expect(classes(row)).toContain("h-[var(--ui-row-height,28px)]");
+      expect(classes(row)).toContain("rounded-[var(--ui-row-radius,5px)]");
+    }
+    for (const tab of menu()!.querySelectorAll(".acpmux-mp-harness")) expect(classes(tab)).toContain("size-8");
+    expect(classes(menu()!.querySelector(".acpmux-mp-search"))).toContain("h-9");
+  });
 });
