@@ -29,6 +29,7 @@ Each message has a kind:
 - tool: {agent}'s tool calls
 - echo: tool results
 - work: an agent's report, starting \"[id]\" (logged as a user message)
+- ai: another AI's replies and tool calls, from an imported chat; not yours
 - note: memories from before this chat
 
 The summaries form a binary tree: each message is compressed into a line (a
@@ -193,6 +194,9 @@ pub struct CompactRequest {
     /// starts with, saying how much of the message the call did not show
     /// (`finish_line` puts it there). None: the step holds it whole.
     pub cut: Option<String>,
+    /// The node is on the imported side (its last message was imported):
+    /// the host lets the chat's own nodes go first for a model session.
+    pub imported: bool,
 }
 
 /// A node the call needs is built but its text is not in the store: the
@@ -282,8 +286,11 @@ pub fn compact_request(
                 b.name(),
                 node.start(),
                 node.end() - 1,
-                view_line(a, Some(&ta)),
-                view_line(b, Some(&tb))
+                // The texts alone, as the reference client sends them
+                // (Memory.flat): with `id+n|` heads the model copied the
+                // first input, head and all, and cut the second.
+                ta.replace('\n', " "),
+                tb.replace('\n', " ")
             )
         }
     };
@@ -293,6 +300,7 @@ pub fn compact_request(
         context,
         step,
         cut,
+        imported: memory.is_imported(node.end() - 1),
     })
 }
 

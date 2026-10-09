@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod error;
+mod idempotency;
 pub use error::*;
+pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -18,7 +20,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
@@ -360,6 +361,12 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "palette_usage.get")]
+    PaletteUsageGet,
+    #[serde(rename = "palette_usage.record")]
+    PaletteUsageRecord,
+    #[serde(rename = "palette_usage.import")]
+    PaletteUsageImport,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -581,6 +588,7 @@ impl ResourceOperation {
                 | Self::WindowRecordList
                 | Self::SidebarLayoutGet
                 | Self::ProjectList
+                | Self::PaletteUsageGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -615,7 +623,7 @@ mod wire_name;
 
 pub use envelope::{RequestEnvelope, ResponseEnvelope};
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
-pub use request_id::{RequestId, validate_idempotency_key};
+pub use request_id::RequestId;
 pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

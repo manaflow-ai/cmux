@@ -37,7 +37,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { renderToStaticMarkup } = await import("react-dom/server");
-const { ImageViewer, MAX_SCALE, zoomAbout } = await import("./ImageViewer");
+const { ImageViewer, MAX_SCALE, activeElementToRestore, zoomAbout } = await import("./ImageViewer");
 const { Markdown } = await import("./Markdown");
 const { ImageViewerContext } = await import("./imageViewerContext");
 
@@ -113,6 +113,16 @@ test("zooming keeps the point under the pointer still, stays in range and recent
 
 // The viewer is a portaled dialog (ui/Dialog): it draws under the document's body, not the mount.
 const doc = () => dom.window.document;
+
+test("the viewer can identify the focused reply control as its focus return target", () => {
+  const opener = doc().body.appendChild(doc().createElement("button"));
+  opener.type = "button";
+  opener.focus();
+  expect(activeElementToRestore()).toBe(opener);
+  opener.remove();
+  doc().body.focus();
+  expect(activeElementToRestore()).toBeNull();
+});
 
 /// Waits, a frame at a time, until `ready` holds: Base UI mounts its portal and moves focus a frame
 /// after the render.

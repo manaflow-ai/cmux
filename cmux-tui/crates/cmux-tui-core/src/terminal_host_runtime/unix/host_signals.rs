@@ -288,7 +288,11 @@ pub(crate) fn install() -> anyhow::Result<()> {
 /// Name the breadcrumb file once the host knows its identity, and write any
 /// signal recorded before that.
 pub(crate) fn set_breadcrumb_path(path: PathBuf, terminal_id: String, incarnation: String) {
-    super::host_crash::install(path.with_extension("crash"), &terminal_id, &incarnation);
+    super::super::shared::host_crash::install(
+        path.with_extension("crash"),
+        &terminal_id,
+        &incarnation,
+    );
     let _ = BREADCRUMBS.set(Breadcrumbs { path, terminal_id, incarnation });
     flush();
 }

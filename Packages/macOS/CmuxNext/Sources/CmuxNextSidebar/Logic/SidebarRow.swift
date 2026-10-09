@@ -11,6 +11,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case tab(WorkspaceID, TabID)
     /// Drop zone shown for an empty section while dragging (pinned area).
     case emptySection(SectionID)
+    /// Group by Folder's header over one folder's loose rows ("" = none).
+    case folder(SectionID, String)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).

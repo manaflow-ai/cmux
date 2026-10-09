@@ -42,7 +42,6 @@
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/QuickKeyHints.tsx#QuickKeyHints",
     "agent-session/acpmux/QuickSurface.tsx#QuickSurface",
-    "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/TrustAsk.tsx#TrustAsk",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",

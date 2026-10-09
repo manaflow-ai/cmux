@@ -211,6 +211,9 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::PaletteUsageGet
+        | Op::PaletteUsageRecord
+        | Op::PaletteUsageImport
         | Op::RoomCreate
         | Op::RoomDelete
         | Op::RoomFollow

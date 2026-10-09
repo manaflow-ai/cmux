@@ -42,9 +42,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
-    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
+    @ObservationIgnored public let mainFrameStatuses = MainFrameStatuses()
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?

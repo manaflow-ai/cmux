@@ -37,6 +37,15 @@ pub(crate) enum LeaseProbe {
     Unknown,
 }
 
+/// A signal to a terminal's process groups (the ProcessTree seam).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GroupSignal {
+    /// A graceful hangup (SIGHUP on Unix).
+    Hangup,
+    /// An unconditional kill (SIGKILL on Unix).
+    Kill,
+}
+
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -63,6 +72,73 @@ mod windows_stubs {
     /// Windows v1 hosts never hand over PTY custody (`supports_pty_custody:
     /// false`), so no value of this type exists there.
     pub(crate) enum PtyCustody {}
+
+    /// The host's process-lifetime liveness lease. Acquiring one fails
+    /// until `sys/windows.rs`, so no value exists yet.
+    pub(crate) struct HostLivenessLease {
+        pub(crate) file: File,
+        pub(crate) path: PathBuf,
+    }
+
+    impl HostLivenessLease {
+        pub(crate) fn acquire(_path: PathBuf) -> anyhow::Result<Self> {
+            Err(unsupported().into())
+        }
+    }
+
+    /// Windows v1 hosts never hand over PTY custody, so a custody hello is
+    /// refused.
+    pub(crate) fn serve_pty_custody(
+        _host: &super::super::shared::host_shared::HostShared,
+        _stream: HostStream,
+        _hello_frame: &super::super::Frame,
+        _hello: &super::super::ClientHello,
+        _response: &super::super::HostHello,
+    ) -> anyhow::Result<()> {
+        Err(unsupported().into())
+    }
+
+    /// A host process started ahead of its terminal. None exist on Windows
+    /// until `sys/windows.rs`.
+    pub(crate) enum StandbyTerminalHost {}
+
+    /// Launching a terminal host fails until `sys/windows.rs`.
+    pub(crate) fn launch_terminal_host_from(
+        _options: &crate::surface::SurfaceOptions,
+        _root: &Path,
+        _default_colors: crate::surface::DefaultColors,
+        _cell_pixels: (u16, u16),
+        _kitty_graphics_limits: ghostty_vt::KittyGraphicsLimits,
+        _terminal_id: crate::terminal_host::TerminalId,
+        _standby: Option<StandbyTerminalHost>,
+    ) -> anyhow::Result<super::super::shared::attachment::HostAttachment> {
+        Err(unsupported().into())
+    }
+
+    /// An adopted session id. Windows v1 adopts no session.
+    pub(crate) enum SessionId {}
+
+    /// The accept-loop waker. Creating one fails until `sys/windows.rs`.
+    pub(crate) struct AcceptWaker;
+
+    impl AcceptWaker {
+        pub(crate) fn new() -> io::Result<Self> {
+            Err(unsupported())
+        }
+
+        pub(crate) fn wake(&self) {}
+
+        pub(crate) fn drain(&self) {}
+
+        pub(crate) fn wait_readable(&self, _timeout: std::time::Duration) -> io::Result<bool> {
+            Err(unsupported())
+        }
+    }
+
+    impl super::super::shared::host_shared::HostShared {
+        /// Windows: Job Object termination arrives with `sys/windows.rs`.
+        pub(crate) fn signal_terminal_process_groups(&self, _signal: super::GroupSignal) {}
+    }
 
     /// No owner is ever read on Windows yet, so no value exists.
     #[derive(Clone, Copy)]
@@ -98,6 +174,18 @@ mod windows_stubs {
 
     pub(crate) fn process_definitely_gone(_pid: u32) -> bool {
         false
+    }
+
+    pub(crate) fn kill_process_group(_pid: u32) -> anyhow::Result<bool> {
+        Err(unsupported().into())
+    }
+
+    pub(crate) fn lease_was_free(_file: &File) -> bool {
+        false
+    }
+
+    pub(crate) fn wait_lease_exclusive(_file: &File) -> io::Result<()> {
+        Err(unsupported())
     }
 
     pub(crate) fn remove_released_pty_lock(

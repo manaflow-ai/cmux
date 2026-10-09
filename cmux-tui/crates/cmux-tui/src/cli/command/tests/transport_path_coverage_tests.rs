@@ -12,7 +12,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 187);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 207);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 210);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -110,6 +110,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The Mac app edits the sidebar layout through its
                         // own sidebar actions and intent log.
                         | "sidebar_layout.get"
+                        // The Mac app's palette is the one client of the
+                        // user's palette usage history.
+                        | "palette_usage.get"
+                        | "palette_usage.record"
+                        | "palette_usage.import"
                         | "sidebar_layout.update"
                         // The project list is the app's and its importers'
                         // (plans/cmux-next/projects.md); no CLI verb yet.

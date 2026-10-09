@@ -171,14 +171,14 @@ fn a_reply_saved_before_a_crash_posts_once() {
     h.connect();
     h.wake(&[(SIDE, 1)]);
     settle_all(&mut h);
-    assert_eq!(prompts(&h), 0, "the message is not answered again");
+    assert_eq!(prompts(&h), 1, "the cut turn resumes once (E23)");
     let sends = h.side_sends(SIDE);
     assert_eq!(sends.len(), 1, "{sends:?}");
-    assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
     assert_eq!(
         acks(&h),
         vec![(SIDE.to_owned(), 1)],
-        "acked after the notice"
+        "acked after the answer"
     );
     let mut h = restart(h);
     h.connect();

@@ -43,6 +43,11 @@ pub(crate) mod kept_tabs;
 mod last_tab_closes_workspace_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+pub(crate) mod palette_usage;
+pub(crate) mod palette_usage_ops;
+#[cfg(test)]
+mod palette_usage_protocol_tests;
+pub(crate) mod palette_usage_store;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;

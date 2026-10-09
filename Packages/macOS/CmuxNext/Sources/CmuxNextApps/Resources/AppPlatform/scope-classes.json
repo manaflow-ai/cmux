@@ -11,6 +11,7 @@
     { "pattern": "^op:[a-z][a-zA-Z0-9_.-]{0,95}$", "class": "sensitive", "serverOnly": true },
     { "pattern": "^terminal:backend$", "class": "elevated" },
     { "pattern": "^project:(read|write)$", "class": "restricted", "$comment": "the user's folders (plans/cmux-next/projects.md): paths stay on the Mac; no app reads or edits them without an explicit grant" },
+    { "pattern": "^palette_usage:(read|write)$", "class": "restricted", "$comment": "the user's palette usage history (palette-ranking.md 5.3): local to the Mac, read and written by the app's palette only" },
     { "pattern": "^sidebar_layout:write$", "class": "elevated", "$comment": "the user's own sidebar arrangement (sidebar-sections.md 5): apps read it with the app, change it only by an explicit user grant" },
     { "pattern": "^(feed:answer|terminal:input|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
     { "pattern": "^[a-z][a-z0-9_.-]{0,160}:answer$", "class": "restricted" },
