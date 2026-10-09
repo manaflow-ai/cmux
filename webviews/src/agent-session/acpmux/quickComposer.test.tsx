@@ -120,7 +120,7 @@ const mount = async (
     "quick.dismiss": record("quick.dismiss"),
     "project.list": async () => {
       projectLists += 1;
-      return { projects: ["/repo"] };
+      return { projects: [] };
     },
     "quick.openInWindow": record("quick.openInWindow"),
     "quick.startInBackground": record("quick.startInBackground"),
