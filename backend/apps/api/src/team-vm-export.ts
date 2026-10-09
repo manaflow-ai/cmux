@@ -200,6 +200,6 @@ export const exportResponse = (driver: TeamVmDriver, vm: string, entries: Readon
   })
   const name = `cmux-team-files-${vm.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80)}.tar`
   return new Response(readable, {
-    headers: { "content-type": "application/x-tar", "content-disposition": `attachment; filename="${name}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff" }
+    headers: { "content-type": "application/x-tar", "content-disposition": `attachment; filename="${name}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" }
   })
 }

@@ -100,6 +100,7 @@ describe("team_vm.retired.export (cx-lyvg)", { timeout: 60_000 }, () => {
     const res = await t.download(r.value.path)
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toBe("application/x-tar")
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer")
     expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="cmux-team-files-.+\.tar"$/)
     const body = new Uint8Array(await res.arrayBuffer())
     expect(body.length).toBe(r.value.archive_bytes)
