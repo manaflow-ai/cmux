@@ -1788,3 +1788,48 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// Dogfood fc34083d7bfa: a node whose first prompt carries our mark runs
+/// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
+/// long" retries in the same session read nothing from the cache (node
+/// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
+/// ends with our own mark at the node's TTL, so it reads the previous
+/// request from the cache; the session never holds more than the API's 4
+/// marks (the view mark and at most 3 retry marks; a 4th retry reads the
+/// 3rd's entry unmarked).
+#[test]
+fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "x".repeat(700);
+    let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let compactor = compactor(&agents, dir.path());
+    // A view with whole 4-line blocks, so the first prompt carries our mark.
+    let mut context = String::from("<chat>\n");
+    for k in 0..12 {
+        context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
+    }
+    context.push_str("</chat>");
+    let request = CompactRequest {
+        node: NodeId::new(0, 12),
+        context,
+        ..request(12)
+    };
+    run_node(&compactor, &request).unwrap();
+    let prompts = agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
+    let marks = |blocks: &[Value]| blocks.iter().filter(|b| b.get("cache_control").is_some()).count();
+    assert_eq!(marks(&prompts[0]), 1, "the view mark");
+    let mut total = 1;
+    for (k, p) in prompts.iter().enumerate().skip(1) {
+        let m = marks(p);
+        if k <= 3 {
+            assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
+            assert!(p.last().unwrap().get("cache_control").is_some(), "on its last block");
+            let ttl = &p.last().unwrap()["cache_control"];
+            assert_eq!(ttl, &prompts[0].iter().find(|b| b.get("cache_control").is_some()).unwrap()["cache_control"], "the node's TTL");
+        }
+        total += m;
+    }
+    assert!(total <= 4, "{total} marks in one session");
+}
