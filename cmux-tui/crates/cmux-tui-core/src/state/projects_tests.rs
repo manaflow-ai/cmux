@@ -271,3 +271,75 @@ fn projects_bad_edits_are_refused() {
         "invalid_argument"
     );
 }
+
+// Review of slice 1 (cx-m0p7): the fixes below each have a test.
+
+#[test]
+fn projects_reobserving_with_a_later_clock_and_the_same_time_changes_nothing() {
+    let mut projects = Projects::default();
+    projects.observe("codex", &[seen("/Users/me/a", 10)], true, 100, &refusals()).unwrap();
+    assert!(
+        projects
+            .observe("codex", &[seen("/Users/me/a", 10)], true, 999, &refusals())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn projects_null_clears_a_rename_and_an_order() {
+    let mut projects = Projects::default();
+    projects.add("/Users/me/a", 1, &refusals()).unwrap();
+    let set: OverlayEdit =
+        serde_json::from_value(serde_json::json!({"rename": "A", "order": 3, "pinned": true}))
+            .unwrap();
+    projects.update("/Users/me/a", &set).unwrap();
+    let clear: OverlayEdit =
+        serde_json::from_value(serde_json::json!({"rename": null, "order": null})).unwrap();
+    projects.update("/Users/me/a", &clear).unwrap();
+    let project = projects.get("/Users/me/a").unwrap();
+    assert_eq!((project.overlay.rename.as_deref(), project.overlay.order), (None, None));
+    assert!(project.overlay.pinned, "an absent field stays");
+}
+
+#[test]
+fn projects_refusals_ignore_case_and_the_data_volume_firmlink() {
+    let mut projects = Projects::default();
+    for path in ["/users/ME", "/Users/me/.CLAUDE/x", "/System/Volumes/Data/Users/me"] {
+        assert_eq!(
+            projects.add(path, 1, &refusals()).unwrap_err().code(),
+            "refused_path",
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn projects_a_project_no_source_reports_and_the_disk_lost_is_missing_also_when_user_added() {
+    let mut projects = Projects::default();
+    projects.add("/Users/me/notes", 1, &refusals()).unwrap();
+    projects.observe("codex", &[seen("/Users/me/a", 1)], true, 1, &refusals()).unwrap();
+    // The caller checked the disk (the app, with its privacy rules): both folders are gone.
+    let changed = projects.apply_disk(&[], &["/Users/me/notes".into(), "/Users/me/a".into()]);
+    assert_eq!(changed, vec!["/Users/me/notes"], "a source still reports /Users/me/a");
+    assert_eq!(projects.get("/Users/me/notes").unwrap().state, ProjectState::Missing);
+    assert_eq!(projects.apply_disk(&["/Users/me/notes".into()], &[]), vec!["/Users/me/notes"]);
+}
+
+#[test]
+fn projects_the_list_is_capped_by_dropping_the_oldest_unedited_imports() {
+    let mut projects = Projects::default();
+    let entries: Vec<_> =
+        (0..(MAX_PROJECTS as i64 + 5)).map(|n| seen(&format!("/Users/me/p{n}"), n)).collect();
+    projects.add("/Users/me/kept", 0, &refusals()).unwrap();
+    projects.observe("codex", &entries[..1], false, 1, &refusals()).unwrap();
+    projects
+        .update("/Users/me/p0", &OverlayEdit { pinned: Some(true), ..Default::default() })
+        .unwrap();
+    projects.observe("codex", &entries, false, 2, &refusals()).unwrap();
+    assert_eq!(projects.list(true).len(), MAX_PROJECTS);
+    assert!(projects.get("/Users/me/kept").is_some(), "user-added stays");
+    assert!(projects.get("/Users/me/p0").is_some(), "edited stays");
+    assert!(projects.get("/Users/me/p1").is_none(), "the oldest unedited import goes");
+    assert!(projects.get(&format!("/Users/me/p{}", MAX_PROJECTS + 4)).is_some());
+}
