@@ -58,6 +58,7 @@ pub mod launcher;
 pub mod mirror;
 mod mirror_state;
 pub mod reattach;
+pub mod spaces;
 
 #[cfg(test)]
 mod fixture;
@@ -67,6 +68,8 @@ mod mirror_state_tests;
 mod mirror_tab_groups_tests;
 #[cfg(test)]
 mod mirror_tests;
+#[cfg(test)]
+mod spaces_tests;
 
 pub use attach::{
     AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
@@ -80,3 +83,4 @@ pub use cmux;
 pub use daemon_attach::{DaemonAttacher, DaemonAttachment};
 pub use mirror::{Applied, Change, Mirror, MirrorChange, MirrorError};
 pub use reattach::{GenerationWait, MirrorWatch, reattach};
+pub use spaces::{DEFAULT_SPACE, PROFILES_CAPABILITY, Space, Spaces, WorkspaceRef};

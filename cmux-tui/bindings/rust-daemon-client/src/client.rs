@@ -120,6 +120,14 @@ pub enum DaemonEvent {
         browser_profile_id: String,
         bookmarks_revision: u64,
     },
+    /// The home session's personal state changed (`personal-changed`):
+    /// spaces, pins, follows, personal groups or workspace rows. Read it
+    /// again with `list-personal` ([`crate::Spaces::from_personal`]).
+    /// Reported after `Connected` and before the connection's
+    /// `Disconnected`, while the daemon has `profiles-v1`.
+    PersonalChanged {
+        personal_revision: u64,
+    },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
         error: String,
