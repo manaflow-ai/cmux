@@ -338,6 +338,8 @@ pub struct AcpmuxCompactor {
     /// Claude Code refused the node's cache marker (it placed a fourth
     /// breakpoint of its own): later nodes go without it.
     marker_refused: AtomicBool,
+    /// The turns' cache TTL on this route (`with_cache_ttl`).
+    cache_ttl: SharedTtl,
     /// The model sessions start with: `spec.model`, until the account
     /// turns it down and `model_fallback` (Some) takes over.
     model: Mutex<Option<String>>,
@@ -367,6 +369,7 @@ impl AcpmuxCompactor {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
             marker_refused: AtomicBool::new(false),
+            cache_ttl: SharedTtl::default(),
             model,
             model_fallback: None,
             warm: 0,
@@ -374,6 +377,13 @@ impl AcpmuxCompactor {
             log: None,
             trace: crate::trace::Trace::off(),
         }
+    }
+
+    /// Each node's cache TTL: the brain's current one (one TTL for turns
+    /// and compactions on a route). Default 1 hour.
+    pub fn with_cache_ttl(mut self, ttl: SharedTtl) -> AcpmuxCompactor {
+        self.cache_ttl = ttl;
+        self
     }
 
     /// Traces every node: seconds, prompts, token use, cost, outcome.
@@ -479,7 +489,7 @@ impl AcpmuxCompactor {
     /// harness shares one directory across slots: codex names the cwd in
     /// its environment context, ahead of the prompt, so one cwd keeps the
     /// request prefix identical from node to node.
-    fn slot_dir(&self, slot: usize) -> io::Result<PathBuf> {
+    fn slot_dir(&self, slot: usize, ttl: CacheTtl) -> io::Result<PathBuf> {
         private_dir(&self.spec.work)?;
         let dir = if self.claude() {
             self.spec.work.join(format!("slot-{slot}"))
@@ -491,15 +501,17 @@ impl AcpmuxCompactor {
         // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
         // not), and the ones that take denied tools off the model's list.
         std::fs::create_dir_all(dir.join(".claude"))?;
-        write_settings(&dir.join(".claude").join("settings.json"))?;
+        write_settings_for(&dir.join(".claude").join("settings.json"), ttl)?;
         std::fs::canonicalize(&dir)
     }
 
     /// What a warm session must match for a node: its system prompt and the
     /// model sessions start with now.
-    fn warm_key(&self, system: Option<&str>) -> u64 {
+    fn warm_key(&self, system: Option<&str>, ttl: CacheTtl) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&system, &mut h);
+        // A warm session's Claude Code read its slot's TTL when it started.
+        std::hash::Hash::hash(ttl.as_str(), &mut h);
         std::hash::Hash::hash(&self.model(), &mut h);
         std::hash::Hasher::finish(&h)
     }
@@ -508,12 +520,17 @@ impl AcpmuxCompactor {
     /// there is one (`with_warm`), else a new one in a slot (so at most
     /// COMPACTOR_SESSIONS live), with `system` as its slot preset's system
     /// prompt in the cached layout.
-    fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
+    fn open(
+        &self,
+        node: NodeId,
+        system: Option<&str>,
+        ttl: CacheTtl,
+    ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
         self.reap_warm();
-        let key = self.warm_key(system);
+        let key = self.warm_key(system, ttl);
         let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
@@ -526,7 +543,7 @@ impl AcpmuxCompactor {
                     Acquired::Warm(_) => unreachable!(),
                 };
                 let name = self.session_name(node);
-                match self.start(slot, &name, system, &admitted) {
+                match self.start(slot, &name, system, &admitted, ttl) {
                     Ok((id, cwd, preset)) => (id, slot, cwd, preset),
                     Err(e) => {
                         self.slots.give(slot);
@@ -579,8 +596,9 @@ impl AcpmuxCompactor {
         name: &str,
         system: Option<&str>,
         admitted: &crate::harness_gate::Admitted,
+        ttl: CacheTtl,
     ) -> Result<(String, PathBuf, String), ModelError> {
-        let cwd = self.slot_dir(slot).map_err(|e| {
+        let cwd = self.slot_dir(slot, ttl).map_err(|e| {
             ModelError::new(format!("creating the compactor's working directory: {e}"))
         })?;
         let preset = slot_preset(&self.spec.preset, slot);
@@ -642,8 +660,15 @@ impl AcpmuxCompactor {
     /// Starts a warm session in `slot` (counted as warming by
     /// `Slots::rewarm`) with `system`; gives the slot back when it cannot.
     fn warm_up(&self, slot: usize, system: Option<String>) {
+        let ttl = self.cache_ttl.get();
         let started = self.admit(PROBE_NODE).and_then(|admitted| {
-            self.start(slot, &self.warm_name(slot), system.as_deref(), &admitted)
+            self.start(
+                slot,
+                &self.warm_name(slot),
+                system.as_deref(),
+                &admitted,
+                ttl,
+            )
         });
         match started {
             Ok((id, cwd, preset)) => self.slots.put_warm(Warm {
@@ -651,7 +676,7 @@ impl AcpmuxCompactor {
                 slot,
                 cwd,
                 preset,
-                key: self.warm_key(system.as_deref()),
+                key: self.warm_key(system.as_deref(), ttl),
                 system,
             }),
             Err(e) => {
@@ -846,8 +871,11 @@ impl AcpmuxCompactor {
     ) -> Result<Reply, ModelError> {
         let node = request.node;
         let marker = !self.marker_refused.load(Ordering::SeqCst);
-        let layout = cached_prompt(request, marker);
-        let session = self.open(node, Some(&layout.system))?;
+        // The turns' TTL on this route, read once: the mark, the slot's
+        // Claude Code settings and the warm session key agree.
+        let ttl = self.cache_ttl.get();
+        let layout = cached_prompt_with(request, marker, ttl);
+        let session = self.open(node, Some(&layout.system), ttl)?;
         let has_marker = layout
             .blocks
             .iter()
@@ -862,8 +890,8 @@ impl AcpmuxCompactor {
                 ));
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);
-                let layout = cached_prompt(request, false);
-                let session = self.open(node, Some(&layout.system))?;
+                let layout = cached_prompt_with(request, false, ttl);
+                let session = self.open(node, Some(&layout.system), ttl)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
@@ -886,7 +914,10 @@ impl AcpmuxCompactor {
                 if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
                     return self.first_cached(request, started);
                 }
-                (self.open(node, None)?, request_blocks(request))
+                (
+                    self.open(node, None, self.cache_ttl.get())?,
+                    request_blocks(request),
+                )
             }
             Some(last) => {
                 let session = self
@@ -1030,7 +1061,9 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
     fn describe(&self, blocks: Vec<Value>) -> Result<String, String> {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
-        let session = self.open(node, None).map_err(|e| e.message)?;
+        let session = self
+            .open(node, None, self.cache_ttl.get())
+            .map_err(|e| e.message)?;
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
         reply.map(|r| r.text).map_err(|e| e.message)
@@ -1081,6 +1114,7 @@ pub const COMPACTOR_ARGS: [&str; 4] = [
 pub const COMPACTOR_PROMPT_SEED: &str = "optchat compactor (each node sets its own system prompt)";
 
 pub use crate::prompt::CachedPrompt;
+use crate::prompt::{CacheTtl, SharedTtl};
 
 /// A node's first prompt in the cached layout (`prompt::cached_layout`): the
 /// compactor's system text plus the context up to its first cache mark is
@@ -1088,6 +1122,14 @@ pub use crate::prompt::CachedPrompt;
 /// marker at the last mark, then the step.
 pub fn cached_prompt(request: &CompactRequest, marker: bool) -> CachedPrompt {
     crate::prompt::cached_layout_at_marks(&request.system, &request.context, &request.step, marker)
+}
+
+/// `cached_prompt` with its mark at `ttl` (the turns' TTL on this route).
+pub fn cached_prompt_with(request: &CompactRequest, marker: bool, ttl: CacheTtl) -> CachedPrompt {
+    let mark = marker
+        .then(|| crate::prompt::Mark::last_whole(&request.context, ttl))
+        .flatten();
+    crate::prompt::cached_layout_marked(&request.system, &request.context, &request.step, mark)
 }
 
 /// Whether a failed turn's error is the API's limit of four cache
@@ -1227,19 +1269,28 @@ pub fn probe_models(
 /// auto-memory, no hooks (the user's included), no bundled skills, and a
 /// one-day transcript retention for whatever `end` could not delete.
 pub fn compactor_settings() -> Value {
-    json!({
+    compactor_settings_for(CacheTtl::OneHour)
+}
+
+/// `compactor_settings` with Claude Code's own marks at `ttl`, the TTL of
+/// the node's mark (the API refuses a 1h mark after a 5m one): its
+/// `promptCacheTtl`, and at 5 minutes FORCE_PROMPT_CACHING_5M, which wins
+/// over a subscription login's 1 hour.
+pub fn compactor_settings_for(ttl: CacheTtl) -> Value {
+    let mut value = json!({
         "permissions": {"deny": DENIED_TOOLS.as_slice()},
         "autoMemoryEnabled": false,
         "hooks": {},
         "disableAllHooks": true,
         "disableBundledSkills": true,
-        // The same TTL as the node's own 5-minute mark: the API refuses a
-        // 5m mark before a 1h one, and Claude Code may pick 1h on a
-        // subscription.
-        "promptCacheTtl": "5m",
+        "promptCacheTtl": ttl.as_str(),
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
-    })
+    });
+    if ttl == CacheTtl::FiveMinutes {
+        value["env"] = json!({"FORCE_PROMPT_CACHING_5M": "1"});
+    }
+    value
 }
 
 /// Creates the compactor's configuration directory (0700) and its settings.
@@ -1249,11 +1300,15 @@ pub fn prepare_config(dir: &Path) -> io::Result<()> {
 }
 
 fn write_settings(path: &Path) -> io::Result<()> {
+    write_settings_for(path, CacheTtl::OneHour)
+}
+
+fn write_settings_for(path: &Path, ttl: CacheTtl) -> io::Result<()> {
     crate::session_dir::write_if_changed(
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&compactor_settings()).map_err(io::Error::other)?
+            serde_json::to_string_pretty(&compactor_settings_for(ttl)).map_err(io::Error::other)?
         )
         .as_bytes(),
     )
@@ -1339,10 +1394,6 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS",
         // A refusal must reach the host, whose fallback model is probed.
         "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK",
-        // Claude Code's own marks at 5 minutes, the TTL of the node's mark:
-        // on a subscription login it marks 1 hour, and the API refuses a
-        // 1h mark after a 5m one.
-        "FORCE_PROMPT_CACHING_5M",
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }

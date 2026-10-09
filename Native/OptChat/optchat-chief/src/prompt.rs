@@ -260,6 +260,41 @@ pub fn is_ttl_refused_error(error: &str) -> bool {
     lower.contains("cache_control") && lower.contains("ttl")
 }
 
+/// The current cache TTL, shared by the brain (which decides it per turn)
+/// and the compactor (whose nodes take the same TTL on the same route).
+#[derive(Clone, Debug)]
+pub struct SharedTtl(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl SharedTtl {
+    pub fn new(ttl: CacheTtl) -> SharedTtl {
+        SharedTtl(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            ttl == CacheTtl::OneHour,
+        )))
+    }
+
+    pub fn get(&self) -> CacheTtl {
+        if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            CacheTtl::OneHour
+        } else {
+            CacheTtl::FiveMinutes
+        }
+    }
+
+    pub fn set(&self, ttl: CacheTtl) {
+        self.0.store(
+            ttl == CacheTtl::OneHour,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+}
+
+impl Default for SharedTtl {
+    /// 1 hour: the Claude Code path's default.
+    fn default() -> SharedTtl {
+        SharedTtl::new(CacheTtl::OneHour)
+    }
+}
+
 /// Our one mark in a cached layout: the view piece it sits on
 /// (`optchat_core::mark_piece`) and its TTL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
