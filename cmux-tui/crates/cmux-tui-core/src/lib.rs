@@ -14,7 +14,9 @@ pub mod backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
-pub mod cloud_conversations;
+/// The cloud conversations proxy; its own crate, re-exported at the old path.
+pub use cmux_tui_cloud_conversations as cloud_conversations;
+mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -58,6 +60,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod scripts;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
@@ -77,21 +80,24 @@ mod terminal_loss_cause;
 mod terminal_loss_log;
 mod terminal_metadata;
 pub mod terminal_respawn_text;
-#[cfg(windows)]
-mod windows_processes;
 mod workspace_registry;
 
-pub mod layout;
-pub mod platform;
 #[cfg(unix)]
-mod process_identity;
-pub mod process_resources;
+use cmux_tui_platform::host_exe;
+pub mod layout;
+/// OS primitives; the cmux-tui-platform crate, re-exported at the old paths.
+pub use cmux_tui_platform::platform;
+#[cfg(unix)]
+use cmux_tui_platform::process_identity;
+pub use cmux_tui_platform::process_resources;
 pub mod server;
+pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
-pub mod unix_process_scope;
+pub use cmux_tui_platform::unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,

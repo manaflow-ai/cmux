@@ -13,6 +13,7 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use std::ops::Deref;
 
 mod frontend_browser_history;
 
@@ -379,8 +380,9 @@ impl Mux {
     /// it to the start of the unpinned run. The flag is durable and keyed by
     /// the public tab id, so it survives restarts and cross-pane moves. The
     /// raw command and v2 `tab.pin` share one commit path.
-    pub fn set_tab_pinned(
+    pub fn set_tab_pinned_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surface: SurfaceId,
         pinned: bool,
     ) -> anyhow::Result<TabPinChange> {
@@ -393,7 +395,7 @@ impl Mux {
             ..Self::ordinary_resource_selectors()
         };
         self.state_pin_tab(
-            StripRequest::local(if pinned { "tab.pin" } else { "tab.unpin" }),
+            StripRequest::local(actor, if pinned { "tab.pin" } else { "tab.unpin" }),
             selectors,
             pinned,
         )?;

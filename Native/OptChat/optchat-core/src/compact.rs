@@ -193,6 +193,9 @@ pub struct CompactRequest {
     /// starts with, saying how much of the message the call did not show
     /// (`finish_line` puts it there). None: the step holds it whole.
     pub cut: Option<String>,
+    /// The node is on the imported side (its last message was imported):
+    /// the host lets the chat's own nodes go first for a model session.
+    pub imported: bool,
 }
 
 /// A node the call needs is built but its text is not in the store: the
@@ -245,7 +248,8 @@ pub fn compact_request(
             let total = text.chars().count();
             let head = format!(
                 "Compaction: compress message {} into one line of at most {NODE} bytes\n\
-                 (about 70 words), the length of this ruler:\n{RULER}\n",
+                 (about 70 words; aim for about 400 bytes, well inside the limit), the\n\
+                 limit is the length of this ruler:\n{RULER}\n",
                 node.i
             );
             if total > STEP_MESSAGE {
@@ -273,15 +277,19 @@ pub fn compact_request(
             let tb = store.node(b).ok_or(MissingNode(b))?;
             format!(
                 "Compaction: merge lines {} and {}, adjacent, into one line of at most\n\
-                 {NODE} bytes (about 70 words), the length of this ruler:\n{RULER}\n\
+                 {NODE} bytes (about 70 words; aim for about 400 bytes, well inside the limit),\n\
+                 the limit is the length of this ruler:\n{RULER}\n\
                  <chat> may hold their messages, {} to {}, in more detail: take details\n\
                  of them from there too.\n<input>\n{}\n{}\n</input>",
                 a.name(),
                 b.name(),
                 node.start(),
                 node.end() - 1,
-                view_line(a, Some(&ta)),
-                view_line(b, Some(&tb))
+                // The texts alone, as the reference client sends them
+                // (Memory.flat): with `id+n|` heads the model copied the
+                // first input, head and all, and cut the second.
+                ta.replace('\n', " "),
+                tb.replace('\n', " ")
             )
         }
     };
@@ -291,6 +299,7 @@ pub fn compact_request(
         context,
         step,
         cut,
+        imported: memory.is_imported(node.end() - 1),
     })
 }
 
@@ -355,9 +364,9 @@ pub fn size_check_in(tries: &[String], limit: usize) -> SizeCheck {
         return SizeCheck::Accept(shortest.to_string());
     }
     SizeCheck::Retry(format!(
-        "Too long: your line is {} bytes, over the {limit}-byte limit. Write\n\
-         the whole line again for the same <input>, cutting just enough of the\n\
-         least valuable items to fit before this cut:\n{}| ← LIMIT",
+        "Too long: your last line for this <input> was {} bytes,\n\
+         over the {limit}-byte limit. Write the whole line again, cutting just\n\
+         enough of the least valuable items to fit before this cut:\n{}| ← LIMIT",
         last.len(),
         cut_at_bytes(last, limit)
     ))

@@ -7,8 +7,9 @@
 //! `SSH_AUTH_INFO_0`. The reaper ends a session only when every check
 //! passes: the record is its own (root-only directory), the pid still has
 //! the recorded start time and an sshd command name, and the KRL revokes
-//! one of the session's certificates. A pid that was reused or exited is
-//! forgotten, never signalled.
+//! one of the session's certificates, or the session's user is a member who
+//! left the team (the account reconciler removed its principals). A pid that
+//! was reused or exited is forgotten, never signalled.
 //!
 //! Work a user moved out of its session scope runs under its systemd user
 //! manager (`user@<uid>.service`: `systemd-run --user`, user units), which
@@ -182,8 +183,13 @@ pub fn reap(paths: &Paths, host: &dyn Host) -> Reaped {
     // Revoked users map to the logind sessions of their revoked records.
     let mut revoked: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut live = BTreeSet::new();
+    // Members who left the team (accounts.rs): their sessions end like revoked ones.
+    let removed = super::accounts::removed_users(paths);
     for record in load_all(paths) {
-        let verdict = judge(host, &krl, &record);
+        let verdict = match judge(host, &krl, &record) {
+            Ok(Verdict::Keep) if removed.contains(&record.user) => Ok(Verdict::End),
+            other => other,
+        };
         match &verdict {
             Ok(Verdict::End) => {
                 revoked

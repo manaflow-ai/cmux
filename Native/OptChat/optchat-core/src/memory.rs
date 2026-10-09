@@ -108,8 +108,9 @@ fn more_due(t: u64, a: NodeId, b: NodeId) -> bool {
 }
 
 /// Unbuilt message nodes that may run at once: a message's node starts once
-/// fewer than this many lines before it are still unbuilt (spec 4).
-pub const AHEAD: usize = 8;
+/// fewer than this many lines before it are still unbuilt (spec 4 looks 8
+/// ahead; the reference client as many as it runs, `JOBS`).
+pub const AHEAD: usize = JOBS;
 
 /// One chat's memory state. Single writer: one `Memory` per chat.
 ///
@@ -150,6 +151,12 @@ pub struct Memory {
     /// Nodes with a model call running.
     busy: HashSet<NodeId>,
     budget: usize,
+    /// Imported messages (section 10), as sorted disjoint `[from, to)`
+    /// ranges of ids. The reference client keeps them on their own side: a
+    /// node's side is its last message's, each side has its own AHEAD and
+    /// JOBS, and a turn never waits for an imported line. The host saves
+    /// them; a checkpoint does not carry them.
+    imported: Vec<(u64, u64)>,
 }
 
 impl Default for Memory {
@@ -176,6 +183,7 @@ impl Memory {
             not_free: HashSet::new(),
             busy: HashSet::new(),
             budget,
+            imported: Vec::new(),
         }
     }
 
@@ -262,7 +270,12 @@ impl Memory {
     }
 
     /// A saved view's parts and size, if they tile `[0, t)` and fit the store.
-    fn restore(&mut self, parts: &[NodeId], t: u64, store: &dyn Store) -> Option<(Vec<NodeId>, usize)> {
+    fn restore(
+        &mut self,
+        parts: &[NodeId],
+        t: u64,
+        store: &dyn Store,
+    ) -> Option<(Vec<NodeId>, usize)> {
         let mut at = 0u64;
         let mut size = 0;
         for part in parts {
@@ -486,6 +499,71 @@ impl Memory {
         self.view.iter().all(|p| self.is_built(*p))
     }
 
+    /// Whether a turn may start: every view line of the chat's own side is
+    /// a summary. An unbuilt imported line does not hold it (the reference
+    /// client waits only for its own side's messages); the turn reads it as
+    /// the placeholder, which `zoom` opens.
+    pub fn turn_ready(&self) -> bool {
+        self.view
+            .iter()
+            .all(|p| self.is_built(*p) || self.imported_side(*p))
+    }
+
+    /// The imported messages, as sorted disjoint `[from, to)` ranges.
+    pub fn imported(&self) -> &[(u64, u64)] {
+        &self.imported
+    }
+
+    /// Sets the imported messages (the host's saved ranges, at load).
+    pub fn set_imported(&mut self, ranges: Vec<(u64, u64)>) {
+        let mut ranges: Vec<(u64, u64)> = ranges.into_iter().filter(|(a, b)| a < b).collect();
+        ranges.sort_unstable();
+        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(ranges.len());
+        for (a, b) in ranges {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        self.imported = merged;
+    }
+
+    /// Marks message `id` imported (it was just appended).
+    pub fn mark_imported(&mut self, id: u64) {
+        match self.imported.last_mut() {
+            Some(last) if last.1 == id => last.1 = id + 1,
+            Some(last) if last.0 <= id && id < last.1 => {}
+            _ => {
+                let mut ranges = std::mem::take(&mut self.imported);
+                ranges.push((id, id + 1));
+                self.set_imported(ranges);
+            }
+        }
+    }
+
+    /// Whether message `id` was imported.
+    pub fn is_imported(&self, id: u64) -> bool {
+        let k = self.imported.partition_point(|(_, b)| *b <= id);
+        self.imported.get(k).is_some_and(|(a, _)| *a <= id)
+    }
+
+    /// A node's side: its last message's (the reference client's).
+    fn imported_side(&self, id: NodeId) -> bool {
+        self.is_imported(id.end() - 1)
+    }
+
+    /// The first message at or after `i` on the other side than `i`'s
+    /// (or T): where a run of one side's messages ends.
+    fn side_run_end(&self, i: u64) -> u64 {
+        let k = self.imported.partition_point(|(_, b)| *b <= i);
+        let end = match self.imported.get(k) {
+            Some((a, b)) if *a <= i => *b,
+            Some((a, _)) => *a,
+            None => self.t,
+        };
+        end.min(self.t)
+    }
+
     /// Spec 4, the order: a message's node starts once fewer than `AHEAD`
     /// lines before it are still unbuilt; a merge starts once both its halves
     /// are built. Message nodes come first, then merges, smallest level
@@ -500,17 +578,50 @@ impl Memory {
         let mut fresh: HashMap<NodeId, String> = HashMap::new();
         'again: loop {
             let mut candidates = Vec::new();
-            let mut i = self.low.first().copied().unwrap_or(0);
-            let mut unbuilt = 0;
-            while i < self.t && unbuilt < AHEAD {
-                let id = NodeId::new(0, i);
-                if !self.is_built(id) {
-                    unbuilt += 1;
-                    candidates.push(id);
+            // Each side (the chat's own messages, the imported ones) has its
+            // own AHEAD unbuilt messages in reach, as the reference client's
+            // two ready queues: an import never holds the chat's new lines.
+            let mut last_leaf = [self.t; 2];
+            for side in [false, true] {
+                let mut i = self.low.first().copied().unwrap_or(0);
+                let mut unbuilt = 0;
+                let mut last = self.t;
+                while i < self.t && unbuilt < AHEAD {
+                    if self.is_imported(i) != side {
+                        i = self.side_run_end(i);
+                        continue;
+                    }
+                    let id = NodeId::new(0, i);
+                    if !self.is_built(id) {
+                        unbuilt += 1;
+                        candidates.push(id);
+                        last = i;
+                    }
+                    i += 1;
                 }
-                i += 1;
+                if unbuilt >= AHEAD {
+                    last_leaf[side as usize] = last;
+                }
             }
-            candidates.extend(self.ready.iter().copied());
+            // The reference client's order: by position in the chat (a
+            // leaf at its message, a merge at its end), the higher level
+            // first at a tie, and no merge past the last leaf in reach.
+            // Early merges then go before far leaves, so the compaction view
+            // merges as an import is built instead of holding every leaf.
+            candidates.extend(
+                self.ready
+                    .iter()
+                    .copied()
+                    .filter(|id| id.end() <= last_leaf[self.imported_side(*id) as usize]),
+            );
+            let mut running = [0usize; 2];
+            for id in &self.busy {
+                running[self.imported_side(*id) as usize] += 1;
+            }
+            candidates.sort_by_key(|id| {
+                let ctx = if id.l == 0 { id.i } else { id.end() };
+                (ctx, std::cmp::Reverse(id.l))
+            });
             for id in candidates {
                 if self.busy.contains(&id) {
                     continue;
@@ -530,7 +641,10 @@ impl Memory {
                 }
                 // Deviation (README): JOBS caps model calls, and a free node
                 // is none, so free nodes are built even with JOBS running.
-                if self.busy.len() < JOBS {
+                // Each side has its own JOBS, as in the reference client.
+                let side = self.imported_side(id) as usize;
+                if running[side] < JOBS {
+                    running[side] += 1;
                     self.busy.insert(id);
                     out.push(Work::Model { node: id });
                 }
@@ -581,13 +695,17 @@ impl Memory {
         self.complete_in(node, text, &NoStore)
     }
 
-    /// `complete` for any memory. The store is not needed any more (building
-    /// a node never merges, spec 3.2); it stays for the hosts' signature.
+    /// `complete` for any memory. An import appends every message before
+    /// any node is built, so no merge can happen then, and both views would
+    /// stay as long as the import. As the reference client fits its views
+    /// after each node it stores, a view past its budget merges here too,
+    /// but only in a whole batch (spec 3.2: a turn's cached prefix changes
+    /// once per batch, not at every node).
     pub fn complete_in(
         &mut self,
         node: NodeId,
         text: &str,
-        _store: &dyn Store,
+        store: &dyn Store,
     ) -> Result<(), NotRunning> {
         // Only a call `pump` started and that is still running may build its
         // node: a second complete, or one for a node nobody asked for, would
@@ -596,6 +714,35 @@ impl Memory {
             return Err(NotRunning(node));
         }
         self.build(node, text.len());
+        // As the reference client fits its views after a stored node: only
+        // past the budget, and only a whole batch, one that brings the view
+        // to its low mark (or down by a whole budget). A smaller merge would
+        // change an early line at almost every completion, and every call's
+        // cached prefix after it with it; the view waits over budget instead.
+        // The chat's view the same way: an import appends every message
+        // before any node is built, so no message-time merge can shrink it,
+        // and the first turn after an import would see the whole import.
+        // A whole batch changes the turn's cached prefix once.
+        if self.view_size > self.budget {
+            let (view, size) = (self.view.clone(), self.view_size);
+            self.merge_down(Which::Chat, self.view_low(), store);
+            let enough = self.view_low().max(size - self.budget);
+            if self.view_size > enough {
+                self.view = view;
+                self.view_size = size;
+            }
+            self.merging = self.view_size > self.view_low();
+        }
+        if self.compact_size > self.compact_high() {
+            let (view, size) = (self.compact_view.clone(), self.compact_size);
+            self.merge_down(Which::Compact, self.compact_low(), store);
+            let enough = self.compact_low().max(size - self.compact_high());
+            if self.compact_size > enough {
+                self.compact_view = view;
+                self.compact_size = size;
+            }
+            self.compact_merging = self.compact_size > self.compact_low();
+        }
         Ok(())
     }
 

@@ -12,6 +12,7 @@
 use crate::mux::*;
 use crate::state::home_store::{self, EmptyWorkspaceMark, HOME_CREATION_KEY};
 use crate::state::prelude::*;
+use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::personal_revision;
 
 /// The stored name of the home workspace. Clients show their own localized
@@ -34,14 +35,18 @@ impl Mux {
         }
         let personal_before = self.read_registry_state(personal_revision)?;
         let mutation = WorkspaceMutation::daemon(HOME_CREATION_KEY, HOME_MUTATION_ORIGIN)?;
-        let commit = self.resource_create_empty_workspace_selected(
-            Self::ordinary_resource_selectors(),
-            Some(HOME_DEFAULT_NAME.to_string()),
-            HOME_CREATION_KEY,
-            None,
-            &mutation,
-            EmptyWorkspaceMark::Home,
-        )?;
+        // Home always takes the top row (then `place_home_first` pins it at
+        // index 0), whatever `workspaces.newPlacement` says.
+        let commit = NewWorkspacePlacement::Top.scoped(|| {
+            self.resource_create_empty_workspace_selected(
+                Self::ordinary_resource_selectors(),
+                Some(HOME_DEFAULT_NAME.to_string()),
+                HOME_CREATION_KEY,
+                None,
+                &mutation,
+                EmptyWorkspaceMark::Home,
+            )
+        })?;
         let (workspace_id, _) = self
             .read_registry_state(home_store::live_home)?
             .context("the created home workspace has no kind row")?;

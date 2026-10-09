@@ -44,22 +44,35 @@
 //! - The fetcher ([`sync`]) runs only on a team VM that the bind
 //!   ([`enroll`], vm-image.md 6b) gave an install; `apply` also reads a
 //!   snapshot on stdin.
+//! - On a team VM the same sync pass reads the members' Linux accounts and
+//!   reconciles users and principals files ([`accounts`]); a member who
+//!   left loses its principals and the reaper ends its sessions. Agent
+//!   certificates run only `cmux team …` verbs ([`restricted_shell`]).
 
+pub mod accounts;
+#[cfg(target_os = "linux")]
+pub mod accounts_linux;
 pub mod b64;
 pub mod cert;
 pub mod cli;
 pub mod enroll;
 #[cfg(target_os = "linux")]
 pub mod linux_host;
+pub mod restricted_shell;
 pub mod sessions;
 pub mod store;
 pub mod sync;
+pub mod team_cli;
 pub mod trust;
 
+#[cfg(test)]
+mod accounts_tests;
 #[cfg(test)]
 mod cert_tests;
 #[cfg(test)]
 mod enroll_tests;
+#[cfg(test)]
+mod restricted_shell_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
@@ -78,6 +91,8 @@ pub const KRL_FILE: &str = "/etc/cmux/ssh/revoked.krl";
 /// Principals per Linux user (`<dir>/<user>`), written by bind or the
 /// team reconciler; `principals` passes them on only while trust is fresh.
 pub const PRINCIPALS_DIR: &str = "/etc/cmux/ssh/principals";
+/// The users the account reconciler created or adopted (root-only).
+pub const ACCOUNTS_FILE: &str = "/etc/cmux/ssh/accounts.json";
 /// The applied snapshot's versions and sync time ([`trust::TrustState`]).
 pub const TRUST_FILE: &str = "/etc/cmux/ssh/trust.json";
 /// Serializes `apply` (flock). Root-only directory, so no other user can

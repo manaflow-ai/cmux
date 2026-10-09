@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import os
 
 // The marks of the space switcher (cx-5k3r): each space's icon, emoji or
 // initial in its color, the compact dots, and the "+".
@@ -97,10 +98,17 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
         setAccessibilityFrameInParentSpace(frame)
     }
 
+    /// Faults from a press that arrives off the main thread.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.accessibility")
+
     override func accessibilityPerformPress() -> Bool {
-        // AppKit calls accessibility actions on the main thread.
+        // AppKit calls accessibility actions on the main thread; anywhere else, refuse.
+        guard Thread.isMainThread else {
+            Self.logger.fault("profile dot press off the main thread; refused")
+            return false
+        }
         let onPress = onPress
-        MainActor.assumeIsolated { onPress() }
+        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
         return true
     }
 }

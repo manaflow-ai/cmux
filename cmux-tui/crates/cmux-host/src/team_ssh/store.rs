@@ -92,9 +92,9 @@ pub struct Applied {
 
 /// An exclusive `flock` on the apply lock file, released on drop, so two
 /// applies never interleave their check and writes.
-struct ApplyLock(#[allow(dead_code)] fs::File);
+pub(super) struct ApplyLock(#[allow(dead_code)] fs::File);
 
-fn lock(paths: &Paths) -> io::Result<ApplyLock> {
+pub(super) fn lock(paths: &Paths) -> io::Result<ApplyLock> {
     let path = paths.at(APPLY_LOCK_FILE);
     let dir = path.parent().ok_or_else(|| io::Error::other("lock path has no parent"))?;
     fs::create_dir_all(dir)?;

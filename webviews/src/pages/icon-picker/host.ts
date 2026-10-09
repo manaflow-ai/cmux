@@ -20,6 +20,9 @@ export const IconPickerOps = {
   assetFromURL: "cmux.iconPicker.asset.fromURL",
 } as const;
 
+/** The shared native op that writes `{text}` to the pasteboard (Copy in the Actions menu). */
+export const CLIPBOARD_WRITE = "cmux.app.clipboard.write";
+
 export interface PickerSession {
   /** Session id; finish echoes it so a late reply never applies to a newer session. */
   readonly id: string;

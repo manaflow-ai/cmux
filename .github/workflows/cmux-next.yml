@@ -92,22 +92,31 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
+      - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -135,8 +144,6 @@ on:
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -152,6 +159,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -192,22 +209,31 @@ on:
       - Resources/Localizable.xcstrings
       - web/**
       - Resources/InfoPlist.xcstrings
+      - Resources/bin/**
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/request-nightly-next.sh
+      - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
+      - scripts/cmux-next/gen-protected-folders.py
+      - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/ci/cargo-test-selected.sh
+      - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -663,6 +689,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # A test that posts to a process-global notification center reaches every
+      # observer in the test process on the posting thread (#18771's signal 5).
+      - name: Tests inject their notification center
+        id: test-notification-centers
+        continue-on-error: true
+        run: scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: String tables (21 languages)
         id: l10n
         continue-on-error: true
@@ -680,6 +713,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE"
 
+      # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
+      # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
+      - name: Protected-folder copies
+        id: protected-folders
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -695,14 +735,17 @@ jobs:
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
+          bash scripts/cmux-next/tests/continue-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
@@ -710,14 +753,20 @@ jobs:
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+          bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
+          bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
+          bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          node --test scripts/lib/reload-shim.test.mjs
           bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
+          bash scripts/cmux-next/tests/private-bun.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
+          bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -726,7 +775,12 @@ jobs:
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+          bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
+          # The herdr-derived agent plugin's vendored manifests match their pin.
+          python3 -I scripts/cmux-next/herdr-sync.py check
+          python3 -I scripts/cmux-next/tests/test_herdr_sync.py
           bash scripts/cef/tests/test-embedder-step.test.sh
 
       # The app's Ghostty shell integration comes from ghostty-next (the
@@ -807,7 +861,12 @@ jobs:
       - name: Check the app FFI pin
         id: app-ffi-pin
         continue-on-error: true
-        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
@@ -828,9 +887,11 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
+            ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
+            ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
@@ -885,6 +946,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
       - name: Setup Node
@@ -990,7 +1056,27 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The package graph reads no submodule; GhosttyNextKit comes from
@@ -1048,6 +1134,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -1173,6 +1264,18 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "420"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The live-daemon suites (daemon integration and branch tests, the mobile
   # live daemon and first launch) against this commit's own cmux-tui tree,
   # which the gate above waits for on Linux. Only the daemon tier runs it:
@@ -1208,7 +1311,29 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Same-tree mode tests the commit the tree was probed for.
+          ref: ${{ inputs.same_tree_sha || '' }}
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Same-tree mode tests the commit the tree was probed for.
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -1249,6 +1374,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -1323,6 +1453,18 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
 
+      # A test helper that died on a signal leaves its crash report here
+      # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
+      # thread names the test that trapped.
+      - name: Upload the test helper's crash reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-test-crash-reports-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/swift-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Generated files are fresh: the action catalog, surfaces and inventory
   # (ActionSurfaceParityTests and its siblings) and the CI target graph. Its
   # own job, so a pull request that skips the package tests still cannot land
@@ -1376,7 +1518,27 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The package graph reads no submodule; GhosttyNextKit comes from
@@ -1415,6 +1577,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -1537,7 +1704,25 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: false
@@ -1634,6 +1819,17 @@ jobs:
           SHA: ${{ github.sha }}
         run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
 
+      # GitHub runs `schedule` only from main's workflow, so this green compile
+      # is the periodic tick that publishes an earlier nightly-next build Apple
+      # accepted after its run stopped waiting (cx-f58x). It builds nothing and
+      # submits nothing (scripts/cmux-next/continue-nightly-next.sh, tested by
+      # scripts/cmux-next/tests/continue-nightly-next.test.sh).
+      - name: Request a nightly-next continuation for an accepted pending build
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
+
   cmux-scheme-compile:
     needs: [path_route, macos-placement, push-head-preflight]
     # This run's own tier on a published tree (path routing's probe), or
@@ -1673,7 +1869,26 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Same-tree mode tests the commit the tree was probed for.
+          ref: ${{ inputs.same_tree_sha || '' }}
+          persist-credentials: false
+          submodules: false
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Same-tree mode tests the commit the tree was probed for.
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -1722,6 +1937,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).

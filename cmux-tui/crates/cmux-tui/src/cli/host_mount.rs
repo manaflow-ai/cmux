@@ -16,17 +16,34 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 }
 
 /// The scopes `main` runs before the mux's signal handlers, without the
-/// provider credentials: `cmux link …`, and `cmux host …` (the supervisor
-/// owns SIGTERM, SIGINT and SIGHUP itself). The function takes the words
-/// after the scope.
+/// provider credentials: `cmux link …`, `cmux host …` (the supervisor
+/// owns SIGTERM, SIGINT and SIGHUP itself), and the team VM's own
+/// `cmux team restricted-shell|whoami` (crate `cmux-host`; the agent
+/// certificates' force-command, team-vm-plan.md S5). The function takes
+/// the words after the scope.
 pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i32> {
     if raw_args.first().is_some_and(|first| first == "link") {
         Some(crate::link::run)
     } else if requested(raw_args) {
         Some(run)
+    } else if team_vm_verb(raw_args, Surface::current()) {
+        Some(run_team)
     } else {
         None
     }
+}
+
+/// Only these two `team` verbs run here; every other `cmux team …` path
+/// stays with the catalog CLI.
+fn team_vm_verb(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux
+        && raw_args.first().is_some_and(|first| first == "team")
+        && matches!(raw_args.get(1).map(String::as_str), Some("restricted-shell" | "whoami"))
+}
+
+/// Runs `cmux team <rest>` on the team VM and returns its exit code.
+fn run_team(rest: &[String]) -> i32 {
+    i32::from(cmux_host::team_ssh::team_cli::run(rest))
 }
 
 /// Runs `cmux host <rest>` and returns its exit code.
@@ -77,5 +94,10 @@ mod tests {
         );
         assert_eq!(self_argv_for(None, None), Vec::<String>::new());
         assert_eq!(run(&args(&["bogus"])), 2);
+        // The team VM verbs, and no other `team` path, are mounted early.
+        assert!(team_vm_verb(&args(&["team", "restricted-shell"]), Surface::Cmux));
+        assert!(team_vm_verb(&args(&["team", "whoami"]), Surface::Cmux));
+        assert!(!team_vm_verb(&args(&["team", "ssh", "ca"]), Surface::Cmux));
+        assert!(!team_vm_verb(&args(&["team", "whoami"]), Surface::CmuxTui));
     }
 }

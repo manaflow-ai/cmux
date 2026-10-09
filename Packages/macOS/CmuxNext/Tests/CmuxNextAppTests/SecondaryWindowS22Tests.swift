@@ -162,4 +162,33 @@ struct SecondaryWindowS22Tests {
         let key = try #require(services.pages.keys(of: .appStore).first)
         #expect(Self.holds(pane, key), "the App Store tab opened in the open window")
     }
+
+    /// bd cx-beg1, the restored-app path: the user closes the only window,
+    /// then runs App Store (palette or key, no window). The closed window
+    /// comes back (`reopenOrCreateWindow`) and shows the App Store as its top
+    /// page, the same view a user run gets with a window open; no tab is
+    /// left behind. Automation in the same state reopens nothing it shows:
+    /// its tab stays in the background (`automationWithNoWindow...`).
+    @Test func aUserRunAfterCloseAllWindowsReopensTheWindowOnTheAppStore() async throws {
+        let services = try await Self.services()
+        services.windows.restoreWhenLoaded()
+        services.daemon.store.apply(snapshot: try Self.twoWorkspaceTree())
+        await BrowserTabTests.settle {
+            !services.windows.registry.isLaunching && services.windows.restored && services.windows.controllers.first?.content != nil
+        }
+        let first = try #require(services.windows.controllers.first)
+        let windowID = first.state.id
+        services.keyWindowSource = { nil }
+        first.window?.close()
+        #expect(services.windows.controllers.isEmpty)
+        #expect(services.registry.perform("appStore.show", invocation: ActionInvocation()))
+        let reopened = try #require(services.windows.controllers.first, "the closed window came back")
+        #expect(reopened.state.id == windowID)
+        await BrowserTabTests.settle { reopened.shownTopPage == .page(.appStore) }
+        #expect(reopened.shownTopPage == .page(.appStore), "the App Store shows and has the window")
+        #expect(services.windows.active === reopened)
+        #expect(services.pages.keys(of: .appStore).isEmpty, "no background App Store tab")
+        #expect(!services.apps.isStoreWaiting)
+        for controller in services.windows.controllers { controller.window?.close() }
+    }
 }

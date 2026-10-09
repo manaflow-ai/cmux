@@ -31,6 +31,16 @@ import Testing
         #expect(config.backend == .localOnly(URL(string: "http://localhost:3811")!))
     }
 
+    /// A callback scheme from the environment that cannot form a URL used to trap at sign-in;
+    /// it is ignored and the default scheme is used.
+    @Test func unusableCallbackSchemeFallsBackToTheDefault() throws {
+        let config = CloudConfiguration.resolve(bundleID: "b", bundled: ["CMUX_AUTH_CALLBACK_SCHEME": "bad scheme"],
+                                                process: [:], isDebugBuild: true)
+        #expect(config.callbackScheme == "cmux-dev")
+        let url = config.signInURL(callbackState: "s1")
+        #expect(url.path == "/handler/native-sign-in")
+    }
+
     @Test func signInURLNestsTheNativeCallback() throws {
         let config = CloudConfiguration.resolve(bundleID: "b", bundled: ["CMUX_AUTH_WWW_ORIGIN": "https://web.test", "CMUX_TAG": "My Tag"],
                                                 process: [:], isDebugBuild: true)
@@ -39,62 +49,6 @@ import Testing
         let after = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value)
         #expect(after.hasPrefix("https://web.test/handler/after-sign-in"))
         #expect(after.contains("cmux-dev-my-tag://auth-callback?cmux_auth_state%3Ds1") || after.contains("cmux-dev-my-tag"))
-    }
-}
-
-@Suite struct WireGuardConfigTests {
-    @Test func fillsPrivateKeyAndAllRoutes() throws {
-        let json = """
-        {"tunnelId":"tun-1","clientConfig":"[Interface]\\nPrivateKey = \\nAddress = 100.64.0.1/32\\n\\n[Peer]\\nPublicKey = abc\\nAllowedIPs = 10.0.0.0/8\\nEndpoint = h:51820",
-         "routes":["10.0.0.0/8","fd00::/8"],"network":{"cidr":"10.16.1.0/24","cidrV6":"fd0b::/64"},
-         "networks":[{"cidr":"10.16.1.0/24","cidrV6":"fd0b::/64"},{"cidr":"10.20.0.0/24"}]}
-        """
-        let enrollment = try JSONDecoder().decode(CloudTunnelEnrollment.self, from: Data(json.utf8))
-        let text = WireGuardConfig.shared.completed(enrollment, privateKey: "KEY=")
-        #expect(text.contains("PrivateKey = KEY=\n"))
-        #expect(text.contains("AllowedIPs = 10.16.1.0/24, fd0b::/64, 10.20.0.0/24, 10.0.0.0/8, fd00::/8"))
-        #expect(text.contains("Endpoint = h:51820"))
-    }
-}
-
-@Suite struct CloudLinkEventTests {
-    @Test func parsesHubAndLinkLines() {
-        #expect(CloudLinkEvent.parse(#"{"event":"hub-ready","routes":[],"socket":"/tmp/h.sock"}"#) == .hubReady(socket: "/tmp/h.sock"))
-        let link = #"{"connection":{"state":"connected"},"event":"connection-snapshot","local_socket":"/tmp/m.sock"}"#
-        #expect(CloudLinkEvent.parse(link) == .connected(localSocket: "/tmp/m.sock"))
-        #expect(CloudLinkEvent.parse(#"{"event":"connection-snapshot","local_socket":""}"#) == .other)
-        #expect(CloudLinkEvent.parse("not json") == .other)
-    }
-
-    @Test func splitterJoinsPartialLines() {
-        let splitter = LineSplitter()
-        #expect(splitter.append(Data("{\"a\":".utf8)).isEmpty)
-        #expect(splitter.append(Data("1}\n{\"b\":2}\n{".utf8)) == ["{\"a\":1}", "{\"b\":2}"])
-    }
-}
-
-@Suite struct CloudAPIDecodingTests {
-    @Test func decodesListAndCreateShapes() throws {
-        let list = #"{"id":"vm-1","provider":"freestyle","status":"running","displayName":null,"slug":"gentle-rose","createdAt":1790684381471,"address":{"ipv4":"10.0.0.1","ipv6":null}}"#
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: Data(list.utf8))
-        #expect(machine.status == .running)
-        #expect(machine.title == "gentle-rose")
-        #expect(machine.address?.ipv4 == "10.0.0.1")
-        let created = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","provider":"freestyle","displayName":"box"}"#.utf8))
-        #expect(created.status == .provisioning)
-        #expect(created.title == "box")
-        let odd = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-3","status":"sleeping"}"#.utf8))
-        #expect(odd.status == .unknown)
-    }
-
-    @Test func errorBodyPrefersUIMessage() {
-        let body = Data(#"{"error":"vm_requires_pro","message":"raw","ui":{"message":"Upgrade to Pro"}}"#.utf8)
-        #expect(CloudAPIError.from(status: 402, data: body, headerCode: nil) == .http(status: 402, code: "vm_requires_pro", message: "Upgrade to Pro"))
-    }
-
-    @Test func snapshotDecodesEitherIDKey() throws {
-        #expect(try JSONDecoder().decode(CloudSnapshot.self, from: Data(#"{"snapshotId":"s1","id":"vm-1"}"#.utf8)).id == "s1")
-        #expect(try JSONDecoder().decode(CloudSnapshot.self, from: Data(#"{"id":"s2","name":"n"}"#.utf8)).id == "s2")
     }
 }
 

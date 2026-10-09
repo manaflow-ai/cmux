@@ -39,11 +39,11 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
+import { listUserTeams, personalPrincipal, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
 type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: false; message: string }
-
 const env = workerEnv as unknown as Env
 
 /** Machine installs (machine-installs.ts): a VM token reaches only its own machine's ops. */
@@ -73,12 +73,7 @@ interface OwnerStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
 }
 
-/**
- * Owner routing: which object owns an op for this principal. UserDO is keyed by
- * the user; TeamDO and SchedulerDO by the principal's team (phase 1: the
- * personal team from the token; Stack teams will need a TeamDO membership check
- * before routing to a team other than the token's).
- */
+/** Owner routing: UserDO by the user; TeamDO and the team owners by the principal's team (membership checked in team-select.ts). */
 const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: string; stream: string } => {
   switch (owner) {
     case "cloud:UserDO":
@@ -250,10 +245,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
-        // The team SSH CA signs and seals in TeamDO outside its reducer (team-ssh-ca.ts); keys never enter an op's params.
-        if (payload.op === "team_vm.ssh_cert" || payload.op === "team_vm.ssh_cert.challenge" || payload.op === "team_vm.ssh_cert.revoke" || payload.op === "team_vm.ssh_ca.rotate") {
+        // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params) and a tainted team VM's owner actions (cx-q4f3).
+        if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export"].includes(payload.op)) {
           const p = yield* principalFor("cloud:TeamDO", principal)
-          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).sshOp(p.team!, p, frame)), catch: unreachable })
+          const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(payload.op.startsWith("team_vm.ssh_") ? stub.sshOp(p.team!, p, frame) : stub.vmAdminOp(p.team!, p, frame)), catch: unreachable })
         }
         // install.register and server pairing bind the new install to the SSO team whose sign-in created this session (P17-4). The
         // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
@@ -343,7 +339,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
-        const { frames } = yield* submitTo(def.owner, submitter, frame)
+        const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
@@ -363,7 +359,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
           // Keyed by the user.ensure transaction: a retry of that request replays, a new ensure re-applies.
-          const team = yield* submitTo("cloud:TeamDO", principal, {
+          const team = yield* submitTo("cloud:TeamDO", personalPrincipal(principal), {
             op: "team.ensure_personal",
             params: {},
             idempotency_key: `ensure-personal:${response.transaction}`,
@@ -377,7 +373,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     )
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
-        const principal = toPrincipal(yield* CurrentPrincipal)
+        const shape = yield* CurrentPrincipal, principal = toPrincipal(shape)
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
@@ -422,6 +418,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
+            if (payload.op === "user.teams.list") return listUserTeams(env, shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)
             return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
           },
@@ -461,8 +458,12 @@ const AuthorizationLive = Layer.succeed(Authorization)(
   Authorization.of({
     bearer: (httpEffect, { credential }) =>
       Effect.gen(function* () {
-        const authed = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
-        if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const token = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
+        if (!token || !token.user || !token.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const named = { ...token, user: token.user, team: token.team }, header = (yield* HttpServerRequest.HttpServerRequest).headers[TEAM_HEADER]
+        const selected = yield* Effect.promise(() => selectTeam(env, named, header))
+        if (!selected.ok) return yield* selected.code !== "owner.unreachable" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
+        const authed = selected.principal
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.
         // A TeamDO or UserDO the gate asks can be briefly unreachable: retryable 503, never a 500 (cx-44j.51).

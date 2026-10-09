@@ -23,6 +23,17 @@ describe("cloud client transport", () => {
     expect(JSON.parse(String(seen[0]!.init.body))).toMatchObject({ op: "install.rename", idempotency_key: "k1", origin: "user" })
   })
 
+  it("names the selected team with x-cmux-team, and sends no header without one", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = []
+    const reply = { op: "team_vm.status", value: {}, stream: "team_vm:team_x", revision: "1" }
+    const team = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", team: () => "team_0123456789abcdef0123", fetch: fakeFetch(200, reply, seen) })
+    await team.read("team_vm.status", {})
+    expect((seen[0]!.init.headers as Record<string, string>)["x-cmux-team"]).toBe("team_0123456789abcdef0123")
+    const personal = createCloudClient({ baseUrl: "https://api.test", token: () => "tok", fetch: fakeFetch(200, reply, seen) })
+    await personal.read("team_vm.status", {})
+    expect((seen[1]!.init.headers as Record<string, string>)["x-cmux-team"]).toBeUndefined()
+  })
+
   it("returns an owner reject as a value, not an exception", async () => {
     const client = createCloudClient({
       baseUrl: "https://api.test",

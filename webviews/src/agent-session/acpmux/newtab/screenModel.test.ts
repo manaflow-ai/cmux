@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import { MAX_AGENT_ROWS, orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
+import {
+  defaultHarness,
+  initialSelection,
+  orderedAgents,
+  recentChatCards,
+  screenRows,
+  shellEntry,
+  stepSelection,
+  type ScreenRow,
+} from "./screenModel";
 
 const agents = [
   { id: "claude", name: "Claude Code" },
@@ -12,68 +21,75 @@ const omnibar: OmnibarContext = {
   tabs: [{ id: "t1", kind: "browser", title: "Vite guide", detail: "vite.dev/guide" }],
   history: [{ url: "https://github.com/manaflow-ai/cmux", title: "cmux" }],
 };
-const types = (rows: ScreenRow[]) => rows.map((row) => (row.type === "agent" ? `agent:${row.harness}` : row.type));
+const types = (rows: ScreenRow[]) => rows.map((row) => row.type);
 
 test("an empty field shows no dropdown: the chat cards are the page", () => {
-  expect(screenRows("", { agents, omnibar })).toEqual([]);
-  expect(screenRows("   ", { agents, omnibar })).toEqual([]);
+  expect(screenRows("", { omnibar })).toEqual([]);
+  expect(screenRows("   ", { omnibar })).toEqual([]);
 });
 
-test("plain text lists every installed agent first, then the web search as an explicit row", () => {
-  const rows = screenRows("fix the build", { agents, omnibar });
-  expect(types(rows)).toEqual(["agent:claude", "agent:codex", "agent:opencode", "search"]);
-  expect(rows[0]).toEqual({ type: "agent", harness: "claude", name: "Claude Code", text: "fix the build" });
-  expect(rows[3]).toEqual({ type: "search", text: "fix the build" });
+// cx-e2aa (Lawrence 2026-10-09): the rows under the field are only for addresses and other tabs,
+// and show only when they make sense (an address, or a match to open). A prompt shows nothing:
+// Enter sends it to the agent picked at the top of the page.
+test("a prompt shows no rows: the agent is picked at the top, not in a list", () => {
+  expect(screenRows("fix the build", { omnibar })).toEqual([]);
+  expect(screenRows("hello", { omnibar: EMPTY_OMNIBAR })).toEqual([]);
 });
 
-test("the remembered agent leads the agent rows", () => {
-  const rows = screenRows("fix it", { agents, omnibar, lastAgent: "codex" });
-  expect(types(rows).slice(0, 3)).toEqual(["agent:codex", "agent:claude", "agent:opencode"]);
-});
-
-test("an address opens first, with search and the agents after it", () => {
-  const rows = screenRows("localhost:3000", { agents, omnibar });
+test("an address opens first, its matches follow, the web search is last", () => {
+  const rows = screenRows("localhost:3000", { omnibar });
   expect(rows[0]).toEqual({ type: "open", url: "http://localhost:3000", text: "localhost:3000" });
-  expect(types(rows)).toContain("search");
+  expect(types(rows)).toEqual(["open", "search"]);
+  expect(types(screenRows("github.com/manaflow-ai", { omnibar }))).toEqual(["open", "history", "search"]);
 });
 
-test("matching open tabs and history follow the typed rows", () => {
-  const rows = screenRows("vite", { agents, omnibar });
-  expect(types(rows)).toEqual(["agent:claude", "agent:codex", "agent:opencode", "search", "tab"]);
-  expect(types(screenRows("github", { agents, omnibar }))).toEqual([
-    "agent:claude",
-    "agent:codex",
-    "agent:opencode",
-    "search",
-    "history",
-  ]);
+test("text that matches an open tab or a visited page lists them, then the web search", () => {
+  expect(types(screenRows("vite", { omnibar }))).toEqual(["tab", "search"]);
+  expect(types(screenRows("github", { omnibar }))).toEqual(["history", "search"]);
 });
 
-test("the omnibar model keeps every navigation and intent row kind", () => {
+test("workspaces, chats, folders and commands are never rows: only addresses and tabs", () => {
   const context: OmnibarContext = {
-    ...omnibar,
+    ...EMPTY_OMNIBAR,
     workspaces: [{ id: "w1", name: "Docs", detail: "~/src/docs" }],
+    sessions: [{ sessionId: "s1", title: "Docs chat" }],
+    folders: ["/src/docs"],
+    commands: ["docs build"],
   };
-  expect(types(screenRows("docs", { agents: [], omnibar: context }))).toEqual(["search", "workspace"]);
-  expect(screenRows("https://cmux.dev", { agents: [], omnibar: context })[0]).toEqual({
-    type: "open",
-    url: "https://cmux.dev",
-    text: "https://cmux.dev",
-  });
-  expect(screenRows("hello", { agents: [], omnibar: EMPTY_OMNIBAR })[0]).toEqual({ type: "search", text: "hello" });
+  expect(screenRows("docs", { omnibar: context })).toEqual([]);
+});
+
+test("Enter takes an address's open row at once; a prompt's rows wait for Down or Ctrl-N", () => {
+  expect(initialSelection("localhost:3000")).toBe(0);
+  expect(initialSelection("vite")).toBe(-1);
+  expect(initialSelection("")).toBe(-1);
+});
+
+test("a local file opens without a web search row", () => {
+  expect(types(screenRows("/tmp/report.txt", { omnibar }))).toEqual(["open"]);
 });
 
 test("a typed ! command never shows rows: the tab already became a terminal", () => {
-  expect(screenRows("!ls", { agents, omnibar })).toEqual([]);
+  expect(screenRows("!ls", { omnibar })).toEqual([]);
 });
 
-test("without installed agents Ask still offers the search", () => {
-  expect(types(screenRows("hello", { agents: [], omnibar }))).toEqual(["search"]);
+test("Down and Ctrl-N step from no selection to the first row; Up and Ctrl-P to the last", () => {
+  expect(stepSelection(-1, 1, 3)).toBe(0);
+  expect(stepSelection(-1, -1, 3)).toBe(2);
+  expect(stepSelection(2, 1, 3)).toBe(0);
+  expect(stepSelection(0, -1, 3)).toBe(2);
+  expect(stepSelection(-1, 1, 0)).toBe(-1);
 });
 
-test("agent rows are capped and keep the catalog order", () => {
+test("the agent Enter asks is the remembered one, else the first installed", () => {
+  expect(defaultHarness(agents, "codex")).toBe("codex");
+  expect(defaultHarness(agents)).toBe("claude");
+  expect(defaultHarness([], undefined)).toBeUndefined();
+});
+
+test("every installed harness stays available in the Ask list", () => {
   const many = Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, name: `A${i}` }));
-  expect(orderedAgents(many).length).toBe(MAX_AGENT_ROWS);
+  expect(orderedAgents(many).length).toBe(9);
   expect(orderedAgents(many, "a7")[0]!.id).toBe("a7");
   expect(orderedAgents(many, "missing")[0]!.id).toBe("a0");
 });
@@ -102,14 +118,28 @@ test("chat cards: the three newest, waiting chats first, a dropped chat as an er
   expect(cards[0]).toMatchObject({ state: "input" });
 });
 
-test("two installed harnesses with one name are told apart by their id", () => {
-  const twins = [
-    { id: "claude", name: "Claude Code" },
-    { id: "claude-sr", name: "Claude Code" },
-    { id: "codex", name: "Codex" },
+test("chat cards read the device chat index too: no acpmux session still shows the newest chats", () => {
+  const now = 1_000_000_000;
+  const device = [
+    { key: "codex:1", harness: "codex", title: "Older", updatedAt: now - 7200_000 },
+    { key: "claude-code:2", harness: "claude-code", title: "Newest", updatedAt: now - 60_000 },
+    { key: "opencode:3", harness: "opencode", updatedAt: now - 3600_000 },
+    { key: "pi:4", harness: "pi", title: "Oldest", updatedAt: now - 9 * 3600_000 },
   ];
-  const names = screenRows("fix it", { agents: twins, omnibar }).flatMap((row) =>
-    row.type === "agent" ? [row.name] : [],
-  );
-  expect(names).toEqual(["Claude Code (claude)", "Claude Code (claude-sr)", "Codex"]);
+  const cards = recentChatCards([], now, undefined, device);
+  expect(cards.map((card) => card.chatKey)).toEqual(["claude-code:2", "opencode:3", "codex:1"]);
+  expect(cards[0]).toMatchObject({ title: "Newest", age: "1m", state: "idle", harness: "claude-code" });
+  expect(cards[1]?.title).toBe("New chat");
+});
+
+test("live acpmux sessions lead; the device index fills the rest without repeating a shown chat", () => {
+  const now = 1_000_000_000;
+  const sessions = [{ sessionId: "s", title: "Fix the build", updatedAt: now - 60_000 }];
+  const device = [
+    { key: "claude-code:x", harness: "claude-code", title: "Fix the build", updatedAt: now },
+    { key: "codex:y", harness: "codex", title: "Docs", updatedAt: now - 120_000 },
+  ];
+  const cards = recentChatCards(sessions, now, undefined, device);
+  expect(cards.map((card) => card.sessionId)).toEqual(["s", "codex:y"]);
+  expect(cards[0]?.chatKey).toBeUndefined();
 });

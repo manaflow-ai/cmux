@@ -43,16 +43,16 @@ impl Mux {
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => return Ok(true),
         }
-        let topology = registry.resource_topology_snapshot()?;
-        let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs =
-            terminal_tab_ids_in_canonical_order(
-                topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
-                    (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
-                }),
-            )
-            .remove(id)
-            .unwrap_or_default();
+        // Only this terminal's tab rows: a full topology read here made each
+        // cwd report O(session) under the registry lock.
+        let tabs = terminal_tab_ids_in_canonical_order(
+            registry
+                .resource_tabs_of_content(id.as_str())?
+                .into_iter()
+                .map(|tab| (id.clone(), tab.pane_id, tab.position, tab.public_id)),
+        )
+        .remove(id)
+        .unwrap_or_default();
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {

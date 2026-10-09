@@ -6,6 +6,7 @@
 
 mod adoption;
 mod catalog_reload;
+mod cursor_ext;
 mod fork;
 mod handoff;
 mod harness_view;
@@ -13,6 +14,7 @@ mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
+mod live_models;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
@@ -33,6 +35,7 @@ use shutdown::ShutdownPlan;
 #[cfg(test)]
 mod remote_sandbox_adopt_tests;
 mod spawn;
+mod steer_end;
 mod stream;
 mod tap;
 #[cfg(test)]
@@ -53,6 +56,7 @@ pub mod rules;
 mod transfer;
 mod turns;
 mod warm;
+mod xai;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
@@ -154,6 +158,11 @@ pub struct PromptOptions {
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,
+    /// A steer that must not become a queued prompt
+    /// (`_meta.acpmux.steerOnly`): refused (`steer.unavailable`) when the
+    /// session cannot steer now (no running turn, or an agent that does not
+    /// steer).
+    pub steer_only: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -199,6 +208,9 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// Model lists from Claude Code's and Codex's own CLIs, by profile name
+    /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
+    pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -270,6 +282,7 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
+            live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -358,6 +371,8 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // The last live model lists, before anything slow.
+        self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env && crate::login_env::import().await {
@@ -478,6 +493,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(false),
+            steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
@@ -669,6 +685,33 @@ impl Hub {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
         self.save_meta(session);
         self.append(session, "mux", "rules", json!({"rules": rules}));
+    }
+
+    /// The largest composer draft the daemon will persist for one session.
+    pub const MAX_COMPOSER_DRAFT_CHARS: usize = 1_000_000;
+
+    /// Store the unsent composer text without adding it to the transcript.
+    /// Whitespace-only input clears the draft while preserving whitespace in a
+    /// non-empty draft exactly as typed.
+    pub fn set_composer_draft(
+        &self,
+        session: &Session,
+        text: &str,
+    ) -> Result<Option<String>, String> {
+        if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
+            return Err(format!(
+                "composer draft exceeds {} characters",
+                Self::MAX_COMPOSER_DRAFT_CHARS
+            ));
+        }
+        let draft = (!text.trim().is_empty()).then(|| text.to_owned());
+        {
+            let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            meta.composer_draft = draft.clone();
+            meta.updated_at = now_ms();
+        }
+        self.save_meta(session);
+        Ok(draft)
     }
 
     /// Turn-by-turn summary from the event log.

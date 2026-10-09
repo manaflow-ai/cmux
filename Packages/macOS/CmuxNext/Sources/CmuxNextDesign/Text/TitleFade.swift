@@ -109,7 +109,7 @@ public final class TitleFade {
         CATransaction.begin()
         // The title keeps its full width until it is back at rest, so its
         // end is never cut while it slides back.
-        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } }
+        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         Motion.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()

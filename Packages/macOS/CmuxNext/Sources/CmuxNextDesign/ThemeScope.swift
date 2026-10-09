@@ -282,7 +282,8 @@ public final class ThemeScope {
         defer { ThemeContext.pop() }
         var result: T?
         appearance.performAsCurrentDrawingAppearance { result = body() }
-        return result!
+        // The block runs synchronously, so `result` is set; otherwise run `body` without the appearance.
+        return result ?? body()
     }
 
     /// A root view takes an explicit appearance only where its scope's

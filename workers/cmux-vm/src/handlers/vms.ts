@@ -16,7 +16,7 @@ import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { CmuxVmApi, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
-import { actorRef, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
   conflict,
@@ -95,6 +95,18 @@ const forbidAllowlisted = (principal: Principal) =>
   principal.resourceAllowlist === null
     ? Effect.void
     : Effect.fail(new Forbidden({ message: "A key limited to specific resources cannot create VMs" }));
+
+/** A service key (cx-b4h.13) creates only VMs that carry its labels, e.g. role=chief. */
+const requireServiceLabels = (principal: Principal, labels: Readonly<Record<string, string>>) =>
+  carriesRequiredLabels(principal, labels)
+    ? Effect.void
+    : Effect.fail(
+        new Forbidden({
+          message: `This service key creates only VMs labelled ${Object.entries(principal.requiredLabels ?? {})
+            .map(([key, value]) => `${key}=${value}`)
+            .join(", ")}`,
+        }),
+      );
 
 const idleOrFail = (principal: Principal, requested: number | undefined) =>
   Effect.flatMap(TenantPolicy, (policy) => {
@@ -242,7 +254,8 @@ const idempotent = <E, R>(
   Effect.gen(function* () {
     if (key === undefined) return yield* run(null, null);
     const limits = yield* TenantLimits;
-    const scoped = `${yield* fingerprint(["key", key])}`;
+    // A service key (cx-b4h.13) shares the team's ledger but never its keys: the same key from a member never replays to it.
+    const scoped = `${yield* fingerprint(principal.actor.kind === "service" ? ["service", principal.actor.serviceId, key] : ["key", key])}`;
     const claim = yield* limits
       .begin(principal.tenantId, scoped, yield* fingerprint(request))
       .pipe(Effect.mapError(() => unavailable()));
@@ -269,6 +282,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
     Effect.gen(function* () {
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
+      yield* requireServiceLabels(principal, payload.labels ?? {});
       const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
       const spec: NewVm = {
         displayName: payload.displayName ?? null,
@@ -331,6 +345,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
     Effect.gen(function* () {
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
+      yield* requireServiceLabels(principal, payload.labels ?? {});
       const idleTimeoutSeconds = yield* idleOrFail(principal, payload.idleTimeoutSeconds);
       const spec: NewVm = {
         displayName: payload.displayName ?? null,
@@ -376,7 +391,8 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                     createdBy: actorRef(principal.actor),
                     createdAt: new Date(yield* Clock.currentTimeMillis),
                     displayName: null,
-                    labels: {},
+                    // A service key's fork snapshot carries its labels, so its own keyed retry can resume from it.
+                    labels: principal.requiredLabels ?? {},
                   })
                   .pipe(
                     Effect.tapError(() => taken.discard),

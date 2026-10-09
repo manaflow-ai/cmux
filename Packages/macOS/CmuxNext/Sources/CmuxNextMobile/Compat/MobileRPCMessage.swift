@@ -31,7 +31,7 @@ public struct MobileRPCRequest: Sendable {
     public func int(_ key: String) -> Int? {
         switch params[key] {
         case .number(let value)?: Int(exactly: value.rounded())
-        case .string(let value)?: Int(value)
+        case .string(let value)?: Int(value, radix: 10)
         default: nil
         }
     }

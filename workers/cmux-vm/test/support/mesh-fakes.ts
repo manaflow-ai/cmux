@@ -5,8 +5,10 @@
  * the shared fake provider's call log, so "nothing reached upstream" checks
  * cover mesh calls too.
  */
-import { Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
+import { MeshStore } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
+import { StoreError } from "../../src/db/sql.ts";
 import { meshConfigLayer, type MeshBudgets } from "../../src/mesh/config.ts";
 import { makeUpstreamMesh } from "../../src/upstream/live-mesh.ts";
 import { UpstreamMesh } from "../../src/upstream/mesh.ts";
@@ -41,7 +43,23 @@ export interface MeshFakeOptions {
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions = {}) {
-  const store = makeMemoryMeshStore();
+  const base = makeMemoryMeshStore();
+  /** The next N rule records fail (the provider rule exists, its row does not). */
+  let recordFailures = 0;
+  const failingLayer = Layer.effect(
+    MeshStore,
+    Effect.map(MeshStore, (inner) => ({
+      ...inner,
+      recordRule: (tenantId: Parameters<typeof inner.recordRule>[0], rule: Parameters<typeof inner.recordRule>[1]) => {
+        if (recordFailures > 0) {
+          recordFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "mesh.recordRule", cause: "injected" }));
+        }
+        return inner.recordRule(tenantId, rule);
+      },
+    })),
+  ).pipe(Layer.provide(base.layer));
+  const store = { ...base, layer: failingLayer };
   const vpcs = new Map<string, { readonly id: string; readonly cidr: string }>();
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
@@ -52,6 +70,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelCreateStatus: number | null;
     tunnelDeleteStatus: number | null;
     ruleCreateStatus: number | null;
+    ruleDeleteStatus: number | null;
     ruleCreates: number;
     rotations: number;
   } = {
@@ -59,6 +78,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     tunnelCreateStatus: null,
     tunnelDeleteStatus: null,
     ruleCreateStatus: null,
+    ruleDeleteStatus: null,
     ruleCreates: 0,
     rotations: 0,
   };
@@ -186,8 +206,12 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       const destination =
         typeof fields["destination"] === "object" && fields["destination"] !== null ? Object.fromEntries(Object.entries(fields["destination"])) : {};
       const tunnelId = source["tunnelId"];
+      const cidr = source["cidr"];
       const vmId = destination["vmId"];
-      if (typeof tunnelId !== "string" || !tunnels.has(tunnelId)) return json({ message: "no such tunnel" }, 404);
+      // A source is a tunnel or a cidr (the provider's matcher takes either).
+      if (typeof cidr === "string") {
+        if (tunnelId !== undefined || !/^[0-9a-f:]+\/128$/u.test(cidr)) return json({ message: "bad source" }, 400);
+      } else if (typeof tunnelId !== "string" || !tunnels.has(tunnelId)) return json({ message: "no such tunnel" }, 404);
       if (typeof vmId !== "string" || !provider.vms.has(vmId)) return json({ message: "no such vm" }, 404);
       const rule: FakeRule = {
         id: `fwr-${crypto.randomUUID()}`,
@@ -201,6 +225,7 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     const ruleMatch = /^\/v5\/firewall\/rules\/([^/]+)$/u.exec(path);
     if (ruleMatch !== null && method === "DELETE") {
       const id = decodeURIComponent(ruleMatch[1] ?? "");
+      if (state.ruleDeleteStatus !== null) return json({ message: "injected failure" }, state.ruleDeleteStatus);
       if (!rules.delete(id)) return json({ message: "not found" }, 404);
       return new Response(null, { status: 204 });
     }
@@ -237,6 +262,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     upstream,
     layer,
     store,
+    /** The next `times` rule records fail after the provider created the rule. */
+    failRuleRecords(times: number) {
+      recordFailures = times;
+    },
     vpcs,
     tunnels,
     rules,
@@ -254,6 +283,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       state.tunnelDeleteStatus = status;
     },
     /** Rule creates answer `status` (null: normal). */
+    /** Rule deletes answer `status` (null: normal). */
+    failRuleDeletes(status: number | null) {
+      state.ruleDeleteStatus = status;
+    },
     failRuleCreates(status: number | null) {
       state.ruleCreateStatus = status;
     },

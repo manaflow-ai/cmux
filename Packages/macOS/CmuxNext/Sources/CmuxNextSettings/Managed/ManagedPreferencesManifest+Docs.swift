@@ -63,7 +63,7 @@ extension ManagedPreferencesManifest {
             "",
             "Chat roots must be absolute harness data folders. The root folder, home folder, Desktop, Documents, Downloads, Pictures, Music, Movies, Library/Mobile Documents, Library/CloudStorage, Library/Containers, Library/Group Containers, Library/Mail, Library/Messages, Library/Safari, Library/Calendars and their descendants are refused, as are /Volumes, /Network and /net. Checks are case-insensitive and include symbolic links. Refused roots remain visible with a reason, but are never read or sent to the daemon. The protected list mirrors acpmux protected_folders.rs.",
             "",
-            "The legacy forced key `DisableAutoUpdate` in `\(ManagedPreferences.legacyDomain)` keeps working.",
+            "The legacy forced keys `DisableAutoUpdate` and `DisableTelemetry` in `\(ManagedPreferences.legacyDomain)` keep working.",
             "",
             "Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, ProfileCreator), `com.manaflow.cmux.json` (Jamf Pro custom schema), `cmux-example.mobileconfig` (any MDM), `com.manaflow.cmux.intune.plist` (Intune preference file).",
             "",

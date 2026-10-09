@@ -8,7 +8,9 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 impl Mux {
     /// Publish `source`'s current terminal snapshot (with its progress and
     /// program status) as one resource revision named `mutation`. A replaced
-    /// runtime or a terminal that is not running publishes nothing.
+    /// runtime or a terminal that is still launching publishes nothing. An
+    /// exited terminal can still publish its final status snapshot so a
+    /// report emitted just before process exit reaches hooks.
     pub(crate) fn publish_terminal_progress(
         &self,
         source: &Surface,
@@ -24,8 +26,10 @@ impl Mux {
         }
         let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
         let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
-        if durable.lifecycle != TerminalLifecycle::Running {
-            return Ok(false);
+        match durable.lifecycle {
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
+            TerminalLifecycle::Tombstoned => return Ok(true),
+            TerminalLifecycle::Running | TerminalLifecycle::Exited => {}
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());

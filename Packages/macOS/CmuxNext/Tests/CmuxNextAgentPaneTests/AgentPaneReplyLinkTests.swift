@@ -85,7 +85,7 @@ import Testing
         ])
         #expect(places[paths[1]]?["folder"] as? Bool == true)
         let policy = try #require(value["policy"] as? [String: String])
-        #expect(policy == ["outsideRoots": "confirm", "remoteImages": "click"])
+        #expect(policy == ["outsideRoots": "open", "remoteImages": "click"])
         // A passive read does not count as the user touching the page.
         #expect(!model.userTouched)
     }
@@ -124,6 +124,23 @@ import Testing
         #expect(box.opened.isEmpty)
     }
 
+    /// The default: a chip outside the roots opens on the click, with no sheet (Lawrence
+    /// 2026-10-07, "Remove dialogues."). It still needs the gesture.
+    @Test func byDefaultAChipOutsideTheRootsOpensOnTheClickWithoutASheet() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let log = fixture.outside.appending(path: "app.log").path
+        let request = AgentPaneRequest(body: ["method": "link.openPath", "params": ["path": log]] as [String: Any])
+        let (model, box) = fixture.model()
+        var sheets = 0
+        model.replyLinks.confirmOutside = { _, answer in sheets += 1; answer(false) }
+        #expect(Self.code(await model.respond(to: request)) == "link.gesture_required")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(sheets == 0)
+        #expect(box.opened.map(\.0) == [Self.canonical(fixture.outside.appending(path: "app.log"))])
+    }
+
     @Test func outsideTheRootsTheSettingDecides() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -136,8 +153,8 @@ import Testing
         #expect(Self.code(await model.respond(to: request)) == "link.path_outside_roots")
         #expect(box.opened.isEmpty)
 
-        // confirm (default): the host's sheet asks; Cancel opens nothing, Open opens it.
-        (model, box) = fixture.model()
+        // confirm (an opt-in): the host's sheet asks; Cancel opens nothing, Open opens it.
+        (model, box) = fixture.model(AgentPaneReplySetting(outsideRoots: .confirm, remoteImages: .click))
         var answer = false
         model.replyLinks.confirmOutside = { path, reply in
             box.asked.append(path)

@@ -9,6 +9,8 @@ extension SidebarListView {
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
+        // A click in the list closes the group editor, like a click outside it.
+        if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = displayed.row(at: point.y) else {
@@ -55,9 +57,8 @@ extension SidebarListView {
                 return
             }
         case let .tab(workspace, tab):
-            self.press = nil
+            // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-            return
         case .section, .emptySection:
             break
         }
@@ -65,6 +66,9 @@ extension SidebarListView {
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
+        if case let .tab(workspace, tab) = press.key {
+            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
+        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold,
@@ -92,9 +96,11 @@ extension SidebarListView {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
+            } else if groupEditing.isOnChip(point, group: group) {
+                // The chip opens the group editor (cx-rcby); its chevron and
+                // the rest of the row toggle at once.
+                return groupEditing.open(group)
             } else {
-                // A click anywhere on the header toggles at once; rename is
-                // Return on the focused header or the menu.
                 model.send(.toggleCollapse(.group(group)))
             }
         case let .section(section):

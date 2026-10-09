@@ -4,11 +4,11 @@
 //! chat's lock while the model runs.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use optchat_core::{
     block_cuts, compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId,
@@ -28,6 +28,13 @@ pub struct State {
     pub appended: u64,
     /// Nodes whose last call failed, with their first error.
     pub failing: BTreeMap<NodeId, String>,
+    /// Failing nodes whose error repeats on every try (a request error):
+    /// settle does not wait for them.
+    pub stuck: BTreeSet<NodeId>,
+    /// Every stuck node built since the last one got stuck.
+    pub recovered: bool,
+    /// Failed tries of each node since its last success.
+    pub tries: BTreeMap<NodeId, u32>,
     pub closed: bool,
     /// Set by a failed write; the chat stops writing until a restart.
     pub fatal: Option<String>,
@@ -38,6 +45,19 @@ pub struct State {
 impl State {
     pub fn writable(&self) -> bool {
         !self.closed && self.fatal.is_none()
+    }
+
+    /// Whether a turn may start (section 6): every view line is built, or
+    /// stuck (its call fails with a request error that repeats on every
+    /// try; the turn reads it unbuilt, `PLACEHOLDER`, which `zoom` opens),
+    /// or imported (`Memory::turn_ready`).
+    pub fn turn_ready(&self) -> bool {
+        self.memory.turn_ready()
+            || self.memory.view().iter().all(|p| {
+                self.memory.is_built(*p)
+                    || self.stuck.contains(p)
+                    || self.memory.is_imported(p.end() - 1)
+            })
     }
 
     /// Saves where the memory stands (`db::checkpoint`); a failure costs
@@ -81,29 +101,86 @@ pub struct Shared {
 }
 
 /// Single-flight of cache writes (spec 3.3, gist 3c190e0): a call whose
-/// marked prefix another call is writing waits until that call's reply
-/// comes; otherwise both pay to write it. It matters because compactions
-/// start up to 8 at a time on one prefix. The reply stands in for the
-/// response's start: a compaction reply is one short line.
+/// marked prefix another call is writing waits until that call's response
+/// starts (`CompactModel::call_started`), when the cache entry exists;
+/// otherwise both pay to write it. It matters because compactions start
+/// many at a time on one prefix. A model that cannot see its response start
+/// reports it with the reply.
 #[derive(Default)]
 pub struct Flight {
-    writing: Mutex<HashSet<u64>>,
+    state: Mutex<FlightState>,
     done: Condvar,
 }
 
+#[derive(Default)]
+struct FlightState {
+    /// Prefixes a call is writing, its response not started yet.
+    writing: HashSet<u64>,
+    /// Prefixes whose writer's response started, with the last time a call
+    /// went on them: their cache entry exists, so calls go without waiting.
+    written: HashMap<u64, Instant>,
+}
+
+/// How long a written prefix counts as cached after its last call: the
+/// API's default cache lifetime (5 minutes, refreshed by every read). A
+/// call after it writes again.
+pub const FLIGHT_TTL: Duration = Duration::from_secs(300);
+
+/// Written prefixes kept before expired ones are dropped.
+const FLIGHT_KEEP: usize = 1024;
+
 impl Flight {
-    fn enter(&self, key: u64) {
-        let mut w = self.writing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        while w.contains(&key) {
-            w = self.done.wait(w).unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Waits while another call writes `key`. True: this call writes it (the
+    /// caller then calls `started` or `leave`); false: it is cached.
+    fn enter(&self, key: u64) -> bool {
+        let mut st = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if st.writing.contains(&key) {
+                st = self
+                    .done
+                    .wait(st)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                continue;
+            }
+            let now = Instant::now();
+            if let Some(at) = st.written.get_mut(&key) {
+                if now.duration_since(*at) <= FLIGHT_TTL {
+                    *at = now;
+                    return false;
+                }
+            }
+            st.written.remove(&key);
+            st.writing.insert(key);
+            return true;
         }
-        w.insert(key);
     }
 
+    /// The writer's response started: its entry exists, every waiting call goes.
+    fn started(&self, key: u64) {
+        let mut st = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        st.writing.remove(&key);
+        let now = Instant::now();
+        if st.written.len() >= FLIGHT_KEEP {
+            st.written
+                .retain(|_, at| now.duration_since(*at) <= FLIGHT_TTL);
+        }
+        st.written.insert(key, now);
+        drop(st);
+        self.done.notify_all();
+    }
+
+    /// The writer failed before its response started: the next call writes.
     fn leave(&self, key: u64) {
-        self.writing
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .writing
             .remove(&key);
         self.done.notify_all();
     }
@@ -120,7 +197,8 @@ pub fn marked_key(request: &CompactRequest) -> u64 {
 }
 
 /// The model behind a `Flight`: a node's first call waits while another
-/// call writes the same marked prefix, and holds it until its reply.
+/// call writes the same marked prefix, and holds it until its response
+/// starts.
 struct Gated<'a> {
     inner: &'a dyn CompactModel,
     flight: &'a Flight,
@@ -132,9 +210,20 @@ impl CompactModel for Gated<'_> {
         if !followups.is_empty() {
             return self.inner.call(request, followups);
         }
-        self.flight.enter(self.key);
-        let reply = self.inner.call(request, followups);
-        self.flight.leave(self.key);
+        if !self.flight.enter(self.key) {
+            return self.inner.call(request, followups);
+        }
+        let begun = std::sync::atomic::AtomicBool::new(false);
+        let started = || {
+            if !begun.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                self.flight.started(self.key);
+            }
+        };
+        let reply = self.inner.call_started(request, followups, &started);
+        if !begun.load(std::sync::atomic::Ordering::SeqCst) {
+            // Failed before its response started: nothing was written.
+            self.flight.leave(self.key);
+        }
         reply
     }
 
@@ -256,6 +345,10 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
                 return shared.unlock(st);
             }
             st.failing.remove(&node);
+            st.tries.remove(&node);
+            if st.stuck.remove(&node) && st.stuck.is_empty() {
+                st.recovered = true;
+            }
             {
                 let s = &mut *st;
                 if let Err(e) = s.memory.complete_in(node, &text, &s.store) {
@@ -267,16 +360,69 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         }
         Err(e) => e,
     };
+    let class = crate::model::error_class(&error.message);
+    let tries = {
+        let t = st.tries.entry(node).or_insert(0);
+        *t += 1;
+        *t
+    };
     if !st.failing.contains_key(&node) {
         st.reports.push(Report::NodeFailed {
             node,
             error: error.message.clone(),
         });
-        st.failing.insert(node, error.message);
+        st.failing.insert(node, error.message.clone());
+    }
+    // A request error repeats on every try; a transient one may pass, up to
+    // COMPACT_TRIES; an exhausted route (a capacity error naming a wait past
+    // MAX_RETRY_WAIT) will not clear soon. In each case the node stops
+    // holding turns; only the first two post a notice (the turn's).
+    let permanent = class.as_ref().is_some_and(|c| c.permanent());
+    let capacity = crate::model::capacity_wait(&error.message);
+    let exhausted = capacity.is_some_and(|w| w > crate::MAX_RETRY_WAIT);
+    let stuck = permanent || exhausted || tries >= crate::COMPACT_TRIES;
+    if exhausted && st.stuck.insert(node) {
+        st.recovered = false;
+        st.reports.push(Report::NodeWaiting {
+            node,
+            wait: capacity.unwrap_or_default(),
+        });
+    } else if stuck && st.stuck.insert(node) {
+        st.recovered = false;
+        let class = match &class {
+            Some(c) if permanent => c.to_string(),
+            Some(c) => format!("{tries} tries, last {c}"),
+            None => format!(
+                "{tries} tries, last: {}",
+                optchat_core::cut_at_bytes(&error.message, 200)
+            ),
+        };
+        st.reports.push(Report::NodeStuck { node, class });
     }
     shared.changed.notify_all();
     shared.unlock(st);
-    shared.clock.sleep(shared.retry);
+    if stuck {
+        // An exhausted route is tried again when its wait ends, at most
+        // STUCK_RETRY from now.
+        let wait = match capacity {
+            Some(w) if exhausted => w.min(crate::STUCK_RETRY),
+            _ => crate::STUCK_RETRY,
+        };
+        shared.clock.sleep(wait);
+    } else {
+        let backoff = shared.retry.saturating_mul(1 << (tries - 1).min(16));
+        let wait = error
+            .retry_after
+            .or_else(|| crate::model::retry_after_in(&error.message))
+            .unwrap_or(backoff)
+            .min(crate::MAX_RETRY_WAIT);
+        shared.clock.sleep(wait);
+        // A rate limit or an overload: a turn waiting on the same account
+        // goes first.
+        if capacity.is_some() {
+            crate::rate::background_wait(crate::MAX_RETRY_WAIT);
+        }
+    }
     let mut st = shared.lock();
     if !st.writable() {
         return;
@@ -331,6 +477,7 @@ pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
 /// compactor cannot build anything instead of every turn waiting silently.
 pub fn probe(model: &dyn CompactModel, system: &str) -> Result<String, ModelError> {
     let request = CompactRequest {
+        imported: false,
         node: PROBE_NODE,
         system: system.to_owned(),
         context: "<chat>\n</chat>".to_owned(),

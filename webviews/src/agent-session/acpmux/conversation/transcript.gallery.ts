@@ -14,6 +14,45 @@ import {
 
 const prompt = "Add retries with backoff to the fetch helper";
 
+const selectionRows = [
+  user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
+  assistant(
+    "The response stays selectable while controls keep their keyboard focus.\n\nUse the highlighted prose to compare the real transcript against the reference.",
+    4.9,
+    { id: "gallery-selection-answer" },
+  ),
+  summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
+];
+
+const keyboardRows = [
+  user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
+  activity(
+    [
+      thought("The disclosure should keep its focus while the tool list opens."),
+      tool("Read src/net/client.ts", "read", "completed"),
+      tool("bun test src/net", "execute", "completed"),
+    ],
+    3.9,
+    { id: "gallery-keyboard-activity" },
+  ),
+  assistant("The work details are open without moving the transcript column.", 3.8, {
+    id: "gallery-keyboard-answer",
+  }),
+  summary(3.8, { id: "gallery-keyboard-summary", status: "completed", toolCount: 2 }),
+];
+
+const longChatRows = Array.from({ length: 24 }, (_, index) => {
+  const at = 3000 - index * 120;
+  return [
+    user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
+    assistant(
+      `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
+      at - 1,
+    ),
+    summary(at - 1, { status: "completed" }),
+  ];
+}).flat();
+
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
   "",
@@ -203,7 +242,7 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000 }),
+        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
       ]),
     },
     "github-references": {
@@ -499,19 +538,40 @@ export default agentPaneEntry({
     "long-chat": {
       note: "Many turns over two days (date lines, virtualized rows).",
       height: 720,
-      snapshot: chat(
-        Array.from({ length: 24 }, (_, index) => {
-          const at = 3000 - index * 120;
-          return [
-            user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
-            assistant(
-              `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
-              at - 1,
-            ),
-            summary(at - 1, { status: "completed" }),
-          ];
-        }).flat(),
-      ),
+      snapshot: chat(longChatRows),
+    },
+    "scrolling-history": {
+      note: "Play: move from the latest reply to the oldest history while the virtual transcript keeps its lead rows mounted.",
+      height: 560,
+      snapshot: chat(longChatRows),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[aria-posinset="1"]'));
+      },
+    },
+    selection: {
+      note: "Play: select a whole prompt row, then the assistant's rendered prose; both remain browser text selection.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
+      },
+    },
+    "keyboard-focus": {
+      note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
+      snapshot: chat(keyboardRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.25,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the focused control.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: ".cv-worked" };
+        await ctx.focus(worked);
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
+      },
     },
   },
 });

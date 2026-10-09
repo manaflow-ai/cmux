@@ -134,3 +134,27 @@ extension PanePaintHoldTests {
         #expect(page.alphaValue == 0)
     }
 }
+
+extension PanePaintHoldTests {
+    /// Cursor review (#18612): switching from one unpainted agent page to
+    /// another keeps the content that was on screen, not the first page,
+    /// which never showed.
+    @Test func aSecondUnpaintedPageKeepsTheShownContent() {
+        let pane = pane()
+        let terminal = NSView()
+        pane.show(terminal)
+        let first = Unpainted()
+        pane.show(first)
+        let second = Unpainted()
+        pane.show(second)
+        #expect(pane.content === second)
+        #expect(terminal.superview === pane.contentHost, "the pane went empty before the second page painted")
+        #expect(first.superview == nil)
+        #expect(first.alphaValue == 1)
+        #expect(second.alphaValue == 0)
+
+        second.paint()
+        #expect(terminal.superview == nil)
+        #expect(second.alphaValue == 1)
+    }
+}

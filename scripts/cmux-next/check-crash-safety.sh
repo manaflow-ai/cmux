@@ -45,15 +45,16 @@ def allowed(lines, index):
 
 def swift_sources():
     # Only tracked files count: ignored build or sync output in a per-job tree
-    # must never fail the check (2026-10-07). Outside git, every file, loudly.
+    # must never fail the check (2026-10-07). Outside git it refuses (exit 2).
     try:
         # Paths relative to `sources` (git -C prints them relative to that directory).
         out = subprocess.run(["git", "-C", sources, "ls-files", "-z", "--", "."],
                              check=True, capture_output=True).stdout.decode("utf-8", "replace")
         return sorted(os.path.join(sources, p) for p in out.split("\0") if p)
     except (OSError, subprocess.CalledProcessError) as error:
-        print(f"check-crash-safety: WARNING: {sources} is not in a git checkout ({error}); scanning every file", file=sys.stderr)
-        return sorted(os.path.join(d, n) for d, _, names in os.walk(sources) for n in names)
+        # Walking every file counts build output: refuse, as crash_ratchet.py does (2026-10-09).
+        print(f"check-crash-safety: refused: {sources} is not in a git checkout ({error})", file=sys.stderr)
+        sys.exit(2)
 
 failures = []
 for path in swift_sources():

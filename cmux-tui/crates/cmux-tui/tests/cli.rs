@@ -1,7 +1,6 @@
 #[cfg(unix)]
 use std::collections::VecDeque;
 use std::fs;
-#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
@@ -3643,6 +3642,9 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
+#[cfg(unix)]
+#[path = "cli/chief.rs"]
+mod chief;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;

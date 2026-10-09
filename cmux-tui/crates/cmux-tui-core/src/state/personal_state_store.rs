@@ -17,8 +17,8 @@ use crate::workspace_registry::personal_mutations::{
     PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate,
 };
 use crate::workspace_registry::personal_store::{
-    PersonalGroup, PersonalProfile, PersonalWorkspace, read_group, read_groups, read_pins,
-    read_profile, read_profiles, read_workspaces,
+    PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
+    read_pins, read_profile, read_profiles, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {
@@ -96,11 +96,12 @@ fn placement_value(
     connection: &Connection,
     local: &str,
     row: &PersonalWorkspace,
+    pins: &[PersonalPin],
 ) -> anyhow::Result<Value> {
-    let room = read_pins(connection)?
-        .into_iter()
+    let room = pins
+        .iter()
         .find(|pin| pin.session_id == row.session_id && pin.workspace_key == row.workspace_key)
-        .map(|pin| pin.profile);
+        .map(|pin| pin.profile.clone());
     Ok(json!({
         "workspace": workspace_ref(connection, local, &row.session_id, &row.workspace_key)?,
         "index": row.index,
@@ -119,9 +120,10 @@ pub(crate) fn placement_id(session_id: &str, workspace_key: &str) -> String {
 pub(crate) fn placement_snapshots(connection: &Connection) -> anyhow::Result<Vec<Value>> {
     let local = local_registry_id(connection)?;
     let rows = read_workspaces(connection)?;
+    let pins = read_pins(connection)?;
     let mut placements = rows
         .iter()
-        .map(|row| placement_value(connection, &local, row))
+        .map(|row| placement_value(connection, &local, row, &pins))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let unplaced = {
         let mut statement = connection.prepare(
@@ -155,7 +157,7 @@ pub(crate) fn placement_snapshot(
         .iter()
         .find(|row| row.session_id == session_id && row.workspace_key == workspace_key)
     {
-        Some(row) => placement_value(connection, &local, row),
+        Some(row) => placement_value(connection, &local, row, &read_pins(connection)?),
         None => {
             let room = read_pins(connection)?
                 .into_iter()

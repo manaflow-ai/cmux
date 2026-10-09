@@ -74,14 +74,11 @@ public final class SidebarModel {
     /// The staged update card above the footer (UPDATE-CARD): set by the App
     /// only while an update is staged or installing; nil shows nothing.
     public var updateCard: SidebarUpdateCard?
-    /// The window shows a full-page destination: the footer band shows Back
-    /// (`onBack`) in its place.
-    public var showsBack = false
-    /// Back in the footer: return to where the window was.
-    @ObservationIgnored public var onBack: (() -> Void)?
-    /// The "Did you know" card (BOTTOM-LEFT-CARDS K1), shown only while
-    /// ``updateCard`` is nil.
-    public var tipCard: SidebarTipCard?
+    /// The shared notice card (the update status or the "Did you know"
+    /// tip), shown only while ``updateCard`` and ``updatedCard`` are nil.
+    public var noticeCard: SidebarNoticeCard?
+    /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
+    public var updatedCard: SidebarUpdatedCard?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
@@ -90,6 +87,8 @@ public final class SidebarModel {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// The workspace list is hidden (`sidebar.showProjects` off).
+    public var hidesWorkspaces = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -189,7 +188,8 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .tryTip, .dismissTip:
+        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .dropOnLayoutSection, .noticeAction, .dismissNotice,
+             .openWhatsNew, .shareCmux, .dismissUpdated:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -301,6 +301,7 @@ public final class SidebarModel {
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
         workspaceRow = preferences.workspaceRow
+        hidesWorkspaces = !preferences.showProjects
         groupsByComputer = preferences.groupsByComputer
     }
 
@@ -318,6 +319,7 @@ public final class SidebarModel {
         o.workspaceRow = workspaceRow
         o.flattensMachines = !groupsByComputer
         o.now = Calendar.current.startOfDay(for: Date())
+        o.hidesWorkspaces = hidesWorkspaces
         return o
     }
 

@@ -15,10 +15,6 @@ nonisolated enum AppsStrings {
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
     static var loadFailed: String { t("store.error.load", "Could not load the store") }
-    static var prototypeEngine: String { t("store.prototype.label", "Prototype engine") }
-    static var prototypeHelp: String {
-        t("store.prototype.help", "Apps run in-process in JavaScriptCore. Only first-party and local apps load.")
-    }
 
     static var install: String { t("store.action.install", "Install") }
     static var remove: String { t("store.action.remove", "Remove") }
@@ -33,15 +29,13 @@ nonisolated enum AppsStrings {
 
     static var permissions: String { t("store.detail.permissions", "Permissions") }
     static var optionalPermissions: String { t("store.detail.optional", "Optional") }
-    static var noPermissions: String { t("store.detail.noPermissions", "No permissions") }
     static var runSandboxed: String { t("store.grants.sandboxed", "Run sandboxed") }
-    static var sandboxedHelp: String { t("store.grants.sandboxedHelp", "No network, no integrations, nothing beyond the scopes turned on below.") }
     static var granted: String { t("store.grants.granted", "Allowed") }
     static var versions: String { t("store.detail.versions", "Versions") }
     static var preview: String { t("store.detail.preview", "Preview") }
-    static var previewSample: String { t("store.detail.previewSample", "Sample data until installed") }
-    static var noPreview: String { t("store.detail.noPreview", "Nothing to preview") }
     static var noLogs: String { t("store.detail.noLogs", "No log lines") }
+    static var removed: String { t("store.action.removed", "Removed") }
+    static var undo: String { t("store.action.undo", "Undo") }
 
     static func publisher(_ name: String) -> String {
         String(format: t("store.detail.publisher", "by %@"), name)

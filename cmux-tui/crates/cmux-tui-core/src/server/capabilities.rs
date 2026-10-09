@@ -12,6 +12,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.serves_agent_session_attach() {
+        capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
@@ -110,6 +114,7 @@ pub(super) fn advertised_capabilities(
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
+        crate::state::palette_usage_store::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,

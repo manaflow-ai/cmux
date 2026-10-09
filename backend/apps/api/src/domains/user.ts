@@ -25,7 +25,7 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
   /** One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). */
-  readonly migrations?: { readonly ios_cloud_link?: true }
+  readonly migrations?: { readonly ios_cloud_link?: true; readonly mac_execute_narrow?: true }
   /**
    * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
@@ -61,6 +61,8 @@ const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(
 /** Stable public ids derived from the Stack identity, so routing needs no lookup. */
 export const userIdFor = (stackProjectId: string, stackUserId: string) => `user_${hex20(`stack:${stackProjectId}:${stackUserId}`)}`
 export const personalTeamIdFor = (userId: string) => `team_${hex20(`personal:${userId}`)}`
+/** A Stack (shared) team's cmux id (cx-3bi.43): the Stack webhook and x-cmux-team use it. */
+export const stackTeamIdFor = (stackProjectId: string, stackTeamId: string) => `team_${hex20(`stack-team:${stackProjectId}:${stackTeamId}`)}`
 
 /** RFC 7638 thumbprint of an EC P-256 JWK. */
 export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: string }) =>
@@ -93,6 +95,29 @@ export const iosGrantsToMigrate = (state: UserState): Array<string> =>
     .map((i) => state.grants[i.grant])
     .filter((g): g is NonNullable<typeof g> => !!g && g.revoked_at === null && !g.op_classes.includes("cloud-link") && g.op_classes.every((c) => OLD_IOS_CLASSES.includes(c)))
     .map((g) => g.id)
+
+/**
+ * cx-wb5.64: grants of active mac installs that still carry execute. Before the mac grant cap
+ * (e9d25623248e) a mac install got the old default (read, mutate-own, mutate-shared, execute); since
+ * then install.register refuses execute for kind mac and no op widens a grant, so any such grant is
+ * from before the cap. No created_at cutoff: production gets the cap at its own deploy. Runs once per
+ * user (the done flag). A later feature that grants execute to a mac install on purpose must set
+ * migrations.mac_execute_narrow first, or a user without the flag loses it at the next bind.
+ */
+export const macGrantsToNarrow = (state: UserState): Array<string> =>
+  state.migrations?.mac_execute_narrow
+    ? []
+    : Object.values(state.installs)
+    .filter((i) => i.kind === "mac" && i.revoked_at === null)
+    .map((i) => state.grants[i.grant])
+    .filter((g): g is NonNullable<typeof g> => !!g && g.revoked_at === null && g.op_classes.includes("execute"))
+    .map((g) => g.id)
+
+/** The one-time grant migrations this user still needs, as [internal op, idempotency key prefix] (run on UserDO bind). */
+export const grantMigrationsDue = (state: UserState): Array<readonly [string, string]> => [
+  ...(iosGrantsToMigrate(state).length ? [["install.ios_cloud_link_migrate", "ios-cloud-link"] as const] : []),
+  ...(macGrantsToNarrow(state).length ? [["install.mac_execute_narrow", "mac-execute-narrow"] as const] : [])
+]
 
 /**
  * Inbox calls come from this user only, through an active install whose grant covers the op
@@ -176,7 +201,8 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
  *   machines through the credential relay); never execute. An install with neither execute nor
  *   cloud-link gets no SSH certificate (team-ssh-ca.ts). The kind is self-declared by the session holder
  *   (a cli or web register keeps execute), so this caps a stolen install token, not the session;
- *   no shipped client registered a mac install before this change, so no grant needs a migration;
+ *   installs registered before this cap (the feat-cmux-next-ios Mac link host, 8fa5131c7964) lose
+ *   execute once through install.mac_execute_narrow;
  * - vm: vm-self only; every other kind (cli, ...): all install classes.
  * money and destructive are never install classes (G8 approvals, cx-wb5.65).
  */
@@ -219,7 +245,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           email: p.email ?? null,
           email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
-          personal_team: p.team
+          // Derived from the user, never the request's team (x-cmux-team names a shared team; cx-3bi.43 review P1-1).
+          personal_team: personalTeamIdFor(p.user)
         }
         // A token minted before an email change still carries the old email until it expires
         // (minutes). Within EMAIL_REVERT_GUARD_MS of a change, a claim of the address just
@@ -327,6 +354,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         for (const id of ids) grants[id] = { ...grants[id]!, op_classes: [...grants[id]!.op_classes, "cloud-link"] }
         // Done once per user: later iPhone installs keep the grant their client asked for.
         return { ok: true, state: { ...state, grants, migrations: { ...state.migrations, ios_cloud_link: true } }, value: { migrated: ids.length } }
+      }
+      case "install.mac_execute_narrow": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        if (state.migrations?.mac_execute_narrow) return { ok: true, state, value: { narrowed: 0 }, changed: false }
+        const ids = macGrantsToNarrow(state)
+        const grants = { ...state.grants }
+        // Narrowing only: execute goes, every other class stays, nothing is added.
+        for (const id of ids) grants[id] = { ...grants[id]!, op_classes: grants[id]!.op_classes.filter((c) => c !== "execute") }
+        return { ok: true, state: { ...state, grants, migrations: { ...state.migrations, mac_execute_narrow: true } }, value: { narrowed: ids.length } }
       }
       case "install.rename": {
         const d = decodeParams<typeof InstallRename.params.Type>(InstallRename, params)

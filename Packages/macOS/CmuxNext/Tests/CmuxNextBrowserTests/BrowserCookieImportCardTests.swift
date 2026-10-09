@@ -77,4 +77,14 @@ struct BrowserCookieImportCardTests {
         for _ in 0..<20 { await Task.yield() }
         #expect(finished == ["https://example.com/", "https://example.org/a"])
     }
+
+    /// A window toast at the bottom: the card rises above it instead of waiting.
+    @Test func aToastLiftsTheCardAboveIt() throws {
+        let chrome = chrome()
+        chrome.showCookieImportOffer(Self.offer(), aboveToast: true) { _ in }
+        chrome.layoutSubtreeIfNeeded()
+        let card = try #require(chrome.currentCookieImportCard)
+        #expect(card.frame.minY >= BrowserChromeView.toastClearance, "clear of the toast stack: \(card.frame)")
+    }
 }
+

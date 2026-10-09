@@ -53,27 +53,27 @@ import UniformTypeIdentifiers
         defer { p.stop() }
         let photo = try await store.prepareAttachment(fileURL: try Self.png("photo.png"))
         await p.addDraft(photo)
-        let chip = try #require(c.store.state.ui.draft.attachments.first)
+        let chip = try #require(c.store!.state.ui.draft.attachments.first)
         #expect(chip.id == photo.ref.hash)
         #expect(chip.kind == "image")
         #expect(chip.asset != nil, "the picture is made before the chip shows, so the bubble has it from the first frame")
-        #expect(c.demo.compose.chips.map(\.id) == [photo.ref.hash], "MessagesLab's compose chips")
+        #expect(c.demo!.compose.chips.map(\.id) == [photo.ref.hash], "MessagesLab's compose chips")
         c.dispatch(.setDraft("Here"))
-        let before = c.store.state.conversation.messages.count
+        let before = c.store!.state.conversation.messages.count
         p.send()
-        let local = try #require(c.store.state.conversation.messages.last)
-        #expect(c.store.state.conversation.messages.count == before + 1)
+        let local = try #require(c.store!.state.conversation.messages.last)
+        #expect(c.store!.state.conversation.messages.count == before + 1)
         guard case .attachment(let a)? = local.parts.first else { Issue.record("attachment first: \(local.parts)"); return }
         #expect(a.id == photo.ref.hash)
         #expect(local.parts.last?.plainText == "Here")
-        #expect(c.store.state.ui.draft.attachments.isEmpty && c.store.state.ui.draft.text.isEmpty)
+        #expect(c.store!.state.ui.draft.attachments.isEmpty && c.store!.state.ui.draft.text.isEmpty)
         let key = try #require(p.aliases.first { $0.value == local.id }?.key)
         await waitUntil { store.transcript(for: id).contains { $0.key == key && $0.seq != nil } }
         let item = try #require(store.transcript(for: id).first { $0.key == key })
         #expect(item.attachmentHashes == [photo.ref.hash] && item.parts.count == 2 && item.parts.last == .text("Here"),
                 "one message: the attachment, then the text")
         await waitUntil { p.shown.contains { $0.key == key && $0.seq != nil } }
-        #expect(c.store.state.conversation.messages.filter { $0.id == local.id }.count == 1, "the echo only changes the status")
+        #expect(c.store!.state.conversation.messages.filter { $0.id == local.id }.count == 1, "the echo only changes the status")
     }
 
     @Test func aBubbleGetsItsPictureFromTheStoreWithoutAReflow() async throws {
@@ -88,12 +88,12 @@ import UniformTypeIdentifiers
         let incoming = TranscriptItem(key: IdempotencyKey("img"), seq: 4, author: them, parts: [.attachment(ref)],
                                       createdAt: Fixture2.start.addingTimeInterval(200), delivery: .committed, messageID: MessageID("m4"))
         p.apply(items: Fixture2.history(3) + [incoming], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
-        let row0 = try #require(c.demo.model.rows.first { RowBuilder.owner($0.spec.key) == "img" })
+        let row0 = try #require(c.demo!.model.rows.first { RowBuilder.owner($0.spec.key) == "img" })
         await p.media.settled()
         await waitUntil { p.media.asset("h-remote") != nil }
-        guard case .attachment(let a)? = c.store.state.message("img")?.parts.first else { Issue.record("no attachment"); return }
+        guard case .attachment(let a)? = c.store!.state.message("img")?.parts.first else { Issue.record("no attachment"); return }
         #expect(a.asset != nil, "the picture reached MessagesLab's part")
-        let row1 = try #require(c.demo.model.rows.first { RowBuilder.owner($0.spec.key) == "img" })
+        let row1 = try #require(c.demo!.model.rows.first { RowBuilder.owner($0.spec.key) == "img" })
         #expect(row0.spec.height == row1.spec.height && row0.spec.gap == row1.spec.gap, "no reflow when the bytes arrive")
         #expect(await asked.values == ["h-remote thumbnail(maxPixel: 1024)"], "an image asks for a thumbnail, once")
     }
@@ -112,7 +112,7 @@ import UniformTypeIdentifiers
                                   createdAt: Fixture2.start.addingTimeInterval(200), delivery: .committed, messageID: MessageID("m4"))
         p.apply(items: Fixture2.history(3) + [item], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
         await waitUntil { p.media.asset("h-video") != nil }
-        guard case .attachment(let a)? = c.store.state.message("vid")?.parts.first else { Issue.record("no attachment"); return }
+        guard case .attachment(let a)? = c.store!.state.message("vid")?.parts.first else { Issue.record("no attachment"); return }
         #expect(a.kind == "video" && a.poster != nil && a.asset == nil, "MessagesLab draws poster ?? asset: the poster, never the movie")
         #expect(a.durationSeconds == 2)
         #expect(await asked.values == ["poster"])
@@ -127,7 +127,7 @@ import UniformTypeIdentifiers
         let waiting = TranscriptItem(key: IdempotencyKey("wait"), seq: nil, author: me, parts: [.text("queued")],
                                      createdAt: Fixture2.start.addingTimeInterval(301), delivery: .sending)
         p.apply(items: Fixture2.history(2) + [uploading, waiting], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
-        guard case .attachment(let a)? = c.store.state.message("up")?.parts.first, case .uploading(let shown) = a.transfer else {
+        guard case .attachment(let a)? = c.store!.state.message("up")?.parts.first, case .uploading(let shown) = a.transfer else {
             Issue.record("a file row shows MessagesLab's upload bar"); return
         }
         #expect(shown == 0.42, "2% steps")
@@ -141,7 +141,7 @@ import UniformTypeIdentifiers
         uploading.attachmentProgress = [:]
         uploading.delivery = .notDelivered(.ownerUnreachable)
         p.apply(items: Fixture2.history(2) + [uploading, waiting], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
-        guard case .attachment(let done)? = c.store.state.message("up")?.parts.first else { Issue.record("no attachment"); return }
+        guard case .attachment(let done)? = c.store!.state.message("up")?.parts.first else { Issue.record("no attachment"); return }
         #expect(done.transfer == .done)
         #expect(p.canCancelSend("up"), "a failed send can be cancelled")
     }
@@ -158,14 +158,14 @@ import UniformTypeIdentifiers
                                   fileURL: try Self.png("huge.png", width: 10, height: 10))
         await p.addDraft(big)
         c.dispatch(.setDraft("Too big"))
-        let before = c.store.state.conversation.messages.count
+        let before = c.store!.state.conversation.messages.count
         p.send()
         await waitUntil { !refusals.isEmpty }
         #expect(refusals.count == 1)
         if case .tooLarge? = refusals.first {} else { Issue.record("tooLarge, got \(refusals)") }
-        #expect(c.store.state.conversation.messages.count == before, "the local message goes")
-        #expect(c.store.state.ui.draft.text == "Too big")
-        #expect(c.store.state.ui.draft.attachments.map(\.id) == ["h-big"], "the chip is back")
+        #expect(c.store!.state.conversation.messages.count == before, "the local message goes")
+        #expect(c.store!.state.ui.draft.text == "Too big")
+        #expect(c.store!.state.ui.draft.attachments.map(\.id) == ["h-big"], "the chip is back")
         #expect(p.draftAttachments.map(\.ref.hash) == ["h-big"])
     }
 }

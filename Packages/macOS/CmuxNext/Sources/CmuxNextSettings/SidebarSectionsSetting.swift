@@ -12,6 +12,7 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
+    public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let showChatsPath = ["sidebar", "showChats"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
@@ -48,12 +49,24 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
+    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
+    /// Show Chats (`showChatsDescriptor`).
+    static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(showProjectsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProjects),
+                              keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]),
+        ]
+    }
+
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showChats", "Show Chats"),
-                          help: SettingsText.keyed("settings.sidebar.showChats.help", "Shows the device-wide Chats section in the sidebar."),
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
+                          help: SettingsText.keyed("settings.sidebar.showChats.help",
+                                                   "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
-                          keywords: ["sidebar", "chats", "agents", "conversations"])
+                          keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -112,6 +125,7 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
+        result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         if let value = root.value(at: showChatsPath) {
             if let flag = value.boolValue {
                 result.showChats = flag
@@ -120,6 +134,15 @@ public nonisolated enum SidebarSectionsSetting {
             }
         }
         return result
+    }
+
+    private static func flag(_ root: JSONValue, _ path: [String], fallback: Bool, _ diagnostics: inout [SettingsDiagnostic]) -> Bool {
+        guard let value = root.value(at: path) else { return fallback }
+        guard let flag = value.boolValue else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
+            return fallback
+        }
+        return flag
     }
 
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double,

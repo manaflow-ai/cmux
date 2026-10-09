@@ -10,9 +10,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
-    assert_eq!(cases.len(), 181);
+    assert_eq!(cases.len(), 187);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 196);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 210);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -60,6 +60,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
         (
             vec![
+                "conversation",
+                "conv_01J00000000000000000000000",
+                "send",
+                "--parts-json",
+                r#"[{"type":"text","text":"hi"}]"#,
+            ],
+            "conversation.send",
+        ),
+        (
+            vec![
                 "terminal",
                 TERMINAL,
                 "mouse",
@@ -100,6 +110,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The Mac app edits the sidebar layout through its
                         // own sidebar actions and intent log.
                         | "sidebar_layout.get"
+                        // The Mac app's palette is the one client of the
+                        // user's palette usage history.
+                        | "palette_usage.get"
+                        | "palette_usage.record"
+                        | "palette_usage.import"
                         | "sidebar_layout.update"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
@@ -110,6 +125,17 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Only the user sets where a workspace's agents run,
                         // through the verified app (gate A2).
                         | "workspace.agent_folder.set"
+                        // Typing and live reply drafts are published by the
+                        // participant's own client (the Chief's brain); the
+                        // CLI's `cmux chief` only reads them.
+                        | "conversation.typing"
+                        | "conversation.draft"
+                        // `cmux chief engine|stop` and the chat's /model,
+                        // /effort and Ctrl+C send these (cli/chief), outside
+                        // the noun grammar.
+                        | "chief.engine.get"
+                        | "chief.engine.set"
+                        | "chief.stop"
             )
         })
         .map(String::as_str)

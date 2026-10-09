@@ -1,3 +1,4 @@
+import { staleBelow } from "./domains/team-vm-taint.ts"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
@@ -93,9 +94,10 @@ const revokeStale = async (d: BindDeps, team: string, epoch: number) => {
 export const runTeamVmBind = async (d: BindDeps, at: number = d.now()): Promise<{ bound?: string; error?: string }> => {
   const s = d.state()
   if (!bindEnabled(d.env) || !s?.team) return {}
-  // Earlier epochs' installs are revoked even while no VM runs (a deleted or replaced VM).
+  // Earlier epochs' installs are revoked even while no VM runs (a deleted or replaced VM); a rebuilt
+  // epoch's install is revoked before its replacement exists (cx-q4f3, staleBelow).
   if (!s.vm || s.status !== "running") {
-    await revokeStale(d, s.team, s.epoch)
+    await revokeStale(d, s.team, staleBelow(s))
     return {}
   }
   const driver = d.driver()
@@ -191,7 +193,7 @@ export class BindRunner {
   wakeAt(state: TeamVmState): number | null {
     if (!bindEnabled(this.deps.env)) return null
     // A stale install whose revoke failed is retried even when no VM runs.
-    if (this.binds.staleInstalls(state.epoch).length > 0) return this.binds.nextRetry(state.epoch) ?? Date.now() + 60_000
+    if (this.binds.staleInstalls(staleBelow(state)).length > 0) return this.binds.nextRetry(state.epoch) ?? Date.now() + 60_000
     if (!state.vm || state.status !== "running") return null
     if (state.vm_install && this.binds.installFor(state.epoch)?.committed !== false) return null
     return this.binds.nextRetry(state.epoch)

@@ -36,8 +36,10 @@ impl Surface {
     }
 
     /// Publish a changed OSC 9;4 progress or OSC 7501 program status as a
-    /// terminal upsert. The reader calls this after each output chunk,
-    /// outside the parser lock.
+    /// terminal upsert, then post the notifications the records asked for
+    /// (after the upsert, so a client that opens the notification finds the
+    /// record). The reader calls this after each output chunk, outside the
+    /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
         let (progress_changed, records) = {
@@ -45,28 +47,51 @@ impl Surface {
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
         let (status_revision, status_change) = {
-            let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             records
-                .pending_change()
+                .claim_pending_change()
                 .map_or((None, None), |(revision, change)| (Some(revision), Some(change)))
         };
         let status_changed = status_change.is_some();
         if !progress_changed && !status_changed {
             return;
         }
-        let Some(mux) = pty.mux.upgrade() else { return };
-        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        match mux.publish_terminal_progress(self, mutation, status_change) {
-            Ok(true) if status_changed => {
-                if let Some(revision) = status_revision {
-                    records
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .mark_change_published(revision);
-                }
+        let Some(mux) = pty.mux.upgrade() else {
+            if let Some(revision) = status_revision {
+                records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .finish_change_publication(revision, false);
             }
-            Ok(_) => {}
-            Err(error) => eprintln!("cmux-tui: terminal {mutation} publication failed: {error}"),
+            return;
+        };
+        let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
+        let published = match mux.publish_terminal_progress(self, mutation, status_change) {
+            Ok(published) => published,
+            Err(error) => {
+                eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+                false
+            }
+        };
+        if let Some(revision) = status_revision {
+            records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .finish_change_publication(revision, published);
+        }
+        if published && status_changed {
+            let alerts = records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take_alerts();
+            let notifications = pty
+                .terminal_metadata
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .admit_program_status_alerts(alerts, Instant::now());
+            if !notifications.is_empty() {
+                mux.post_terminal_notifications(self.id, notifications);
+            }
         }
     }
 

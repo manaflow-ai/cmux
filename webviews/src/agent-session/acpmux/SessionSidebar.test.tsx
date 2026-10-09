@@ -49,7 +49,12 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   const selected: string[] = [];
   await act(async () =>
     root.render(
-      createElement(SessionSidebar, { sessions, selectedId: "app-1", onSelect: (id: string) => selected.push(id) }),
+      createElement(SessionSidebar, {
+        sessions,
+        selectedId: "app-1",
+        onSelect: (id: string) => selected.push(id),
+        groupProjects: true,
+      }),
     ),
   );
 
@@ -108,11 +113,124 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   await act(async () => root.unmount());
 });
 
+test("session rows follow the visible list with arrow, Home, and End keys", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const selected: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(SessionSidebar, {
+        sessions,
+        selectedId: "web-1",
+        onSelect: (id: string) => selected.push(id),
+        groupProjects: true,
+      }),
+    ),
+  );
+
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")];
+  const press = async (row: HTMLButtonElement, key: string, modifiers: KeyboardEventInit = {}) =>
+    act(async () => {
+      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, ...modifiers }));
+    });
+
+  const first = rows()[0]!;
+  first.focus();
+  await press(first, "ArrowDown");
+  expect(selected).toEqual(["app-1"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Port the sidebar");
+
+  const second = rows()[1]!;
+  await press(second, "End");
+  expect(selected).toEqual(["app-1", "app-old-4"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Older 4");
+
+  const last = rows().at(-1)!;
+  await press(last, "ArrowDown");
+  expect(selected).toEqual(["app-1", "app-old-4"]);
+  expect(dom.window.document.activeElement).toBe(last);
+
+  await press(last, "Home");
+  expect(selected).toEqual(["app-1", "app-old-4", "web-1"]);
+  expect(dom.window.document.activeElement?.textContent).toBe("Fix the checkout page");
+
+  const home = rows()[0]!;
+  await press(home, "ArrowUp", { shiftKey: true });
+  expect(selected).toEqual(["app-1", "app-old-4", "web-1"]);
+  expect(dom.window.document.activeElement).toBe(home);
+  await act(async () => root.unmount());
+});
+
 test("an empty list says so", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   await act(async () => root.render(createElement(SessionSidebar, { sessions: [], onSelect: () => undefined })));
   expect(container.textContent).toBe("No sessions yet");
+  await act(async () => root.unmount());
+});
+
+test("active and settled sections expose settle and continue context actions", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const settled: AcpmuxSessionEntry = {
+    sessionId: "settled-1",
+    displayTitle: "Review the settled draft",
+    cwd: "/src/web",
+    updatedAt: 2,
+    status: "closed",
+  };
+  const active: AcpmuxSessionEntry = {
+    sessionId: "active-1",
+    displayTitle: "Fix the active bug",
+    cwd: "/src/web",
+    updatedAt: 1,
+    status: "running",
+  };
+  const continued: string[][] = [];
+  const settledIds: string[][] = [];
+  await act(async () =>
+    root.render(
+      createElement(SessionSidebar, {
+        sessions: [active],
+        settledSessions: [settled],
+        onSelect: () => undefined,
+        onContinue: (ids: string[]) => continued.push(ids),
+        onSettle: (ids: string[]) => settledIds.push(ids),
+      }),
+    ),
+  );
+
+  expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
+    "Active",
+    "Settled",
+  ]);
+
+  const row = (title: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find(
+      (node) => node.textContent === title,
+    )!;
+  const rightClick = async (title: string) =>
+    act(async () => {
+      dom.window.getSelection()?.removeAllRanges();
+      const host = row(title).closest<HTMLElement>(".ui-context-menu-host")!;
+      const props = Object.entries(host).find(([key]) => key.startsWith("__reactProps$"))?.[1] as {
+        onContextMenu: (event: { preventDefault(): void; clientX: number; clientY: number }) => void;
+      };
+      props.onContextMenu({ preventDefault: () => undefined, clientX: 20, clientY: 20 });
+    });
+  await rightClick("Fix the active bug");
+  expect([...dom.window.document.querySelectorAll(".ui-menu-item")].map((node) => node.textContent)).toEqual([
+    "Settle",
+  ]);
+  await act(async () => dom.window.document.querySelector<HTMLButtonElement>(".ui-menu-item")!.click());
+  expect(settledIds).toEqual([["active-1"]]);
+
+  await rightClick("Review the settled draft");
+  expect([...dom.window.document.querySelectorAll(".ui-menu-item")].map((node) => node.textContent)).toEqual([
+    "Continue",
+  ]);
+  await act(async () => dom.window.document.querySelector<HTMLButtonElement>(".ui-menu-item")!.click());
+  expect(continued).toEqual([["settled-1"]]);
   await act(async () => root.unmount());
 });
 
@@ -157,10 +275,13 @@ test("pinned sessions get their own section, an all-cloud project names its mach
       updatedAt: 4,
     },
   ];
-  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
+  await act(async () =>
+    root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {}, groupProjects: true })),
+  );
   expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
     "Pinned",
     "Projects",
+    "Settled",
   ]);
   expect(
     [...container.querySelectorAll(".acpmux-sidebar-pinned .acpmux-session-row")].map((node) => node.textContent),
@@ -230,9 +351,9 @@ test("search narrows the list, shows every match, and Escape clears it before cl
   await escape();
   expect(field.value).toBe("");
   expect(reached).toBe(0);
-  // The full list folds behind "Show more" again.
-  expect(titles()).toHaveLength(1 + 6);
-  expect(container.querySelector(".acpmux-sidebar-more")).not.toBeNull();
+  // Active sessions stay flat by default, so the full list is visible again.
+  expect(titles()).toHaveLength(10);
+  expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
   await escape();
   expect(reached).toBe(1);
   dom.window.document.removeEventListener("keydown", onKey);
@@ -257,6 +378,7 @@ test("the rail switches the list; the sessions view adds New chat, project marks
           newChats += 1;
         },
         account: { name: "leo", detail: "Max" },
+        groupProjects: true,
       }),
     ),
   );

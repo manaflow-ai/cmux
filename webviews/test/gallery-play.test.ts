@@ -5,6 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   checkReasons,
+  judgePopups,
   judgeStep,
   overall,
   rectDelta,
@@ -31,6 +32,8 @@ const doc = dom.window.document;
 
 const step = (fields: Partial<Parameters<typeof judgeStep>[0]> = {}) => ({
   step: "click",
+  action: "click" as const,
+  settleMs: 0,
   anchorMoves: [],
   layoutShift: 0,
   shifts: [],
@@ -94,5 +97,65 @@ describe("gallery play checks", () => {
     expect(resolveTarget(doc, { text: "Compact" })?.getAttribute("role")).toBe("menuitem");
     expect(resolveTarget(doc, { selector: "main > a" })).not.toBeNull();
     expect(resolveTarget(doc, { role: "dialog" })).toBeNull();
+  });
+});
+
+// Layers (webviews/src/ui/README.md): an open popup must be the top element at its corners and
+// center, and no ancestor or the viewport may clip it. The stage measures with elementFromPoint in
+// a real engine; these are the rules over its measurements.
+describe("popup layer rules", () => {
+  const viewport = { width: 800, height: 600 };
+  const popup = (fields: Partial<Parameters<typeof judgePopups>[0][number]> = {}) => ({
+    label: "menu",
+    rect: { x: 100, y: 100, width: 200, height: 150 },
+    hits: [
+      { point: "top-left", covered: false },
+      { point: "center", covered: false },
+    ],
+    clippedBy: [],
+    ...fields,
+  });
+
+  test("an on-top, unclipped popup passes", () => {
+    expect(judgePopups([popup()], viewport)).toEqual([]);
+  });
+
+  test("a covered corner fails and names the cover", () => {
+    const problems = judgePopups(
+      [popup({ hits: [{ point: "bottom-right", covered: true, by: "div.acpmux-composer" }] })],
+      viewport,
+    );
+    expect(problems).toEqual(["popup menu is covered at bottom-right by div.acpmux-composer (z-index or portal)"]);
+  });
+
+  test("an ancestor clip or the viewport edge fails", () => {
+    expect(judgePopups([popup({ clippedBy: ["div.acpmux-scroll"] })], viewport)[0]).toContain(
+      "clipped by div.acpmux-scroll",
+    );
+    expect(judgePopups([popup({ rect: { x: 700, y: 100, width: 200, height: 50 } })], viewport)[0]).toContain(
+      "viewport",
+    );
+  });
+
+  test("popup problems warn by default, fail when the entry gates them, and can be turned off", () => {
+    const measured = {
+      step: "click",
+      action: "click" as const,
+      settleMs: 1,
+      anchorMoves: [],
+      layoutShift: 0,
+      shifts: [],
+      longFrames: [],
+      frameSource: "raf" as const,
+      popupProblems: ["popup menu is covered at center by div.x (z-index or portal)"],
+    };
+    expect(judgeStep(measured)).toEqual({ status: "warn", problems: measured.popupProblems });
+    expect(
+      judgeStep(measured, { popupLayer: { value: true, reason: "tournament screening gates layers" } }).status,
+    ).toBe("fail");
+    expect(
+      judgeStep(measured, { popupLayer: { value: false, reason: "the popup sits under a modal by design here" } })
+        .status,
+    ).toBe("pass");
   });
 });

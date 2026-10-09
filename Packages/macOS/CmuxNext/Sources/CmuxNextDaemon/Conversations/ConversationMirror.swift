@@ -47,7 +47,7 @@ public struct ConversationMirror: Sendable, Equatable {
                 if tail.count > tailLimit { tail.removeFirst(tail.count - tailLimit) }
             }
         case .messageUpdated(let message):
-            if let index = tail.firstIndex(where: { $0.id == message.id }) { tail[index] = message }
+            tail.modifyFirst(where: { $0.id == message.id }) { $0 = message }
             if summary.lastMessage?.id == message.id { summary.lastMessage = message }
         case .readCursor(let participant, let seq):
             summary.readCursors[participant] = max(summary.readCursors[participant] ?? 0, seq)

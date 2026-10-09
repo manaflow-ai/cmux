@@ -40,7 +40,7 @@ extension OnboardingGalleryController {
         if isComparing, let pinnedID = store.review.pinned[step.rawValue],
            let pinnedIndex = variants.firstIndex(where: { $0.id == pinnedID }) {
             stageView.compare((variant, letter(index)), (variants[pinnedIndex], letter(pinnedIndex) + " (pinned)"),
-                              services: { [unowned self] in sampleServices() })
+                              services: { sampleServices() })
         } else {
             stageView.show(variant, letter: letter(index), services: sampleServices())
         }

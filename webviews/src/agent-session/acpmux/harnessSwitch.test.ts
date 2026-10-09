@@ -330,6 +330,61 @@ describe("harness switch: failure", () => {
     expect(draw().switching?.phase).toBe("starting");
   });
 
+  // cx-nn3e P0b (nxdog82): a trust refusal dropped the switch (its harness and folder) and handed
+  // the prompt back; after Trust nothing was sent, and automation's next send started the default
+  // harness in the private folder. Now the switch waits for the trust answer with its prompt, shows
+  // no failed card, and after Trust (`resumeAfterTrust`) starts the same harness in the same folder
+  // and sends the prompt exactly once.
+  test("a trust refusal keeps the switch and its prompt; after Trust the same harness starts there and sends it once", async () => {
+    const { store, port, draw, restored } = setup();
+    void store.switchTo("codex", "/work");
+    const turn = store.send("who are you");
+    const refusal = Object.assign(new Error("trust.pending: answer the trust question first (/work)"), {
+      reason: "trust.pending",
+      cwd: "/work",
+    });
+    const held: string[] = [];
+    store.setHandlers({ restore: (text) => restored.push(text), holdPrompt: (promptId) => held.push(promptId) });
+    port.creates[0]!.reply.reject(refusal);
+    await settle();
+    expect(restored).toEqual([]);
+    // The prompt keeps its send's gesture for after Trust.
+    expect(held).toEqual([store.view().intent!.queued[0]!.id]);
+    expect(draw().switching?.phase).not.toBe("failed");
+    expect(store.view().intent?.harness).toBe("codex");
+    expect(store.view().intent?.queued.map((prompt) => prompt.text)).toEqual(["who are you"]);
+
+    store.resumeAfterTrust();
+    expect(port.creates.map((create) => create.harness)).toEqual(["codex", "codex"]);
+    expect(port.cwds).toEqual(["/work", "/work"]);
+    port.creates[1]!.reply.resolve("codex-9");
+    await settle();
+    expect(port.sent.map((sent) => sent.text)).toEqual(["who are you"]);
+    expect(await turn).toBe("sent");
+    // A second resume does nothing: the switch is done.
+    store.resumeAfterTrust();
+    expect(port.creates.length).toBe(2);
+  });
+
+  // Live proof (nxdog82 automation): the start was refused before any prompt, then the prompt came;
+  // its send's gesture must still be kept for after Trust.
+  test("a prompt sent while the switch waits for trust keeps its gesture and goes once after Trust", async () => {
+    const { store, port } = setup();
+    const held: string[] = [];
+    store.setHandlers({ holdPrompt: (promptId) => held.push(promptId) });
+    void store.switchTo("claude", "/work");
+    port.creates[0]!.reply.reject(Object.assign(new Error("trust.pending"), { reason: "trust.pending", cwd: "/work" }));
+    await settle();
+    expect(held).toEqual([]);
+    const turn = store.send("pong?");
+    expect(held).toEqual([store.view().intent!.queued[0]!.id]);
+    store.resumeAfterTrust();
+    port.creates[1]!.reply.resolve("claude-7");
+    await settle();
+    expect(port.sent.map((sent) => sent.promptId)).toEqual(held);
+    expect(await turn).toBe("sent");
+  });
+
   // Data loss: a queued prompt's attachments must come back with its text, exactly as they were.
   test("a failed or cancelled queued prompt hands back its attachments with its text", async () => {
     const image = { id: "a1", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "AAA" };
@@ -575,3 +630,55 @@ describe("harness switch: prewarm hints", () => {
     expect(port.calls).toEqual([]);
   });
 });
+
+// cx-e2aa: the New Tab page's model chip picks before any chat exists. The page stays; the new
+// chat starts behind it and shows with the prompt, with the picks applied.
+describe("harness switch: a deferred pick from the New Tab page", () => {
+  test("the page stays while the harness starts, and the prompt opens the chat with the picked model", async () => {
+    const { store, port, opened } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/app", { deferred: true });
+    void store.pickModel("gpt-6.1-sol");
+    port.creates[0]!.reply.resolve("codex-2");
+    await settle();
+    expect(port.calls).toEqual(["create codex"]);
+    expect(opened).toEqual([]);
+    expect(store.view().intent?.shown).toBe(false);
+    // Enter: the same agent in the same folder is the same switch.
+    void store.switchTo("codex", "/src/app");
+    void store.send("ship it");
+    await settle();
+    // The prompt is when the pane leaves the page for the new chat.
+    expect(port.calls).toEqual(["create codex", "leave", "open codex-2", "model gpt-6.1-sol", "send ship it"]);
+    expect(opened).toEqual(["codex-2"]);
+  });
+
+  test("a pick carries to another folder of the same agent, not to another agent", () => {
+    const { store, port } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/a", { deferred: true });
+    void store.pickModel("gpt-6.1-sol");
+    void store.switchTo("codex", "/src/b", { deferred: true });
+    expect(store.view().intent?.config.model).toBe("gpt-6.1-sol");
+    expect(store.view().intent?.cwd).toBe("/src/b");
+    void store.switchTo("claude", "/src/b", { deferred: true });
+    expect(store.view().intent?.config.model).toBeUndefined();
+  });
+
+  test("closing the page discards the unsent chat a pick started; a shown chat is never touched", async () => {
+    const { store, port } = setup();
+    port.session = undefined;
+    void store.switchTo("codex", "/src/app", { deferred: true });
+    port.creates[0]!.reply.resolve("codex-2");
+    await settle();
+    store.cancelDeferred();
+    expect(port.calls).toEqual(["create codex", "discard codex-2"]);
+    expect(store.view().intent).toBeUndefined();
+    void store.switchTo("codex", "/src/app");
+    port.creates[1]!.reply.resolve("codex-3");
+    await settle();
+    store.cancelDeferred();
+    expect(port.calls).not.toContain("discard codex-3");
+  });
+});
+

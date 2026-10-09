@@ -54,15 +54,23 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         metrics m: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
+        if o.hidesWorkspaces { return .empty }
         var rows: [SidebarRow] = []
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
         // One machine needs no machine header: its name adds nothing.
         let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+        // A computer that cannot connect until the person acts keeps its own
+        // header in the one list (cx-zdh8): its status, error and menu, even
+        // with no workspaces or under a collapsed list. Never this Mac.
+        func flagged(_ section: SidebarSection) -> Bool {
+            guard o.flattensMachines, !filtering, let machine = section.machine else { return false }
+            return machine.kind != .local && machine.status.needsAttention
+        }
         // One list: an empty computer shows nothing, unless no computer has a
         // row (the first one keeps its empty placeholder, a drop target).
-        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
+        let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty && !flagged($0) }
         var previousWasMachine = false
         var shownEmptyMachine = false
         // One list sits under one "Projects" header (the first computer's),
@@ -116,31 +124,35 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
 
             let flat = o.flattensMachines && section.machine != nil
-            if flat && (listCollapsed || nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine)) { continue }
-            let leadsList = flat && !machineShown
-            if section.machine != nil { machineShown = true }
-            if flat && nodes.isEmpty { shownEmptyMachine = true }
+            let flagged = flagged(section)
+            if flat && !flagged && (listCollapsed || nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine)) { continue }
+            let leadsList = flat && !flagged && !machineShown
+            if section.machine != nil && !flagged { machineShown = true }
+            if flat && !flagged && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap.
-            if !firstSection && !(flat && previousWasMachine) { y += m.sectionSpacing }
+            if !firstSection && !(flat && !flagged && previousWasMachine) { y += m.sectionSpacing }
             firstSection = false
-            previousWasMachine = section.machine != nil
-            let showsHeader = section.machine == nil
+            previousWasMachine = section.machine != nil && !flagged
+            let showsHeader = section.machine == nil || flagged
                 || (flat ? leadsList && o.showsSoleMachineHeader : machineCount > 1 || o.showsSoleMachineHeader)
-            // The computer a row names in one list (never this Mac).
-            let machineLabel = flat && section.machine?.kind != .local ? section.machine?.name : nil
+            // The computer a row names in one list (never this Mac; a flagged
+            // computer's header names it).
+            let machineLabel = flat && !flagged && section.machine?.kind != .local ? section.machine?.name : nil
             // Without a header there is nothing to expand it from.
             let collapsed = showsHeader && section.isCollapsed && !filtering
-            if flat && collapsed { listCollapsed = true }
+            if flat && !flagged && collapsed { listCollapsed = true }
             if showsHeader {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && (machineCount == 1 || flat)
+                    titlesProjects: section.machine != nil && !flagged && (machineCount == 1 || flat)
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }
-            if collapsed { continue }
+            if collapsed || flagged && listCollapsed { continue }
+            // A flagged computer's header says it all: no empty drop row.
+            if flagged && nodes.isEmpty && !gapHere { continue }
 
             if nodes.isEmpty {
                 if gapHere {
