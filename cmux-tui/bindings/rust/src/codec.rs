@@ -761,10 +761,14 @@ mod tests {
     /// process's user is accepted.
     #[test]
     fn connect_checks_the_servers_user() {
-        let root = crate::test_roots::TempRoot::new();
-        let path = root.path().join("s.sock");
-        let _listener = UnixListener::bind(&path).unwrap();
-        assert!(connect_unix_with_timeout(&path, Duration::from_secs(1)).is_ok());
+        let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+        let path = SocketPath(std::path::PathBuf::from(format!(
+            "/tmp/cmux-sdk-peer-uid-{}-{id}.sock",
+            std::process::id()
+        )));
+        let _ = std::fs::remove_file(&path.0);
+        let _listener = UnixListener::bind(&path.0).unwrap();
+        assert!(connect_unix_with_timeout(&path.0, Duration::from_secs(1)).is_ok());
     }
 
     fn pair(limit: usize) -> (JsonLineConnection, UnixStream) {
