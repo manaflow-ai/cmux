@@ -266,6 +266,10 @@ cmux_agent_select_native() {
   (umask 077; mkdir -p "$HOME/.config/cmux/agent-auth" && : > "$HOME/.config/cmux/agent-auth/$1.native")
 }
 
+cmux_agent_clear_native() {
+  rm -f "$HOME/.config/cmux/agent-auth/$1.native"
+}
+
 cmux_agent_auth_file() {
   [ -s "$1" ] || return 1
   # Empty auth stores are commonly created before the first login. Do not
@@ -380,7 +384,18 @@ cmux_agent_auth_preflight() {
   cmux_agent_browser=""
   cmux_agent_connect_hint=""
   # Management/help commands must remain available without a provider account.
-  case "${1-}:${2-}" in login:status|auth:status|auth:logout) return 0 ;; esac
+  case "${1-}:${2-}" in
+    login:status|auth:status|auth:logout)
+      if cmux_agent_native_mode "$cmux_agent_name" || cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; fi
+      return 0
+      ;;
+  esac
+  case "${1-}" in
+    logout)
+      if cmux_agent_native_mode "$cmux_agent_name" || cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; fi
+      return 0
+      ;;
+  esac
   case "${1-}" in --help|-h|--version|-v|-V|version|doctor|config|models|logout|completion|update|upgrade|mcp|plugin|plugins) return 0 ;; esac
   if cmux_agent_login_invocation "$@"; then
     if [ "$cmux_agent_name" = codex ]; then
@@ -414,6 +429,8 @@ cmux_agent_auth_preflight() {
 }
 
 cmux_agent_run() (
+  cmux_agent_name_for_run="$1"
+  case "$cmux_agent_name_for_run" in */cmux-opencode-real) cmux_agent_name_for_run=opencode ;; esac
   if [ "${cmux_agent_mode-}" = native ]; then
     # Scope changes to the child, preserving the user's shell and unrelated
     # provider overrides. Native login must not send the edge placeholder.
@@ -451,7 +468,12 @@ CMUX_PI_NATIVE
     fi
   fi
   if [ "${cmux_agent_browser-}" = vm ]; then export CMUX_BROWSER_TARGET=vm; fi
-  command "$@"
+  cmux_agent_logout=0
+  for cmux_agent_arg in "$@"; do [ "$cmux_agent_arg" = logout ] && cmux_agent_logout=1; done
+  cmux_agent_run_rc=0
+  command "$@" || cmux_agent_run_rc=$?
+  if [ "$cmux_agent_logout" -eq 1 ] && [ "${cmux_agent_mode-}" = native ]; then cmux_agent_clear_native "$cmux_agent_name_for_run"; fi
+  return "$cmux_agent_run_rc"
 )
 
 # Bare shorthand commands share the same wrappers. `cc` stays the system C

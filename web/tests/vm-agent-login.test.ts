@@ -91,6 +91,12 @@ describe("Cloud agent login regressions", () => {
     expect(launch.status).toBe(0);
     expect(launch.stdout).toContain('model_provider="openai"');
     expect(launch.stdout).not.toContain("edge.example");
+    const logout = await run("codex logout", route);
+    expect(logout.status).toBe(0);
+    rmSync(join(home, ".codex/auth.json"), { force: true });
+    const afterLogout = await run("codex exec hello", route);
+    expect(afterLogout.status).toBe(1);
+    expect(afterLogout.stderr).toContain("shared CodeRouter account");
   }));
   test.each(["404", "503", "000"])("unknown CodeRouter status %s preserves existing routes", (status) => fixture(async (_home, run) => {
     const result = await run("codex exec hello", { ...route, HTTP_STATUS: status });
