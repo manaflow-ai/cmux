@@ -89,7 +89,10 @@ fn own_listeners_are_checked_by_executable() {
 #[test]
 fn an_own_table_listener_libproc_missed_refuses_beside_a_found_one() {
     let own = [held(IpAddr::V4(Ipv4Addr::UNSPECIFIED), "node")];
-    let table = [listener(IpAddr::V4(Ipv4Addr::UNSPECIFIED), ME), listener(IpAddr::V4(Ipv4Addr::LOCALHOST), ME)];
+    let table = [
+        listener(IpAddr::V4(Ipv4Addr::UNSPECIFIED), ME),
+        listener(IpAddr::V4(Ipv4Addr::LOCALHOST), ME),
+    ];
     assert!(verdict(v4(), &table, &own, ME, true).is_some());
     assert!(verdict(v4(), &table[..1], &own, ME, true).is_none(), "the found one alone");
 }

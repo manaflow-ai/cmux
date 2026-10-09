@@ -152,6 +152,13 @@ pub(crate) fn verdict(
             other.uid
         ));
     }
+    // A covering listener of this user that libproc did not find: the
+    // kernel may give it the connection, and its holder is unknown.
+    let found =
+        |l: &Listener| own.iter().any(|h| (h.listener.addr, h.listener.port) == (l.addr, l.port));
+    if table.iter().any(|l| covers(l, target) && !found(l)) {
+        return Some(format!("the process that listens on loopback {target} cannot be identified"));
+    }
     let mine: Vec<&Held> = own.iter().filter(|h| covers(&h.listener, target)).collect();
     for held in &mine {
         let Some(path) = &held.exe else {
@@ -164,13 +171,8 @@ pub(crate) fn verdict(
             return Some(format!("loopback {target} is the cmux service {name}"));
         }
     }
-    if !mine.is_empty() {
-        return None;
-    }
-    if table.iter().any(|l| covers(l, target)) {
-        return Some(format!("the process that listens on loopback {target} cannot be identified"));
-    }
-    connected.then(|| format!("loopback {target} is held by a socket this host cannot see"))
+    (mine.is_empty() && connected)
+        .then(|| format!("loopback {target} is held by a socket this host cannot see"))
 }
 
 /// The LISTEN sockets in `net.inet.tcp.pcblist64` (maybe filtered to the
@@ -217,10 +219,21 @@ pub(crate) fn system_listeners() -> Option<Vec<Listener>> {
     None
 }
 
-/// An exited process or a closed descriptor: skipped, not an error.
+/// Clears errno before a libproc call, so that `gone` reads that call's.
 #[cfg(target_os = "macos")]
-fn gone() -> bool {
-    matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH | libc::EBADF))
+fn clear_errno() {
+    // SAFETY: __error returns this thread's errno location.
+    unsafe { *libc::__error() = 0 };
+}
+
+/// After a libproc call returned nothing: an exited process, a closed
+/// descriptor, no error at all, or one of `also`; skipped, not an error.
+#[cfg(target_os = "macos")]
+fn gone(also: &[i32]) -> bool {
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(0 | libc::ESRCH | libc::EBADF) | None => true,
+        Some(code) => also.contains(&code),
+    }
 }
 
 /// This user's LISTEN sockets and their holders (libproc); `None` when the
@@ -279,23 +292,25 @@ fn pids_of(uid: u32) -> Option<Vec<i32>> {
 #[cfg(target_os = "macos")]
 fn socket_fds(pid: i32) -> Option<Vec<i32>> {
     const PROX_FDTYPE_SOCKET: u32 = 2;
+    clear_errno();
     // SAFETY: a size query (null buffer).
     let bytes =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     if bytes <= 0 {
-        return gone().then(Vec::new);
+        return gone(&[]).then(Vec::new);
     }
     let size = size_of::<libc::proc_fdinfo>();
     let mut count = bytes as usize / size + 16;
     for _ in 0..4 {
         let mut fds = vec![libc::proc_fdinfo { proc_fd: 0, proc_fdtype: 0 }; count];
         let room = (fds.len() * size) as libc::c_int;
+        clear_errno();
         // SAFETY: the buffer is writable for `room` bytes, which is passed.
         let filled = unsafe {
             libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), room)
         };
         if filled <= 0 {
-            return gone().then(Vec::new);
+            return gone(&[]).then(Vec::new);
         }
         if filled < room {
             fds.truncate(filled as usize / size);
@@ -319,6 +334,7 @@ fn listening(pid: i32, fd: i32) -> Option<Option<Listener>> {
     const SOCKINFO_TCP: u32 = 2;
     const TSI_S_LISTEN: u32 = 1;
     let mut info = vec![0u8; SFI_SIZE];
+    clear_errno();
     // SAFETY: the buffer is writable for SFI_SIZE bytes, which is passed.
     let filled = unsafe {
         libc::proc_pidfdinfo(
@@ -330,7 +346,8 @@ fn listening(pid: i32, fd: i32) -> Option<Option<Listener>> {
         )
     };
     if filled <= 0 {
-        return gone().then_some(None);
+        // ENOTSOCK: the descriptor was reopened as another kind meanwhile.
+        return gone(&[libc::ENOTSOCK]).then_some(None);
     }
     if filled as usize != SFI_SIZE {
         return None;
