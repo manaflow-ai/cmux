@@ -324,7 +324,7 @@ describe("acpmux composer slash menu", () => {
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Mention a file or folder@", "Plan"]);
+    ).toEqual(["Attach files or images", "Mention a file or folder@", "Plan"]);
     expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
@@ -562,7 +562,7 @@ describe("acpmux composer slash menu", () => {
       await act(async () => plusButton().click());
       const row = dom.window.document.querySelector('.acpmux-composer-plus [data-value="attach"]');
       expect(row?.textContent).toContain("Attach files");
-      const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-composer input[type=file]")!;
+      const input = dom.window.document.querySelector<HTMLInputElement>("input.acpmux-attach-input[type=file]")!;
       expect(input.multiple).toBe(true);
       let chooser = 0;
       input.click = () => {

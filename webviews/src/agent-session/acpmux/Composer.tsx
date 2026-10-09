@@ -90,8 +90,6 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
-  /// Opens the host's file and image picker; the + menu offers it only when set.
-  onAttach?(): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -142,7 +140,6 @@ export function Composer({
   leading,
   accessory,
   prompt,
-  onAttach,
   onCmuxCommand,
   onImportFile,
   searchFiles,
@@ -212,6 +209,8 @@ export function Composer({
   const held = useRef(0);
   held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  // + then Attach files clicks this input: the system file chooser (an open panel in the app).
+  const chooser = useRef<HTMLInputElement>(null);
   const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
   attach.current = async (files: File[]) => {
     if (files.length === 0) return;
@@ -752,6 +751,21 @@ export function Composer({
           </div>
         )}
         <div className="acpmux-composer-bar">
+          <input
+            ref={chooser}
+            className="acpmux-attach-input"
+            type="file"
+            multiple
+            hidden
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(event) => {
+              const files = [...(event.currentTarget.files ?? [])];
+              // Cleared, choosing the same file again still fires change.
+              event.currentTarget.value = "";
+              void attach.current(files);
+            }}
+          />
           {leading !== undefined ? (
             leading
           ) : (
@@ -764,7 +778,7 @@ export function Composer({
               sections={[
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
+                    { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
                     { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
@@ -785,7 +799,7 @@ export function Composer({
                           planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
                         )
                       : id === "attach"
-                        ? onAttach?.()
+                        ? chooser.current?.click()
                         : id === "mention"
                           ? mention()
                           : id === "files"
