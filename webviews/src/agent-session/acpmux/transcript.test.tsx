@@ -527,7 +527,7 @@ describe("acpmux measured rows", () => {
           createElement(VirtualTranscript, {
             // acpmux row ids and versions restart per session. Keep them identical here to make
             // sure the session identity, rather than a row mutation, invalidates the height.
-            rows: first.map((row) => ({ ...row })),
+            rows: first,
             sessionId: "new-session",
             onToggleActivity: () => {},
             expanded: new Set<string>(),
