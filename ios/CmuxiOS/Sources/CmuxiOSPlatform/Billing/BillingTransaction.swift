@@ -1,3 +1,4 @@
+public import CmuxiOSFeatureKit
 import Foundation
 
 /// The small, framework-independent part of a verified StoreKit transaction

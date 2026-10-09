@@ -1,3 +1,4 @@
+public import CmuxiOSFeatureKit
 import Foundation
 
 #if canImport(StoreKit) && os(iOS)
@@ -255,9 +256,14 @@ public actor StoreKitBillingStore: BillingStore {
             return
         }
         usingFallback = true
-        fallbackTask = Task { [weak self, fallback] in
-            let updates = await fallback.updates()
-            for await update in updates {
+        let updates = await fallback.updates()
+        var iterator = updates.makeAsyncIterator()
+        // Await the fallback's initial snapshot before returning from
+        // `updates()`, so a plans screen never renders a transient empty
+        // StoreKit state while the DEBUG mock is being selected.
+        if let first = await iterator.next() { adoptFallback(first) }
+        fallbackTask = Task { [weak self] in
+            while let update = await iterator.next() {
                 await self?.adoptFallback(update)
             }
         }
