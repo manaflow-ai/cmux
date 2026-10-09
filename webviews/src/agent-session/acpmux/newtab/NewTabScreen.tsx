@@ -2,6 +2,7 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
+import { compactUrl, matchRanges } from "./rowText";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { ChatCards } from "./ChatCards";
@@ -330,8 +331,14 @@ export function NewTabScreen(props: Props) {
               <span className="nt-row-glyph" data-kind={row.type}>
                 {rowIcon(row)}
               </span>
-              <span className="nt-row-title">{rowTitle(row)}</span>
-              {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+              <span className="nt-row-title">
+                <MatchedText text={rowTitle(row)} query={text.trim()} />
+              </span>
+              {rowDetail(row) && (
+                <span className="nt-row-detail" title={rowDetailFull(row)}>
+                  {rowDetail(row)}
+                </span>
+              )}
               <span className="nt-row-action">
                 {rowAction(t, row)}
                 {index === current && <kbd>↵</kbd>}
@@ -472,17 +479,45 @@ function rowTitle(row: ScreenRow): string {
   }
 }
 
-function rowDetail(row: ScreenRow): string | undefined {
+/// A row's second line in full: an opened or visited page's address, or a tab's detail.
+function rowDetailFull(row: ScreenRow): string | undefined {
   switch (row.type) {
     case "open":
       return row.url === row.text ? undefined : row.url;
     case "history":
-      return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
+      return row.title ? row.url : undefined;
     case "tab":
       return row.detail;
     default:
       return undefined;
   }
+}
+
+/// The second line as drawn: a page address keeps its host and its end (compactUrl), so two pages
+/// of one site stay apart in a narrow row; the full text is the tooltip.
+function rowDetail(row: ScreenRow): string | undefined {
+  const full = rowDetailFull(row);
+  return full && (row.type === "open" || row.type === "history") ? compactUrl(full) : full;
+}
+
+/// `text` with the typed words marked: a quiet surface tint (the row highlight's wash), never an
+/// accent, since every row shows matches at once.
+function MatchedText({ text, query }: { text: string; query: string }) {
+  const ranges = matchRanges(text, query);
+  if (!ranges.length) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) parts.push(text.slice(at, start));
+    parts.push(
+      <mark key={start} className="rounded-[3px] bg-hover px-px text-inherit">
+        {text.slice(start, end)}
+      </mark>,
+    );
+    at = end;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
 }
 
 function rowAction(t: Translate, row: ScreenRow): string {

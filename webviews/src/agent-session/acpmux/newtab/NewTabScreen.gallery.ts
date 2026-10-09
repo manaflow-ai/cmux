@@ -95,6 +95,27 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "match-highlight": {
+      note: "Round-1 design A: the typed words are marked in each row with a quiet tint, and a long page address keeps its host and its end (full address in the tooltip).",
+      ready: newTab({
+        omnibar: {
+          tabs: [{ id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [],
+          folders: [],
+          commands: [],
+          history: [
+            {
+              url: "https://github.com/manaflow-ai/cmux/pull/18729/files?diff=split&w=1",
+              title: "Release PR files",
+            },
+          ],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("release", { selector: ".nt-field" });
+      },
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs and a visited page: those rows and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
