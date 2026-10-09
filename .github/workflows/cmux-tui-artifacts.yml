@@ -18,7 +18,8 @@ name: cmux-tui artifacts
 #                                                  install as cmux-browser-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
 #                                                  detector (macOS); install as
-#                                                  cmux-agent-screen-detection beside cmux-tui
+#                                                  cmux-agent-screen-detection beside cmux-tui;
+#                                                  optional (a failed build publishes none)
 #   cmux-tui/<commit-sha>/manifest.json
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
@@ -900,8 +901,6 @@ jobs:
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
@@ -1048,8 +1047,6 @@ jobs:
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
@@ -1139,8 +1136,6 @@ jobs:
             --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
             --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
-            --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
@@ -1176,8 +1171,6 @@ jobs:
               --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
               --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
-              --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
-              --require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"

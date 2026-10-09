@@ -229,13 +229,18 @@ cmd_hosts() {
       CMUX_BUILD_SHA=$sha cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$t")
     (cd "$repo_root/first-party-apps/cloud/server" && cargo build --bin cmux-cloud --release --locked --target "$t")
     # The agent screen-detection plugin is its own Cargo workspace (own Cargo.lock).
+    # Optional: a failed build publishes the tree without it (the app then runs
+    # no default detector), so never let a stale copy stand in for it.
+    rm -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
     (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-      --release --locked --target "$t")
+      --release --locked --target "$t") || echo "warning: cmux-agent-screen-detection did not build for $t; publishing without it" >&2
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
-    cp "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
+    if [[ -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" ]]; then
+      cp "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
+    fi
   done
 }
 

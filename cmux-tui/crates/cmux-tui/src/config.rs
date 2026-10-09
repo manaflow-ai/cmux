@@ -4018,8 +4018,18 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 }
 
 fn load_raw_config() -> RawConfig {
+    // A config that exists but cannot be read leaves the user's agents choice
+    // unknown, so the bundled screen detector stays off (agent_plugin_config).
+    let unreadable = || RawConfig {
+        agents: crate::agent_plugin_config::RawAgents::invalid(),
+        ..RawConfig::default()
+    };
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
+    let text = match read_config_text(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return RawConfig::default(),
+        Err(_) => return unreadable(),
+    };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4029,7 +4039,7 @@ fn load_raw_config() -> RawConfig {
                 config_diagnostic(&e),
                 path.display(),
             );
-            return RawConfig::default();
+            return unreadable();
         }
     };
     let Some(object) = value.as_object() else {
@@ -4038,7 +4048,7 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: root must be an object",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     };
     const KNOWN: &[&str] = &[
         "theme",
@@ -4063,21 +4073,25 @@ fn load_raw_config() -> RawConfig {
             "{BIN}: ignoring invalid config {}: unknown top-level field `{unknown}`",
             path.display()
         );
-        return RawConfig::default();
+        return unreadable();
     }
     let mut raw = RawConfig::default();
+    // An invalid section keeps its defaults, or `$invalid` when given.
     macro_rules! section {
-        ($field:ident, $name:literal) => {
+        ($field:ident, $name:literal $(, $invalid:expr)?) => {
             if let Some(value) = object.get($name) {
                 match serde_json::from_value(value.clone()) {
                     Ok(parsed) => raw.$field = parsed,
-                    Err(error) => crate::client_log::stderr_log!(
-                        "config",
-                        "{BIN}: ignoring invalid `{}` section in {}: {}",
-                        $name,
-                        path.display(),
-                        error
-                    ),
+                    Err(error) => {
+                        crate::client_log::stderr_log!(
+                            "config",
+                            "{BIN}: ignoring invalid `{}` section in {}: {}",
+                            $name,
+                            path.display(),
+                            error
+                        );
+                        $(raw.$field = $invalid;)?
+                    }
                 }
             }
         };
@@ -4085,7 +4099,8 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
-    section!(agents, "agents");
+    // An unreadable agents section must not turn the bundled detector on.
+    section!(agents, "agents", crate::agent_plugin_config::RawAgents::invalid());
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -8177,7 +8192,7 @@ mod tests {
         let directory = TestDirectory::new("agents-invalid");
         let (bin, path) = (directory.path.join("bin"), directory.path.join("mux.json"));
         std::fs::create_dir(&bin).unwrap();
-        crate::test_exec::write_executable(&bin.join("cmux-agent-screen-detection"), "#!/bin/sh\n");
+        write_executable(bin.join("cmux-agent-screen-detection"), "#!/bin/sh\n");
         let mut plugin_ids = Vec::new();
         for text in [
             "{}",

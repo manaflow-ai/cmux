@@ -164,7 +164,9 @@ jobs:
               raise SystemExit(f"unsupported darwin_builder: {darwin_builder!r}")
           if darwin_builder == "linux":
               # The Linux path builds the raw binaries only: no npm/PyPI
-              # bootstrap stamp and no agent plugin.
+              # bootstrap stamp and no separate agent plugin artifact
+              # (build_agent_plugin). The bundled detector still rides the
+              # cmux-tui artifact: scripts/ci/macos-cross.sh hosts builds it.
               if os.environ["PACKAGE_NPM"] == "true" or os.environ["PACKAGE_PYPI"] == "true":
                   raise SystemExit("darwin_builder=linux does not build npm or PyPI packages")
               if os.environ["BUILD_AGENT_PLUGIN"] == "true":
@@ -403,7 +405,10 @@ jobs:
         # "Bundled default"). It rides the cmux-tui artifact as
         # cmux-tui-agent-screen-detection-<target>. macOS only for now, like
         # cmux-browser-host; scripts/ci/macos-cross.sh hosts builds it on Linux.
+        # Optional: a failure publishes cmux-tui without it (the manifest has no
+        # entry and the app runs no default detector); it never blocks publication.
         if: runner.os == 'macOS'
+        continue-on-error: true
         env:
           AGENT_PLUGIN_TARGET: ${{ matrix.build_target }}
         working-directory: cmux-tui
@@ -412,6 +417,8 @@ jobs:
           set -euo pipefail
           # Its own Cargo workspace; the common target dir gives staging one path.
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          # A cached copy from an earlier build must not be staged after a failure.
+          rm -f "$CARGO_TARGET_DIR/$AGENT_PLUGIN_TARGET/release/cmux-agent-screen-detection"
           cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
             --release --locked --target "$AGENT_PLUGIN_TARGET"
 
@@ -499,9 +506,10 @@ jobs:
           fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
-          # cmux-agent-screen-detection beside cmux-tui. macOS only for now.
+          # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
+          # optional: staged only when its (non-blocking) build produced it.
           agent_detector_binary=""
-          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+          if [[ "$STAGE_TARGET" == *-apple-darwin && -f "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection" ]]; then
             agent_detector_binary="dist/cmux-tui-agent-screen-detection-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection" "$agent_detector_binary"
           fi

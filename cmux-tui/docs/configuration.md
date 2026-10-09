@@ -110,7 +110,7 @@ from the sidebar plugin and never replace the sidebar view.
 | `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
-| `agents.screen_detection` | boolean | `true` | Runs the bundled `cmux-agent-screen-detection` beside the daemon (producer `cmux_screen_detection`, Unix only) when `agents.plugin` is unset; `false` turns it off. An explicit `agents.plugin` always replaces it, and an invalid one disables agent plugins without falling back |
+| `agents.screen_detection` | boolean | `true` | Runs the bundled `cmux-agent-screen-detection` beside the daemon (producer `cmux_screen_detection`, Unix only) when `agents.plugin` is unset; `false` turns it off. An explicit `agents.plugin` always replaces it, and an invalid one disables agent plugins without falling back. A config file or `agents` section that fails to parse also keeps it off. Older cmux-tui builds reject the whole `agents` section when it contains this key, so an `agents.plugin` next to it is ignored there |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
@@ -172,6 +172,22 @@ cmux agent plugin list
 cmux agent plugin update <name-or-id>
 cmux agent plugin remove <name-or-id>
 ```
+
+The cmux-next app ships a screen detector beside the daemon. Without an
+`agents.plugin` entry the daemon runs it as producer `cmux_screen_detection`
+(see `agents.screen_detection` above; that ID is reserved). Return to it from
+an installed package with:
+
+```bash
+cmux agent plugin use --builtin
+cmux daemon reload-config
+```
+
+`use --builtin` removes `agents.plugin`; it does not change
+`agents.screen_detection`, so `false` there still keeps the detector off.
+`cmux agent plugin list` shows installed packages only. It runs in the CLI
+process, which may talk to a remote daemon with a different bundle, so it does
+not report the bundled detector; the daemon's agent roster shows its rows.
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when

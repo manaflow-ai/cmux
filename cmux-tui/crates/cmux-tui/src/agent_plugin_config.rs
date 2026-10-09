@@ -6,15 +6,17 @@
 //! that ships beside the daemon (`cmux-agent-screen-detection`, the sibling of
 //! its own executable, as the cmux-next app bundles it in Contents/Resources/bin)
 //! runs as producer `cmux_screen_detection`, unless `agents.screen_detection`
-//! is `false`. The plugin is Unix-only, so other platforms never run it.
+//! is `false`, or the agents settings could not be read (a config file or
+//! `agents` section that failed to parse). The plugin is Unix-only, so other
+//! platforms never run it.
 
 use std::path::{Path, PathBuf};
 
 use cmux_tui_core::JournalPluginOptions;
 use serde::Deserialize;
 
-/// Journal producer id of the bundled plugin. Reserved by convention: the
-/// default never runs beside an explicit plugin, so ids cannot collide.
+/// Journal producer id of the bundled plugin, reserved for it: an explicit
+/// `agents.plugin` with this id is refused.
 pub(crate) const BUNDLED_SCREEN_DETECTION_ID: &str = "cmux_screen_detection";
 /// File name of the bundled plugin beside the daemon executable.
 pub(crate) const BUNDLED_SCREEN_DETECTION_FILE: &str = "cmux-agent-screen-detection";
@@ -26,6 +28,17 @@ pub(crate) struct RawAgents {
     plugin: Option<RawAgentPlugin>,
     /// `false` stops the bundled screen-detection plugin. Default `true`.
     screen_detection: Option<bool>,
+    /// The config file or its `agents` section failed to parse, so the user's
+    /// choice is unknown and no plugin runs.
+    #[serde(skip)]
+    unreadable: bool,
+}
+
+impl RawAgents {
+    /// Agents settings that could not be read (see `unreadable`).
+    pub(crate) fn invalid() -> Self {
+        Self { unreadable: true, ..Self::default() }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -41,15 +54,15 @@ struct RawAgentPlugin {
 pub(crate) struct DaemonHost<'a> {
     /// Directory of the daemon executable; the bundled plugin is looked up here.
     pub(crate) exe_dir: Option<&'a Path>,
-    /// Restart key of the bundled plugin: the daemon's own build, since both
-    /// ship together.
-    pub(crate) revision: &'a str,
     /// Whether this platform can run the bundled plugin (Unix only).
     pub(crate) supported: bool,
 }
 
 /// The agent plugin the daemon should supervise, if any.
 pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<JournalPluginOptions> {
+    if raw.unreadable {
+        return None;
+    }
     if let Some(plugin) = raw.plugin {
         return explicit_plugin(plugin);
     }
@@ -57,14 +70,14 @@ pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<Jour
         return None;
     }
     let path = host.exe_dir?.join(BUNDLED_SCREEN_DETECTION_FILE);
-    if !path.is_file() {
+    if !is_executable_file(&path) {
         return None;
     }
     let options = JournalPluginOptions {
         id: BUNDLED_SCREEN_DETECTION_ID.to_string(),
         command: vec![path.to_str()?.to_string()],
         cwd: None,
-        revision: Some(host.revision.chars().take(128).collect()),
+        revision: bundled_revision(&path),
     };
     match options.validate() {
         Ok(()) => Some(options),
@@ -78,28 +91,79 @@ pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<Jour
     }
 }
 
+/// Restart key of the bundled plugin from the file's identity: an app update
+/// replaces the file (new inode and mtime), so the supervisor restarts the
+/// child, while every config load of one install sees the same value. Cheap,
+/// because every CLI invocation loads the config.
+pub(crate) fn bundled_revision(path: &Path) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        format!("{:x}-{:x}-", metadata.dev(), metadata.ino())
+    };
+    #[cfg(not(unix))]
+    let identity = String::new();
+    Some(format!("bundled-{identity}{:x}-{:x}", metadata.len(), modified.as_nanos()))
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
 /// [`agent_plugin`] for this process: the daemon executable's directory
 /// (symlinks resolved, so a PATH link to the bundled `cmux` still finds its
-/// siblings) and this build's version.
+/// siblings).
 pub(crate) fn agent_plugin_for_this_daemon(raw: RawAgents) -> Option<JournalPluginOptions> {
     let exe_dir = this_daemon_dir();
-    let revision = crate::version_string();
-    let host = DaemonHost {
-        exe_dir: exe_dir.as_deref(),
-        revision: &revision,
-        supported: this_daemon_supports_bundled_plugin(),
-    };
+    let host = DaemonHost { exe_dir: exe_dir.as_deref(), supported: cfg!(unix) };
     agent_plugin(raw, &host)
 }
 
-pub(crate) fn this_daemon_supports_bundled_plugin() -> bool {
-    cfg!(unix)
+fn this_daemon_dir() -> Option<PathBuf> {
+    test_daemon_dir().or_else(|| daemon_dir_of(&std::env::current_exe().ok()?))
 }
 
-fn this_daemon_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+#[cfg(not(test))]
+fn test_daemon_dir() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(test)]
+fn test_daemon_dir() -> Option<PathBuf> {
+    TEST_DAEMON_DIR.with(|dir| dir.borrow().clone())
+}
+
+/// The directory of `exe` with symlinks resolved (`exe`'s own directory when
+/// it cannot be resolved).
+fn daemon_dir_of(exe: &Path) -> Option<PathBuf> {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     exe.parent().map(Path::to_path_buf)
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_DAEMON_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `body` as if this daemon's executable lived in `dir` (tests on this
+/// thread only), so config tests can place a bundled sibling.
+#[cfg(test)]
+pub(crate) fn with_test_daemon_dir<T>(dir: &Path, body: impl FnOnce() -> T) -> T {
+    TEST_DAEMON_DIR.with(|cell| *cell.borrow_mut() = Some(dir.to_path_buf()));
+    let result = body();
+    TEST_DAEMON_DIR.with(|cell| *cell.borrow_mut() = None);
+    result
 }
 
 /// Validates a hand-written or plugin-manager `agents.plugin` entry. `None`
@@ -112,6 +176,13 @@ fn explicit_plugin(plugin: RawAgentPlugin) -> Option<JournalPluginOptions> {
         );
         return None;
     };
+    if id == BUNDLED_SCREEN_DETECTION_ID {
+        crate::client_log::stderr_log!(
+            "config",
+            "{BIN}: ignoring agents.plugin: id {id} is reserved for the bundled screen detector"
+        );
+        return None;
+    }
     // Do not filter later argv entries. An empty value can be meaningful
     // to a plugin, while an empty executable must still disable config.
     let command = plugin.command.unwrap_or_default();

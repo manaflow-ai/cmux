@@ -158,6 +158,8 @@ elif [[ -z "$src" ]]; then
     echo "warning: bundling release cmux-tui $src, which lacks the cmux-next daemon capabilities"
   fi
   if [[ -z "$src" ]]; then
+    # Pin mode bundles no screen detector (below): drop one a dev build left.
+    rm -f "$dest_dir/cmux-agent-screen-detection"
     if [[ -x "$dest" && ! -L "$dest" ]]; then
       echo "note: no cmux-tui source configured; keeping bundled $dest"
       link_aliases
