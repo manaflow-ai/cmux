@@ -52,10 +52,10 @@ enum CloudStrings {
         String(localized: "cloud.create.confirm.approval", defaultValue: "The machine counts against your Cloud plan. Click Create to approve it.", table: "Cloud", bundle: .module)
     }
     static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
-    static var createStillPending: String {
+    nonisolated static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
     }
-    static var createApproveInFeed: String {
+    nonisolated static var createApproveInFeed: String {
         String(localized: "cloud.create.approveInFeed", defaultValue: "Approve this machine in your cmux feed, then try again.", table: "Cloud", bundle: .module)
     }
     static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module) }
