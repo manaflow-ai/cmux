@@ -20,7 +20,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     /// Takes `download` over; `chosen` is the file the person picked, if any.
     func register(_ download: WKDownload, source: URL?, chosen: URL? = nil) {
         guard let tab else { return download.cancel(nil) }
-        let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
+        let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download", named: false)
         item.cancelHandler = { [weak download] in download?.cancel(nil) }
         items[ObjectIdentifier(download)] = item
         if let chosen { chosenDestinations[ObjectIdentifier(download)] = chosen }
@@ -56,6 +56,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         }
         item.suggestedFilename = DownloadDestination.sanitizedFilename(suggestedFilename)
         item.filename = placement.finalURL.lastPathComponent
+        item.named()
         item.destination = placement.finalURL
         item.placement = placement
         return placement.temporaryURL

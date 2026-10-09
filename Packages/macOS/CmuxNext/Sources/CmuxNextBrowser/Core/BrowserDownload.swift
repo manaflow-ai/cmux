@@ -47,10 +47,31 @@ public final class BrowserDownload: Identifiable {
     /// picked: what an agent's `download.suggestedFilename()` returns.
     public internal(set) var suggestedFilename: String
 
-    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil) {
+    /// The engine knows the page's suggested name (`named()`); WebKit
+    /// learns it only when it picks the destination.
+    public private(set) var isNamed: Bool
+    private var namedHandlers: [(BrowserDownload) -> Void] = []
+
+    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil, named: Bool = true) {
         self.sourceURL = sourceURL
         self.filename = filename
         self.suggestedFilename = suggestedFilename ?? filename
+        isNamed = named
+    }
+
+    /// Runs `handler` once the download is named (at once when it is).
+    public func onNamed(_ handler: @escaping (BrowserDownload) -> Void) {
+        guard !isNamed else { return handler(self) }
+        namedHandlers.append(handler)
+    }
+
+    /// The engine set the suggested name; later calls do nothing.
+    func named() {
+        guard !isNamed else { return }
+        isNamed = true
+        let handlers = namedHandlers
+        namedHandlers = []
+        handlers.forEach { $0(self) }
     }
 
     /// A download refused before it started, listed blocked: `reason`
@@ -100,6 +121,8 @@ public final class BrowserDownload: Identifiable {
     /// download leaves no file, and only the first end counts.
     func complete(_ end: Status) {
         guard status == .inProgress, end != .inProgress else { return }
+        // A download that ends before its engine named it is named first.
+        named()
         var end = end
         if let placement {
             if end == .finished {

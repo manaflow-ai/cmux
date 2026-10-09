@@ -208,8 +208,12 @@ extension AppBrowserHost {
     /// once (the saved file, or why it ended).
     static func report(_ item: BrowserDownload, tab: String, to provider: BrowserHostProvider?) {
         let id = item.id.uuidString.lowercased()
-        provider?.reportDownloadStarted(targetID: tab, downloadID: id, url: item.sourceURL?.absoluteString ?? "",
-                                        suggestedFilename: item.suggestedFilename)
+        // Started once the engine knows the page's suggested name (WebKit
+        // learns it after the download began); always before the end.
+        item.onNamed { [weak provider] item in
+            provider?.reportDownloadStarted(targetID: tab, downloadID: id, url: item.sourceURL?.absoluteString ?? "",
+                                            suggestedFilename: item.suggestedFilename)
+        }
         item.onFinish { [weak provider] item in
             switch item.status {
             case .finished:
