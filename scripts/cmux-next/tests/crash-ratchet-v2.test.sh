@@ -256,4 +256,21 @@ SWIFT
 out="$(ratchet)" || fail "a stored async closure or a sync default counted: $out"
 reset
 
+# 14b. The file's own declarations decide (H6 round 2): a dictionary declared in this
+#     file stays a dictionary when another file of the module has a same-named array;
+#     a name this file declares another way still counts.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+var pending: [String: Int] = [:]
+func f() { pending[key] = 1 }
+SWIFT
+printf 'var pending = Data()\nfunc g() { let x = pending.count }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+out="$(ratchet)" || fail "a dictionary declared in its own file counted because of another file: $out"
+printf 'var pending = Data()\nfunc g() { pending[i] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an index on a file-local non-dictionary passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 1"* ]] || fail "the file-local Data index is not reported: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

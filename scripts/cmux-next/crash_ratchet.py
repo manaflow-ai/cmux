@@ -35,7 +35,8 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       traps. Use a checked accessor (`rows[checked: i]` does not count).
                       A dictionary subscript cannot trap: a subscript on a name the module
                       declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
-                      and never as an array, or with a `default:` argument, does not count
+                      and never otherwise (the file's own declarations decide when it has
+                      any; else the module's), or with a `default:` argument, does not count
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
                       `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
@@ -462,6 +463,17 @@ def module_dictionaries(repo):
     return {module: frozenset(d - a) for module, (d, a) in declared.items()}
 
 
+def file_dictionaries(lines, module_dicts):
+    """Names that LINES (one file) subscript as dictionaries: a name the file declares
+    only as a dictionary, or one it does not declare at all that its module declares only
+    as a dictionary (a property from the type's main file used in an extension file). A
+    same-named array or inferred local in another file of the module no longer hides a
+    dictionary declared in this one; one declared any other way in this file still counts."""
+    dicts, others = collection_names(lines)
+    declared = dicts | others
+    return frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
+
+
 def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
@@ -476,11 +488,12 @@ def scan_swift(repo, counts, banned_files=None):
                 continue
             rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
             lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+            file_dicts = file_dictionaries(lines, dictionaries.get(rel, frozenset())) if rel in INDEX_MODULES else frozenset()
             for index, line in enumerate(lines):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
+                for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
                     if kind in banned or (kind, rel) in banned_modules:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))

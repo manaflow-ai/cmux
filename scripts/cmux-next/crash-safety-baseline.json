@@ -62,11 +62,11 @@
    "MessagesLabHome": 20
   },
   "index_subscript": {
-   "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 41,
-   "CmuxIrxTransport": 21,
-   "CmuxNextControl": 20,
-   "CmuxNextDaemon": 62,
+   "CMUXMobileCore": 12,
+   "CmuxIrohTransport": 22,
+   "CmuxIrxTransport": 15,
+   "CmuxNextControl": 19,
+   "CmuxNextDaemon": 41,
    "CmuxNextMobile": 1
   },
   "int_conversion": {
