@@ -62,14 +62,13 @@ final class ChatsOpenCoordinator {
             let intent = split ? content?.beginFocusIntent() : nil
             services.registry.track(Task {
                 do {
-                    if split {
-                        let options = SpawnOptions(cwd: cwd, argv: argv, env: env, workspace: workspace)
-                        let created = try await connection.split(handle, direction: .right, options: options)
-                        content?.expectFocus(on: created.surface, generation: intent)
-                        return nil
-                    }
+                    // `split` takes no argv: the chat's terminal is created, then moved into a split to the right.
                     let created = try await connection.createTerminal(in: workspace, cwd: cwd, argv: argv, env: env)
-                    if let surface = created.surface {
+                    guard let surface = created.surface else { return nil }
+                    if split {
+                        let moved = try await connection.moveTabToSplit(surface, pane: handle, edge: .right)
+                        content?.expectFocus(on: moved.surface ?? surface, generation: intent)
+                    } else {
                         pane.selectWhenReported(surface: surface)
                     }
                     return nil
@@ -117,7 +116,7 @@ extension ChatsOpenCoordinator {
             services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return
         }
-        pane.selectWhenReported(surface: pending.surface)
+        // Not selected here: the tab moves to its own pane at once, so the current pane never flashes it.
         let context = AppActionContext(services: services)
         let model = pane.pane
         services.registry.track(Task {

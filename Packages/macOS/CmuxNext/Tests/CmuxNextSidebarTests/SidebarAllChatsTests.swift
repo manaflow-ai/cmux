@@ -87,6 +87,33 @@ import Testing
         }
     }
 
+    /// Default minimal mode (`.bottom`) hides the footer row at rest, but not
+    /// the All chats rows: only their header waits for the hover.
+    @Test func minimalModeKeepsAllChatsRowsShownAtRest() {
+        let saved = DesignSettings.shared.sidebarSections
+        DesignSettings.shared.sidebarSections.minimalMode = .bottom
+        defer { DesignSettings.shared.sidebarSections = saved }
+        let model = SidebarModel()
+        model.layout = SidebarLayoutDocument.defaults.chatsLayout(enabled: true)
+        let sidebar = SidebarView(model: model)
+        let provider = Provider()
+        sidebar.appSections = provider
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 800)
+        sidebar.setChromeRevealed(false)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.layout()
+        #expect(sidebar.minimalHiddenBands.bottom, "the footer row hides at rest")
+        #expect(sidebar.belowFade.alphaValue == 1, "the All chats rows stay shown")
+        #expect(!provider.view.isHeaderRevealed, "the header waits for the hover")
+        // Without All chats the band below hides with the footer, as before.
+        let plain = SidebarView(model: SidebarModel())
+        plain.frame = NSRect(x: 0, y: 0, width: 260, height: 800)
+        plain.setChromeRevealed(false)
+        plain.layoutSubtreeIfNeeded()
+        plain.layout()
+        #expect(plain.belowBandAlpha(hiddenByMode: true) == 0)
+    }
+
     @Test func hoveringTheSidebarRevealsTheHeaderAndTheBandAddsNoTitleRow() throws {
         let model = SidebarModel()
         model.layout = SidebarLayoutDocument.defaults.chatsLayout(enabled: true)
