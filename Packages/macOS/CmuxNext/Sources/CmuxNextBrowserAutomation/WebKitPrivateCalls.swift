@@ -1,4 +1,5 @@
 public import CmuxNextBrowser
+import CmuxNextWakeups
 public import Foundation
 public import WebKit
 
@@ -34,12 +35,11 @@ public struct WebKitPrivateCalls: Sendable {
     public func awaitCallback(register: (@escaping @Sendable () -> Void) -> Void) async -> Bool {
         let done = OneShot<Bool>()
         register { done.resolve(true) }
-        let clock = clock, bound = callbackBound
-        let timer = Task {
-            try? await clock.sleep(for: bound)
-            done.resolve(false)
-        }
-        defer { timer.cancel() }
+        // The bound is a deadline on the injected clock, cancelled once the wait ends.
+        let deadline = DemandTimer(owner: "browser.webkit-private-callback", clock: clock)
+        deadline.schedule(after: callbackBound) { done.resolve(false) }
+        defer { deadline.cancel() }
+        // concurrency-allow: OneShot.wait is an async suspension, not a blocking wait
         return await done.wait(cancelled: false)
     }
 
