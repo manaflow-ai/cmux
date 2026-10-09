@@ -138,7 +138,7 @@ extension WebKitDriver {
     /// `status`: the HTTP status of the page the tab shows, when it came over
     /// HTTP (`page.goto()` returns a `Response` only then).
     static func status(_ tab: WebKitTab) -> [String: DriverJSON] {
-        guard let url = tab.webView.url, let status = tab.mainFrameStatuses[url] else { return [:] }
+        guard let url = tab.webView.url, let status = tab.mainFrameStatuses.status(for: url) else { return [:] }
         return ["status": .number(Double(status))]
     }
 

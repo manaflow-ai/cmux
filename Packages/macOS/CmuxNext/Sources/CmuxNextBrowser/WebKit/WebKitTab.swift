@@ -45,10 +45,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
-    /// The HTTP status of the last main-frame response per URL, so a page
-    /// restored from the back-forward cache (no new response) still has one;
-    /// automation reports it as `Response.status()`.
-    @ObservationIgnored public internal(set) var mainFrameStatuses: [URL: Int] = [:]
+    @ObservationIgnored public let mainFrameStatuses = MainFrameStatuses()
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
