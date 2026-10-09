@@ -93,6 +93,7 @@ pub(super) fn advertised_capabilities(
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,

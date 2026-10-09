@@ -12,7 +12,7 @@ use super::personal_store::{
     DEFAULT_PROFILE_ID, PersonalGroup, PersonalProfile, PersonalSession, PersonalSnapshot,
     PersonalWorkspace, commit_personal, insertion_final_index, next_workspace_position, read_group,
     read_groups, read_profile, read_profiles, read_session, read_snapshot, read_workspaces,
-    subject, validate_appearance, validate_browser_profile_ref, validate_name,
+    require_icon_asset, subject, validate_appearance, validate_browser_profile_ref, validate_name,
     validate_personal_json, validate_personal_workspace_key, validate_profile_defaults,
     validate_profile_id, validate_session_id, validate_theme, write_order,
 };
@@ -87,6 +87,7 @@ impl WorkspaceRegistry {
             );
             return Ok((existing, false));
         }
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(tx, icon))?;
         let mut order =
             read_profiles(tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
         let index = input.index.unwrap_or(order.len()).min(order.len());
@@ -138,6 +139,7 @@ impl WorkspaceRegistry {
             update.color.as_ref().and_then(Option::as_deref),
             update.icon.as_ref().and_then(Option::as_deref),
         )?;
+        update.icon.clone().flatten().map_or(Ok(()), |icon| require_icon_asset(tx, &icon))?;
         optional_text("theme", update.theme.as_ref().and_then(Option::as_deref), validate_theme)?;
         optional_text(
             "browser_profile_id",

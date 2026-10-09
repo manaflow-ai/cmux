@@ -26,8 +26,11 @@ Sanitizer: `cmux-tui-core` `presentation_store/svg_icon.rs` (static shapes, grad
 paths, masks, text; ids prefixed `cmux-icon-`, `url()` only to an id of the same icon; no DOCTYPE,
 href, style, script, animation or `foreignObject`). Rendering contract: frontends draw an SVG icon
 as an isolated image (`<img>`, a data or blob URL, a native image) at a frontend-chosen size, never
-inlined into a DOM. The picker's SVG tab stays off until the asset store calls
-`validate_presentation_icon_asset` on put.
+inlined into a DOM. The asset store (`icon-assets-v1`: `put-blob`, `get-blob`;
+`personal_store/blobs.rs`) runs every SVG through `validate_presentation_icon_asset` on put, and
+the fields that take assets (workspace, screen, room, browser profile and workspace status icons)
+require the named asset to exist in the setter's transaction; other icon fields still refuse
+asset references. The picker's Image and SVG tabs can now store through `put-blob`.
 
 ## 2. One picker
 

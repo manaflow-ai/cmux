@@ -39,8 +39,11 @@ pub(crate) use saved_tab_groups::{
 
 mod frontend_browser_history;
 mod icon;
-pub use icon::validate_presentation_icon;
-mod svg_icon;
+pub use icon::{
+    IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
+    validate_presentation_icon, validate_presentation_icon_asset,
+};
+pub(crate) mod svg_icon;
 
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
@@ -218,7 +221,7 @@ impl WorkspacePresentationUpdate {
             validate_presentation_color(color)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            validate_presentation_icon(icon)?;
+            validate_icon_value(icon)?;
         }
         if let Some(Some(title)) = &self.title {
             validate_presentation_text("workspace title", title)?;
@@ -768,6 +771,9 @@ pub(crate) fn write_workspace_presentation(
     update: &WorkspacePresentationUpdate,
 ) -> anyhow::Result<()> {
     update.validate()?;
+    if let Some(Some(icon)) = &update.icon {
+        super::personal_store::require_icon_asset(transaction, icon)?;
+    }
     if let Some(Some(group)) = &update.group {
         let exists = transaction
             .query_row("SELECT 1 FROM workspace_groups WHERE group_id = ?1", [group], |_| Ok(()))

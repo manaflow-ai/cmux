@@ -57,7 +57,7 @@ pub(crate) fn set_status(
     validate_status_key(key)?;
     validate_line_text("status text", text, MAX_STATUS_TEXT_BYTES)?;
     if let Some(icon) = icon {
-        crate::workspace_registry::presentation_store::validate_presentation_icon(icon)?;
+        crate::workspace_registry::personal_store::require_icon_asset(transaction, icon)?;
     }
     if let Some(color) = color {
         crate::workspace_registry::presentation_store::validate_presentation_color(color)?;

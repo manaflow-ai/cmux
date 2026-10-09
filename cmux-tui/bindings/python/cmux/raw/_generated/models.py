@@ -2729,6 +2729,12 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
+class GetBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-blob/request'
+    blob: str
+
+
+@dataclass(frozen=True)
 class GetBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-browser-provider/request'
     pass
@@ -3323,6 +3329,13 @@ class PingRequest:
 class ProcessInfoRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/process-info/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class PutBlobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/put-blob/request'
+    data: str
+    media_type: str
 
 
 @dataclass(frozen=True)
@@ -5193,6 +5206,7 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendBrowserHistoryRequest',
@@ -5262,6 +5276,7 @@ __all__ = [
     'PinWorkspaceRequest',
     'PingRequest',
     'ProcessInfoRequest',
+    'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
     'ReadScreenRequest',

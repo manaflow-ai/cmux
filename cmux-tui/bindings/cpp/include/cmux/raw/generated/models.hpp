@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c";
+inline constexpr std::string_view kProtocolIrSha256 = "528a4c20bccc652ec7ccee07eb32174b2aa2acf58bbe76fc4ebb754a05f6a51e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -303,6 +303,7 @@ struct ExportLayoutRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
+struct GetBlobRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendBrowserHistoryRequest;
@@ -373,6 +374,7 @@ struct PasteImageResult;
 struct PinWorkspaceRequest;
 struct PingRequest;
 struct ProcessInfoRequest;
+struct PutBlobRequest;
 struct PutFrontendProjectionRequest;
 struct PutSessionRequest;
 struct ReadScreenRequest;
@@ -2290,6 +2292,11 @@ struct FrontendProjectionChangedEvent {
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
 };
 
+struct GetBlobRequest {
+    std::string blob{};
+    friend bool operator==(const GetBlobRequest&, const GetBlobRequest&) = default;
+};
+
 struct GetBrowserProviderRequest {
     friend bool operator==(const GetBrowserProviderRequest&, const GetBrowserProviderRequest&) = default;
 };
@@ -3381,6 +3388,12 @@ struct ProviderWorkspaceMutationResult {
     Id workspace{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const ProviderWorkspaceMutationResult&, const ProviderWorkspaceMutationResult&) = default;
+};
+
+struct PutBlobRequest {
+    std::string data{};
+    std::string media_type{};
+    friend bool operator==(const PutBlobRequest&, const PutBlobRequest&) = default;
 };
 
 struct PutFrontendProjectionRequest {
@@ -6649,6 +6662,12 @@ struct Codec<ForgetSessionRequest> {
 };
 
 template <>
+struct Codec<GetBlobRequest> {
+    static Result<Json> encode(const GetBlobRequest& value);
+    static Result<GetBlobRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetBrowserProviderRequest> {
     static Result<Json> encode(const GetBrowserProviderRequest& value);
     static Result<GetBrowserProviderRequest> decode(const Json& value);
@@ -7066,6 +7085,12 @@ template <>
 struct Codec<ProcessInfoRequest> {
     static Result<Json> encode(const ProcessInfoRequest& value);
     static Result<ProcessInfoRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PutBlobRequest> {
+    static Result<Json> encode(const PutBlobRequest& value);
+    static Result<PutBlobRequest> decode(const Json& value);
 };
 
 template <>

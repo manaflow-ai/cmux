@@ -146,6 +146,7 @@ mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
 mod home;
+mod icon_assets;
 mod launch_snapshot;
 mod new_screen;
 mod personal;
@@ -1556,6 +1557,9 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    /// Asset blobs for icons (`icon-assets-v1`, server/icon_assets.rs).
+    PutBlob(icon_assets::PutParams),
+    GetBlob(icon_assets::GetParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -3486,6 +3490,8 @@ fn handle_command_with_cancellation(
         Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
         Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
         Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
+        Command::PutBlob(params) => icon_assets::put(mux, params),
+        Command::GetBlob(params) => icon_assets::get(mux, params),
         Command::ConversationList => conversations::list(mux, client),
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),

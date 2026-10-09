@@ -8,9 +8,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
-use crate::workspace_registry::presentation_store::{
-    validate_presentation_color, validate_presentation_icon,
-};
+use crate::workspace_registry::presentation_store::validate_presentation_color;
 use crate::workspace_registry::screen_store::ScreenPresentationState;
 
 /// A partial screen metadata update: `None` keeps a field, `Some(None)`
@@ -28,7 +26,7 @@ impl ScreenMetaUpdate {
             validate_presentation_color(color)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            validate_presentation_icon(icon)?;
+            crate::workspace_registry::presentation_store::validate_icon_value(icon)?;
         }
         Ok(())
     }
