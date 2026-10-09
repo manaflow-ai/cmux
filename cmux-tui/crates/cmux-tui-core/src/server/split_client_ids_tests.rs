@@ -53,7 +53,9 @@ impl Frontend {
         let tab = self
             .mux
             .surface(surface)
-            .and_then(|surface| surface.resource_identity().map(|identity| identity.tab_id.to_string()))
+            .and_then(|surface| {
+                surface.resource_identity().map(|identity| identity.tab_id.to_string())
+            })
             .expect("surface has a tab identity");
         (pane, tab)
     }
@@ -74,7 +76,7 @@ fn terminal_id(n: u8) -> String {
 
 /// The resource error code of a refused request.
 fn code(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<crate::resource::ResourceError>().map(|error| error.code.clone())
+    error.downcast_ref::<ResourceError>().map(|error| error.code.clone())
 }
 
 #[test]
@@ -169,7 +171,8 @@ fn a_tab_id_that_already_exists_is_refused() {
 fn a_terminal_id_retry_returns_the_first_split() {
     let frontend = Frontend::new();
     let pane = frontend.first_pane();
-    let request = json!({"cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id(4)});
+    let request =
+        json!({"cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id(4)});
     let first = frontend.run(request.clone()).unwrap();
     let panes = frontend.pane_count();
     let retry = frontend.run(request).unwrap();
@@ -183,7 +186,9 @@ fn malformed_client_ids_are_refused_before_anything_is_created() {
     let frontend = Frontend::new();
     let pane = frontend.first_pane();
     let panes = frontend.pane_count();
-    for (field, value) in [("pane_id", "pane_xyz"), ("tab_id", "pane_00000000000000000000000000000001")] {
+    for (field, value) in
+        [("pane_id", "pane_xyz"), ("tab_id", "pane_00000000000000000000000000000001")]
+    {
         let error = frontend
             .run(json!({"cmd": "split", "pane": pane, "dir": "right", field: value}))
             .unwrap_err();

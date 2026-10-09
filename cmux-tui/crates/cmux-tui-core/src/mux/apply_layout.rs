@@ -206,6 +206,7 @@ impl Mux {
                     expected_generation: None,
                     expected_revision: None,
                     on_exit: TerminalOnExit::Close,
+                    tab_id: None,
                     env: Vec::new(),
                 };
                 let surface = self.spawn_surface_in_workspace_reserved(

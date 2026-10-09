@@ -204,6 +204,19 @@ impl Mux {
             }
             let workspace_key = self.workspace_key_for_pane(target);
             let terminal_id = match terminal_id {
+                // A retry of a keyed create names a terminal that exists: the
+                // create replays its first result, so nothing may launch a
+                // second host (or rewrite the record) under that id.
+                Some(terminal_id)
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .terminal_record(&terminal_id.to_hex())?
+                        .is_some() =>
+                {
+                    return Ok(None);
+                }
                 Some(terminal_id) => terminal_id,
                 None => TerminalId::random()?,
             };

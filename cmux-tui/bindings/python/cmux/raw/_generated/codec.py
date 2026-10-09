@@ -92,6 +92,7 @@ MODEL_BY_PATH = {
     'types/NotificationMarker': models.NotificationMarker,
     'types/NotifyResult': models.NotifyResult,
     'types/PaneNeighborResult': models.PaneNeighborResult,
+    'types/PaneSurfaceResult': models.PaneSurfaceResult,
     'types/PingResult': models.PingResult,
     'types/ProcessInfoResult': models.ProcessInfoResult,
     'types/ProviderWorkspaceMutationResult': models.ProviderWorkspaceMutationResult,

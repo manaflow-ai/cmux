@@ -7,7 +7,7 @@ use anyhow::Context;
 use serde_json::{Map, Value};
 
 use super::*;
-use crate::resource::WorkspacePublicId;
+use crate::resource::{TabPublicId, WorkspacePublicId};
 
 /// The mutation a reservation was minted with (`id`, `origin`, `actor`); a
 /// reservation stored before actors existed is `legacy`.
@@ -66,6 +66,14 @@ impl Mux {
         let terminal_id = TerminalId::from_hex(terminal_hex)
             .context("stored terminal reservation has an invalid terminal id")?;
         let mutation = stored_reservation_mutation(stored, "stored terminal reservation")?;
+        // `split-client-keys-v1`: the caller's tab id, fixed at preparation;
+        // a reservation stored before it existed has none.
+        let tab_id = stored
+            .get("tab_id")
+            .and_then(Value::as_str)
+            .map(|tab| TabPublicId::parse(tab.to_string()))
+            .transpose()
+            .context("stored terminal reservation has an invalid tab id")?;
         Ok(TerminalReservationRequest {
             terminal_id,
             mutation,
@@ -81,6 +89,7 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
+            tab_id,
             env: terminal_env_field(&intent["fields"]),
         })
     }

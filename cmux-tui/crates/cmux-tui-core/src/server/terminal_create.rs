@@ -69,29 +69,72 @@ struct PrelaunchRequest {
 
 impl PrelaunchRequest {
     fn of(command: &Command, frontend_shell: bool) -> Option<Self> {
+        // A pane creation adopts the spare only with the new pane's size
+        // (`split_kind::PanePrelaunch`).
+        let pane_prelaunch = match command {
+            Command::Split(params) => params.prelaunch(),
+            Command::NewPaneRight(params) => params.prelaunch(),
+            Command::NewPane { pane, cols, rows, cwd, env, terminal_id, shell_args, .. } => {
+                optional_surface_size(*cols, *rows).map(|size| split_kind::PanePrelaunch {
+                    pane: *pane,
+                    terminal_id: terminal_id.as_ref(),
+                    cwd: cwd.as_ref(),
+                    env: env.as_ref(),
+                    shell_args: shell_args.as_ref(),
+                    size,
+                })
+            }
+            _ => None,
+        };
+        if let Some(prelaunch) = pane_prelaunch {
+            return Self::build(
+                Some(prelaunch.pane),
+                prelaunch.terminal_id,
+                prelaunch.cwd,
+                prelaunch.env,
+                prelaunch.shell_args,
+                Some(prelaunch.size),
+                frontend_shell,
+            );
+        }
         let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
         else {
             return None;
         };
+        Self::build(
+            *pane,
+            terminal_id.as_ref(),
+            cwd.as_ref(),
+            env.as_ref(),
+            shell_args.as_ref(),
+            optional_surface_size(*cols, *rows),
+            frontend_shell,
+        )
+    }
+
+    fn build(
+        pane: Option<PaneId>,
+        terminal_id: Option<&String>,
+        cwd: Option<&String>,
+        env: Option<&BTreeMap<String, String>>,
+        shell_args: Option<&Vec<String>>,
+        size: Option<(u16, u16)>,
+        frontend_shell: bool,
+    ) -> Option<Self> {
         // An invalid caller id is reported by the create itself.
         let terminal_id = match terminal_id {
             Some(hex) => Some(crate::terminal_host::TerminalId::from_hex(hex)?),
             None => None,
         };
         // An invalid environment is reported by the create itself.
-        let env = env
-            .as_ref()
-            .map(crate::mux::validate_terminal_env)
-            .transpose()
-            .ok()?
-            .unwrap_or_default();
+        let env = env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
         Some(Self {
-            pane: *pane,
+            pane,
             terminal_id,
-            cwd: cwd.clone(),
-            argv: shell_argv(&env, shell_args.clone(), frontend_shell),
+            cwd: cwd.cloned(),
+            argv: shell_argv(&env, shell_args.cloned(), frontend_shell),
             env,
-            size: optional_surface_size(*cols, *rows),
+            size,
         })
     }
 
@@ -122,7 +165,11 @@ impl ConnectionSurfaceScheduler {
         writer: &MessageWriter,
     ) -> bool {
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
-        let label = if prelaunch.is_some() { "new-tab" } else { "create" };
+        let label = match (&pending.request.cmd, prelaunch.is_some()) {
+            (Command::NewTab { .. }, true) => "new-tab",
+            (_, true) => "pane-create",
+            _ => "create",
+        };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
@@ -199,10 +246,18 @@ impl ConnectionSurfaceScheduler {
             // A closed connection drops its queued requests unexecuted.
             Some(_) if self.cancelled.is_cancelled() => true,
             Some(mut pending) => {
-                if let (Some(terminal_hex), Command::NewTab { terminal_id, .. }) =
-                    (launched.as_ref(), &mut pending.request.cmd)
-                {
-                    *terminal_id = Some(terminal_hex.clone());
+                if let Some(terminal_hex) = launched.as_ref() {
+                    match &mut pending.request.cmd {
+                        Command::NewTab { terminal_id, .. }
+                        | Command::NewPane { terminal_id, .. } => {
+                            *terminal_id = Some(terminal_hex.clone());
+                        }
+                        Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),
+                        Command::NewPaneRight(params) => {
+                            params.set_terminal_id(terminal_hex.clone())
+                        }
+                        _ => {}
+                    }
                 }
                 run_pending_request(self, mux, client, pending, writer)
             }

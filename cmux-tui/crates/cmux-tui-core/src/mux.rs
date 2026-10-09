@@ -118,6 +118,7 @@ mod browser_tab_create;
 mod closed_workspace_replay;
 #[cfg(test)]
 mod legacy_actor_test_wrappers;
+mod spawn_options;
 #[cfg(test)]
 mod test_actor_wrappers;
 mod test_hooks;
@@ -127,6 +128,8 @@ pub(crate) use browser_tab_create::{
     FRONTEND_BROWSER_ACTIVATE_CAPABILITY, FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
     FrontendTabPlacement, frontend_fields as frontend_browser_fields,
 };
+pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
+pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -559,6 +562,8 @@ struct TerminalReservationRequest {
     expected_generation: Option<String>,
     expected_revision: Option<u64>,
     on_exit: TerminalOnExit,
+    /// `split-client-keys-v1`: the tab id fixed when the creation was prepared.
+    tab_id: Option<TabPublicId>,
     /// Extra environment for this terminal's child only (such as the
     /// frontend user's login-shell environment), applied at spawn. Like
     /// argv and cwd it is kept with the creation receipt in the local state
@@ -595,26 +600,6 @@ pub(crate) fn validate_terminal_env(
 
 /// Internal creation field carrying a caller-chosen terminal host id.
 pub(crate) const RESERVED_TERMINAL_ID_FIELD: &str = "reserved_terminal_id";
-
-/// How to start the terminal a placement command creates.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TerminalSpawnOptions {
-    pub cwd: Option<String>,
-    /// Extra environment for the new terminal's child only.
-    pub env: Vec<(String, String)>,
-    /// Caller-chosen terminal host id (32 lowercase hex, UUIDv4), so the
-    /// caller can put it in `env` before the child starts.
-    pub terminal_id: Option<String>,
-    /// The program and arguments to run instead of the bare default shell
-    /// (`terminal-shell-args-v1` resolves `shell_args` into it).
-    pub argv: Option<Vec<String>>,
-}
-
-impl TerminalSpawnOptions {
-    pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
-        Self { cwd, env, terminal_id: None, argv: None }
-    }
-}
 
 /// Environment pairs stored in a creation's `env` field.
 fn terminal_env_field(fields: &Value) -> Vec<(String, String)> {
