@@ -159,7 +159,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// List the automations of the caller's team.
+    /// List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).
     AutomationListOp {
         name: "automation.list",
         class: Read,
@@ -174,12 +174,19 @@ wire_op! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct AutomationListParams {}
+pub struct AutomationListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AutomationListResult {
     pub owner: Option<TeamId>,
     pub automations: Vec<Automation>,
+    pub automation_count: WireNumber,
+    pub next_cursor: Option<String>,
     pub revision: String,
 }
 

@@ -7,13 +7,17 @@ import {
   AutomationDeliverParams,
   AutomationDeployParams,
   AutomationFireParams,
+  AutomationListParams,
   AutomationSelector,
   AutomationUpdateParams,
   Run,
   RunDispatchedParams,
   RunPolicyApplyParams,
+  RunListParams,
   RunReportParams,
-  RunsListParams
+  RunSelector,
+  RunsListParams,
+  RunWithBody
 } from "./automations.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { TeamId } from "./schemas.ts"
@@ -108,10 +112,10 @@ export const AutomationList = def({
   risk: "read",
   target: "automation",
   principals: ["session", "install"],
-  params: Schema.Struct({}),
-  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), revision: Schema.String }),
+  params: AutomationListParams,
+  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), automation_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "List the automations of the caller's team.",
+  docs: "List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).",
   cli: { path: "automation list", visible: true },
   mcp: { expose: "default", group: "automation" }
 })
@@ -143,6 +147,36 @@ export const AutomationRunsList = def({
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "List recent runs, newest first (the owner keeps every active run and the last 200 finished ones; older history is in the projection).",
   cli: { path: "automation runs", visible: true },
+  mcp: { expose: "default", group: "automation" }
+})
+
+export const RunList = def({
+  name: "run.list",
+  owner: "cloud:SchedulerDO",
+  class: "read",
+  risk: "read",
+  target: "run",
+  principals: ["session", "install"],
+  params: RunListParams,
+  result: Schema.Struct({ runs: Schema.Array(Run), next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).",
+  cli: { path: "run list", visible: true },
+  mcp: { expose: "default", group: "automation" }
+})
+
+export const RunGet = def({
+  name: "run.get",
+  owner: "cloud:SchedulerDO",
+  class: "read",
+  risk: "read",
+  target: "run",
+  principals: ["session", "install"],
+  params: RunSelector,
+  result: RunWithBody,
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
+  docs: "Read one kept run with the body of the automation version that fired it.",
+  cli: { path: "run get", visible: true },
   mcp: { expose: "default", group: "automation" }
 })
 
@@ -211,6 +245,8 @@ export const automationOps = [
   AutomationList,
   AutomationGet,
   AutomationRunsList,
+  RunList,
+  RunGet,
   AutomationWebhookGet,
   AutomationSettingsGet,
   AutomationSettingsSet
@@ -238,5 +274,6 @@ export const schedulerInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("automation.deliver", AutomationDeliverParams, "Internal: a verified webhook delivery for one trigger."),
   internal("run.report", RunReportParams, "Internal: a run's Workflow reports progress."),
   internal("run.dispatched", RunDispatchedParams, "Internal: the run's Workflow instance exists."),
-  internal("scheduler.run_policy", RunPolicyApplyParams, "Internal: TeamDO pushed whether the team allows automation runs (agents.allowedClasses run).")
+  internal("scheduler.run_policy", RunPolicyApplyParams, "Internal: TeamDO pushed whether the team allows automation runs (agents.allowedClasses run)."),
+  internal("scheduler.rows_migrate", Schema.Struct({}), "Internal: moves an old head's automations and runs maps into rows, bodies stored once ((g1), DO audit F-1).")
 ]
