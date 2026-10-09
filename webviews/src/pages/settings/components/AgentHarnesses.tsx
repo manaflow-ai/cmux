@@ -1,6 +1,7 @@
-// Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS H2): every harness acpmux knows,
-// with Check (the doctor's steps inline), Remove (Undo keeps the backup) and Add: one-click rows
-// from the ACP Registry, or a custom command. The host runs each gesture through the same
+// Settings > Agents > Your Agents (BRING-YOUR-OWN-HARNESS H2), after the Harnesses card (cx-mg91)
+// that lists every harness: the profiles you added, with Check (the doctor's steps inline) and
+// Remove (Undo keeps the backup), and Add: one-click rows from the ACP Registry, or a custom
+// command. The host runs each gesture through the same
 // operations as the `agent.harness.*` actions (cmux.settings.agents.run) and sends the list live
 // (cmux.settings.agents.changed) only while this card is mounted. The route's focus opens a panel:
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
@@ -124,12 +125,15 @@ function AgentsBody({
       )}
       {panel && state.manages && <AddPanel state={state} panel={panel} setPanel={setPanel} run={run} />}
       <div className="rows" data-agent-harnesses>
-        {state.harnesses.length === 0 && state.status === "ready" && (
+        {/* Harnesses (cx-mg91) lists every harness; this card shows the ones you added. */}
+        {state.status === "ready" && !state.harnesses.some((row) => row.removable) && (
           <p className="my-2 text-[13px] text-muted">{t("settingsPage.agents.empty")}</p>
         )}
-        {state.harnesses.map((row) => (
-          <HarnessRow key={row.id} row={row} doctor={state.doctor[row.id]} manages={state.manages} run={run} />
-        ))}
+        {state.harnesses
+          .filter((row) => row.removable)
+          .map((row) => (
+            <HarnessRow key={row.id} row={row} doctor={state.doctor[row.id]} manages={state.manages} run={run} />
+          ))}
       </div>
     </>
   );

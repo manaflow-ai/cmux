@@ -11,6 +11,7 @@ export type CategoryCard =
   | "terminalInfo"
   | "ghosttyDiagnostics"
   | "computerUse"
+  | "harnesses"
   | "spaces"
   | "browserProfiles"
   | "machines"
@@ -113,9 +114,9 @@ const SPECS: CategorySpec[] = [
       { group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] },
       { group: "settings.group.computerUse" },
     ],
-    // The harnesses a chat can run (BRING-YOUR-OWN-HARNESS): list, add, check, remove.
-    lead: ["agentHarnesses"],
-    trail: ["computerUse"],
+    // Harnesses (cx-mg91) lists every harness; Add and Manage (BRING-YOUR-OWN-HARNESS) adds,
+    // checks and removes your own.
+    trail: ["harnesses", "agentHarnesses", "computerUse"],
   },
   {
     // A core cmux feature: banners, sounds, the attention ring and the feed for agents,

@@ -27,7 +27,7 @@ import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./pla
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HostLists } from "../pages/settings/ops";
+import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -44,6 +44,8 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
+  /** Settings > Agents > Harnesses; default the mock's four. */
+  harnesses?: HarnessesState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;

@@ -7,6 +7,7 @@ import { AgentHarnesses } from "./AgentHarnesses";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
+import { HarnessesCard } from "./HarnessesCard";
 import { AdvancedInfo, Backdrops, TerminalInfo } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
@@ -21,6 +22,7 @@ const CARDS: Record<CategoryCard, (focus: string | null) => ReactNode> = {
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
   computerUse: () => <ComputerUseCard />,
+  harnesses: () => <HarnessesCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,

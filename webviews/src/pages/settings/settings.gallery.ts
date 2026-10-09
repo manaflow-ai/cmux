@@ -109,6 +109,26 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 Object.assign(variants, {
+  "agents-harnesses-registry": variant("agents", {
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
+        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
+        { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+        { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
+        { id: "grok", name: null, kind: "acp", source: "path", problem: "Authentication required" },
+        { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+      ],
+    },
+  }),
+  "agents-harnesses-unreachable": variant("agents", {
+    note: "Harnesses when the acpmux daemon did not answer.",
+    harnesses: { loading: false, problem: "unreachable", harnesses: [] },
+  }),
   backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {

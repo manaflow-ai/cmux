@@ -12,14 +12,16 @@ const { renderPage, settle, changeValue, ops } = await import("./testing");
 
 const harness = (container: ParentNode, id: string) =>
   container.querySelector<HTMLElement>(`[data-agent-harness="${id}"]`);
+const card = (container: ParentNode) => container.querySelector<HTMLElement>('[data-card="agentHarnesses"]')!;
 const button = (scope: ParentNode, label: string) =>
   [...scope.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === label)!;
 
-test("Settings > Agents lists every harness with its kind and source, and refreshes on open", async () => {
+test("Your Agents shows the profiles you added, beside the full Harnesses list, and refreshes on open", async () => {
   const page = await renderPage({ path: "/settings/agents" });
-  expect(harness(page.container, "claude")?.textContent).toContain("Claude Code");
-  expect(harness(page.container, "claude")?.textContent).toContain("Built-in");
-  expect(harness(page.container, "gemini")?.textContent).toContain("ACP Registry");
+  // Built-in and registry harnesses are the Harnesses card's (cx-mg91); this card has yours.
+  expect(harness(page.container, "claude")).toBeNull();
+  expect(harness(page.container, "gemini")).toBeNull();
+  expect(harness(page.container, "acme-agent")?.textContent).toContain("Your profile");
   expect(harness(page.container, "acme-agent")?.textContent).toContain("the model probe timed out");
   expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "refresh" });
   page.unmount();
@@ -84,12 +86,11 @@ test("Check runs the doctor and shows each step with its fix", async () => {
 
 test("Remove moves a user profile aside and Undo restores it", async () => {
   const page = await renderPage({ path: "/settings/agents" });
-  expect(harness(page.container, "claude")!.textContent).not.toContain("Remove");
   await act(async () => button(harness(page.container, "acme-agent")!, "Remove").click());
   await settle();
   expect(harness(page.container, "acme-agent")).toBeNull();
   expect(page.container.textContent).toContain("Removed acme-agent.");
-  await act(async () => button(page.container, "Undo").click());
+  await act(async () => button(card(page.container), "Undo").click());
   await settle();
   expect(ops(page.provider, "cmux.settings.agents.run").at(-1)).toEqual({
     action: "restore",
@@ -102,10 +103,10 @@ test("Remove moves a user profile aside and Undo restores it", async () => {
 test("an acpmux without the operations shows the CLI and no Add, Check or Remove", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   page.provider.agents.state = { ...page.provider.agents.state, manages: false };
-  await act(async () => button(page.container, "Refresh").click());
+  await act(async () => button(card(page.container), "Refresh").click());
   await settle();
   expect(page.container.querySelector("[data-agents-cli]")?.textContent).toContain("cmux harness add");
-  expect(button(page.container, "Add Agent…")).toBeUndefined();
+  expect(button(card(page.container), "Add Agent…")).toBeUndefined();
   expect(button(harness(page.container, "acme-agent")!, "Remove")).toBeUndefined();
   page.unmount();
 });

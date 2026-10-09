@@ -14,6 +14,7 @@ import {
   scopeData,
   settingsKeys,
   type AccountsData,
+  type HarnessesData,
   type HostData,
   type ScopeData,
   type ThemeColorsData,
@@ -30,6 +31,8 @@ import {
   type AgentsRun,
   type AgentsState,
   type Domains,
+  type HarnessesRun,
+  type HarnessesState,
   type HostLists,
   type ListRow,
   type ManagedInfo,
@@ -62,6 +65,8 @@ export type SettingsState = {
   host: HostLists | null;
   /** The Accounts part; null until read, or when the host has none. */
   accounts: AccountsState | null;
+  /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
+  harnesses: HarnessesState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -76,6 +81,7 @@ export type CacheView = {
   scopeSettled: boolean;
   host: HostData | undefined;
   accounts: AccountsData | undefined;
+  harnesses?: HarnessesData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -102,6 +108,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     domains: scope?.domains ?? emptyDomains,
     host: cache.host ?? null,
     accounts: cache.accounts ?? null,
+    harnesses: cache.harnesses ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -129,6 +136,9 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.host, { queryFn: () => this.native("cmux.settings.host.lists") });
     this.queryClient.setQueryDefaults(settingsKeys.accounts, {
       queryFn: () => this.native("cmux.settings.accounts.state"),
+    });
+    this.queryClient.setQueryDefaults(settingsKeys.harnesses, {
+      queryFn: () => this.native("cmux.settings.harnesses.state"),
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -163,6 +173,9 @@ export class SettingsStore {
       this.listen("cmux.settings.host.changed", (host) => this.queryClient.setQueryData(settingsKeys.host, host)),
       this.listen("cmux.settings.accounts.changed", (accounts) =>
         this.queryClient.setQueryData(settingsKeys.accounts, accounts),
+      ),
+      this.listen("cmux.settings.harnesses.changed", (harnesses) =>
+        this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
       ),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
@@ -284,6 +297,12 @@ export class SettingsStore {
     }
   }
 
+  /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
+  async runHarnesses(run: HarnessesRun): Promise<void> {
+    await this.request("cmux.settings.harnesses.run", run);
+    await this.fetchNative(settingsKeys.harnesses);
+  }
+
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
   async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
     await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
@@ -314,6 +333,7 @@ export class SettingsStore {
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
       host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
+      harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
