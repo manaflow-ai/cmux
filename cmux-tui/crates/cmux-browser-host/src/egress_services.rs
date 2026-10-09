@@ -75,7 +75,7 @@ fn service_refusal(port: u16) -> Option<String> {
 fn service_refusal(port: u16) -> Option<String> {
     let unreadable = || Some(format!("loopback port {port} cannot be checked: lsof failed"));
     let Ok(output) = std::process::Command::new("/usr/sbin/lsof")
-        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
+        .args(["-nPw", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
         .output()
     else {
         return unreadable();
@@ -84,9 +84,11 @@ fn service_refusal(port: u16) -> Option<String> {
         .lines()
         .filter_map(|line| line.strip_prefix('p')?.parse().ok())
         .collect();
-    // lsof exits 1 with no output when nothing listens on the port.
+    // lsof exits 1 with no listener lines when nothing listens on the port;
+    // any other exit without them means it could not look.
     if pids.is_empty() {
-        return (!output.stderr.is_empty() || !output.stdout.is_empty()).then(unreadable).flatten();
+        let nobody = matches!(output.status.code(), Some(0 | 1));
+        return if nobody { None } else { unreadable() };
     }
     for pid in pids {
         let Some(path) = executable_path(pid) else {
