@@ -88,6 +88,12 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
   (the preset's `systemPrompt` on Claude; CLAUDE.md when acpmux takes none;
   AGENTS.md on other harnesses).
+- `zoom("a<N>")` (`chief zoom a<N> [AT]`) gives a subagent's whole chat from
+  its acpmux session, one `i|kind: text` line per entry (its task and later
+  prompts as `user`, replies `talk`, tool calls `tool`, results `echo`; never
+  the view it got), in pages of 30,000 characters that say where to go on.
+  Every report ends with `Full chat: zoom("a<N>")`. Subagents may zoom a
+  subagent too.
 - Subagents get `zoom` and `date` only (`optchat-chief mcp --role subagent`;
   `chief` refuses spawn/tell under `OPTCHAT_SUBAGENT=1`, and the socket refuses
   them from a subagent). Their tool calls stay in their own session.
@@ -743,8 +749,10 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   transcript of it is deleted, and host.log gets one line with the node's
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
   prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
-  most JOBS (8) compactor sessions live at once, main and fallback model
-  together. Nothing pretends to be Claude Code and no API key is involved:
+  most COMPACTOR_SESSIONS (16) compactor sessions live at once, main and
+  fallback model together; the main compactor keeps up to WARM_SESSIONS (4)
+  of them started ahead, so a node prompts a ready Claude Code process (one
+  node per session: each node needs a fresh conversation). Nothing pretends to be Claude Code and no API key is involved:
   the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
@@ -1020,10 +1028,17 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `zoom("Name")`; the mid-turn line says a message interrupts at once.
 - **view.json** is the `memory/checkpoint` state row of the SQLite store,
   written after every message.
-- **Single-flight** waits for the writer's reply, not its first streamed
-  byte (a compaction reply is one line).
-- **Model.** The compactor stays Claude Sonnet 5.5 at medium effort (spec:
-  Haiku at xhigh): untested here.
+- **Single-flight** releases waiting calls at the writer's response start
+  (on acpmux: its first streamed output), and the prefix then counts as
+  written for 5 minutes, so later calls on it go at once.
+- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+  (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
+  `compactor-model` pick another). An account without the model builds
+  with the turn model, logged once. Haiku and the turns' model have
+  separate cache entries, so compactions read only each other's.
+- **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay
+  under 4,000 requests a minute. The acpmux compactor runs at most 16
+  sessions (Claude Code processes on one sticky account); the rest wait.
 - **Long messages.** A message over 200,000 characters is still logged
   whole and cut in its compaction call only (STEP_MESSAGE), not split.
 - **Failed compactions** are retried after the fixed 10 s wait (and at the

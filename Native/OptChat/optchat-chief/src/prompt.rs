@@ -325,6 +325,8 @@ pub fn user_instructions(path: &std::path::Path) -> Option<String> {
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
+/// What zoom adds for subagents (the MCP tool; the native engine has none).
+pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
 /// The turn's user message (spec 6): the view rendered before the new
@@ -353,7 +355,11 @@ mod tests {
         let text = claude_md(None);
         assert!(!text.contains("OptChat"), "the agent is renamed");
         assert!(text.starts_with("You are Chief, an AI agent"));
-        assert!(text.contains("\n# The view\n\nChief's memory: the whole chat between Chief and the user"));
+        assert!(
+            text.contains(
+                "\n# The view\n\nChief's memory: the whole chat between Chief and the user"
+            )
+        );
         assert!(text.contains("before you act, guess or\nask."), "{text}");
         assert!(text.ends_with("read your memory.\n"));
     }

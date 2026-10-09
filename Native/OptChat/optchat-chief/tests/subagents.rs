@@ -15,7 +15,7 @@ use cmux_chief::acp::SessionSummary;
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::subagents::{SPAWN_TAG, SUBAGENT_TAG, Spawner, SubagentSettings};
-use optchat_chief::tools::Orchestrator;
+use optchat_chief::tools::{Call, Orchestrator};
 use optchat_chief::trace::Trace;
 use optchat_chief::workspaces::Workspaces;
 use serde_json::{Value, json};
@@ -251,7 +251,7 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
         reports,
         vec![&(
             "user".to_owned(),
-            "[a1] done: list the files in ~/".to_owned()
+            "[a1] done: list the files in ~/\nFull chat: zoom(\"a1\")".to_owned()
         )],
         "a1's report alone, logged as user: {log:?}"
     );
@@ -265,7 +265,7 @@ fn each_report_reaches_the_chat_as_it_finishes_and_tool_calls_stay_out() {
     let log = s.h.log();
     assert!(
         log.iter()
-            .any(|(k, t)| k == "user" && t == "[a2] done: say the date"),
+            .any(|(k, t)| k == "user" && t == "[a2] done: say the date\nFull chat: zoom(\"a2\")"),
         "{log:?}"
     );
     assert!(
@@ -313,7 +313,10 @@ fn reports_that_arrive_together_go_into_one_turn() {
         .collect();
     assert_eq!(
         reports,
-        vec!["[a1] done: list the files in ~/", "[a2] done: say the date"],
+        vec![
+            "[a1] done: list the files in ~/\nFull chat: zoom(\"a1\")",
+            "[a2] done: say the date\nFull chat: zoom(\"a2\")"
+        ],
         "{log:?}"
     );
     assert_eq!(talks(&log), before + 1, "one turn answers both: {log:?}");
@@ -372,7 +375,7 @@ fn tell_reaches_a_subagent_and_a_later_report_comes_alone() {
     let log = s.h.log();
     assert!(
         log.iter()
-            .any(|(k, t)| k == "user" && t == "[a1] ack more: please"),
+            .any(|(k, t)| k == "user" && t == "[a1] ack more: please\nFull chat: zoom(\"a1\")"),
         "{log:?}"
     );
 }
@@ -465,4 +468,47 @@ fn a_subagents_mcp_server_offers_zoom_and_date_only() {
     )
     .unwrap();
     assert_eq!(answer["result"]["isError"], true);
+}
+
+#[test]
+fn zoom_with_a_subagents_id_gives_its_whole_chat_in_pages() {
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    spawn(&mut s, &["list the files in ~/"]).unwrap();
+    finish(&mut s, "s2", "s1", "a1");
+    s.h.settle();
+    // zoom takes a subagent id where it takes a message id.
+    assert_eq!(
+        Call::parse("zoom", &json!({"id": "a1"})).unwrap(),
+        Call::ZoomAgent {
+            id: "a1".into(),
+            at: 0
+        }
+    );
+    assert_eq!(
+        Call::parse("zoom", &json!({"id": "a1", "at": 40})).unwrap(),
+        Call::ZoomAgent {
+            id: "a1".into(),
+            at: 40
+        }
+    );
+    let chat = call(&mut s, |sp| sp.agent_chat("a1", 0)).unwrap();
+    // Its task, its tool call and result, its reply; never the view it got.
+    assert!(chat.contains("user: Your task:"), "{chat}");
+    assert!(chat.contains("list the files in ~/"), "{chat}");
+    assert!(chat.contains("tool: Bash"), "{chat}");
+    assert!(chat.contains("echo: Desktop"), "{chat}");
+    assert!(chat.contains("talk: done: list the files in ~/"), "{chat}");
+    assert!(!chat.contains("<chat>"), "the view stays out: {chat}");
+    assert!(chat.lines().next().unwrap().starts_with("0|"), "{chat}");
+    // Pages: from character `at`, saying where the text goes on.
+    let page = call(&mut s, |sp| sp.agent_chat_page("a1", 0, 30)).unwrap();
+    assert!(page.contains("zoom(\"a1\", at=30)"), "{page}");
+    let rest = call(&mut s, |sp| sp.agent_chat_page("a1", 30, 100_000)).unwrap();
+    assert!(!rest.contains("at="), "{rest}");
+    assert!(
+        call(&mut s, |sp| sp.agent_chat("a9", 0)).is_err(),
+        "no such subagent"
+    );
 }
