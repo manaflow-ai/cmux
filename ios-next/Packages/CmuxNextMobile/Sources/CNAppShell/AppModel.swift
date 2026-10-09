@@ -90,13 +90,30 @@ public final class AppModel {
         if devScreen == .tabs { shell = .tabs }
         let info = clientInfo(bundle: bundle)
 
+        let model = make(shell: shell, devScreen: devScreen, bundle: bundle, environment: environment, clientInfo: info)
+        #if DEBUG
+        // Captures: `CMUX_NEXT_APPEARANCE=light|dark|system` sets Settings > Appearance.
+        if let raw = environment["CMUX_NEXT_APPEARANCE"], let appearance = AppPreferences.Appearance(rawValue: raw) {
+            model.preferences.appearance = appearance
+        }
+        // `CMUX_NEXT_FORCE_RELAY=1|0` sets Settings > Force relay (TURN).
+        if let raw = environment["CMUX_NEXT_FORCE_RELAY"] {
+            model.preferences.forceRelay = raw == "1"
+            model.relaySwitch?.set(raw == "1")
+        }
+        #endif
+        return model
+    }
+
+    private static func make(shell: Shell, devScreen: DevScreen?, bundle: Bundle, environment: [String: String],
+                             clientInfo info: ClientInfo) -> AppModel {
         if DevScreen.mockEnabled(environment) {
             return mock(shell: shell, devScreen: devScreen, clientInfo: info)
         }
 
         let configuration = BackendConfiguration(bundle: bundle, environment: environment)
             ?? BackendConfiguration(baseURL: URL(string: "https://cmux-next-mobile.debussy.workers.dev")!)
-        let backend = BackendClient(configuration: configuration, tokenStore: KeychainTokenStore())
+        let backend = BackendClient(configuration: configuration, tokenStore: SessionTokenStore())
         let preferences = AppPreferences()
         let signaling = SignalingClient(urlProvider: { try await backend.signalingURL() })
         let relaySwitch = RelaySwitch(preferences.forceRelay)

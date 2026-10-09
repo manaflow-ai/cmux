@@ -20,6 +20,8 @@ settings:
     INFOPLIST_KEY_NSMicrophoneUsageDescription: "Dictate prompts."
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Ghostty's simulator slice is arm64-only.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
     CMUX_NEXT_API_BASE: "https://cmux-next-mobile.debussy.workers.dev"
 packages:
   CmuxNextMobile:
@@ -39,6 +41,8 @@ targetTemplates:
         CFBundleDisplayName: ${displayName}
         CmuxNextAPIBase: $(CMUX_NEXT_API_BASE)
         CmuxNextShell: ${shell}
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:
           - CFBundleURLSchemes: [$(PRODUCT_BUNDLE_IDENTIFIER)]
         UILaunchScreen: {}

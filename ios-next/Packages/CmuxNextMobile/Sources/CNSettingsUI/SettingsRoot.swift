@@ -87,6 +87,7 @@ public struct SettingsRoot: View {
                 Text(actionError ?? "")
             }
         }
+        .tint(.cn(\.ink))
     }
 
     private var apiBase: String { auth.backend.configuration.baseURL.absoluteString }
@@ -153,15 +154,21 @@ public struct SettingsRoot: View {
         let path = connection.pathInfo
         return Section {
             LabeledContent("Status") {
-                Label(summary.title, systemImage: summary.symbol)
-                    .foregroundStyle(summary.tone.color)
+                HStack(spacing: 6) {
+                    Image(systemName: summary.symbol).imageScale(.small)
+                    Text(summary.title)
+                }
+                .foregroundStyle(summary.tone.color)
+                .fixedSize()
             }
-            if let path {
-                LabeledContent("Transport", value: path.transport)
-                if let local = path.localCandidate { LabeledContent("Local candidate", value: local.rawValue) }
-                if let remote = path.remoteCandidate { LabeledContent("Remote candidate", value: remote.rawValue) }
-                if let rtt = path.rttMs { LabeledContent("Round trip", value: "\(Int(rtt.rounded())) ms") }
-            } else if let detail = summary.detail {
+            .accessibilityIdentifier("settings.connectionStatus")
+            // Rows keep a stable identity (placeholder values while not
+            // connected); inserting them conditionally left blank cells.
+            LabeledContent("Transport", value: path?.transport ?? "—")
+            LabeledContent("Local candidate", value: path?.localCandidate?.rawValue ?? "—")
+            LabeledContent("Remote candidate", value: path?.remoteCandidate?.rawValue ?? "—")
+            LabeledContent("Round trip", value: path?.rttMs.map { "\(Int($0.rounded())) ms" } ?? "—")
+            if path == nil, let detail = summary.detail {
                 Text(detail).font(.caption).foregroundStyle(.cn(\.textSecondary))
             }
             Toggle("Force relay (TURN)", isOn: $preferences.forceRelay)

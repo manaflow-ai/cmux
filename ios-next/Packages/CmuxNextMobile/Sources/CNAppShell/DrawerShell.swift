@@ -9,8 +9,8 @@ import SwiftUI
 struct DrawerShell: View {
     let model: AppModel
     @State private var drawer = DrawerState()
-    @State private var destination: ShellDestination = .home
-    @State private var visited: Set<ShellDestination> = [.home]
+    @State private var destination: ShellDestination = .initial
+    @State private var visited: Set<ShellDestination> = [.initial]
     @State private var route: CNShellRoute?
 
     var body: some View {

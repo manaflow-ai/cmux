@@ -89,7 +89,7 @@ case "$cmd" in
     [[ "$cmd" == run ]] && build
     ensure_sim
     envstr=""
-    for e in "${envs[@]+"${envs[@]}"}"; do envstr+="SIMCTL_CHILD_${e} "; done
+    for e in "${envs[@]+"${envs[@]}"}"; do envstr+="SIMCTL_CHILD_${e%%=*}=$(printf '%q' "${e#*=}") "; done
     remote "
       set -e
       udid=\$(cat ~/$R/sim.udid)

@@ -8,7 +8,7 @@ import SwiftUI
 /// iOS 26 minimize-on-scroll tab bar and a bottom accessory for status.
 struct TabsShell: View {
     let model: AppModel
-    @State private var selection: ShellDestination = .home
+    @State private var selection: ShellDestination = .initial
 
     var body: some View {
         let roots = ModuleRoots(model: model)
