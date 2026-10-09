@@ -182,6 +182,44 @@ describe("T3 model picker", () => {
     expect(doc.activeElement).toBe(input);
   });
 
+  test("returning to an aliased harness rail preserves its highlighted model", async () => {
+    const value = snapshot();
+    value.summary = { ...value.summary!, harness: "claude-sr", model: "claude-opus-5-5" };
+    await render(value);
+    await act(async () => modelButton().click());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    const current = () => modelRows().find((row) => row.getAttribute("aria-checked") === "true");
+    expect(current()?.querySelector(".acpmux-menu-label")?.textContent).toBe("Opus 5.5");
+    expect(current()?.getAttribute("aria-selected")).toBe("true");
+    await key(input, "ArrowLeft");
+    expect(current()?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("scrolls the highlighted model into view when a large picker opens", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = Array.from({ length: 20 }, (_, index) => ({
+      id: `model-${index}`,
+      name: `Model ${index}`,
+    }));
+    value.summary = { ...value.summary!, model: "model-15" };
+    const original = dom.window.HTMLElement.prototype.scrollIntoView;
+    const scrolled: string[] = [];
+    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value(this: HTMLElement) {
+        scrolled.push(this.textContent ?? "");
+      },
+    });
+    try {
+      await render(value);
+      await act(async () => modelButton().click());
+      expect(scrolled.some((text) => text.includes("Model 15"))).toBe(true);
+    } finally {
+      if (original) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollIntoView", { value: original });
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    }
+  });
+
   test("selecting a model with Enter restores focus to the model trigger", async () => {
     await render();
     await act(async () => modelButton().click());

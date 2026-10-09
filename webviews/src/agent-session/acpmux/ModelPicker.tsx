@@ -310,6 +310,11 @@ export function ModelPicker(props: ModelPickerProps) {
   useLayoutEffect(() => {
     if (open) search.current?.focus();
   }, [open]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const activeRow = menu.current?.querySelector<HTMLElement>(".acpmux-mp-models .acpmux-mp-active");
+    if (activeRow && typeof activeRow.scrollIntoView === "function") activeRow.scrollIntoView({ block: "nearest" });
+  }, [active, open, query, selectedHarness, visible.length]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -405,7 +410,12 @@ export function ModelPicker(props: ModelPickerProps) {
     if (index === 0) showTab(STARRED, -1);
     else {
       const entry = harnesses[index - 1];
-      if (entry) showTab(entry.id, index - 1);
+      if (entry) {
+        // Catalog aliases (for example `claude-sr`) share one visible rail entry. Merely moving
+        // focus back from search must not normalize that raw id and reset the highlighted model.
+        if (!entry.ids.includes(selectedHarness ?? "")) showTab(entry.id, index - 1);
+        else setActiveHarness(index - 1);
+      }
     }
     menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-rail")[index]?.focus();
   };
