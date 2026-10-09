@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { ABSENT, agentCredentials, authenticatedReplay, extractRequests, generate, newestSpec, pathTemplate, readGaps, readReview, relate, replay, shapeProblems, SPEC_DIR, structShape, webRevisions, type Review, type Spec } from "../cmux-old.ts"
+import { ABSENT, agentCredentials, authenticatedReplay, loadCredentials, extractRequests, generate, newestSpec, pathTemplate, readGaps, readReview, relate, replay, shapeProblems, SPEC_DIR, structShape, webRevisions, type Review, type Spec } from "../cmux-old.ts"
 import { compatProblems } from "../compat.ts"
 import { writeReceipt } from "../receipts.ts"
 import { REPO_ROOT } from "../trees.ts"
@@ -258,6 +258,23 @@ describe("agent credentials", () => {
       expect(String(e)).not.toContain("pw-value")
     }
     expect(() => agentCredentials({}, "CMUX_DOGFOOD_STACK_EMAIL=a\nCMUX_DOGFOOD_STACK_PASSWORD=b\n")).toThrow(/CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD/)
+  })
+})
+
+describe("the agent credentials file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cmuxold-creds-"))
+  const personal = join(dir, "cmuxterm-dev.env")
+  const legacy = join(dir, "cmux.env")
+  writeFileSync(personal, "CMUX_DOGFOOD_STACK_EMAIL=me@example.com\nCMUX_UITEST_STACK_EMAIL=me@example.com\nCMUX_UITEST_STACK_PASSWORD=p1\n")
+  writeFileSync(legacy, "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASSWORD=p2\n")
+  it("CMUX_RELEASE_AGENT_CREDENTIALS names the file; an explicit file wins over it", () => {
+    expect(loadCredentials({ CMUX_RELEASE_AGENT_CREDENTIALS: legacy }, undefined, personal)).toEqual({ email: "agent@example.com", password: "p2" })
+    expect(() => loadCredentials({ CMUX_RELEASE_AGENT_CREDENTIALS: legacy }, personal, personal)).toThrow(/personal profile/)
+  })
+  it("refuses an agent file whose email is the personal one, even when that file names no personal profile", () => {
+    const same = join(dir, "same.env")
+    writeFileSync(same, "CMUX_UITEST_STACK_EMAIL=ME@example.com\nCMUX_UITEST_STACK_PASSWORD=p3\n")
+    expect(() => loadCredentials({ CMUX_RELEASE_AGENT_CREDENTIALS: same }, undefined, personal)).toThrow(/personal profile/)
   })
 })
 
