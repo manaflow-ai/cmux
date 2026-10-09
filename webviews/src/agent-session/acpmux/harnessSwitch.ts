@@ -351,6 +351,12 @@ export class HarnessSwitch {
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
   /// its queued prompts go back to the composer.
+  /// The New Tab page closed (cx-e2aa): a switch a pick started behind it, never shown because no
+  /// prompt went, ends and its session is discarded. A shown switch is the chat's own.
+  cancelDeferred(): void {
+    if (this.intent && !this.intent.shown) this.cancel();
+  }
+
   cancel(): void {
     const intent = this.intent;
     if (intent) {
@@ -554,6 +560,17 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
+/// The model a new chat on `harness` starts on before anything is picked: what a session acpmux
+/// last started there reported, else its last session's, else the catalog's first.
+export function defaultModel(
+  harness: string,
+  catalog: Catalog,
+  profiles: HarnessProfiles = harnessProfiles,
+): string | undefined {
+  const profile = profiles.get(harness);
+  return profile?.startModel ?? profile?.model ?? catalog.find((entry) => entry.id === harness)?.models[0]?.id;
+}
+
 export function applySwitch(
   raw: AcpmuxSnapshot,
   view: SwitchView,
@@ -572,12 +589,7 @@ export function applySwitch(
   const live = attached ? raw.summary : undefined;
   const profile = profiles.get(intent.harness);
   const config = intent.config;
-  const predicted =
-    config.model ??
-    live?.model ??
-    profile?.startModel ??
-    profile?.model ??
-    catalog.find((entry) => entry.id === intent.harness)?.models[0]?.id;
+  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles);
   const modes = live?.modes ?? profile?.modes;
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),

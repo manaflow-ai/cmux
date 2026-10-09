@@ -19,6 +19,9 @@ extension AgentPaneView {
         show(page)
     }
 
+    /// Closing as a New Tab page: the page discards a chat a chip pick started behind it, never sent (cx-e2aa).
+    public func discardUnsentChat() { if model.newTab != nil { evaluateScript("window.dispatchEvent(new Event('acpmux-newtab-close'))") } }
+
     private func show(_ page: AgentPaneNewTab) {
         guard model.newTab == page, let data = try? JSONEncoder().encode(page),
               let json = String(data: data, encoding: .utf8) else { return }

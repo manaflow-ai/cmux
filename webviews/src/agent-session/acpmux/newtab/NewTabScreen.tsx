@@ -5,6 +5,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { ChatCards } from "./ChatCards";
+import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import {
   defaultHarness,
@@ -104,7 +105,16 @@ export function NewTabScreen(props: Props) {
     () =>
       snapshot.summary?.harness || !harness
         ? snapshot
-        : { ...snapshot, summary: { ...snapshot.summary, sessionId: snapshot.summary?.sessionId ?? "", harness } },
+        : {
+            ...snapshot,
+            summary: {
+              ...snapshot.summary,
+              sessionId: snapshot.summary?.sessionId ?? "",
+              harness,
+              // The agent's default model, named on the chip (its own "default" when none is known yet).
+              model: defaultModel(harness, snapshot.catalog) ?? "default",
+            },
+          },
     [snapshot, harness],
   );
   const rows = useMemo(

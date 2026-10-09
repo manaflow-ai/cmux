@@ -8,12 +8,14 @@ final class NewTabInputCoordinator {
 
     init(router: KeyRouter) { self.router = router }
 
-    func begin(for pane: PaneController) -> String? {
+    /// `omnibar`: the keys go to the page's omnibar (Cmd-L, cx-e2aa), else to its field.
+    func begin(for pane: PaneController, omnibar: Bool = false) -> String? {
         guard let router, let window = pane.view.window, buffers[window.windowNumber] == nil else { return nil }
         let buffer = NewTabInputBuffer(focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey,
                   pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window else { return false }
+            if omnibar { return NewTabOmnibar.focus(in: view) }
             return window.makeFirstResponder(view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
