@@ -30,7 +30,8 @@ final class SplitRecord: Sendable {
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.splitClientKeys])
+                let caps = (DaemonCapabilities.shared.required + [DaemonCapabilities.shared.splitClientKeys,
+                                                        DaemonCapabilities.shared.terminalPlacementEnv])
                     .map { "\"\($0)\"" }.joined(separator: ",")
                 return [#"{"id":\#(id),"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"3412812eae76","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":0}}"#]
             case "list-workspaces":
