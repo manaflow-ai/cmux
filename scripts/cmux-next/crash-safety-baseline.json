@@ -54,8 +54,7 @@
    "CmuxIrxTransport": 30,
    "CmuxNextControl": 18,
    "CmuxNextDaemon": 54,
-   "CmuxNextMobile": 5,
-   "CmuxTerminalSizing": 5,
+   "CmuxNextMobile": 1,
    "MessagesLabHome": 270
   },
   "int_conversion": {
@@ -64,7 +63,7 @@
    "CmuxIrxTransport": 43,
    "CmuxNextControl": 5,
    "CmuxNextDaemon": 3,
-   "CmuxNextMobile": 5,
+   "CmuxNextMobile": 1,
    "MessagesLabHome": 48
   },
   "render_font": {
