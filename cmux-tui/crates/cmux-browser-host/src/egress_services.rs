@@ -173,7 +173,7 @@ fn run_lsof(port: u16) -> Lsof {
     // the caller's wait for both is bounded by the deadline. A late lsof is
     // killed by pid (only while not reaped, so the pid is still its own).
     let pid = child.id() as libc::pid_t;
-    let reaped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reaped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let done = reaped.clone();
     let (sent, received) = std::sync::mpsc::channel();
     let reader = std::thread::Builder::new().name("lsof-reader".into()).spawn(move || {
