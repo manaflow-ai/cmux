@@ -1983,6 +1983,26 @@
      "nullable": true,
      "since": 12,
      "capability": "launch-snapshot-v1"
+    },
+    "build_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
+    },
+    "cli_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "daemon-build-v1"
     }
    },
    "additional_properties": false

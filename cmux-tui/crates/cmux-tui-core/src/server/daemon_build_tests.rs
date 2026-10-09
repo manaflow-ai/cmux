@@ -26,6 +26,6 @@ fn identify_reports_the_daemon_build_id_and_its_cli_path() {
 
 #[test]
 fn a_cli_path_that_is_not_absolute_is_never_reported() {
-    assert!(DaemonBuild::new("x", std::path::PathBuf::from("bin/cmux")).cli_path().is_none());
-    assert!(DaemonBuild::new("x", std::path::PathBuf::from("/a/cmux")).cli_path().is_some());
+    assert!(DaemonBuild::new("x", PathBuf::from("bin/cmux")).cli_path().is_none());
+    assert!(DaemonBuild::new("x", PathBuf::from("/a/cmux")).cli_path().is_some());
 }

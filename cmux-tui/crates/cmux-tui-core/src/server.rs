@@ -186,6 +186,8 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+mod daemon_build;
+pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -5404,10 +5406,13 @@ fn handle_command_with_cancellation(
         Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
+            let (build_id, cli_path) = daemon_build::identify_build_fields();
             Ok(json!({
                 "app": "cmux-tui",
                 "version": env!("CARGO_PKG_VERSION"),
                 "build_commit": stamped_build_commit(),
+                "build_id": build_id,
+                "cli_path": cli_path,
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
                 "capabilities": identify_capabilities(mux),

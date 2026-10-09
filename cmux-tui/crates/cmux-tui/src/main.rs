@@ -1646,6 +1646,17 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
+/// Records this daemon's build id and its own binary (which is also its CLI)
+/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
+/// path cannot be resolved reports its build id only.
+fn install_daemon_build() {
+    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
+        build_id, cli_path,
+    ));
+}
+
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -2095,6 +2106,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
+    install_daemon_build();
     owner_start::prepare(args.ephemeral, args.state.is_some())?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
