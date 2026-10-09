@@ -12708,7 +12708,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // second time here. Browser-only follow-ups still need one pass to
         // materialize their portal anchor before readiness is checked.
         if !layoutFollowUpNeedsGeometryPass,
-           layoutFollowUpBrowserPanelId != nil {
+           (layoutFollowUpBrowserPanelId != nil ||
+            layoutFollowUpTerminalFocusPanelId != nil) {
             flushWorkspaceWindowLayouts()
         }
 
