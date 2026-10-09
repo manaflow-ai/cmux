@@ -66,6 +66,15 @@ import Testing
         #expect(store.sidebarSections.map { $0.workspaces.map(\.name) } == [["d"], ["a", "b", "c"]])
     }
 
+    /// A negative section index places the workspace first in the section,
+    /// as a negative move index does (it used to index members[-1] and trap).
+    @Test func aNegativeSectionIndexPlacesFirstInTheSection() throws {
+        let (store, _) = try grouped()
+        store.intend(.placeWorkspace(key: "b", group: "g1", index: -1), transaction: "tx")
+        #expect(order(store) == ["b", "a", "c", "d"])
+        #expect(store.workspace(key: "b")?.group == "g1")
+    }
+
     @Test func aRejectedReorderRestoresTheOrderAndTellsTheWindows() throws {
         let (store, _) = try grouped()
         var lists = 0
