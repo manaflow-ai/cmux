@@ -164,7 +164,8 @@ enum AgentHandlers {
     private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
         guard let view = focusedAgentView(context, invocation) else { return }
-        let next = min(max(Double(context.design.agentPaneZoom) + delta,
+        let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
+        let next = min(max(current + delta,
                            AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
         context.design.agentPaneZoom = CGFloat(next)
         view.zoom = next

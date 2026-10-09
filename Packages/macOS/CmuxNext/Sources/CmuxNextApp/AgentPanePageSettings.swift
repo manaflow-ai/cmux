@@ -31,6 +31,7 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        // task-owner: lives as long as the tabs; event-driven (Observation)
         zoomObservation = Task { [weak self] in
             for await value in Observations({ settings.snapshot.agentPaneZoom }) {
                 guard let self else { return }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 import WebKit
 

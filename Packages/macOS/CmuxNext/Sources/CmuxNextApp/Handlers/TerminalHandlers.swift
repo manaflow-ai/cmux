@@ -23,11 +23,6 @@ enum TerminalHandlers {
         guard let entry = ctx.terminal(invocation) else { return }
         if !entry.session.surfaceView.performBindingAction(binding) {
             ctx.refuse(RefusalStrings.ghosttyRejected(String(describing: binding)))
-        } else if binding == "increase_font_size:1" || binding == "decrease_font_size:1" || binding == "reset_font_size" {
-            // Ghostty owns the exact font level. The transient readout confirms the focused
-            // surface changed without duplicating that state in cmux settings.
-            let scale = TerminalFontScale(entry.session.surfaceView).current ?? 1
-            SurfaceZoomIndicator.show(percent: Int((scale * 100).rounded()), in: ctx.services.windows.active?.window)
         }
     }
 
