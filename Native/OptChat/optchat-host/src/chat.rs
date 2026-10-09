@@ -75,6 +75,10 @@ pub struct Status {
     /// Nodes with a model call running or waiting to retry.
     pub busy: Vec<NodeId>,
     pub failures: Vec<Failure>,
+    /// Failing nodes turns no longer wait for (a repeating request error).
+    pub stuck: Vec<NodeId>,
+    /// Every stuck node was built since the last one got stuck.
+    pub recovered: bool,
     pub fatal: Option<String>,
     pub closed: bool,
 }
@@ -222,6 +226,8 @@ impl OptChat {
                 store,
                 appended: 0,
                 failing: BTreeMap::new(),
+                stuck: Default::default(),
+                recovered: false,
                 closed: false,
                 fatal: None,
                 reports: Vec::new(),
@@ -449,8 +455,18 @@ impl OptChat {
 
     /// Blocks until every view line is a summary (section 6), woken on every
     /// change. False if canceled, timed out, shut down or stopped by a failed write.
+    /// A view line whose node is stuck (its call fails with a request error
+    /// that repeats on every try) does not hold the turn: the turn reads it
+    /// unbuilt (`PLACEHOLDER`, which `zoom` opens) rather than wait forever.
     pub fn settle(&self, cancel: Option<&Cancel>, timeout: Option<Duration>) -> bool {
-        self.wait(cancel, timeout, |st| st.memory.settled())
+        self.wait(cancel, timeout, |st| {
+            st.memory.settled()
+                || st
+                    .memory
+                    .view()
+                    .iter()
+                    .all(|p| st.memory.is_built(*p) || st.stuck.contains(p))
+        })
     }
 
     /// Blocks until the compactor has nothing running or waiting to retry and
@@ -567,6 +583,8 @@ impl OptChat {
                     error: error.clone(),
                 })
                 .collect(),
+            stuck: st.stuck.iter().copied().collect(),
+            recovered: st.recovered,
             fatal: st.fatal.clone(),
             closed: st.closed,
         }

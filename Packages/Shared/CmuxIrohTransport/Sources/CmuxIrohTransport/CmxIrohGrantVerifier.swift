@@ -267,7 +267,10 @@ public struct CmxIrohGrantVerifier: Sendable {
         guard let selected = keySet.keys.first(where: { $0.kid == id }) else {
             throw CmxIrohGrantVerifierError.unknownKeyID
         }
-        let der = Data(base64Encoded: selected.spkiDerBase64)!
+        // The loop above already decoded every key; a failed decode here refuses the set.
+        guard let der = Data(base64Encoded: selected.spkiDerBase64) else {
+            throw CmxIrohGrantVerifierError.invalidKeySet
+        }
         do {
             return try Curve25519.Signing.PublicKey(
                 rawRepresentation: der.suffix(32)

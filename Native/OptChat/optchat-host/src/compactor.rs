@@ -4,7 +4,7 @@
 //! chat's lock while the model runs.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
@@ -28,6 +28,11 @@ pub struct State {
     pub appended: u64,
     /// Nodes whose last call failed, with their first error.
     pub failing: BTreeMap<NodeId, String>,
+    /// Failing nodes whose error repeats on every try (a request error):
+    /// settle does not wait for them.
+    pub stuck: BTreeSet<NodeId>,
+    /// Every stuck node built since the last one got stuck.
+    pub recovered: bool,
     pub closed: bool,
     /// Set by a failed write; the chat stops writing until a restart.
     pub fatal: Option<String>,
@@ -325,6 +330,9 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
                 return shared.unlock(st);
             }
             st.failing.remove(&node);
+            if st.stuck.remove(&node) && st.stuck.is_empty() {
+                st.recovered = true;
+            }
             {
                 let s = &mut *st;
                 if let Err(e) = s.memory.complete_in(node, &text, &s.store) {
@@ -336,6 +344,7 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         }
         Err(e) => e,
     };
+    let class = crate::model::error_class(&error.message).filter(|c| c.permanent());
     if !st.failing.contains_key(&node) {
         st.reports.push(Report::NodeFailed {
             node,
@@ -343,9 +352,22 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         });
         st.failing.insert(node, error.message);
     }
+    if let Some(class) = &class {
+        if st.stuck.insert(node) {
+            st.recovered = false;
+            st.reports.push(Report::NodeStuck {
+                node,
+                class: class.to_string(),
+            });
+        }
+    }
     shared.changed.notify_all();
     shared.unlock(st);
-    shared.clock.sleep(shared.retry);
+    shared.clock.sleep(if class.is_some() {
+        crate::STUCK_RETRY
+    } else {
+        shared.retry
+    });
     let mut st = shared.lock();
     if !st.writable() {
         return;

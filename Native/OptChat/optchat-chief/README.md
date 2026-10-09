@@ -105,7 +105,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   the subagent finishes, the workspace is renamed `✓ a<N> · <task>` (daemon
   `rename-workspace` by key); it runs again, the mark goes. Closing the
   workspace or tab only detaches; the session is never killed by the host.
-  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off.
+  `OPTCHAT_SUBAGENT_WORKSPACES=0` turns workspaces off;
+  `OPTCHAT_SUBAGENT_ON_FINISH=close` closes a finished subagent's workspace
+  (daemon `close-workspace` by key, into the closed history) instead of the
+  done mark.
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
   daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
@@ -131,6 +134,19 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   reports `[a<N>] (stopped by the user) ...` quietly: the next turn logs it,
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
+
+- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
+  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
+  subagent starts, with the view of that moment and its task, when another
+  finishes. The queue lives in the host's memory: a host that restarts
+  reports a still-queued subagent as not started.
+- A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
+  after the view, before its new messages (never logged).
+- `chief.stop` stops the running turn and every subagent at work
+  (`session/cancel` on each; their reports come quiet) and drops the queued
+  ones; it answers `{"stopped": true, "subagents": [...]}`.
+- A subagent prompt the harness fails ends that run with `[a<N>] (failed:
+  <error>)`, never a subagent that waits forever.
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
@@ -625,7 +641,9 @@ through it. Two rules keep that true:
   (a human reply 5 to 60 minutes later still reads the view), and each turn
   writes `promptCacheTtl` into the session directory's Claude Code project
   settings so Claude Code's own marks match. `OPTCHAT_CACHE_TTL` (`5m` or
-  `1h`) at host start, else the Chief setting `cache.ttl`
+  `1h`) at host start (Claude Code's own `FORCE_PROMPT_CACHING_5M` or
+  `CLAUDE_CODE_PROMPT_CACHE_TTL` in the host env win over it, since every
+  turn's harness inherits them), else the Chief setting `cache.ttl`
   (`optchat-chief settings set cache.ttl 5m`, from the next turn), picks
   another TTL. The native engine (a direct API call) defaults to 5 minutes
   and reads the same two at host start. A route that refuses the 1-hour TTL
