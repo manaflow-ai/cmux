@@ -544,6 +544,35 @@ fn a_cef_tabs_open_with_a_url_navigates_the_blank_tab_through_cdp() {
     assert_eq!(navigations[0]["params"]["url"], "https://b.test/page");
 }
 
+/// An agent's `tabs.close` on a tab its own session opened closes it the
+/// way the session's end would (a store close kept out of Reopen Closed),
+/// for either engine. A tab the session did not open belongs to the
+/// person's layout: a Chromium session closes nothing there. Before, every
+/// Chromium `tabs.close` reached the WebKit driver and failed (no tab).
+#[test]
+fn a_cef_session_closes_the_tab_it_opened_and_nothing_else() {
+    let (app, provider) =
+        FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef"), tab("C2", "cef")]);
+    app.access(&provider, "C2");
+    let cef = engine(&provider, "cef");
+    cef.call("tabs.open", &json!({})).unwrap();
+    assert_eq!(cef.call("tabs.close", &json!({"targetId": "new"})).unwrap(), Value::Null);
+    assert_eq!(cef.call("tabs.close", &json!({"targetId": "C2"})).unwrap(), Value::Null);
+    let closes: Vec<Value> = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.close" => Some(params.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closes.len(), 1, "only the session's own tab closes: {closes:?}");
+    assert_eq!(closes[0]["targetId"], "new");
+    assert_eq!(closes[0]["reason"], "session_end");
+}
+
 /// A WebKit session's URL still goes to the app (its driver navigates).
 #[test]
 fn a_webkit_tabs_open_passes_the_url_to_the_app() {
