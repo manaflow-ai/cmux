@@ -60,6 +60,29 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     guarded(&resolved, &homes).and_then(refused)
 }
 
+/// The folder for agents acpmux starts with no person asking (the model
+/// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
+/// empty of the person's files. Never the home folder: an agent scans its
+/// folder at start. When the acpmux home itself is guarded, a folder in the
+/// per-user temp dir. Created if missing.
+pub fn unattended_cwd() -> PathBuf {
+    unattended_cwd_in(&crate::config::home(), dirs::home_dir().as_deref())
+}
+
+/// `unattended_cwd` for an acpmux home and a user home folder.
+pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
+    let own = acpmux_home.join("unattended");
+    let dir = if refusal_in(&own, home).is_none() {
+        own
+    } else {
+        std::env::temp_dir().join("acpmux-unattended")
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
+    }
+    dir
+}
+
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
     let folded = fold(path);
     if folded == "/" {
@@ -130,6 +153,21 @@ mod tests {
             assert_eq!(refusal_in(Path::new(cwd), Some(home)), None, "{cwd} must be allowed");
         }
         assert!(refusal_in(Path::new("relative"), Some(home)).is_some());
+    }
+
+    #[test]
+    fn the_unattended_folder_is_acpmux_own_and_never_guarded() {
+        let root = std::env::temp_dir().join(format!("acpmux-unattended-{}", uuid::Uuid::now_v7()));
+        let home = root.join("me");
+        let dir = unattended_cwd_in(&home.join(".acpmux"), Some(&home));
+        assert_eq!(dir, home.join(".acpmux/unattended"));
+        assert!(dir.is_dir());
+        assert_eq!(refusal_in(&dir, Some(&home)), None);
+        // An acpmux home inside Documents: the folder moves out of it.
+        let guarded = unattended_cwd_in(&home.join("Documents/acpmux"), Some(&home));
+        assert!(!guarded.starts_with(home.join("Documents")), "{}", guarded.display());
+        assert_eq!(refusal_in(&guarded, Some(&home)), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(unix)]

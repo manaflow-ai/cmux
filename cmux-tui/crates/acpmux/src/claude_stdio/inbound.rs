@@ -278,6 +278,7 @@ impl Translator {
                                 Setting::Mode => *self.mode.lock().await = value,
                                 Setting::Model => *self.model.lock().await = value,
                                 Setting::Effort => *self.effort.lock().await = value,
+                                Setting::Fast => *self.fast.lock().await = value == "on",
                             }
                         }
                         let mode = self.mode.lock().await.clone();
