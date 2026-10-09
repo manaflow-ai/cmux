@@ -2714,7 +2714,7 @@ jobs:
           else
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "### Pending nightly-next notarizations" >> "$GITHUB_STEP_SUMMARY"
-            echo "$candidates" | python3 -c 'import json, sys; [print(f"- run {c[\"run_id\"]} build {c[\"build\"]}") for c in json.load(sys.stdin)]' >> "$GITHUB_STEP_SUMMARY"
+            echo "$candidates" | python3 -c 'import json, sys; [print("- run %s build %s" % (c["run_id"], c["build"])) for c in json.load(sys.stdin)]' >> "$GITHUB_STEP_SUMMARY"
           fi
 
   recover-nightly-next-notarization:
@@ -2818,7 +2818,7 @@ jobs:
             echo "### Continued nightly-next run $run_id (build $BUILD, $BUILD_SHA): Apple accepted it" >> "$GITHUB_STEP_SUMMARY"
             echo "::endgroup::"
             exit 0
-          done < <(echo "$CANDIDATES" | python3 -c 'import json, sys; [print(f"{c[\"run_id\"]}\t{c[\"artifact\"]}") for c in json.load(sys.stdin)]')
+          done < <(echo "$CANDIDATES" | python3 -c 'import json, sys; [print("%s\t%s" % (c["run_id"], c["artifact"])) for c in json.load(sys.stdin)]')
           echo "accepted=false" >> "$GITHUB_OUTPUT"
           echo "No pending nightly-next notarization was accepted; nothing to continue." >> "$GITHUB_STEP_SUMMARY"
 

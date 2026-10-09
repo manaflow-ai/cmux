@@ -315,6 +315,8 @@ struct Live {
     /// The slot's preset, and the system prompt this node set in it.
     preset: String,
     system: Option<String>,
+    /// The node's first message carries our mark (Claude Code's own off).
+    ours: bool,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -493,7 +495,7 @@ impl AcpmuxCompactor {
     /// harness shares one directory across slots: codex names the cwd in
     /// its environment context, ahead of the prompt, so one cwd keeps the
     /// request prefix identical from node to node.
-    fn slot_dir(&self, slot: usize, ttl: CacheTtl) -> io::Result<PathBuf> {
+    fn slot_dir(&self, slot: usize, ttl: CacheTtl, ours: bool) -> io::Result<PathBuf> {
         private_dir(&self.spec.work)?;
         let dir = if self.claude() {
             self.spec.work.join(format!("slot-{slot}"))
@@ -508,6 +510,7 @@ impl AcpmuxCompactor {
         write_settings_for(
             &dir.join(".claude").join("settings.json"),
             ttl,
+            ours,
             &self.spec.user_env,
         )?;
         std::fs::canonicalize(&dir)
@@ -515,11 +518,13 @@ impl AcpmuxCompactor {
 
     /// What a warm session must match for a node: its system prompt and the
     /// model sessions start with now.
-    fn warm_key(&self, system: Option<&str>, ttl: CacheTtl) -> u64 {
+    fn warm_key(&self, system: Option<&str>, ttl: CacheTtl, ours: bool) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&system, &mut h);
         // A warm session's Claude Code read its slot's TTL when it started.
         std::hash::Hash::hash(ttl.as_str(), &mut h);
+        // ...and whether Claude Code's own marks were off (DISABLE).
+        std::hash::Hash::hash(&ours, &mut h);
         std::hash::Hash::hash(&self.model(), &mut h);
         std::hash::Hasher::finish(&h)
     }
@@ -533,12 +538,13 @@ impl AcpmuxCompactor {
         node: NodeId,
         system: Option<&str>,
         ttl: CacheTtl,
+        ours: bool,
     ) -> Result<String, ModelError> {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
         self.reap_warm();
-        let key = self.warm_key(system, ttl);
+        let key = self.warm_key(system, ttl, ours);
         let (id, slot, cwd, preset) = match self.slots.acquire((self.warm > 0).then_some(key)) {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
@@ -551,7 +557,7 @@ impl AcpmuxCompactor {
                     Acquired::Warm(_) => unreachable!(),
                 };
                 let name = self.session_name(node);
-                match self.start(slot, &name, system, &admitted, ttl) {
+                match self.start(slot, &name, system, &admitted, ttl, ours) {
                     Ok((id, cwd, preset)) => (id, slot, cwd, preset),
                     Err(e) => {
                         self.slots.give(slot);
@@ -572,6 +578,7 @@ impl AcpmuxCompactor {
                     cwd,
                     preset,
                     system: system.map(str::to_owned),
+                    ours,
                     opened: Instant::now(),
                     prompts: 0,
                     usage: None,
@@ -605,8 +612,9 @@ impl AcpmuxCompactor {
         system: Option<&str>,
         admitted: &crate::harness_gate::Admitted,
         ttl: CacheTtl,
+        ours: bool,
     ) -> Result<(String, PathBuf, String), ModelError> {
-        let cwd = self.slot_dir(slot, ttl).map_err(|e| {
+        let cwd = self.slot_dir(slot, ttl, ours).map_err(|e| {
             ModelError::new(format!("creating the compactor's working directory: {e}"))
         })?;
         let preset = slot_preset(&self.spec.preset, slot);
@@ -667,8 +675,11 @@ impl AcpmuxCompactor {
 
     /// Starts a warm session in `slot` (counted as warming by
     /// `Slots::rewarm`) with `system`; gives the slot back when it cannot.
-    fn warm_up(&self, slot: usize, system: Option<String>) {
+    fn warm_up(&self, slot: usize, system: Option<String>, ours: bool) {
         let ttl = self.cache_ttl.get();
+        // The next node likely carries our mark as the last one did (a
+        // context of the same size): its key says so, and a node that does
+        // not match it starts a fresh session.
         let started = self.admit(PROBE_NODE).and_then(|admitted| {
             self.start(
                 slot,
@@ -676,6 +687,7 @@ impl AcpmuxCompactor {
                 system.as_deref(),
                 &admitted,
                 ttl,
+                ours,
             )
         });
         match started {
@@ -684,7 +696,7 @@ impl AcpmuxCompactor {
                 slot,
                 cwd,
                 preset,
-                key: self.warm_key(system.as_deref(), ttl),
+                key: self.warm_key(system.as_deref(), ttl, ours),
                 system,
             }),
             Err(e) => {
@@ -883,7 +895,11 @@ impl AcpmuxCompactor {
         // Claude Code settings and the warm session key agree.
         let ttl = self.cache_ttl.get();
         let layout = cached_prompt_with(request, marker, ttl);
-        let session = self.open(node, Some(&layout.system), ttl)?;
+        let ours = layout
+            .blocks
+            .iter()
+            .any(|b| b.get("cache_control").is_some());
+        let session = self.open(node, Some(&layout.system), ttl, ours)?;
         let has_marker = layout
             .blocks
             .iter()
@@ -900,7 +916,7 @@ impl AcpmuxCompactor {
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);
                 let layout = cached_prompt_with(request, false, ttl);
-                let session = self.open(node, Some(&layout.system), ttl)?;
+                let session = self.open(node, Some(&layout.system), ttl, false)?;
                 self.prompt(node, &session, layout.blocks, started)
             }
             other => other,
@@ -924,7 +940,7 @@ impl AcpmuxCompactor {
                     return self.first_cached(request, started);
                 }
                 (
-                    self.open(node, None, self.cache_ttl.get())?,
+                    self.open(node, None, self.cache_ttl.get(), false)?,
                     request_blocks(request),
                 )
             }
@@ -1022,7 +1038,7 @@ impl AcpmuxCompactor {
         // The next node's session starts now, in this slot, so it does not
         // wait for one; else the slot goes back.
         if self.warm > 0 && !is_describe(node) && self.slots.rewarm(self.warm) {
-            self.warm_up(live.slot, live.system.clone());
+            self.warm_up(live.slot, live.system.clone(), live.ours);
         } else {
             if live.system.is_some() {
                 let _ = self.port.set_system_prompt(&live.preset, "");
@@ -1071,7 +1087,7 @@ impl crate::brain::images::Describe for AcpmuxCompactor {
         let n = self.describes.fetch_add(1, Ordering::SeqCst);
         let node = NodeId::new(0, u64::MAX - n);
         let session = self
-            .open(node, None, self.cache_ttl.get())
+            .open(node, None, self.cache_ttl.get(), false)
             .map_err(|e| e.message)?;
         let reply = self.prompt(node, &session, blocks, &|| {});
         self.end_node(node);
@@ -1290,6 +1306,14 @@ pub fn compactor_settings() -> Value {
 /// `promptCacheTtl`, and at 5 minutes FORCE_PROMPT_CACHING_5M, which wins
 /// over a subscription login's 1 hour.
 pub fn compactor_settings_for(ttl: CacheTtl) -> Value {
+    compactor_settings_with(ttl, false)
+}
+
+/// `compactor_settings_for`, and with `ours` (the node's first message
+/// carries our mark) DISABLE_PROMPT_CACHING=1: Claude Code marks its two
+/// system blocks and the last two messages of every later request in a
+/// session (a size-loop follow-up), and the API takes at most 4 marks.
+pub fn compactor_settings_with(ttl: CacheTtl, ours: bool) -> Value {
     let mut value = json!({
         "permissions": {"deny": DENIED_TOOLS.as_slice()},
         "autoMemoryEnabled": false,
@@ -1300,8 +1324,15 @@ pub fn compactor_settings_for(ttl: CacheTtl) -> Value {
         "enableAllProjectMcpServers": false,
         "cleanupPeriodDays": TRANSCRIPT_DAYS,
     });
+    let mut env = serde_json::Map::new();
     if ttl == CacheTtl::FiveMinutes {
-        value["env"] = json!({"FORCE_PROMPT_CACHING_5M": "1"});
+        env.insert("FORCE_PROMPT_CACHING_5M".into(), json!("1"));
+    }
+    if ours {
+        env.insert("DISABLE_PROMPT_CACHING".into(), json!("1"));
+    }
+    if !env.is_empty() {
+        value["env"] = Value::Object(env);
     }
     value
 }
@@ -1313,7 +1344,7 @@ pub fn prepare_config(dir: &Path) -> io::Result<()> {
 }
 
 fn write_settings(path: &Path) -> io::Result<()> {
-    write_settings_for(path, CacheTtl::OneHour, &BTreeMap::new())
+    write_settings_for(path, CacheTtl::OneHour, false, &BTreeMap::new())
 }
 
 /// The slot settings at `ttl`, with `user_env` (the user's Claude Code
@@ -1322,9 +1353,10 @@ fn write_settings(path: &Path) -> io::Result<()> {
 fn write_settings_for(
     path: &Path,
     ttl: CacheTtl,
+    ours: bool,
     user_env: &BTreeMap<String, String>,
 ) -> io::Result<()> {
-    let mut settings = compactor_settings_for(ttl);
+    let mut settings = compactor_settings_with(ttl, ours);
     if !user_env.is_empty() {
         let mut env: serde_json::Map<String, Value> = user_env
             .iter()

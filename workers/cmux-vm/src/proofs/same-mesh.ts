@@ -22,6 +22,7 @@ import type { StoreError } from "../db/sql.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import type { DeviceId, MeshId, UpstreamId, VmId } from "../lib/ids.ts";
+import { isAddressRuleKey } from "../mesh/acl.ts";
 import type { TenantOwnsResource } from "./tenant-owns-resource.ts";
 
 const SameMeshProof = defineProof("SameMesh");
@@ -104,6 +105,35 @@ export const ownedMeshRules = <C, M>(
       .map((row) => {
         const { upstreamRuleId, ...rule } = row;
         const proof: OwnedMeshRule<C, M> = Object.freeze({ ...OwnedMeshRuleProof.prove(caller, mesh), rule });
+        ruleIds.set(proof, upstreamRuleId);
+        return proof;
+      });
+  });
+
+/**
+ * The live address rules (cidr source, src/mesh/acl.ts) mesh `mesh` created
+ * for device `device`, each with its proof; empty unless the device is a live
+ * device of `mesh` in the caller's tenant. Closing a device deletes these at
+ * the provider itself: unlike tunnel rules they name no tunnel, so deleting
+ * the device's tunnel does not take them along.
+ */
+export const ownedDeviceAddressRules = <C, M, D>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  _ownsDevice: TenantOwnsResource<C, D>,
+  device: Named<D, DeviceId>,
+): Effect.Effect<ReadonlyArray<OwnedMeshRule<C, M>>, StoreError, MeshStore> =>
+  Effect.gen(function* () {
+    const store = yield* MeshStore;
+    const tenantId = caller.value.tenantId;
+    const row = yield* store.getDevice(tenantId, device.value);
+    if (Option.isNone(row) || row.value.meshId !== mesh.value) return [];
+    const rows = yield* store.listRules(tenantId, mesh.value);
+    return rows
+      .filter((rule) => rule.meshId === mesh.value && rule.deviceId === device.value && isAddressRuleKey(rule.key))
+      .map((rule) => {
+        const { upstreamRuleId, ...view } = rule;
+        const proof: OwnedMeshRule<C, M> = Object.freeze({ ...OwnedMeshRuleProof.prove(caller, mesh), rule: view });
         ruleIds.set(proof, upstreamRuleId);
         return proof;
       });
