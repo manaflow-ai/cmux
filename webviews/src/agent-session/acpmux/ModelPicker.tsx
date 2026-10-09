@@ -308,8 +308,10 @@ export function ModelPicker(props: ModelPickerProps) {
   useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
-    if (open) search.current?.focus();
-  }, [open]);
+    // The anchor's first render is hidden while it measures. Browsers cannot focus search
+    // until the positioned menu is visible, even though JSDOM accepts that early focus.
+    if (open && menuStyle.visibility === "visible") search.current?.focus({ preventScroll: true });
+  }, [open, menuStyle.visibility]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
