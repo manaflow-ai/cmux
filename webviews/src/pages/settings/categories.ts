@@ -16,6 +16,7 @@ export const CATEGORY_CARDS = [
   "browserProfiles",
   "machines",
   "accounts",
+  "agentHarnesses",
   "advancedInfo",
   "advancedActions",
   "backdrops",

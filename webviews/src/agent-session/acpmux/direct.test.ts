@@ -1321,7 +1321,12 @@ describe("direct client session state", () => {
           : {};
     await connect();
     const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
-    expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
+    expect(attach.params.kinds).toEqual([
+      "transcript",
+      "available_commands_update",
+      "usage_update",
+      "config_option_update",
+    ]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
     expect(latest().commands).toEqual([
@@ -1371,6 +1376,65 @@ describe("direct client session state", () => {
     expect(latest().summary?.usage).toEqual({ used: 50000, size: 200000 });
     await client.select("b");
     expect(latest().summary?.usage).toBeUndefined();
+  });
+
+  /// The session's reasoning option at `level`, as an agent lists it.
+  const effortOption = (level: string) => [
+    {
+      id: "reasoning_effort",
+      name: "Reasoning",
+      category: "thought_level",
+      currentValue: level,
+      options: [
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+      ],
+    },
+  ];
+  const level = () => (latest().summary?.configOptions as { currentValue?: string }[] | undefined)?.[0]?.currentValue;
+
+  test("a picked reasoning level reaches the session, and the summary shows what the agent set", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") {
+        const reply = attachReply(params.sessionId);
+        return { ...reply, session: { ...reply.session, configOptions: effortOption("medium") } };
+      }
+      // The agent answers with its whole option list (ACP SetSessionConfigOptionResponse).
+      if (method === "session/set_config_option") return { configOptions: effortOption(String(params.value)) };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    expect(level()).toBe("medium");
+    await client.setConfig("reasoning_effort", "high");
+    const sent = ScriptedSocket.current.sent.filter((request) => request.method === "session/set_config_option");
+    expect(sent.map((request) => request.params)).toEqual([
+      { sessionId: "a", configId: "reasoning_effort", value: "high" },
+    ]);
+    expect(level()).toBe("high");
+  });
+
+  test("the agent's own config option update moves the summary's level", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") {
+        const reply = attachReply(params.sessionId);
+        return { ...reply, session: { ...reply.session, configOptions: effortOption("medium") } };
+      }
+      return {};
+    };
+    await connect();
+    await settle();
+    const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
+    expect(attach.params.kinds).toContain("config_option_update");
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "config_option_update", configOptions: effortOption("low") },
+      _meta: { acpmux: { seq: 7 } },
+    });
+    expect(level()).toBe("low");
   });
 
   test("commands older than the attach page are fetched by kind, and a session switch drops them", async () => {
@@ -1555,6 +1619,103 @@ describe("direct client session state", () => {
     await settle();
     const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt");
     expect(prompt?.params?._meta).toEqual({ acpmux: { promptId: "p-held" }, cmuxGesture: "ticket-1" });
+  });
+
+  /// cx-nn3e P0 (nxdog80): acpmux refused every new chat's `session/new` with trust.pending and
+  /// no trust question showed (a resumed chat said "Couldn't resume this chat: trust.pending").
+  /// Every caller of session/new, and a refused prompt, goes through one route
+  /// (`onTrustRefused`): the question for the folder acpmux named, and `again` re-runs that step.
+  describe("one trust route for every session/new caller", () => {
+    const trustPending = {
+      code: -32602,
+      message: "trust.pending: answer first (/work)",
+      data: { reason: "trust.pending", cwd: "/work" },
+    };
+    const route = (client: AcpmuxDirectClient) => {
+      const seen: { reason: string; cwd?: string; again: boolean }[] = [];
+      client.onTrustRefused = (refusal, again) =>
+        seen.push({ reason: refusal.reason, cwd: refusal.cwd, again: again !== undefined });
+      return seen;
+    };
+
+    test("a new chat (create)", async () => {
+      const client = await connect();
+      const seen = route(client);
+      ScriptedSocket.held.add("session/new");
+      const creating = client.create("claude", "/work").catch(() => "refused");
+      await settle();
+      ScriptedSocket.current.fail("session/new", trustPending);
+      expect(await creating).toBe("refused");
+      expect(seen).toEqual([{ reason: "trust.pending", cwd: "/work", again: true }]);
+    });
+
+    test("a harness switch's session (startSession)", async () => {
+      const client = await connect();
+      const seen = route(client);
+      ScriptedSocket.held.add("session/new");
+      const again = () => undefined;
+      const starting = client.startSession("claude", "/work", undefined, again).catch(() => "refused");
+      await settle();
+      ScriptedSocket.current.fail("session/new", trustPending);
+      expect(await starting).toBe("refused");
+      expect(seen).toEqual([{ reason: "trust.pending", cwd: "/work", again: true }]);
+    });
+
+    test("a resumed chat (adopt) asks instead of saying it could not resume", async () => {
+      const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+      ScriptedSocket.held.add("session/new");
+      ScriptedSocket.respond = ({ method }) => (method === "_acpmux/watch" ? { sessions: [] } : {});
+      const connecting = AcpmuxDirectClient.connect(
+        { ...host, sessionId: undefined, newSession: true, adopt },
+        (snapshot) => snapshots.push(snapshot),
+      );
+      await settle();
+      ScriptedSocket.current.fail("session/new", trustPending);
+      const client = await connecting;
+      // The pane sets its route once connect returns: a refusal from connect waits for it.
+      const seen = route(client);
+      expect(seen).toEqual([{ reason: "trust.pending", cwd: "/work", again: true }]);
+      expect(latest().rows.some((row) => row.text?.includes("Couldn't resume"))).toBe(false);
+    });
+
+    test("a prewarm hint for an unanswered folder", async () => {
+      ScriptedSocket.respond = ({ method, params }) => {
+        if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"], origin: "local" } } };
+        if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+        if (method === "_acpmux/attach") return attachReply(params.sessionId);
+        return {};
+      };
+      const client = await connect();
+      const seen = route(client);
+      ScriptedSocket.held.add("_acpmux/prewarm");
+      client.prewarm("claude", "/work");
+      await settle();
+      ScriptedSocket.current.fail("_acpmux/prewarm", trustPending);
+      await settle();
+      expect(seen).toEqual([{ reason: "trust.pending", cwd: "/work", again: false }]);
+    });
+
+    test("a refused prompt", async () => {
+      const client = await connect();
+      const seen = route(client);
+      ScriptedSocket.held.add("session/prompt");
+      const sending = client.send("before trust").catch(() => "refused");
+      await settle();
+      ScriptedSocket.current.fail("session/prompt", trustPending);
+      expect(await sending).toBe("refused");
+      expect(seen.map(({ reason, cwd }) => ({ reason, cwd }))).toEqual([{ reason: "trust.pending", cwd: "/work" }]);
+    });
+
+    test("any other refusal is not a trust question", async () => {
+      const client = await connect();
+      const seen = route(client);
+      ScriptedSocket.held.add("session/new");
+      const creating = client.create("claude", "/work").catch(() => "refused");
+      await settle();
+      ScriptedSocket.current.fail("session/new", { code: -32000, message: "harness exited" });
+      expect(await creating).toBe("refused");
+      expect(seen).toEqual([]);
+    });
   });
 
   /// A trust refusal names the folder acpmux asks about, so the pane can ask about it.

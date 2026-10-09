@@ -48,6 +48,8 @@ export type ModelPickerProps = {
   /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
   /// from the click or key handler itself: the host's confirmation needs the gesture.
   onHarnessEnable?(folder: string, id: string): void;
+  /// The rail's + (Add agent…): the app's agent.harness.add, which opens Settings > Agents > Add.
+  onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a

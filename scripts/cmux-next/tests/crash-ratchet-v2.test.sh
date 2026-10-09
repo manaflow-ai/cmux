@@ -239,4 +239,21 @@ if out="$(ratchet)"; then fail "hits inside a binding's argument list passed: $o
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the conversion inside the binding is not reported: $out"
 reset
 
+# 14. async_closure_default_arg (cx-bsue, Swift 6.3.3 weak-symbol context size mismatch): an
+#    async closure literal as a parameter default counts; a stored property with an async
+#    closure value and a non-async default do not.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {}
+func f(isOnline: @escaping @Sendable () async -> Bool = { true },
+       other: Int = 1) {}
+SWIFT
+if out="$(ratchet)"; then fail "async closure defaults passed: $out"; fi
+[[ "$out" == *"swift M: async_closure_default_arg 0 -> 2"* ]] || fail "async_closure_default_arg is not reported: $out"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+func g(done: @escaping () -> Void = {}) {}
+SWIFT
+out="$(ratchet)" || fail "a stored async closure or a sync default counted: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
