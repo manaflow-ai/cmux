@@ -65,4 +65,32 @@ import Testing
         let next = timeline.input(buffer, capturedAt: CMTime(value: 4_096, timescale: 22_050))
         #expect(CMTimeCompare(next.bufferStartTime ?? .invalid, CMTime(value: 2_973, timescale: 16_000)) == 0)
     }
+
+    /// SpeechAnalyzer transcribes nothing in about the first 1.1 s of audio
+    /// it hears, and digital silence does not count toward that span, so the
+    /// lead-in is a faint noise floor in several buffers.
+    @Test func theLeadInIsAFaintNoiseFloor() throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
+        let pieces = AVAudioPCMBuffer.noiseFloor(format, seconds: 1.5, pieces: 10)
+        #expect(pieces.count == 10)
+        #expect(pieces.reduce(0) { $0 + Int($1.frameLength) } == 24_000)
+        let samples = pieces.flatMap { piece in
+            (0..<Int(piece.frameLength)).map { Int(piece.int16ChannelData?[0][$0] ?? 0) }
+        }
+        #expect(samples.contains { $0 != 0 })
+        #expect(samples.allSatisfy { abs($0) <= 128 })
+    }
+
+    @Test func capturedAudioFollowsTheLeadIn() throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
+        var timeline = AnalyzerTimeline()
+        let lead = timeline.leadIn(AVAudioPCMBuffer.noiseFloor(format, seconds: 1.5, pieces: 10))
+        for (index, input) in lead.enumerated() {
+            #expect(CMTimeCompare(input.bufferStartTime ?? .invalid, CMTime(value: CMTimeValue(index * 2_400), timescale: 16_000)) == 0)
+        }
+        let first = timeline.start(at: CMTime(value: 0, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
+        #expect(CMTimeCompare(first ?? .invalid, CMTime(value: 24_000, timescale: 16_000)) == 0)
+        let next = timeline.start(at: CMTime(value: 1_600, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
+        #expect(CMTimeCompare(next ?? .invalid, CMTime(value: 25_600, timescale: 16_000)) == 0)
+    }
 }
