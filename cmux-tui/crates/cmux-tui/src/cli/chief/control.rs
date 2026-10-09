@@ -67,12 +67,26 @@ pub(super) fn refusal(error: &LinkError) -> String {
 }
 
 /// `cmux chief engine|stop`: one call on the current session, no chat.
-pub(super) fn run(global: &GlobalArgs, control: &Control, output: OutputMode) -> i32 {
-    let socket = match super::super::wire::resolve_socket_with_origin(global) {
-        Ok(socket) => socket,
-        Err(_) => {
-            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
-            return 2;
+pub(super) fn run(
+    global: &GlobalArgs,
+    chief_home: Option<&std::path::Path>,
+    control: &Control,
+    output: OutputMode,
+) -> i32 {
+    // The Chief home's owner, as the chat finds it; nothing is started (a
+    // Chief that does not run has no engine to show or turn to stop).
+    let socket = match super::target(global, chief_home) {
+        Ok(super::Target::Explicit(socket, derived)) => (socket, derived),
+        Ok(super::Target::Home(home)) => match home.socket() {
+            Ok(socket) => (socket, true),
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                return 2;
+            }
+        },
+        Err((code, message)) => {
+            eprintln!("cmux: {message}");
+            return code;
         }
     };
     let mut link = match Link::connect(&socket.0, socket.1) {
