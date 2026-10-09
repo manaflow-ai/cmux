@@ -5571,13 +5571,129 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_projection": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsResourceProjection"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "schema is 1.",
     "journal_writer is null for ephemeral sessions without a durable journal.",
-    "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
+    "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
+    "resource_projection is present only when the request names it in include."
+   ]
+  },
+  "ServerStatsResourceProjection": {
+   "kind": "object",
+   "fields": {
+    "projections": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "read_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "index_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "diff_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "projected_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_prune_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_apply_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_journal_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "written_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journaled_changes": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
+    "commit_us is the whole registry commit of a projected patch; commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
+    "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
    ]
   },
   "GuestUrlOpenResult": {
@@ -14580,7 +14696,20 @@
    "capability": "server-stats-v1",
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "include": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -14589,7 +14718,8 @@
    },
    "stream": null,
    "constraints": [
-    "Owner-only diagnostics; never journaled and safe to poll."
+    "Owner-only diagnostics; never journaled and safe to poll.",
+    "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
    ]
   },
   "paste-image": {

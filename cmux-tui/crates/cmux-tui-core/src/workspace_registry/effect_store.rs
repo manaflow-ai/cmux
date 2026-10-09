@@ -1,9 +1,14 @@
 use super::resource_store::{
-    apply_resource_patch, complete_terminal_close_patch, validate_resource_patch,
+    apply_resource_patch, apply_resource_patch_timed, complete_terminal_close_patch,
+    validate_resource_patch,
 };
 use super::*;
+use crate::diagnostics::CommitSpans;
 use crate::resource::ResourceError;
 use serde_json::json;
+
+mod creation_record;
+use creation_record::read_creation_record;
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
@@ -1006,6 +1011,7 @@ impl WorkspaceRegistry {
         let outcome = serde_json::to_value(&outcome)?;
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
+        let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
         let tx = self.connection.transaction()?;
         let commit = commit_resource_effect_patch_in_transaction(
             &tx,
@@ -1018,8 +1024,10 @@ impl WorkspaceRegistry {
             &outcome,
             &outcome_json,
             deltas,
+            &mut spans,
         )?;
         tx.commit()?;
+        self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         Ok(commit)
     }
 
@@ -1055,6 +1063,7 @@ impl WorkspaceRegistry {
         let outcome = serde_json::to_value(&outcome)?;
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
+        let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
         let deltas = &self.prune_stated_topology_deltas(deltas)?;
         let tx = self.connection.transaction()?;
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
@@ -1095,8 +1104,10 @@ impl WorkspaceRegistry {
             &outcome,
             &outcome_json,
             &deltas,
+            &mut spans,
         )?;
         tx.commit()?;
+        self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
         self.record_public_fold(
             resource.revision.saturating_sub(1),
             resource.revision,
@@ -1160,6 +1171,7 @@ fn commit_resource_effect_patch_in_transaction(
     outcome: &Value,
     outcome_json: &str,
     deltas: &Value,
+    spans: &mut CommitSpans,
 ) -> anyhow::Result<ResourcePatchCommit> {
     let (stored_operation, stored_fingerprint, state, _) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
@@ -1183,11 +1195,16 @@ fn commit_resource_effect_patch_in_transaction(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
     let sqlite_revision =
         i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-    let patch = &apply_resource_patch(transaction, patch, sqlite_revision)?;
+    let applying = std::time::Instant::now();
+    let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
+    (spans.prune, spans.apply, spans.written) =
+        (prune, applying.elapsed() - prune, patch.changes.len());
+    let patch = &patch;
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],
     )?;
+    let journaling = std::time::Instant::now();
     append_resource_journal_record(
         transaction,
         revision,
@@ -1199,6 +1216,8 @@ fn commit_resource_effect_patch_in_transaction(
         outcome,
         deltas,
     )?;
+    spans.journal = journaling.elapsed();
+    spans.journaled = deltas.as_array().map_or(0, Vec::len);
     resource_store::prune_resource_mutations(transaction)?;
     transaction.execute(
         "UPDATE resource_effect_receipts
@@ -1225,53 +1244,6 @@ fn commit_resource_effect_patch_in_transaction(
     );
     record_resource_input_receipt_completion(transaction, idempotency_key, operation)?;
     Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
-}
-
-struct StoredCreation {
-    operation: String,
-    fingerprint: String,
-    idempotency_key: String,
-    intent_json: String,
-    execution_kind: String,
-    attempt: u64,
-    state: String,
-    execution_generation: Option<String>,
-    created_path_json: Option<String>,
-    generation: Option<String>,
-    committed_revision: Option<i64>,
-}
-
-fn read_creation_record(
-    connection: &Connection,
-    correlation_key: &str,
-) -> anyhow::Result<Option<StoredCreation>> {
-    connection
-        .query_row(
-            "SELECT operation, fingerprint, idempotency_key, intent_json, execution_kind,
-                    attempt, state, execution_generation, created_path_json, generation,
-                    committed_revision
-             FROM resource_creation_receipts
-             WHERE correlation_key = ?1",
-            [correlation_key],
-            |row| {
-                Ok(StoredCreation {
-                    operation: row.get(0)?,
-                    fingerprint: row.get(1)?,
-                    idempotency_key: row.get(2)?,
-                    intent_json: row.get(3)?,
-                    execution_kind: row.get(4)?,
-                    attempt: u64::try_from(row.get::<_, i64>(5)?)
-                        .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(5, i64::MAX))?,
-                    state: row.get(6)?,
-                    execution_generation: row.get(7)?,
-                    created_path_json: row.get(8)?,
-                    generation: row.get(9)?,
-                    committed_revision: row.get(10)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(Into::into)
 }
 
 fn require_creation_identity(

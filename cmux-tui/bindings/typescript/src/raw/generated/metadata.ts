@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494. */
+/* cmux-tui mux protocol 12, IR a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cc980c2e786fe8195a5544e2848f665d2327e00d12bf12272741181f768ee494" as const;
+export const SDK_IR_SHA256 = "a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2138,7 +2138,8 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Owner-only diagnostics; never journaled and safe to poll."
+      "Owner-only diagnostics; never journaled and safe to poll.",
+      "include names optional result sections; resource_projection is the only one, and unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -8672,12 +8673,120 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsResourceProjection": {
+    "additional_properties": false,
+    "constraints": [
+      "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
+      "commit_us is the whole registry commit of a projected patch; commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
+      "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
+    ],
+    "fields": {
+      "commit_apply_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "commit_journal_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "commit_prune_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "commit_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "commits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "diff_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "index_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "journaled_changes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "projected_changes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "projections": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "read_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "written_changes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsResult": {
     "additional_properties": false,
     "constraints": [
       "schema is 1.",
       "journal_writer is null for ephemeral sessions without a durable journal.",
-      "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
+      "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
+      "resource_projection is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -8702,6 +8811,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsRegistryLock"
+        }
+      },
+      "resource_projection": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsResourceProjection"
         }
       },
       "schema": {
@@ -19903,7 +20020,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "server-stats": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "include": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {
