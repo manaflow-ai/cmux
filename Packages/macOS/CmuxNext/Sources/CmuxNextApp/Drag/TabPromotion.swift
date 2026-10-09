@@ -10,7 +10,7 @@ enum TabPromotion {
 
     /// Whether a tab of a workspace of `kind` stays in it: the merge rule's
     /// fixed kinds (Home).
-    static func staysPut(kind: String?) -> Bool { TabDragSession.staysPut(kind: kind) }
+    static func staysPut(kind: String?) -> Bool { WorkspaceMerge.staysPut(kind: kind) }
 
     /// The tab menu entries a tab of a workspace of `kind` leaves out.
     static func menuRemovals(kind: String?) -> [ActionID] { staysPut(kind: kind) ? actions : [] }
