@@ -118,9 +118,11 @@ import Testing
                                            timestamp: 0, windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
                                            clickCount: 1, pressure: 1)!
             let shown = try #require(h.strip.menu(for: click))
+            // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
             NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: shown)
             h.exit()
             #expect(h.plusVisible, "the pointer left for the menu; the plus stays")
+            // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
             NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: shown)
             #expect(!h.plusVisible)
         }
