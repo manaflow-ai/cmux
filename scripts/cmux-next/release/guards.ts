@@ -13,7 +13,10 @@ export class Refused extends Error {}
  * production branch (fail closed).
  */
 export const requireOwner = async (provider: BranchProvider, tree: Tree, target: Target, sql: Sql, log: (l: string) => void, ownerPgRole?: string | null) => {
-  const current = (await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
+  const who = (await sql.query<{ u: string; s: string }>("SELECT current_user AS u, session_user::text AS s"))[0]
+  const current = who?.u
+  // A login that only acts as the owner (SET ROLE, options=-c role=...) keeps its own, wider rights.
+  if (who && who.s !== who.u) throw new Refused(`the connection logs in as ${who.s} (session_user) and acts as ${who.u}; log in as the owner itself`)
   if (ownerPgRole) {
     // A SQL owner role (no PlanetScale record): named in trees.ts, checked directly.
     log(`connected as ${current} (owner ${ownerPgRole})`)
@@ -37,6 +40,7 @@ export const requireOwner = async (provider: BranchProvider, tree: Tree, target:
 /**
  * What the connected role may do outside the tree's schema in a shared database (cmux-vm on
  * cmux-prod). Empty: nothing. Membership counts with or without INHERIT (pg_has_role MEMBER).
+ * Database CREATE is judged by the caller (db-release apply): only a bootstrap needs it.
  */
 export const broadPrivileges = async (sql: Sql, schema: string): Promise<Array<string>> =>
   (
@@ -46,6 +50,11 @@ export const broadPrivileges = async (sql: Sql, schema: string): Promise<Array<s
        SELECT 'is a superuser' AS p WHERE (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user)
        UNION ALL SELECT 'is a member of postgres' WHERE current_user <> 'postgres' AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'postgres') AND pg_has_role(current_user, 'postgres', 'MEMBER')
        UNION ALL SELECT 'can create roles' WHERE (SELECT rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = current_user)
+       UNION ALL SELECT 'bypasses row level security' WHERE (SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = current_user)
+       UNION ALL SELECT 'has REPLICATION' WHERE (SELECT rolreplication FROM pg_catalog.pg_roles WHERE rolname = current_user)
+       UNION ALL (SELECT 'is a member of ' || r.rolname FROM pg_catalog.pg_roles r WHERE r.rolname LIKE 'pg\_%' AND pg_has_role(current_user, r.oid, 'MEMBER') ORDER BY 1)
+       UNION ALL (SELECT 'can execute SECURITY DEFINER ' || n.nspname || '.' || p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                   WHERE p.prosecdef AND n.nspname NOT IN ($1, 'pg_catalog', 'information_schema') AND has_function_privilege(current_user, p.oid, 'EXECUTE') ORDER BY 1 LIMIT 5)
        UNION ALL SELECT 'has CREATE on schema public' WHERE has_schema_privilege(current_user, 'public', 'CREATE')
        UNION ALL (SELECT 'can write ' || name FROM outside WHERE CASE WHEN relkind IN ('r', 'p', 'v', 'm', 'f') THEN has_table_privilege(current_user, oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER') ELSE false END ORDER BY 1 LIMIT 5)
        UNION ALL (SELECT 'can read ' || name FROM outside WHERE CASE WHEN relkind IN ('r', 'p', 'v', 'm', 'f') THEN has_table_privilege(current_user, oid, 'SELECT') ELSE false END ORDER BY 1 LIMIT 5)
@@ -86,3 +95,6 @@ export const productionCheckout = (root: string, tree: Tree, remote: RegExp = LA
   if (git(root, ["merge-base", "--is-ancestor", "HEAD", remoteSha]).status !== 0) throw new Refused(`HEAD ${head.slice(0, 12)} is not on origin/${LANDED_BRANCH} (${remoteSha.slice(0, 12)}); a production apply runs only files that landed there`)
   return remoteSha
 }
+
+/** Whether the connected role may create schemas in the database (needed only to bootstrap the tree's schema). */
+export const hasDatabaseCreate = async (sql: Sql): Promise<boolean> => (await sql.query<{ c: boolean }>("SELECT has_database_privilege(current_database(), 'CREATE') AS c"))[0]?.c === true

@@ -38,7 +38,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
       log: (l) => logs.push(l),
       error: (l) => errors.push(l),
       by: "test",
-      env: { CMUX_RELEASE_RECEIPTS_DIR: receipts, CMUX_RELEASE_LATEST_STABLE: "v0.65.0" },
+      env: { CMUX_RELEASE_RECEIPTS_DIR: receipts },
     })
   return {
     root,

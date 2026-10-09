@@ -127,7 +127,8 @@ const sessionSettings = (tree: Tree, scope: "LOCAL" | "SESSION") => {
   const set = scope === "LOCAL" ? "SET LOCAL" : "SET"
   const statements = [`${set} lock_timeout = '${LOCK_TIMEOUT}'`, `${set} statement_timeout = '${STATEMENT_TIMEOUT}'`]
   // cmux-vm shares cmux-prod with cmux-old: an unqualified name must never resolve into public.
-  if (tree.name === "cmux-vm") statements.push(`${set} search_path = ${quoteIdent(tree.schema)}, pg_catalog`)
+  // pg_catalog first: built-ins can never be shadowed, and an unqualified CREATE targets pg_catalog and fails.
+  if (tree.name === "cmux-vm") statements.push(`${set} search_path = pg_catalog, ${quoteIdent(tree.schema)}`)
   return statements
 }
 
@@ -229,7 +230,7 @@ export const applyPending = async (
         const fingerprint = async () =>
           (await sql.query<{ f: string | null }>(`SELECT md5(string_agg(c.oid::text || ':' || c.relfilenode || ':' || coalesce(c.relacl::text, '') || ':' || c.relowner, ',' ORDER BY c.oid)) AS f
               FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname NOT IN ($1, 'pg_toast') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'`, [tree.schema]))[0]?.f
+             WHERE n.nspname NOT IN ($1, 'pg_toast', 'pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'`, [tree.schema]))[0]?.f
         const before = tree.name === "cmux-vm" ? await fingerprint() : undefined
         for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
         try {
@@ -237,10 +238,11 @@ export const applyPending = async (
         } finally {
           await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
         }
-        if (tree.name === "cmux-vm" && (await fingerprint()) !== before) throw new Error(`${f.name}: relations outside schema ${tree.schema} changed during CREATE INDEX CONCURRENTLY (it cannot be rolled back); stop and inspect`)
+        const after = tree.name === "cmux-vm" ? await fingerprint() : undefined
         const valid = (await sql.query<{ v: boolean | null }>("SELECT (SELECT indisvalid FROM pg_catalog.pg_index WHERE indexrelid = to_regclass($1)) AS v", [index]))[0]?.v
         if (valid !== true) throw new Error(`${f.name}: index ${index} is not valid after CREATE INDEX CONCURRENTLY; drop it (DROP INDEX CONCURRENTLY) in a new migration and retry`)
-        await record(sql, tree, f, options.by)
+        await record(sql, tree, f, options.by) // recorded first: the index exists whatever the compare says
+        if (after !== before) throw new Error(`${f.name}: relations in user schemas outside ${tree.schema} changed during CREATE INDEX CONCURRENTLY (it cannot be rolled back; another session may have done it); stop and inspect`)
       } else {
         await sql.query("BEGIN")
         try {

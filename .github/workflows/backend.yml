@@ -257,7 +257,7 @@ jobs:
           (cd backend && bun install --frozen-lockfile >/dev/null)
           (cd backend/db && bun migrate.ts --lint) || errors=1
           # Release rails: the hash lock and the previous head's files and lock entries (plans/cmux-next/release-rails.md).
-          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend ${BEFORE:+--base "$BEFORE"}) || errors=1
+          (cd scripts/cmux-next/release && bun install --frozen-lockfile >/dev/null && bun lint.ts --tree backend --base "${BEFORE:-origin/feat-cmux-next}") || errors=1
           exit "$errors"
 
   deploy-staging:

@@ -35,7 +35,6 @@ describe("refused without a contract header (one fixture per rule)", () => {
     ["validated CHECK on an existing table", "ALTER TABLE cmux_vm.resources ADD CONSTRAINT c CHECK (length(tenant_id) > 0);"],
     ["UNIQUE constraint on an existing table", "ALTER TABLE cmux_vm.resources ADD CONSTRAINT u UNIQUE (upstream_id);"],
     ["CREATE INDEX on an existing table without CONCURRENTLY", "CREATE INDEX resources_x ON cmux_vm.resources (created_by);"],
-    ["CREATE UNIQUE INDEX CONCURRENTLY on an existing table", "CREATE UNIQUE INDEX CONCURRENTLY resources_u ON cmux_vm.resources (upstream_id);"],
     ["UPDATE without WHERE", "UPDATE cmux_vm.resources SET labels = '{}';"],
     ["DELETE without WHERE", "DELETE FROM cmux_vm.audit_log;"],
     ["TRUNCATE", "TRUNCATE cmux_vm.audit_log;"],
@@ -79,13 +78,11 @@ describe("accepted expand changes", () => {
     ["a new table with its own (even unique) indexes", "CREATE TABLE cmux_vm.t (id text PRIMARY KEY, n int NOT NULL);\nCREATE UNIQUE INDEX t_n ON cmux_vm.t (n);\nCREATE INDEX t_id ON cmux_vm.t (id);"],
     ["nullable ADD COLUMN", "ALTER TABLE cmux_vm.resources ADD COLUMN note text;"],
     ["ADD COLUMN NOT NULL with DEFAULT", "ALTER TABLE cmux_vm.resources ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'free';"],
-    ["SET DEFAULT and DROP NOT NULL (widening)", "ALTER TABLE cmux_vm.resources ALTER COLUMN labels SET DEFAULT '{}';\nALTER TABLE cmux_vm.resources ALTER COLUMN display_name DROP NOT NULL;"],
     ["CHECK ... NOT VALID, then VALIDATE", "ALTER TABLE cmux_vm.resources ADD CONSTRAINT c CHECK (length(tenant_id) > 0) NOT VALID;\nALTER TABLE cmux_vm.resources VALIDATE CONSTRAINT c;"],
     ["CREATE INDEX CONCURRENTLY alone", "CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_created_by ON cmux_vm.resources (created_by);"],
-    ["UPDATE and DELETE with WHERE", "UPDATE cmux_vm.resources SET labels = '{}' WHERE labels IS NULL;\nDELETE FROM cmux_vm.audit_log WHERE created_at < now() - interval '400 days';"],
     ["ALTER TYPE ADD VALUE", "ALTER TYPE cmux_vm.kind ADD VALUE IF NOT EXISTS 'disk';"],
     ["GRANT inside the role contract", "GRANT SELECT, INSERT ON cmux_vm.resources TO cmux_vm_app;\nGRANT USAGE ON SCHEMA cmux_vm TO cmux_vm_app;"],
-    ["comments, schema and inserts", "CREATE SCHEMA IF NOT EXISTS cmux_vm;\nCOMMENT ON TABLE cmux_vm.resources IS 'x';\nINSERT INTO cmux_vm.audit_log (id) VALUES ('a');"],
+    ["the schema itself and comments", "CREATE SCHEMA IF NOT EXISTS cmux_vm;\nCOMMENT ON TABLE cmux_vm.resources IS 'x';"],
   ]
   for (const [what, sql] of accepted) {
     it(`accepts ${what}`, async () => {

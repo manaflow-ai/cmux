@@ -112,12 +112,14 @@ jobs:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           bun install --frozen-lockfile
-          base_args=()
-          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
+          # A new branch (all-zero BEFORE) lints against origin/feat-cmux-next; a base that cannot be fetched fails.
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            git fetch --quiet --no-tags --depth=1 origin feat-cmux-next || { echo "::error title=Migration lint::cannot fetch origin/feat-cmux-next"; exit 1; }
+            BASE="$(git rev-parse FETCH_HEAD)"
+          else
             git fetch --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot fetch the base $BASE; refusing to lint without it"; exit 1; }
-            base_args=(--base "$BASE")
           fi
-          bun lint.ts --tree cmux-vm "${base_args[@]}"
+          bun lint.ts --tree cmux-vm --base "$BASE"
       - name: Typecheck (includes compile-time proof misuse cases)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck

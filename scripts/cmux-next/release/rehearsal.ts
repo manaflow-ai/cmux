@@ -59,7 +59,8 @@ export const rehearseOnCopy = async (c: RehearsalContext): Promise<RehearsalOutc
     c.log(`copy ${name} lists roles: ${(await c.provider.roleNames(tree.database, name)).join(", ") || "none"}`)
     // In order: the owner's own login rewritten for the copy, the copy's own owner-role record, the copy's default role.
     const copyLogin = c.ownerUrl ? await c.provider.copyUrl(tree.database, name, c.ownerUrl) : undefined
-    const asOwner = copyLogin ? { url: copyLogin, release: async () => {} } : await c.provider.connectRole(tree.database, name, tree.ownerRole)
+    // A SQL owner (no PlanetScale record) is reached only through its own login or SET ROLE; no other role's record.
+    const asOwner = copyLogin ? { url: copyLogin, release: async () => {} } : c.ownerPgRole ? undefined : await c.provider.connectRole(tree.database, name, tree.ownerRole)
     const conn = asOwner ?? (await c.provider.connectDefault(tree.database, name))
     const sql = await c.connect(conn.url)
     try {
@@ -73,7 +74,9 @@ export const rehearseOnCopy = async (c: RehearsalContext): Promise<RehearsalOutc
           warnings.push(`${why}; rehearsed as an admin role, so ownership errors may differ`)
         }
       }
-      c.log(`rehearsal acts as: ${(await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u}`)
+      const actingAs = (await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
+      c.log(`rehearsal acts as: ${actingAs}`)
+      if (target === "production" && owner && actingAs !== owner) throw new Error(`the production rehearsal runs as ${actingAs}, not the owner ${owner}`)
       let copyPlan = await planOf(sql, tree, c.files)
       if (copyPlan.tracking === "untracked" && c.adoptThrough) {
         await adopt(sql, tree, c.files, c.adoptThrough, c.by, c.root)
