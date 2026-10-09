@@ -268,6 +268,22 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "slash-fork": {
+      note: "Play: type /fork; the cmux-owned fork command appears with the harness commands.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/fork");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-slash-name")).some((node) => node.textContent === "/fork"),
+        );
+      },
+    },
     "model-menu-keyboard": {
       note: "Play: open the model picker and move its highlight with the keyboard.",
       snapshot: chat(finished, {
