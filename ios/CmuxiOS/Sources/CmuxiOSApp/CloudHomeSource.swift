@@ -215,11 +215,29 @@ final actor CloudHomeSource: HomeSource {
     }
 
     private func applyConversation(_ update: StreamUpdate, id: ConversationID) {
-        let snapshot: SnapshotFrame?
-        switch update { case .snapshot(let value): snapshot = value; case .event: snapshot = nil }
-        guard let snapshot else { return }
-        guard let page = try? decodePage(snapshot.state, rows: snapshot.rows) else { return }
-        publish(.conversationPage(page))
+        switch update {
+        case .snapshot(let snapshot):
+            guard let page = try? decodePage(snapshot.state, rows: snapshot.rows) else { return }
+            publish(.conversationPage(page))
+        case .event(let event):
+            // Conversation streams are row-mode streams. Their effects carry
+            // the new head plus only the rows changed by this transaction.
+            // Forward the head and changed message rows independently so the
+            // Home mirror can update an open transcript without a snapshot
+            // HTTP round-trip for every message.
+            guard let effects = event.effects?.objectValue else { return }
+            let state = effects["state"] ?? effects["head"]
+            if let state, let summary = try? conversationSummary(state) {
+                publish(.conversationChanged(summary, stream: .conversation(id), rev: Revision(event.seq)))
+            }
+            for write in effects["writes"]?.arrayValue ?? [] {
+                guard write["op"]?.stringValue != "delete",
+                      let row = write["row"],
+                      write["table"]?.stringValue == "message",
+                      let message = try? message(row) else { continue }
+                publish(.message(message, rev: Revision(event.seq)))
+            }
+        }
     }
 
     private func removeContinuation(_ id: UUID) { continuations.removeValue(forKey: id) }
