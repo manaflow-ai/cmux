@@ -150,3 +150,6 @@ Expected build effect (by the build-time rule above): about 2.9k lines leave
 core (1%); an edit inside a moved module still rebuilds core and cmux-tui.
 Each landing line records the measured `cargo build -p cmux-tui-core` time
 after an edit in a moved function, before and after the move.
+- 2026-10-09 70bb57f3e77c (code c6e9f47415c6) cx-ko2e B1: seam terminal_host_runtime/sys.rs HostStream (std UnixStream on Unix, uds_windows::UnixStream on Windows); HostTap, SmartStream group, ParserCommand/ParserBudget, enqueue_parser_output -> shared/host_state.rs; terminal_host_runtime.rs 9059 -> 8689; gate 8 min.
+- 2026-10-09 5175437db410 (code 8ec38cd5e3f3) cx-ko2e B2a: clipboard-read broker -> shared/clipboard_read.rs (Unix-bound impls stay in unix/clipboard_read.rs); gate 8 min.
+- 2026-10-09 bcb887e23aa5 (code 6eb04a08db9e) cx-ko2e B2b: unix/control_responses.rs -> shared/control_responses.rs over HostStream; InputAckReceipt -> shared/attachment.rs; 8689 -> 8629; gate 5 min.
