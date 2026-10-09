@@ -507,11 +507,13 @@ jobs:
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
-          # optional: staged only when its (non-blocking) build produced it.
+          # optional: staged only when its (non-blocking) build produced it; a
+          # missing one prints a warning annotation (stage-agent-detector.sh).
           agent_detector_binary=""
-          if [[ "$STAGE_TARGET" == *-apple-darwin && -f "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection" ]]; then
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
             agent_detector_binary="dist/cmux-tui-agent-screen-detection-${{ matrix.target }}"
-            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-agent-screen-detection" "$agent_detector_binary"
+            scripts/ci/stage-agent-detector.sh "cmux-tui/target/${{ matrix.target }}/release" "${{ matrix.target }}" "$agent_detector_binary"
+            [[ -f "$agent_detector_binary" ]] || agent_detector_binary=""
           fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"

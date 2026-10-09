@@ -233,14 +233,13 @@ cmd_hosts() {
     # no default detector), so never let a stale copy stand in for it.
     rm -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
     (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-      --release --locked --target "$t") || echo "warning: cmux-agent-screen-detection did not build for $t; publishing without it" >&2
+      --release --locked --target "$t") || echo "cmux-agent-screen-detection did not build for $t; publishing without it" >&2
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
-    if [[ -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" ]]; then
-      cp "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
-    fi
+    # Optional: a missing detector prints a warning annotation, never an error.
+    "$repo_root/scripts/ci/stage-agent-detector.sh" "$CARGO_TARGET_DIR/$t/release" "$t" "$out/cmux-tui-agent-screen-detection-$t"
   done
 }
 
