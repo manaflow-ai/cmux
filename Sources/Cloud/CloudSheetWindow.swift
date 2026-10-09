@@ -60,7 +60,7 @@ final class CloudSheetWindow {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.recordExternalMoveIfStable()
+                self?.recordFloatingWindowMoveIfStable()
             }
         }
     }
@@ -83,7 +83,7 @@ final class CloudSheetWindow {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.recordExternalMoveIfStable()
+                self?.recordHostMoveIfStable()
             }
         }
         isOpening = true
@@ -163,7 +163,19 @@ final class CloudSheetWindow {
         isApplyingFrame = false
     }
 
-    private func recordExternalMoveIfStable() {
+    private func recordFloatingWindowMoveIfStable() {
+        // An attached sheet's frame can emit didMove after AppKit resizes it
+        // from the bottom edge. That is an internal layout move, not a new
+        // anchor; only floating windows can be moved directly by the user.
+        guard window.sheetParent == nil else { return }
+        recordStableTopEdge()
+    }
+
+    private func recordHostMoveIfStable() {
+        recordStableTopEdge()
+    }
+
+    private func recordStableTopEdge() {
         guard !isOpening, !isApplyingFrame else { return }
         let contentSize = window.contentRect(forFrameRect: window.frame).size
         // During attachment AppKit can briefly publish a 1×0 frame and move
