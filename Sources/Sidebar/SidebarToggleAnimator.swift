@@ -386,7 +386,12 @@ final class SidebarToggleAnimator: ObservableObject {
             DispatchQueue.main.async { [weak self] in self?.land(generation: generation) }
             return
         }
-        guard let window = window() else { return }
+        guard let window = window() else {
+            // The window closed mid-slide: drop the slide so its layout
+            // observer goes with it.
+            removeSlideAnimations()
+            return
+        }
         let effects = machine.land(generation: generation)
         guard !effects.isEmpty else { return }
 #if DEBUG
