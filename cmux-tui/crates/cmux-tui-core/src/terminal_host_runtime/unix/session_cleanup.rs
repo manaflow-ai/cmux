@@ -92,7 +92,7 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
 
 #[cfg(not(target_os = "linux"))]
 fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
-    let Ok(output) = Command::new("ps").args(["-axo", "pid=,sid=,pgid="]).output() else {
+    let Ok(output) = Command::new("ps").args(["-axo", "pid=,sid=,pgid=,stat="]).output() else {
         return Vec::new();
     };
     let mut groups = HashSet::new();
@@ -105,7 +105,8 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
         let Some(pgid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
             continue;
         };
-        if sid == session && pgid > 0 {
+        let Some(stat) = fields.next() else { continue };
+        if sid == session && pgid > 0 && !stat.starts_with('Z') {
             groups.insert(pgid);
         }
     }
