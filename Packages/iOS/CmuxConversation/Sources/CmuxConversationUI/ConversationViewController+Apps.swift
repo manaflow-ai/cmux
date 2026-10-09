@@ -107,7 +107,9 @@ final class AppsMenuOverlay: UIView {
 extension ConversationViewController {
     func presentAppsMenu() {
         dismissPhotoDrawer()
-        view.endEditing(true)
+        // Messages (iOS 26.5 and 27.0) keeps the keyboard up under the menu,
+        // with the composer still riding it; items that need the keyboard's
+        // place (Photos) dismiss it themselves.
         var items: [AppsMenuOverlay.Item] = []
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .systemGray) { [weak self] in
