@@ -21,6 +21,6 @@ extension SidebarContainerView {
     /// The editor's standard rows: New Workspace in Group, Move Group to New
     /// Window, Close Group; Ungroup, Delete Group, More Group Actions.
     public static func standardGroupEditorItems() -> [[SidebarGroupEditorItem]] {
-        SidebarListView.standardGroupEditorItems()
+        SidebarGroupEditing.standardItems()
     }
 }

@@ -7,7 +7,7 @@ extension SidebarListView {
         if case let .group(id)? = displayed.row(at: point.y)?.key {
             // A right-click on a group opens its editor (cx-rcby); the
             // editor's last row shows the group's full menu.
-            openGroupEditor(id)
+            groupEditing.open(id)
             return nil
         }
         guard let contextMenuProvider else { return nil }

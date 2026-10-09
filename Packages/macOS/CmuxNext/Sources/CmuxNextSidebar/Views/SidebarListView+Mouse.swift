@@ -94,10 +94,10 @@ extension SidebarListView {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
                 model.send(.openGroup(group))
-            } else if isOnGroupChip(point, group: group) {
+            } else if groupEditing.isOnChip(point, group: group) {
                 // The chip opens the group editor (cx-rcby); its chevron and
                 // the rest of the row toggle at once.
-                return openGroupEditor(group)
+                return groupEditing.open(group)
             } else {
                 model.send(.toggleCollapse(.group(group)))
             }

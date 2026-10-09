@@ -2,23 +2,6 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One action row of the group editor, filled by the App from the action
-/// registry (the editor never runs an action itself).
-public nonisolated struct SidebarGroupEditorItem: Hashable, Sendable {
-    public var id: String
-    public var title: String
-    public var symbol: String?
-    /// The shortcut's display text, if the action has one.
-    public var shortcut: String?
-
-    public init(id: String, title: String, symbol: String? = nil, shortcut: String? = nil) {
-        self.id = id
-        self.title = title
-        self.symbol = symbol
-        self.shortcut = shortcut
-    }
-}
-
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
 /// group bubble): a name field that opens focused with the name selected,
 /// a row of color dots (none, then the theme's palette) and the group's
@@ -139,6 +122,9 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     override var canBecomeMain: Bool { false }
 
+    /// About the Chrome bubble's width at the sidebar's type size.
+    static var width: CGFloat { Metrics.space6 * 15 }
+
     private func build(in content: NSView) {
         nameField.placeholderString = GroupEditorStrings.namePlaceholder
         nameField.font = Typography.body
@@ -171,7 +157,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             field.heightAnchor.constraint(equalToConstant: Metrics.tabHeight),
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: GroupEditorMetrics.width - 2 * p),
+            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.width - 2 * p),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space3),
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space3),
             nameField.centerYAnchor.constraint(equalTo: field.centerYAnchor),
@@ -316,9 +302,4 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         return false
     }
-}
-
-enum GroupEditorMetrics {
-    /// About the Chrome bubble's width at the sidebar's type size.
-    static var width: CGFloat { Metrics.space6 * 15 }
 }

@@ -38,6 +38,7 @@ final class SidebarListView: NSView {
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
     var onGroupEditorItem: ((GroupID, String) -> Void)?
+    var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
     var external: ExternalDrag?
@@ -71,7 +72,7 @@ final class SidebarListView: NSView {
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
         inlineRename.list = self
-        wireGroupEditor()
+        groupEditing.wire()
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -171,7 +172,7 @@ final class SidebarListView: NSView {
         defer { updateHover() }
         let old = displayed
         displayed = layout
-        adoptReidentifiedGroups(from: old, to: layout)
+        groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
         let realize = realizationRect()

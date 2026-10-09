@@ -24,7 +24,7 @@ extension SidebarListView {
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
             }
         case let (.group(id), view as GroupHeaderRowView):
-            view.onMore = { [weak self] in self?.openGroupEditor(id) }
+            view.onMore = { [weak self] in self?.groupEditing.open(id) }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

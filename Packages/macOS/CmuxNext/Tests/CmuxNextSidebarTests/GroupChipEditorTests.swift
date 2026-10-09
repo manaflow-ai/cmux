@@ -84,7 +84,7 @@ import Testing
 
     @Test func theEditorOpensWithTheNameAndTheChosenColor() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         let bubble = try #require(h.list.groupEditor.bubble)
         #expect(bubble.nameField.stringValue == "G1")
         #expect(bubble.swatches.map(\.color) == GroupColor.editorOrder)
@@ -94,7 +94,7 @@ import Testing
 
     @Test func nameAndColorGoOutAsIntentsAndClosingEndsTheEditor() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         let bubble = try #require(h.list.groupEditor.bubble)
         bubble.pick(.red)
         #expect(h.intents.contains(.setGroupColor(g1, .red)))
@@ -108,7 +108,7 @@ import Testing
 
     @Test func anEmptyOrUnchangedNameSendsNoRename() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         let bubble = try #require(h.list.groupEditor.bubble)
         bubble.nameField.stringValue = "   "
         bubble.dismiss()
@@ -118,7 +118,7 @@ import Testing
 
     @Test func aRowGoesToTheAppWithTheGroupAndClosesTheEditor() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         let bubble = try #require(h.list.groupEditor.bubble)
         bubble.press("workspaceGroup.newWorkspace")
         #expect(h.items.map(\.0) == [g1])
@@ -130,7 +130,7 @@ import Testing
         let ids = SidebarContainerView.standardGroupEditorItems().map { $0.map(\.id) }
         #expect(ids == [
             ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces"],
-            ["workspaceGroup.ungroup", "workspaceGroup.delete", SidebarListView.groupMoreActionsItem],
+            ["workspaceGroup.ungroup", "workspaceGroup.delete", SidebarGroupEditing.moreActionsItem],
         ])
     }
 
@@ -139,7 +139,7 @@ import Testing
     @Test func aReidentifiedGroupKeepsItsHeaderAndItsEditor() throws {
         let h = Harness()
         let before = try h.header(g1)
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         var sections = fixture()
         let renamed = GroupID("G1-daemon")
         sections[1].nodes[1] = .group(SidebarGroup(id: renamed, name: "G1", color: .purple, workspaces: [w("g1"), w("g2"), w("g3")]))
@@ -152,7 +152,7 @@ import Testing
 
     @Test func aClickInTheListClosesTheEditorAndEndsIt() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         let row = try #require(h.list.displayed.row(for: .workspace(id("b"))))
         let point = h.list.convert(NSPoint(x: h.list.frame(for: row).midX, y: h.list.frame(for: row).midY), to: nil)
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
@@ -164,7 +164,7 @@ import Testing
 
     @Test func theEditorClosesWhenItsGroupIsGone() throws {
         let h = Harness()
-        h.list.openGroupEditor(g1)
+        h.list.groupEditing.open(g1)
         var sections = fixture()
         sections[1].nodes.remove(at: 1)
         h.list.model.setSections(sections)

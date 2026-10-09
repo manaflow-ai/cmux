@@ -30,7 +30,7 @@ final class SidebarGroupSwatchView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    required init?(coder: NSCoder) { nil }
 
     override var intrinsicContentSize: NSSize {
         let side = Metrics.iconSize + Metrics.space2
@@ -130,7 +130,7 @@ final class SidebarGroupEditorRow: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    required init?(coder: NSCoder) { nil }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

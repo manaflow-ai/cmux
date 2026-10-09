@@ -60,7 +60,7 @@ import AppKit
             return true
         case .carriageReturn?, .enter?:
             guard let group = list.focusedGroup else { return false }
-            list.openGroupEditor(group)
+            list.groupEditing.open(group)
             return true
         default:
             return false
