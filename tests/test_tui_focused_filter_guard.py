@@ -106,6 +106,9 @@ def test_tui_status_names_remain_stable() -> None:
         workflow["jobs"]["hosted-verification"]["name"]
         == "${{ inputs.mode == 'full' && 'hosted verification' || 'focused hosted verification' }}"
     )
+    assert workflow["jobs"]["validate-inputs"]["outputs"]["platform_matrix"] == (
+        "${{ steps.platform-scope.outputs.platform_matrix }}"
+    )
 
 
 def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> None:
@@ -121,19 +124,11 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    assert lint["strategy"]["matrix"]["include"] == [
-        {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
-            "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
-        },
-    ]
+    assert lint["strategy"]["matrix"] == "${{ fromJSON(needs.validate-inputs.outputs.platform_matrix) }}"
+    assert "matrix.os == 'macos'" in lint["runs-on"]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" not in test_commands
+    assert "cargo fmt --check" in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     assert "lint" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
@@ -145,24 +140,23 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     lint = workflow["jobs"]["lint"]
     steps = lint["steps"]
-    matrix = lint["strategy"]["matrix"]["include"]
+    assert "matrix.os == 'macos'" in lint["runs-on"]
+    linux_dependency_steps = [
+        step for step in steps if step.get("name") == "Install Linux build dependencies"
+    ]
+    assert len(linux_dependency_steps) == 1
+    assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
+    clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
+    assert len(clippy_steps) == 1
+    assert clippy_steps[0]["working-directory"] == "cmux-tui"
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
 
-    assert {entry["os"] for entry in matrix} == {"linux", "macos"}
-    for entry in matrix:
-        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
-        linux_dependency_steps = [
-            step
-            for step in steps
-            if step.get("name") == "Install Linux build dependencies"
-        ]
-        assert len(linux_dependency_steps) == 1
-        assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
-        if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
-        else:
-            assert entry["runner"].endswith("macos-15")
 
-        clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
-        assert len(clippy_steps) == 1
-        assert clippy_steps[0]["working-directory"] == "cmux-tui"
-        assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+def test_platform_scope_runs_before_matrix_jobs() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    validate = workflow["jobs"]["validate-inputs"]
+    scope = next(step for step in validate["steps"] if step.get("id") == "platform-scope")
+    assert "cmux_tui_platform_scope.py" in scope["run"]
+    assert "git rev-parse \"$EXACT_COMMIT^1\"" in scope["run"]
+    assert workflow["jobs"]["lint"]["needs"] == "validate-inputs"
+    assert workflow["jobs"]["test"]["needs"] == "validate-inputs"
