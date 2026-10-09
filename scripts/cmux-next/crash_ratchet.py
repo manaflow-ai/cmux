@@ -29,6 +29,17 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       CTFontCreate*) outside a `static let`. Factories annotated nonnull return
                       nil when threads make and drop the last instance at once (cx-qpqs); fonts
                       come from a process-wide cache (HomeFonts) instead
+    index_subscript   in the background, render and decoder modules (INDEX_MODULES): a
+                      subscript with a computed index (`rows[i]`, `bytes[n - 1]`, a range), not
+                      followed by `?`/`??` and not an optional binding; an out-of-range index
+                      traps. Use a checked accessor (`rows[checked: i]` does not count).
+                      A dictionary subscript cannot trap: a subscript on a name the module
+                      declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
+                      and never as an array, or with a `default:` argument, does not count
+    int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
+                      not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
+                      `UInt8(ascii:)` and a pure integer literal (`UInt8(0)`, checked by the
+                      compiler) do not count
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -80,7 +91,7 @@ SWIFT = {
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font"]
+SWIFT_KINDS = list(SWIFT) + ["objc_selector", "render_font", "index_subscript", "int_conversion"]
 # Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
 # the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
 RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
@@ -89,6 +100,106 @@ RENDER_FONT = re.compile(
     r"|\b(?:UIFont|NSFont)\((?:name|descriptor):|\bCTFontCreate\w*\("
     r"|(?<![\w.])\.(?:systemFont|boldSystemFont|monospacedSystemFont|monospacedDigitSystemFont)\(ofSize")
 STATIC_LET = re.compile(r"\bstatic\s+let\b")
+# Modules that decode external input or draw on background threads (Lawrence, 2026-10-09).
+INDEX_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender", "CMUXMobileCore", "CmuxIrxTransport",
+                 "CmuxIrohTransport", "CmuxNextDaemon", "CmuxNextControl", "CmuxNextMobile", "CmuxTerminalSizing"}
+INDEX_SUBSCRIPT = re.compile(r"(?<![\w.])(?:[a-z_]\w*|self)(?:\.\w+)*(?:\(\))?\[([^\[\]]+)\]")
+OPTIONAL_BINDING = re.compile(r"\b(?:if|guard|while)\s+(?:let|var)\b|,\s*let\s+\w+\s*=")
+INT_CONVERSION = re.compile(
+    r"(?<![\w.])U?Int(?:8|16|32|64)?\((?!\s*(?:truncatingIfNeeded|clamping|exactly|bitPattern|littleEndian|bigEndian|ascii)\s*:)"
+    r"(?!\s*\))(?!\s*(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*)\s*\))")
+# Declarations that name a dictionary or an array (for index_subscript; no types here).
+DECLARED_TYPE = re.compile(r"\b(?:var|let)\s+(\w+)\s*(?::\s*(\S.*)|=\s*(\S.*))")
+# Parameters (`func f(m: [K: V])`, `init(_ m: [K: V])`): only on func/init lines, so call
+# labels (`reduce(into: [:])`) are not read as declarations.
+PARAMETER_TYPE = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*(?:inout\s+)?(\[.*|(?:Dictionary|Array)\s*<.*)")
+FUNC_OR_INIT = re.compile(r"\b(?:func\s+\w+|init\??)\s*(?:<[^>]*>)?\s*\(")
+
+
+def int_conversion_hits(code):
+    """Integer conversions in CODE that can trap. `Int(someString)` returns an optional:
+    a conversion followed by `?`/`??` or inside an optional binding is not counted."""
+    hits = 0
+    binding = OPTIONAL_BINDING.search(code)
+    for match in INT_CONVERSION.finditer(code):
+        depth, end = 1, None
+        for pos in range(match.end(), len(code)):
+            if code[pos] == "(":
+                depth += 1
+            elif code[pos] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+        after = code[end:].lstrip() if end else ""
+        if after.startswith("?") or (binding and binding.start() < match.start()):
+            continue
+        hits += 1
+    return hits
+
+
+def bracket_kind(text):
+    """"dict" or "array" for a type or literal that starts with "[" (a top-level ":"
+    makes a dictionary, `[:]` included) or with Dictionary/Array; else None."""
+    if text.startswith("Dictionary"):
+        return "dict"
+    if text.startswith("Array"):
+        return "array"
+    if not text.startswith("["):
+        return None
+    depth = 0
+    for ch in text:
+        if ch in "[(<":
+            depth += 1
+        elif ch in "])>":
+            depth -= 1
+            if depth == 0:
+                return "array"
+        elif ch == "?" and depth == 1:
+            return None  # a ternary in an array literal, or an optional element type
+        elif ch == ":" and depth == 1:
+            return "dict"
+    return None
+
+
+def collection_names(lines):
+    """({dictionary names}, {names declared any other way}) in LINES: a name declared
+    as an array, or with an inferred or other type (`let rows = text.split(...)`), is
+    in the second set, so its subscripts keep counting."""
+    dicts, others = set(), set()
+    for line in lines:
+        code = swift_code(line)
+        found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
+        if FUNC_OR_INIT.search(code):
+            found += [(m.group(1), m.group(2).strip()) for m in PARAMETER_TYPE.finditer(code)]
+        for name, text in found:
+            (dicts if bracket_kind(text) == "dict" else others).add(name)
+    return dicts, others
+
+
+def index_hits(code, dictionaries=frozenset()):
+    """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
+    names the module declares only as dictionaries."""
+    hits = 0
+    binding = OPTIONAL_BINDING.search(code)
+    for match in INDEX_SUBSCRIPT.finditer(code):
+        inner = match.group(1).strip()
+        if not inner or inner[0] in "\"'" or re.fullmatch(r"\d+", inner):
+            continue
+        if re.match(r"checked\s*:", inner) or re.search(r",\s*default\s*:", inner):
+            continue  # a checked accessor, or a dictionary subscript with a default
+        base = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")]).split(".")[-1]
+        if base in dictionaries:
+            continue
+        if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
+            continue  # a type: [String], [Key: Value]
+        after = code[match.end():].lstrip()
+        if after.startswith("?"):
+            continue
+        if binding and binding.start() < match.start():
+            continue
+        hits += 1
+    return hits
 OBJC_ATTR = re.compile(r"@objc(?![\w(])")
 OBJC_FUNC = re.compile(r"\bfunc\s+[\w`]+\s*(?:<[^>]*>)?\s*\(")
 OTHER_DECL = re.compile(r"\b(protocol|class|struct|enum|extension|var|let|init|subscript|case)\b")
@@ -245,7 +356,7 @@ def objc_selector_hits(lines, index, code):
     return 0
 
 
-def swift_line_hits(lines, index, module=None):
+def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     """{kind: hits} for one Swift line (comment lines and crash-allow are the caller's)."""
     line = lines[index]
     code = swift_code(line)
@@ -263,6 +374,13 @@ def swift_line_hits(lines, index, module=None):
         hits[kind] = found
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
+    if module in INDEX_MODULES:
+        found = index_hits(code, dictionaries)
+        if found:
+            hits["index_subscript"] = found
+        found = int_conversion_hits(code)
+        if found:
+            hits["int_conversion"] = found
     if module in RENDER_MODULES and not STATIC_LET.search(code):
         found = len(RENDER_FONT.findall(code))
         if found:
@@ -270,10 +388,27 @@ def swift_line_hits(lines, index, module=None):
     return hits
 
 
+def module_dictionaries(repo):
+    """{index module: names it declares as dictionaries and never as arrays}."""
+    declared = {}
+    for root in swift_source_roots(repo):
+        sources = os.path.join(repo, root)
+        for path in tracked_files(repo, sources):
+            module = os.path.relpath(path, sources).split(os.sep)[0]
+            if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
+                continue
+            dicts, arrays = collection_names(open(path, encoding="utf-8", errors="replace").read().split("\n"))
+            entry = declared.setdefault(module, (set(), set()))
+            entry[0].update(dicts)
+            entry[1].update(arrays)
+    return {module: frozenset(d - a) for module, (d, a) in declared.items()}
+
+
 def scan_swift(repo, counts, banned_files=None):
     """Ratchet counts per module into COUNTS; hits of banned classes per file (crash-allow
     ignored) into BANNED_FILES {(kind, repo-relative path): hits}."""
     banned = banned_kinds("swift")
+    dictionaries = module_dictionaries(repo)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources):
@@ -286,7 +421,7 @@ def scan_swift(repo, counts, banned_files=None):
                 if line.lstrip().startswith("//"):
                     continue
                 is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel).items():
+                for kind, hits in swift_line_hits(lines, index, rel, dictionaries.get(rel, frozenset())).items():
                     if kind in banned:
                         if banned_files is not None:
                             key = (kind, os.path.relpath(path, repo))

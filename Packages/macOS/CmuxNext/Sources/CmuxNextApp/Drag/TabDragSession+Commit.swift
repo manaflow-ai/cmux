@@ -35,7 +35,7 @@ extension TabDragSession {
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
-                self?.services.input.monitor.noteChange()
+                self?.services.input.monitor?.noteChange()
                 // The view change of a landed user drop, after the echo.
                 if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
             }
@@ -144,8 +144,8 @@ extension TabDragSession {
                 settle(key != nil)
             }
         case .workspace(let id):
-            // Into the workspace's first pane, after its tabs.
-            guard let pane = services.workspace(id: id)?.screens.first?.panes.first else { return gone(settle) }
+            // Into the workspace's first pane outside the chat dock, after its tabs.
+            guard let pane = ChatDockRules.workspaceDropPane(services.workspace(id: id)?.screens.first, services: services) else { return gone(settle) }
             drag.landedWorkspaceID = id
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):

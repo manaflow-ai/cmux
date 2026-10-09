@@ -72,6 +72,8 @@ pub struct Paths {
     /// Every subagent's working directory (section 9): its MCP servers
     /// (zoom and date only), project settings, and instructions file.
     pub subagent: PathBuf,
+    /// The codex turns' own CODEX_HOME (codex_home::prepare_turn_codex_home).
+    pub turn_codex: PathBuf,
     /// The monitoring trace (`trace.rs`).
     pub traces: PathBuf,
     /// The memory inspector's address and token for the app (inspect/http.rs), 0600.
@@ -96,6 +98,7 @@ impl Paths {
             compactor_codex: root.join("compactor-codex"),
             instructions: root.join("AGENTS.md"),
             subagent: root.join("subagent"),
+            turn_codex: root.join("turn-codex"),
             traces: root.join("traces"),
             inspector: root.join("inspector.json"),
             root,

@@ -212,6 +212,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
         | ResourceOperation::StreamCancel
+        | ResourceOperation::ChiefEngineGet
+        | ResourceOperation::ChiefEngineSet
+        | ResourceOperation::ChiefStop
         | ResourceOperation::ConversationList
         | ResourceOperation::ConversationGet
         | ResourceOperation::ConversationHistory

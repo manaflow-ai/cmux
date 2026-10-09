@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { adjacentItemId, App, visibleItemId } from "../src/App";
+import { App } from "../src/App";
+import { adjacentItemId, visibleItemId } from "../src/diff-viewer/item-navigation";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;

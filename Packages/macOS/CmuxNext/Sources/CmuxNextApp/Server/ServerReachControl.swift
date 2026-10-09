@@ -65,7 +65,7 @@ enum ServerReachControl {
     /// The chief's current revision, or nil when `chief.list` does not list it.
     @MainActor
     private static func chiefRevision(_ services: AppServices, _ chief: String) async throws -> Int? {
-        guard let feed = services.feed else { throw FeedServiceError.signedOut }
+        let feed = services.feed
         return try await CloudChiefs.list { path, body in try await feed.call(path, body) }.first { $0.id == chief }?.rev
     }
 

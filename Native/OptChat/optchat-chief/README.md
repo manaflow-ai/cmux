@@ -148,19 +148,19 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 - A subagent prompt the harness fails ends that run with `[a<N>] (failed:
   <error>)`, never a subagent that waits forever.
 
+- A codex Chief's isolated turns run on the Chief's own `CODEX_HOME`
+  (`optchat/turn-codex`: the user's routing and model keys, the sign-in
+  linked, no user MCP servers, hooks, plugins or skills, and
+  `features.multi_agent = false`), so `chief spawn` is its only way to start
+  a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
+
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-A Claude spawn of several subagents is single-flight on the shared view: the
-first subagent starts alone, its first message marked at the view's last whole
-block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
-a route refused our marks), and the subagent directory's project settings
-give Claude Code the same TTL (`promptCacheTtl`, as the turns' session
-directory; acpmux takes no TTL variable in a session's env), so the API never
-sees a 1h mark after a 5m one. A spawn in a directory of the user's gets no
-mark: that directory is not ours to write. The rest start when its response began
-streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
-later, and read that entry. The trace's `spawn.warm` says whether the first
-spoke and how long the wait took.
+A subagent's first message carries no cache mark of ours, and all of a
+spawn's subagents start at once: Claude Code marks its two system blocks and
+the last two messages of every later request in a session, the API takes at
+most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
+marks (decision 2026-10-08; see Cache marks and TTL).
 
 ## Engine: harness, model and effort per turn
 
@@ -1076,7 +1076,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **Single-flight** releases waiting calls at the writer's response start
   (on acpmux: its first streamed output), and the prefix then counts as
   written for 5 minutes, so later calls on it go at once.
-- **Model.** The compactor runs Claude Haiku 5.5 at high effort
+- **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another). An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have

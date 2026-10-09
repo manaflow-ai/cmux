@@ -228,10 +228,10 @@ class SideLaneVariable(unittest.TestCase):
         for name in ("CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER"):
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-std-xcode-26.6"}), [])
             self.assertEqual(drifted_runner_variables({name: "glaeda-side-light-xcode-26.6"}), [])
-            self.assertEqual(drifted_runner_variables({name: "glaeda-aws-side-std-xcode-26.3"}), [])
             self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-26"}), [])
+            # The glaeda-aws pools have no runners; their Macs now serve cmux-next only.
             for label in ("glaeda-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-side-nonsense",
-                          "warp-macos-26-arm64-12x"):
+                          "warp-macos-26-arm64-12x", "glaeda-aws-side-std-xcode-26.3"):
                 with self.subTest(name=name, label=label):
                     self.assertEqual(
                         [found for found, _, _ in drifted_runner_variables({name: label})],
@@ -242,23 +242,28 @@ class SideLaneVariable(unittest.TestCase):
 
 
 class AwsSideRunnerVariable(unittest.TestCase):
-    def test_only_an_owned_aws_label_is_allowed(self) -> None:
-        # CI_AWS_SIDE_RUNNER is attempt 1 of the cmux-tui relay job and the
-        # cmux-tui-artifacts macOS legs: the owned AWS minis (aws-m4pro-7..9).
+    def test_the_retired_aws_side_runner_must_stay_empty(self) -> None:
+        # CI_AWS_SIDE_RUNNER named the glaeda-aws pools, which no longer have
+        # runners: a job routed there would queue forever. Only empty is fine.
         name = "CI_AWS_SIDE_RUNNER"
-        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-std-xcode-26.6"}), [])
-        self.assertEqual(drifted_runner_variables({name: "glaeda-aws-light-xcode-26.3"}), [])
         self.assertEqual(drifted_runner_variables({name: ""}), [])
-        self.assertEqual(drifted_runner_variables({name: "blacksmith-6vcpu-macos-15"}), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-aws-nonsense",
-                      "glaeda-trusted-std-xcode-26.6", "warp-macos-26-arm64-12x"):
+        for label in ("glaeda-aws-std-xcode-26.6", "glaeda-aws-light-xcode-26.3", "glaeda-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", "blacksmith-6vcpu-macos-15", "warp-macos-26-arm64-12x"):
             with self.subTest(label=label):
                 self.assertEqual(
                     [found for found, _, _ in drifted_runner_variables({name: label})],
                     [name],
                 )
-        # Other runner variables still may not name one.
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_BACKGROUND": "glaeda-aws-std-xcode-26.6"}))
+
+    def test_no_workflow_routes_through_it(self) -> None:
+        # A runs-on that reads the variable would route there again the day
+        # someone sets it; attempt 1 takes CI_SIDE_LANE_RUNNER (the minis).
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if "vars.CI_AWS_SIDE_RUNNER" in line and not line.strip().startswith("CI_AWS_SIDE_RUNNER="):
+                    with self.subTest(path=path.name, line=number):
+                        self.fail(f"{path.name}:{number} routes through CI_AWS_SIDE_RUNNER")
 
 
 class TrustedPoolVariable(unittest.TestCase):
@@ -321,10 +326,18 @@ class OwnedPoolLabels(unittest.TestCase):
                 )
 
     def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
-        order = "glaeda-std-xcode-26.6, glaeda-aws-std-xcode-26.3, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
         self.assertIsNone(pool_order_reason(order))
         self.assertIsNone(pool_order_reason(""))
         self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])
+
+    def test_the_pool_order_cannot_name_an_aws_pool(self) -> None:
+        # The glaeda-aws pools have no runners; minis first, Blacksmith overflow.
+        for label in ("glaeda-aws-std-xcode-26.6", "glaeda-aws-std-xcode-26.3", "glaeda-aws-root-std-xcode-26.6"):
+            with self.subTest(label=label):
+                reason = pool_order_reason(f"glaeda-std-xcode-26.6,{label}")
+                self.assertIsNotNone(reason)
+                self.assertIn(label, reason)
 
     def test_the_pool_order_cannot_smuggle_in_other_fleet_labels(self) -> None:
         for bad in ("tart-canary", "warp-macos-26-arm64-12x", "self-hosted", "glaeda-mini-xcode-26.6", "cmux-macos-26"):
