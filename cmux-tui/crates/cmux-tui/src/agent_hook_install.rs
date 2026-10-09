@@ -91,7 +91,7 @@ fn hermes_reaper_spawn_should_fail() -> bool {
     false
 }
 
-const CODEX_EVENTS: &[&str] = &[
+pub(crate) const CODEX_EVENTS: &[&str] = &[
     "SessionStart",
     "UserPromptSubmit",
     "Stop",
@@ -1914,6 +1914,43 @@ fn hook_command(provider: &str, event: &str) -> String {
         "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
+    )
+}
+
+/// The Codex wrapper's per-launch hook command. Codex's shared app-server can
+/// outlive the terminal that started it and does not preserve that terminal's
+/// environment when it starts hook processes, so the routing context must be
+/// part of the command itself.
+#[cfg(unix)]
+pub(crate) fn codex_contextual_hook_command(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    helper: &Path,
+) -> String {
+    format!(
+        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} CMUX_TUI_HOOK={} {} {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(&socket.to_string_lossy()),
+        shell_quote(terminal),
+        shell_quote(&helper.to_string_lossy()),
+        shell_quote(&helper.to_string_lossy()),
+        shell_quote("codex"),
+        shell_quote(event),
+    )
+}
+
+/// Encodes one contextual cmux hook as a Codex `-c` value.
+#[cfg(unix)]
+pub(crate) fn codex_contextual_hook_setting(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    helper: &Path,
+) -> String {
+    let command = codex_contextual_hook_command(event, socket, terminal, helper);
+    format!(
+        "hooks.{event}=[{{hooks=[{{type=\"command\",command='''{command}''',timeout={}}}]}}]",
+        codex_hook_timeout(event)
     )
 }
 

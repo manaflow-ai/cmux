@@ -13,6 +13,8 @@ mod app;
 mod browser_input;
 #[cfg(unix)]
 mod claude_wrapper;
+#[cfg(unix)]
+mod codex_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
@@ -1632,6 +1634,9 @@ fn run_main() {
         if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
             client_log::exit(claude_wrapper::run(wrapper_args));
         }
+        if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
+            client_log::exit(codex_wrapper::run(wrapper_args));
+        }
     }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
@@ -2156,6 +2161,12 @@ fn run_server(
     #[cfg(unix)]
     if let Some(path) = claude_wrapper::pane_path() {
         surface_options.extra_env.push(("PATH".into(), path));
+    }
+    #[cfg(unix)]
+    if let Some(path) = codex_wrapper::pane_path() {
+        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
+            surface_options.extra_env.push(("PATH".into(), path));
+        }
     }
 
     let state_root = if args.ephemeral {
