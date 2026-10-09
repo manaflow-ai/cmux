@@ -319,6 +319,9 @@ fn pinned_program(id: &str) -> Option<&'static str> {
         "mistral-vibe" => "vibe-acp",
         "cortex-code" => "cortex",
         "corust-agent" => "corust-agent-acp",
+        // Google's Antigravity ACP server (t3code's Antigravity driver runs
+        // the same program); sign in with `cmux harness login antigravity`.
+        "antigravity-acp" => "agy_acp_server.par",
         _ => return None,
     })
 }
