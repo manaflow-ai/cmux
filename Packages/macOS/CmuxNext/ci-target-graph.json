@@ -285,6 +285,7 @@
       "reads": [
         "Resources/ghostty/themes/",
         "plans/cmux-next/",
+        "schemas/chief-home/vectors.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/test/fixtures/new-tab-intents.json"
       ]
