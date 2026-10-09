@@ -182,6 +182,12 @@ describe("T3 model picker", () => {
 
     await key(harnessRails()[1]!, "ArrowRight");
     expect(doc.activeElement).toBe(input);
+
+    await key(input, "ArrowLeft");
+    await key(harnessRails()[0]!, "ArrowUp");
+    await key(harnessRails()[0]!, "ArrowUp");
+    await key(rails()[0]!, "Enter");
+    expect(doc.activeElement).toBe(input);
   });
 
   test("returning to an aliased harness rail preserves its highlighted model", async () => {

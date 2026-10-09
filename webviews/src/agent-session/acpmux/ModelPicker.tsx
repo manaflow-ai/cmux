@@ -546,7 +546,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   const next = (activeHarness - 1 + harnesses.length) % harnesses.length;
                   showTab(harnesses[next]?.id, next);
                   menu.current?.querySelectorAll<HTMLElement>(".acpmux-mp-harness")[next]?.focus();
-                } else if (event.key === "ArrowRight") {
+                } else if (event.key === "ArrowRight" || event.key === "Enter") {
                   event.preventDefault();
                   search.current?.focus();
                 }
