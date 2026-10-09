@@ -2295,8 +2295,6 @@
 		3865A0153865A0153865A015 /* GlobalSearchTerminalText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0153865B0153865B015 /* GlobalSearchTerminalText.swift */; };
 		3865A0143865A0143865A014 /* GlobalSearchTerminalTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0143865B0143865B014 /* GlobalSearchTerminalTextTests.swift */; };
 		8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */; };
-		E6ACA1E2A2A613D303F46152 /* GoToFileSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */; };
-		15C33DBEF2CE3B3CCB642008 /* GoToFileSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */; };
 		DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AAA9FEEAC85B8AB216861F2 /* GotoSplitActionTests.swift */; };
 		CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */; };
 		CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */; };
@@ -6766,8 +6764,6 @@
 		3865B0153865B0153865B015 /* GlobalSearchTerminalText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchTerminalText.swift; sourceTree = "<group>"; };
 		3865B0143865B0143865B014 /* GlobalSearchTerminalTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchTerminalTextTests.swift; sourceTree = "<group>"; };
 		8561B0038561B0038561B003 /* GlobalSearchVisiblePopoverShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchVisiblePopoverShortcutTests.swift; sourceTree = "<group>"; };
-		F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoToFileSearchService.swift; sourceTree = "<group>"; };
-		8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoToFileSearchTests.swift"; sourceTree = "<group>"; };
 		7AAA9FEEAC85B8AB216861F2 /* GotoSplitActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GotoSplitActionTests.swift"; sourceTree = "<group>"; };
 		CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GotoSplitCycleUITests.swift; sourceTree = "<group>"; };
 		CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/GotoSplitCycleUITestSupport.swift; sourceTree = "<group>"; };
@@ -12059,7 +12055,6 @@
 				8531E9BC250D511DA6C71250 /* DeviceIrxClient+Account.swift */,
 				B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */,
 				BB13A8758BFB9112C57D1628 /* ContentView+GoToFileCommandPalette.swift */,
-				F9E60672B3C8EB9CA2D92C3E /* GoToFileSearchService.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13599,7 +13594,6 @@
 				BF200D0B55542AF6F9E69DEF /* AccountMacDirectoryClientTests.swift */,
 				096DD2C3867F78B177AC4720 /* AccountMacDirectoryTests.swift */,
 				74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */,
-				8F2DFF762693F0953C3E9C22 /* GoToFileSearchTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15548,7 +15542,6 @@
 				3865A0133865A0133865A013 /* GlobalSearchPaletteModel.swift in Sources */,
 					3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				3865A0153865A0153865A015 /* GlobalSearchTerminalText.swift in Sources */,
-				E6ACA1E2A2A613D303F46152 /* GoToFileSearchService.swift in Sources */,
 				CC2639000000000000000001 /* GotoSplitCycleUITestSupport.swift in Sources */,
 					5B11E5A100000000000000B1 /* GPUSpinner.swift in Sources */,
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
@@ -18130,7 +18123,6 @@
 				3865A0123865A0123865A012 /* GlobalSearchTerminalDocumentTests.swift in Sources */,
 				3865A0143865A0143865A014 /* GlobalSearchTerminalTextTests.swift in Sources */,
 				8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */,
-				15C33DBEF2CE3B3CCB642008 /* GoToFileSearchTests.swift in Sources */,
 				DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */,
 					937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */,
 				9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */,

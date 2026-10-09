@@ -509,6 +509,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     func testGoToFileCommandOpensWorkspaceFilePickerMode() throws {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(

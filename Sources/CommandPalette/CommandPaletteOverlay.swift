@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import CmuxFoundation
 import Observation
 import SwiftUI

@@ -847,6 +847,7 @@ struct ContentView: View {
     private enum CommandPaletteTaskKey: Hashable, Sendable {
         case searchIndexBuild
         case search
+        case goToFileSearch
         case agentLauncherAvailability
         case agentLauncherActivation(AgentSessionProviderID)
         case forkableAgentAvailability(String)
@@ -993,7 +994,9 @@ struct ContentView: View {
     @State private var commandPaletteCurrentWorkRevision = 0
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var goToFileResults: [GoToFileMatch] = []
+    @State private var goToFilePaths: [String] = []
     @State private var goToFileRootPath: String?
+    @State private var goToFileSnapshotRootPath: String?
     @State private var goToFileSearchGeneration: UInt64 = 0
     @State private var isGoToFileSearchPending = false
     @State private var commandPaletteRenameDraft: String = ""
@@ -10163,7 +10166,9 @@ struct ContentView: View {
         commandPaletteQuery = ""
         commandPaletteSelectedResultIndex = 0
         goToFileResults = []
+        goToFilePaths = []
         goToFileRootPath = workspace.currentDirectory
+        goToFileSnapshotRootPath = nil
         scheduleGoToFileSearch()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -10174,11 +10179,28 @@ struct ContentView: View {
         goToFileSearchGeneration &+= 1
         let generation = goToFileSearchGeneration
         let query = commandPaletteQuery
+        let cachedPaths = goToFileSnapshotRootPath == rootPath ? goToFilePaths : nil
+        if cachedPaths == nil {
+            goToFilePaths = []
+            goToFileSnapshotRootPath = nil
+        }
         isGoToFileSearchPending = true
-        Task { @MainActor in
-            let results = await GoToFileSearchService().search(rootPath: rootPath, query: query)
+        commandPaletteTaskStore.replaceOnMainActor(.goToFileSearch, priority: .userInitiated) {
+            let executable = RipgrepExecutableResolver.resolve()
+            let service = GoToFileSearchService(
+                ripgrepExecutable: executable?.url.path,
+                ripgrepPrefixArguments: executable?.prefixArguments ?? []
+            )
+            let paths = cachedPaths ?? await service.snapshot(rootPath: rootPath)
+            guard !Task.isCancelled else { return }
+            let results = await service.search(paths: paths, query: query)
+            guard !Task.isCancelled else { return }
             guard generation == goToFileSearchGeneration,
                   case .goToFile = commandPaletteMode else { return }
+            if cachedPaths == nil {
+                goToFilePaths = paths
+                goToFileSnapshotRootPath = rootPath
+            }
             goToFileResults = results
             commandPaletteSelectedResultIndex = 0
             isGoToFileSearchPending = false
@@ -10568,6 +10590,7 @@ struct ContentView: View {
         cancelCommandPaletteSearch()
         cancelCommandPaletteSearchIndexBuild()
         commandPaletteTaskStore.cancel(.agentLauncherAvailability)
+        commandPaletteTaskStore.cancel(.goToFileSearch)
         commandPaletteAgentLauncherAvailabilityGeneration &+= 1
         cancelCommandPaletteForkableAgentAvailabilityProbe()
         cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
@@ -10579,7 +10602,9 @@ struct ContentView: View {
         commandPaletteCurrentWorkSnapshot = nil
         commandPaletteMode = .commands
         goToFileResults = []
+        goToFilePaths = []
         goToFileRootPath = nil
+        goToFileSnapshotRootPath = nil
         isGoToFileSearchPending = false
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
