@@ -288,7 +288,7 @@ extension TerminalController {
             "feed.list",
             "surface.list",
             "surface.current",
-            "surface.focus",
+            "surface.focus", "surface.jump_to_last_prompt",
             "surface.split",
             "surface.respawn",
             "surface.create",
