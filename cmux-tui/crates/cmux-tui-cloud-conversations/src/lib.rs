@@ -28,7 +28,7 @@ pub use stream::CloudEvent;
 /// The capability `identify` advertises when a cloud backend is installed.
 pub const CLOUD_CONVERSATIONS_CAPABILITY: &str = "cloud-conversations-v1";
 
-#[cfg(test)]
-pub(crate) mod testing;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 #[cfg(test)]
 mod tests;

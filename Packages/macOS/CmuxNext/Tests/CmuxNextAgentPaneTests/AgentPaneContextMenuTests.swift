@@ -4,10 +4,11 @@ import Testing
 import WebKit
 @testable import CmuxNextAgentPane
 
-/// The agent pane's context menu (cx-k9go): WebKit's default menu (Reload, Look Up, Back...) never
-/// shows. Copy stays on a selection, Copy Message and Copy as Markdown act on the message the page
-/// reported under the pointer, Fork from Here forks its turn, and Inspect Element stays only in
-/// builds with developer tools.
+/// The agent pane's context menu (cx-k9go; POLISH right-click contract): WebKit's default menu
+/// (Reload, Look Up, Back...) never shows. Copy stays on a selection. On the message the page
+/// reported under the pointer: Copy Message (a reply's Markdown) and Copy as Plain Text, Retry on a
+/// prompt that was not sent, Edit and Resend on a prompt, Fork from Here on its turn, and Open Link
+/// for its links and images. Inspect Element stays only in builds with developer tools.
 @MainActor
 @Suite struct AgentPaneContextMenuTests {
     /// A menu as WebKit builds it for a right-click on selected text.
@@ -34,18 +35,30 @@ import WebKit
 
     static let reply = AgentPaneMessageTarget(text: "Done. See the diff.", markdown: "**Done.** See the `diff`.", forkSeq: 7)
 
+    /// What the menu's items did, in order ("copy: text", "fork: 7", ...).
+    final class Log {
+        var done: [String] = []
+    }
+
     private func rebuilt(target: AgentPaneMessageTarget?, devTools: Bool) -> (NSMenu, copies: () -> [String], forks: () -> [Int]) {
+        let (menu, log) = rebuiltLogging(target: target, devTools: devTools)
+        let values = { (kind: String) in log.done.filter { $0.hasPrefix("\(kind): ") }.map { String($0.dropFirst(kind.count + 2)) } }
+        return (menu, { values("copy") }, { values("fork").compactMap { Int($0) } })
+    }
+
+    private func rebuiltLogging(target: AgentPaneMessageTarget?, devTools: Bool = false) -> (NSMenu, Log) {
         let menu = Self.webKitMenu()
-        var copies: [String] = []
-        var forks: [Int] = []
-        AgentPaneContextMenu.rebuild(menu, target: target, devTools: devTools,
-                                     actions: .init(copy: { copies.append($0) }, fork: { forks.append($0) }))
-        return (menu, { copies }, { forks })
+        let log = Log()
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: devTools, actions: .init(
+            copy: { log.done.append("copy: \($0)") }, fork: { log.done.append("fork: \($0)") },
+            retry: { log.done.append("retry: \($0)") }, edit: { log.done.append("edit: \($0)") },
+            open: { log.done.append("open: \($0.absoluteString)") }))
+        return (menu, log)
     }
 
     @Test func anAgentReplyOffersCopiesAndForkInMacOrder() {
         let (menu, _, _) = rebuilt(target: Self.reply, devTools: false)
-        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsMarkdown,
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsPlainText,
                                       "-", AgentPaneMenuStrings.forkFromHere])
     }
 
@@ -60,9 +73,73 @@ import WebKit
         #expect(!Self.titles(menu).contains("WKMenuItemIdentifierReload"))
     }
 
-    @Test func aPromptHasNoMarkdownCopyAndAnUnforkableTurnNoFork() {
+    @Test func aPromptOffersEditAndResendButNoPlainTextCopyOrFork() {
         let (menu, _, _) = rebuilt(target: AgentPaneMessageTarget(text: "fix the build"), devTools: false)
-        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage])
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage, "-", AgentPaneMenuStrings.editAndResend])
+    }
+
+    @Test func aPromptThatWasNotSentOffersRetryFirst() throws {
+        let (menu, log) = rebuiltLogging(target: AgentPaneMessageTarget(text: "deploy", retryRowId: "p9"))
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.copyMessage,
+                                      "-", AgentPaneMenuStrings.retry, AgentPaneMenuStrings.editAndResend])
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.retry }))
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.editAndResend }))
+        #expect(log.done == ["retry: p9", "edit: deploy"])
+    }
+
+    // MARK: Selected text
+
+    private func rebuiltOnSelection(_ selection: String) -> (NSMenu, Log) {
+        let menu = Self.webKitMenu()
+        let log = Log()
+        AgentPaneContextMenu.rebuild(menu, target: Self.reply, selection: selection, devTools: false, actions: .init(
+            copy: { log.done.append("copy: \($0)") }, fork: { log.done.append("fork: \($0)") },
+            edit: { log.done.append("edit: \($0)") }, search: { log.done.append("search: \($0)") }))
+        return (menu, log)
+    }
+
+    /// The contract's selection menu: Copy, Quote in Reply, Ask About This, Search the Web and
+    /// WebKit's Look Up (macOS adds Services last). The message's own rows stay out.
+    @Test func selectedTextGetsTheSelectionMenu() {
+        let (menu, _) = rebuiltOnSelection("Fixed")
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis,
+                                      "-", AgentPaneMenuStrings.searchTheWeb, "WKMenuItemIdentifierLookUp"])
+    }
+
+    @Test func quoteAndAskPutTheSelectionInTheComposerAndSearchSearchesIt() throws {
+        let (menu, log) = rebuiltOnSelection("line one\nline two")
+        for title in [AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis, AgentPaneMenuStrings.searchTheWeb] {
+            Self.choose(try #require(menu.items.first { $0.title == title }))
+        }
+        #expect(log.done == ["edit: > line one\n> line two\n\n",
+                             "edit: > line one\n> line two\n\n\(AgentPaneMenuStrings.askAboutThisPrompt)",
+                             "search: line one\nline two"])
+    }
+
+    @Test func thePageReportCarriesTheSelection() {
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "Fixed", "text": "Fixed it"]) == "Fixed")
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "  \n "]) == nil, "blank is no selection")
+        #expect(AgentPaneContextMenu.selection(report: ["text": "Fixed it"]) == nil)
+        #expect(AgentPaneContextMenu.selection(report: NSNull()) == nil)
+    }
+
+    @Test func aMessageWithOneLinkOpensIt() throws {
+        let link = try #require(URL(string: "https://cmux.dev/docs"))
+        let (menu, log) = rebuiltLogging(target: AgentPaneMessageTarget(text: "docs", markdown: "[docs](https://cmux.dev/docs)", links: [link]))
+        #expect(Self.titles(menu).suffix(2) == ["-", AgentPaneMenuStrings.openLink])
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.openLink }))
+        #expect(log.done == ["open: https://cmux.dev/docs"])
+    }
+
+    @Test func aMessageWithSeveralLinksListsThemUnderOpenLinks() throws {
+        let links = try ["https://cmux.dev/docs", "https://cmux.dev/chart.png"].map { try #require(URL(string: $0)) }
+        let (menu, log) = rebuiltLogging(target: AgentPaneMessageTarget(text: "see", markdown: "see", links: links))
+        let parent = try #require(menu.items.last)
+        #expect(parent.title == AgentPaneMenuStrings.openLinks)
+        let submenu = try #require(parent.submenu)
+        #expect(Self.titles(submenu) == ["https://cmux.dev/docs", "https://cmux.dev/chart.png"])
+        Self.choose(submenu.items[1])
+        #expect(log.done == ["open: https://cmux.dev/chart.png"])
     }
 
     /// Right-click in the composer: WebKit's Cut, Copy and Paste stay, its other items go.
@@ -80,10 +157,12 @@ import WebKit
 
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
         let (menu, copies, forks) = rebuilt(target: Self.reply, devTools: false)
-        for title in [AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.copyAsMarkdown, AgentPaneMenuStrings.forkFromHere] {
+        for title in [AgentPaneMenuStrings.copyMessage, AgentPaneMenuStrings.forkFromHere] {
             Self.choose(try #require(menu.items.first { $0.title == title }))
         }
-        #expect(copies() == ["Done. See the diff.", "**Done.** See the `diff`."])
+        #expect(copies() == ["**Done.** See the `diff`."], "Copy Message copies a reply's Markdown")
+        Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyAsPlainText }))
+        #expect(copies() == ["**Done.** See the `diff`.", "Done. See the diff."])
         #expect(forks() == [7])
     }
 
@@ -92,6 +171,13 @@ import WebKit
             == AgentPaneMessageTarget(text: "a", markdown: "*a*", forkSeq: 12))
         #expect(AgentPaneMessageTarget(report: NSNull()) == nil, "the pointer was not on a message")
         #expect(AgentPaneMessageTarget(report: ["text": ""]) == nil)
+    }
+
+    @Test func thePageReportReadsRetryAndWebLinksOnly() {
+        let target = AgentPaneMessageTarget(report: ["text": "deploy", "retryRowId": "p9",
+                                                     "links": ["https://cmux.dev/a", "javascript:alert(1)", "file:///etc/hosts", 3]])
+        #expect(target?.retryRowId == "p9")
+        #expect(target?.links.map(\.absoluteString) == ["https://cmux.dev/a"])
     }
 
     /// The pane end to end on both hosts: a page report, then the web view's menu hook WebKit runs
@@ -113,7 +199,7 @@ import WebKit
         openMenu(menu)
         #expect(!Self.titles(menu).contains("WKMenuItemIdentifierReload"))
         Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage }))
-        #expect(copied == ["Done. See the diff."])
+        #expect(copied == ["**Done.**"])
         Self.choose(try #require(menu.items.first { $0.title == AgentPaneMenuStrings.forkFromHere }))
         #expect(scripts.contains { $0.contains("chat.fork") && $0.contains("throughSeq: 7") })
 

@@ -190,4 +190,41 @@ if out="$(ratchet)"; then fail "an array subscript or a literal expression passe
 g reset -q
 reset
 
+# 11. objc_observer: a selector-based NotificationCenter registration counts in every
+#     module, also when the arguments span lines (a @MainActor @objc target traps when
+#     the notification is posted off main); the block form with queue: .main does not.
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+center.addObserver(self, selector: #selector(changed(_:)), name: name, object: nil)
+DistributedNotificationCenter.default().addObserver(
+    self,
+    selector: #selector(layoutChanged),
+    name: name, object: nil)
+SWIFT
+printf 'nc.addObserver(self, selector: #selector(moved), name: n, object: clip)\n' > "$shared/Sources/RenderText/T.swift"
+if out="$(ratchet)"; then fail "a selector-based observer passed: $out"; fi
+[[ "$out" == *"swift M: objc_observer 0 -> 2"* ]] || fail "objc_observer (one line and multi-line) is not reported: $out"
+[[ "$out" == *"swift RenderText: objc_observer 0 -> 1"* ]] || fail "objc_observer in a linked package is not reported: $out"
+printf 'let r = 1\n' > "$shared/Sources/RenderText/T.swift"
+cat > "$app/Sources/M/A.swift" <<'SWIFT'
+token = center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+    // main-proof: registered with queue: .main
+    MainActor.assumeIsolated { self?.changed() }
+}
+func addObserver(_ handler: @escaping () -> Void) -> Int { 0 }
+let id = trail.addObserver { }
+// center.addObserver(self, selector: #selector(old), name: name, object: nil)
+SWIFT
+out="$(ratchet)" || fail "a block observer or an unrelated addObserver counted: $out"
+reset
+
+# 12. A per-module ban ("swift.<class>@<Module>"): that class fails in that module even with
+#    an inline crash-allow, and stays a ratchet class elsewhere.
+cat > "$tmp/scripts/cmux-next/crash-allowlist.json" <<'JSON'
+{"banned": ["swift.as_bang", "swift.objc_selector", "swift.index_subscript@MessagesLabHome"], "allow": []}
+JSON
+printf 'let a = rows[i] // crash-allow: x\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "a module-banned class passed: $out"; fi
+[[ "$out" == *"banned index_subscript in"* ]] || fail "the module ban is not reported: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

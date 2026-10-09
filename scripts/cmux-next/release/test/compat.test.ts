@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { catalogProblems, changeKey, compatProblems, inventoryHits, openapiProblems, parseChange, supersetProblems } from "../compat.ts"
+import { catalogProblems, changeKey, compatProblems, gateProblems, inventoryHits, openapiProblems, parseChange, supersetProblems, type GateInput } from "../compat.ts"
 import { writeReceipt } from "../receipts.ts"
 import { TREES } from "../trees.ts"
 import { addMigration, REAL, tempRoot } from "./helpers.ts"
@@ -86,6 +86,46 @@ describe("inventory at the release tag", () => {
   })
 })
 
+const signedIn = { authenticated: true, revisions: { staging: { host: "cmux-staging.vercel.app", sha: "a" }, production: { host: "cmux.com", sha: "a" }, relation: "same", source: "test" } }
+
+describe("the in-step gate decision (compatNow)", () => {
+  const pass: GateInput = {
+    latest: "v0.65.0",
+    specTag: "v0.65.0",
+    specSha: "dda24fbd2250",
+    tagSha: "dda24fbd2250",
+    staticErrors: [],
+    affectsCmuxOld: true,
+    reach: "cmux-old v0.65.0 reaches this change: vm.cmux.dev in CLI/x.swift",
+    replay: { ok: true, authenticated: true, failures: [] },
+    revisions: { relation: "same", staging: { sha: "a" }, production: { sha: "a" } },
+  }
+  it("allows a change cmux-old reaches once the signed-in replay passes and staging runs production's revision or newer", () => {
+    expect(gateProblems(pass)).toEqual([])
+    expect(gateProblems({ ...pass, revisions: { relation: "newer", staging: { sha: "b" }, production: { sha: "a" } } })).toEqual([])
+    expect(gateProblems({ ...pass, affectsCmuxOld: false })).toEqual([])
+  })
+  const refusals: Array<[string, Partial<GateInput>, string]> = [
+    ["an unauthenticated replay of a change cmux-old reaches", { replay: { ok: true, authenticated: false, failures: [] } }, "not signed in as the agent profile (CMUX_UITEST_STACK_EMAIL/_PASSWORD in the environment or ~/.secrets/cmuxterm-dev.env); this change reaches"],
+    ["an unauthenticated replay of any other change", { affectsCmuxOld: false, replay: { ok: true, authenticated: false, failures: [] } }, "not signed in as the agent profile"],
+    ["a failing replay", { replay: { ok: false, authenticated: true, failures: ["GET /api/vm: response shape: $.vms: missing"] } }, "replay: GET /api/vm: response shape"],
+    ["a replay that did not run", { replay: undefined }, "did not run"],
+    ["a stable release newer than the spec", { latest: "v0.66.0" }, "latest stable release is v0.66.0"],
+    ["a release tag that moved after the spec was made", { specSha: "499779c6c2c0" }, "names dda24fbd2250: the tag moved"],
+    ["staging older than production", { revisions: { relation: "older", staging: { sha: "a" }, production: { sha: "b" } } }, "staging's web revision is older relative to production (staging a, production b)"],
+    ["staging diverged from production", { revisions: { relation: "diverged", staging: { sha: "a" }, production: { sha: "b" } } }, "is diverged"],
+    ["unreadable revisions", { revisions: { relation: "unknown", staging: { error: "vercel api exited 1" }, production: { sha: "b" } } }, "is unknown relative to production (staging vercel api exited 1"],
+    ["a static error", { staticErrors: ["catalog operations.x: removed"] }, "static: catalog operations.x: removed"],
+  ]
+  for (const [what, change, expected] of refusals) {
+    it(`refuses ${what}`, () => {
+      const input = { ...pass, ...change } as GateInput
+      if ("replay" in change && change.replay === undefined) delete (input as { replay?: unknown }).replay
+      expect(gateProblems(input).join("\n")).toContain(expected)
+    })
+  }
+})
+
 describe("compat receipts gate production", () => {
   it("needs a passing static AND smoke receipt of the same change key in the last 24 h", () => {
     const dir = mkdtempSync(join(tmpdir(), "compat-receipts-"))
@@ -95,13 +135,13 @@ describe("compat receipts gate production", () => {
     expect(compatProblems(dir, key, "production", now).length).toBe(2)
     writeReceipt(dir, { action: "compat-static", tree: "images", target: "production", result: "pass", at: at(1), setHash: key, by: "t" })
     expect(compatProblems(dir, key, "production", now)).toEqual([expect.stringContaining("client smoke")])
-    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(30), setHash: key, by: "t" })
+    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(30), setHash: key, ...signedIn, by: "t" })
     expect(compatProblems(dir, key, "production", now).length).toBe(1) // too old
-    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(2), setHash: "image:CLOUD_FREESTYLE_SNAPSHOT:sh-other", by: "t" })
+    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(2), setHash: "image:CLOUD_FREESTYLE_SNAPSHOT:sh-other", ...signedIn, by: "t" })
     expect(compatProblems(dir, key, "production", now).length).toBe(1) // another change
-    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(2), setHash: key, by: "t" })
+    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "pass", at: at(2), setHash: key, ...signedIn, by: "t" })
     expect(compatProblems(dir, key, "production", now)).toEqual([])
-    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "fail", at: at(1), setHash: key, by: "t" })
+    writeReceipt(dir, { action: "compat-smoke", tree: "images", target: "production", result: "fail", at: at(1), setHash: key, ...signedIn, by: "t" })
     expect(compatProblems(dir, key, "production", now).length).toBe(1) // the newest smoke failed
   })
   it("a migration change key moves with every file of the tree", () => {

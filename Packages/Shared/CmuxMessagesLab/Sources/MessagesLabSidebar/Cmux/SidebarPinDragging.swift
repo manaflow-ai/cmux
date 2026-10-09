@@ -43,7 +43,7 @@ extension SidebarController {
     @discardableResult
     func beginPinDrag(at p: CGPoint) -> Bool {
         guard pinDragState.drag == nil, placer != nil, query.isEmpty, let h = hit(p) else { return false }
-        guard let c = Self.element(snapshot.items, item(h)) else { return false }
+        guard let i = item(h), let c = Self.element(snapshot.items, i) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
         let frame: CGRect
@@ -56,7 +56,7 @@ extension SidebarController {
             state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
-        mouseMoved(nil)
+        // No hover to clear: MessagesLab f6fa7f5 removed the sidebar hover.
         CATransaction.begin(); CATransaction.setDisableActions(true)
         state.ghost?.removeFromSuperlayer()
         let ghost: CALayer

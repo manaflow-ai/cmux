@@ -70,14 +70,14 @@ struct IntentLog {
     /// Records the sequence that settles `transaction`; keeps the smaller
     /// of two (either bound is sound: every event up to it is applied).
     mutating func settle(_ transaction: ClientTransactionID, at sequence: UInt64) {
-        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
-        entries[index].settleSequence = min(entries[index].settleSequence ?? sequence, sequence)
+        entries.modifyFirst(where: { $0.transaction == transaction }) { entry in
+            entry.settleSequence = min(entry.settleSequence ?? sequence, sequence)
+        }
     }
 
     /// The reply came but no sequence bounds it: settle at the next snapshot.
     mutating func settleAtSnapshot(_ transaction: ClientTransactionID) {
-        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
-        entries[index].settlesAtSnapshot = true
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.settlesAtSnapshot = true }
     }
 
     /// Removes and returns the intent for `transaction`, recording it as settled.
@@ -105,9 +105,13 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
-        for index in entries.indices where entries[index].settleSequence != nil {
-            entries[index].settleSequence = nil
-            entries[index].settlesAtSnapshot = true
+        entries = entries.map { entry in
+            var entry = entry
+            if entry.settleSequence != nil {
+                entry.settleSequence = nil
+                entry.settlesAtSnapshot = true
+            }
+            return entry
         }
     }
 
@@ -117,12 +121,13 @@ struct IntentLog {
     }
 
     mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID) {
-        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
-        entries[index].createdSurface = surface
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.createdSurface = surface }
     }
 
-    mutating func setUndo(_ undo: IntentUndo?, at index: Int) {
-        entries[index].undo = undo
+    /// False (nothing set) when `index` is not in the log.
+    @discardableResult
+    mutating func setUndo(_ undo: IntentUndo?, at index: Int) -> Bool {
+        entries.modify(checked: index) { $0.undo = undo }
     }
 
     private mutating func noteSettled(_ transaction: ClientTransactionID) {
