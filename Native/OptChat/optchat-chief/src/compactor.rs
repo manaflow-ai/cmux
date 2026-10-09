@@ -442,6 +442,11 @@ impl AcpmuxCompactor {
         true
     }
 
+    /// The compactor shared, as the host holds it.
+    pub fn shared(self) -> Arc<AcpmuxCompactor> {
+        Arc::new(self)
+    }
+
     /// Keeps up to `n` warm sessions (`WARM_SESSIONS` in the host).
     pub fn with_warm(mut self, n: usize) -> AcpmuxCompactor {
         self.warm = n;
