@@ -44,7 +44,7 @@ enum TiledBubble {
         let lh = Fixture.lineHeight
         let attr = bl.attributed(outgoing: outgoing)
         let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
-        guard a < b else { return }
+        guard a >= 0, a < b else { return } // cmux: a negative chunk draws nothing
         for (j, line) in zip(a..<b, bl.lines.dropFirst(a)) where line.length > 0 { // cmux: no index math
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line))
             ctx.saveGState()
