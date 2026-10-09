@@ -34,7 +34,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pscaleProvider, REHEARSAL_BRANCH, type BranchProvider } from "./branches.ts"
-import { broadPrivileges, hasDatabaseCreate, productionCheckout, Refused, requireOwner } from "./guards.ts"
+import { broadPrivileges, hasDatabaseCreate, productionCheckout, Refused, requireOwner, runtimeInjection, stillAt } from "./guards.ts"
 import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, rollbackSection, type Lock, type MigrationFile, type RoleContract } from "./lint.ts"
 import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLine, withLocalLock, writeReceipt, type Receipt } from "./receipts.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
@@ -155,12 +155,12 @@ const rollbackOf = (tree: Tree, target: Target, pending: ReadonlyArray<Migration
   return steps
 }
 
-/** The files a production step reads, exported from git at HEAD (checked by productionCheckout) into a fresh directory. */
-const gitRoot = (root: string, tree: Tree): string => {
+/** The files a production step reads, exported from git at the commit productionCheckout verified, into a fresh directory. */
+const gitRoot = (root: string, tree: Tree, sha: string): string => {
   const out = mkdtempSync(join(tmpdir(), "cmux-release-git-"))
-  const paths = [tree.dir, LOCK_PATH, CONTRACT_PATH, "workers/cmux-vm/src/db/schema-requirements.ts"].filter((p) => spawnSync("git", ["-C", root, "cat-file", "-e", `HEAD:${p}`]).status === 0)
-  const archive = spawnSync("git", ["-C", root, "archive", "--format=tar", "HEAD", "--", ...paths], { maxBuffer: 256 << 20 })
-  if (archive.status !== 0) throw new Refused(`git archive HEAD failed: ${archive.stderr.toString().slice(0, 200)}`)
+  const paths = [tree.dir, LOCK_PATH, CONTRACT_PATH, "workers/cmux-vm/src/db/schema-requirements.ts"].filter((p) => spawnSync("git", ["-C", root, "cat-file", "-e", `${sha}:${p}`]).status === 0)
+  const archive = spawnSync("git", ["-C", root, "archive", "--format=tar", sha, "--", ...paths], { maxBuffer: 256 << 20 })
+  if (archive.status !== 0) throw new Refused(`git archive ${sha.slice(0, 12)} failed: ${archive.stderr.toString().slice(0, 200)}`)
   const untar = spawnSync("tar", ["-x", "-C", out], { input: archive.stdout })
   if (untar.status !== 0) throw new Refused("could not unpack the files from git")
   return out
@@ -296,13 +296,18 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         return await withLocalLock(dir, `apply-${tree.name}-${target}`, async () => {
           const realRoot = deps.root
           let base: string | undefined
+          let verifiedHead: string | undefined
           if (target === "production") {
             for (const v of ["CMUX_OLD_STAGING_ORIGIN", "CMUX_RELEASE_LATEST_STABLE"]) if (deps.env[v]) throw new Refused(`${v} is set; production takes no compat overrides`)
-            base = productionCheckout(deps.root, tree, deps.landedRemote)
+            const injected = runtimeInjection(deps.env, [import.meta.dirname, process.cwd()])
+            if (injected.length) throw new Refused(`production refuses code injected into the runtime: ${injected.join(", ")}`)
+            const checked = productionCheckout(deps.root, tree, deps.landedRemote)
+            base = checked.remote
+            verifiedHead = checked.head
           }
           if (target === "production") {
             // From here on the files come from git at the verified HEAD, never from the working tree.
-            deps = { ...deps, root: gitRoot(realRoot, tree) }
+            deps = { ...deps, root: gitRoot(realRoot, tree, verifiedHead!) }
             files = readMigrations(deps.root, tree)
           }
           await lintOrRefuse(deps, tree, base, realRoot)
@@ -360,13 +365,14 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               emit(rehearsalReceipt(context, outcome, gitSha(deps)))
               if (outcome.errors.length) throw new Refused(`the rehearsal failed; nothing was applied:\n  ${outcome.errors.join("\n  ")}`)
               const sha = gitSha(deps)
+              if (verifiedHead) stillAt(realRoot, verifiedHead)
               const result = await applyPending(db.sql, tree, files, { by, allowContract, target })
               const errors = (await schemaProblems(db.sql, await requirementsOf(tree, deps.root))).filter((p) => !p.includes(" privilege")).map((p) => `after apply: ${p}`)
               for (const e of errors) deps.error(e)
               const afterPlan = await planOf(db.sql, tree, files)
               emit({
                 action: "apply",
-                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${target === "production" ? `git ${base?.slice(0, 12)} (HEAD ${gitSha({ ...deps, root: realRoot })?.slice(0, 12)})` : `${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""}`} after rehearsal on ${outcome.branch}`,
+                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${target === "production" ? `git ${verifiedHead?.slice(0, 12)} (on origin/feat-cmux-next ${base?.slice(0, 12)})` : `${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""}`} after rehearsal on ${outcome.branch}`,
                 tree: tree.name,
                 target,
                 before: [...plan.applied.keys()].sort(),
@@ -394,8 +400,8 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         if (!through || !/^\d{4}$/.test(through)) throw new Refused("adopt needs --through NNNN")
         if (tree.name !== "cmux-vm") throw new Refused("only cmux-vm has untracked databases")
         if (target === "production") {
-          productionCheckout(deps.root, tree, deps.landedRemote)
-          deps = { ...deps, root: gitRoot(deps.root, tree) }
+          const checked = productionCheckout(deps.root, tree, deps.landedRemote)
+          deps = { ...deps, root: gitRoot(deps.root, tree, checked.head) }
           files = readMigrations(deps.root, tree)
         }
         const db = await open(deps, tree, target, urlVar, "admin")
