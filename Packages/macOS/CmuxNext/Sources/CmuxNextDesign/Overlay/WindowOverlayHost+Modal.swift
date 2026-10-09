@@ -147,3 +147,8 @@ extension WindowOverlayHost {
         return nil
     }
 }
+
+extension WindowOverlayHost {
+    /// An Escape for `target` while a modal shows (stub: the window keeps it).
+    func routeEscape(_ event: NSEvent, in target: NSWindow?) -> Bool { false }
+}
