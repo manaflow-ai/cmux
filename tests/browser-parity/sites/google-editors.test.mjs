@@ -264,3 +264,35 @@ test("googleSheets.cells refuses offsets outside the archive", async () => {
   assert.equal(r.code, "unexpected", JSON.stringify(r).slice(0, 300));
   assert.match(r.message, /not a valid zip file/);
 });
+
+// r42: a confirmed write rechecks the account before each input batch;
+// the editor's selection is read back right before the paste or typed
+// keys too, so an editor (or another session) that moved it sends nothing
+// to a cell or slide the draft did not show.
+test("googleSheets.write: a selection the editor moved elsewhere before the paste writes nothing (target_mismatch)", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL moved selection")');
+  const file = files.get(f.id);
+  file.redirectSelection = "Z9";
+  const d = await s.value(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]])`);
+  assert.equal(d.status, "draft");
+  assert.match(await s.error(`sites.googleSheets.write(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|not the confirmed/);
+  await Promise.all([...(file.pending || [])]);
+  assert.deepEqual(file.edits || [], [], "nothing was pasted or typed");
+  assert.equal(file.sheets[0].cells.size, 0);
+  delete file.redirectSelection;
+  await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+});
+
+test("googleSlides.setNotes: a slide the editor switched to before the notes are typed is not written (target_mismatch)", async () => {
+  const deck = files.get("1deckPRIVATE00000000000000000000x");
+  const before = deck.slides.map((x) => x.notes);
+  deck.redirectSlide = 0;
+  try {
+    const d = await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Moved notes")`);
+    assert.equal(d.status, "draft");
+    assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(d.id)}, { confirm: true })`), /target_mismatch|not the confirmed/);
+    assert.deepEqual(deck.slides.map((x) => x.notes), before);
+  } finally {
+    delete deck.redirectSlide;
+  }
+});

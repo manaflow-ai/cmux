@@ -246,6 +246,10 @@ box.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
   range = box.value.toUpperCase();
+  // redirectSelection: an editor (or another session) that moves the
+  // selection elsewhere right after the name box selected the range.
+  const redirect = ${JSON.stringify(file.redirectSelection || null)};
+  if (redirect) { range = redirect; box.value = redirect; }
   const m = /^([A-Z]+)(\\d+)/.exec(range);
   const c = [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
   cur = { r: Number(m[2]) - 1, c, start: c };
@@ -270,8 +274,9 @@ cell.addEventListener("paste", (e) => {
   post("cells", { range: ref(cur.r, cur.c), tsv, via: "paste" });
 });
 cell.addEventListener("keydown", (e) => {
-  if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; }
-  else if (e.key === "Enter") { e.preventDefault(); commit(); cur.r++; cur.c = cur.start; }
+  // As live, the name box shows the active cell.
+  if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; box.value = ref(cur.r, cur.c); }
+  else if (e.key === "Enter") { e.preventDefault(); commit(); cur.r++; cur.c = cur.start; box.value = ref(cur.r, cur.c); }
 });
 cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { saving(); post("clear", { range }); } });
 </script>`,
@@ -345,7 +350,12 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
 // page id is the slide's object id and stays with it when slides move); the
 // notes textbox takes typed keys (Meta+A selects all notes; Escape commits).
 let slide = 0, notes = null, replaceAll = false, atStart = false;
-document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = i; }));
+// As live, the URL's #slide=id.<object id> names the selected slide.
+// redirectSlide: an editor (or another session) that selects that slide
+// instead of the one clicked.
+const slideIds = ${JSON.stringify(file.slides.map((x, i) => x.id || `p${i}`))};
+const redirectSlide = ${JSON.stringify(Number.isInteger(file.redirectSlide) ? file.redirectSlide : null)};
+document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = redirectSlide === null ? i : redirectSlide; location.hash = "slide=id." + slideIds[slide]; }));
 const nw = document.getElementById("speakernotes-workspace");
 nw.addEventListener("click", () => { nw.focus(); notes = ""; replaceAll = false; atStart = false; });
 nw.addEventListener("keydown", (e) => {
