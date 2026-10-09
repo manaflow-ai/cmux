@@ -647,6 +647,90 @@ describe("acpmux composer draft", () => {
     expect(readPersistedDraft(sessionId)).toBeUndefined();
     await act(async () => root.unmount());
   });
+
+  test("restores the daemon draft when acpmux reconnects without changing sessions", async () => {
+    const sessionId = "session-reconnected-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    writePersistedDraft(sessionId, "");
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      expect(promptField().value).toBe("");
+
+      (dom.window as unknown as {
+        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+      }).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => ({ draft: "restored after reconnect" }),
+        "chat.writeDraft": async () => undefined,
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("restored after reconnect");
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
+  });
+
+  test("keeps a typed draft queued until acpmux reconnects", async () => {
+    const sessionId = "session-queued-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    writePersistedDraft(sessionId, "");
+    const writes: Record<string, unknown>[] = [];
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      await act(async () => typeInto(promptField(), "typed before reconnect"));
+      (dom.window as unknown as {
+        cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+      }).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => undefined,
+        "chat.writeDraft": async (params) => {
+          writes.push(params);
+          return undefined;
+        },
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("typed before reconnect");
+      expect(writes).toContainEqual({ sessionId, text: "typed before reconnect" });
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
+  });
 });
 
 describe("acpmux composer remote editing note", () => {
