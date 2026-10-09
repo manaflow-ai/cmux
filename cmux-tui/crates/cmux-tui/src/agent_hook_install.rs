@@ -3773,6 +3773,20 @@ esac
         assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn codex_contextual_hook_command_survives_a_shared_daemon() {
+        let command = codex_contextual_hook_command(
+            "Stop",
+            Path::new("/run/cmux-tui.sock"),
+            "terminal-1",
+            Path::new("/home/user/.local/share/cmux-tui/bin/cmux-tui-hook"),
+        );
+        assert!(command.contains("CMUX_TUI_SOCKET='/run/cmux-tui.sock'"), "{command}");
+        assert!(command.contains("CMUX_TUI_TERMINAL_ID='terminal-1'"), "{command}");
+        assert!(command.contains("cmux-tui-hook 'codex' 'Stop'"), "{command}");
+    }
+
     #[test]
     fn every_command_hook_fits_in_two_hundred_bytes() {
         for provider in PROVIDERS {
