@@ -926,3 +926,34 @@ fn a_report_steered_into_a_running_turn_is_logged_once() {
     assert_eq!(count("a1"), 1, "{log:?}");
     assert_eq!(count("a2"), 1, "{log:?}");
 }
+
+/// Reference parity S4: a tell to a RUNNING subagent is steered into its
+/// session, read between its tool calls (one run answers both), not queued
+/// as a second turn.
+#[test]
+fn a_tell_to_a_running_subagent_is_steered_into_its_session() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().steering = true;
+    spawn(&mut s, &["one"]).unwrap();
+    let prompts = s.h.agents.inner.lock().unwrap().prompts.len();
+    let answer = call(&mut s, |sp| sp.tell("a1", "also check the tests")).unwrap();
+    assert!(answer.contains("between its tool calls"), "{answer}");
+    s.h.agents.wait_steers(1);
+    let inner = s.h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), prompts, "no second prompt");
+    assert_eq!(inner.steers.len(), 1);
+    assert_eq!(inner.steers[0].0, "s1");
+    assert_eq!(inner.steers[0].1[0]["text"], "also check the tests");
+}
+
+/// A session that cannot steer (not running, or a harness without it)
+/// takes the tell as its next prompt, as before.
+#[test]
+fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
+    let mut s = setup();
+    spawn(&mut s, &["one"]).unwrap();
+    let answer = call(&mut s, |sp| sp.tell("a1", "more: please")).unwrap();
+    assert!(answer.contains("after its current step"), "{answer}");
+    let inner = s.h.agents.inner.lock().unwrap();
+    assert!(inner.prompt_ids.iter().any(|p| p.starts_with("optchat-tell:a1:")));
+}
