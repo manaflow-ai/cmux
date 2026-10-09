@@ -863,7 +863,8 @@
         "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
         "ineligible": "iOS TestFlightには有効な個人Proサブスクリプションが必要です。",
         "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
-        "unavailable": "現在、TestFlight登録は利用できません。"
+        "unavailable": "現在、TestFlight登録は利用できません。",
+        "busy": "アカウントへの別の変更を処理中です。しばらくしてから再試行してください。"
       },
       "notEligible": {
         "title": "サブスクリプションが必要です",
