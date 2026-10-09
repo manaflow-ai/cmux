@@ -3,7 +3,17 @@
 Spec: [Program Status Protocol, revision 0.3 (2026-10-07)](https://www.superlogical.com/rex/docs/build/program-status)
 (summary: [mitchellh.com/writing/program-status-osc7501](https://mitchellh.com/writing/program-status-osc7501)).
 Bead cx-6so.36.5 (parent cx-6so.36). Daemon contract: `.cmux-scratch/nx-osc7501/CONTRACT.md` (hq).
-Audited at feat-cmux-next `c6a0cd6d999c`, ghostty-next pin `3339f2ada`.
+Audited at feat-cmux-next `c6a0cd6d999c`, ghostty-next pin `3339f2ada`. Fixes landed in
+`2677a13085cb` (gated `a048817d41d6`).
+
+Live evidence (`scripts/cmux-next/terminal-program-status-conformance-live.py`, cmux-lawrence-2):
+baseline tag o75b at `c6a0cd6d999c` and after-fix tag o75f at `5abd229dfb42`. Reports and
+window snapshots are in hq `.cmux-scratch/videos/cx-6so.36.5/` (`baseline-*`, `after-*`).
+Baseline: every record step passes, the query is answered (ST and BEL), but there are no banners,
+no app inheritance and no `Pst`. After the fix: banners "terraform needs approval", "A program
+failed", "EU West needs approval", "deploy asks a question" and "build failed", each with its
+workspace as subtitle. Regions show app=deploy, and infocmp shows `Pst`. XTGETTCAP `Pst` is still
+unanswered (the control capability `Co` is answered, so the DCS path works).
 
 Layers: **P** = parser, `ghostty-next/src/terminal/osc/parsers/program_status.zig`
 (ported from ghostty-org/ghostty#14560 in manaflow-ai/ghostty-next#29) and its
@@ -55,7 +65,7 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | each report replaces its record completely | yes | D `apply_report`; test `a_report_replaces_its_record_completely` |
 | `/` hierarchy: clear removes the record and its descendants | yes | D `clear` prefix retain; test `clear_removes_a_record_and_its_descendants_only`; live `hierarchical-clear` |
 | clear with no id removes every record | yes | D; live `rsync-cleared` |
-| **app inheritance from the nearest ancestor (MUST)** | **fixed** | D `app_of`, published `app` is inherited; red `afa070cae194`, fix `fe521fcac6c6`; test `a_record_without_app_takes_the_nearest_ancestors_app`; live `deploy-app-inherited` |
+| **app inheritance from the nearest ancestor (MUST)** | **fixed** | D `app_of`, published `app` is inherited; red `67cf30677639`, fix `082ba024ea49`; test `a_record_without_app_takes_the_nearest_ancestors_app`; live `deploy-app-inherited` |
 | parent need not exist | yes | D `app_of` walks missing ancestors; same test (`eu/west/pod`) |
 | root and child records coexist | yes | live `deploy-three-records` |
 | screen switch (alt screen) has no effect | yes | records live in D, not on a screen |
@@ -74,7 +84,7 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | --- | --- | --- |
 | `OSC 7501 ; ?` answered with the same body, same terminator | yes | P handler `.query` (only when a program_status effect is set); terminal host answers once (`host_parser.rs` `query_only_sink`, mirror `on_pty_write: None`); live `query-st`, `query-bel` |
 | only fixed bytes written back, records unreadable by the program | yes | P handler writes `\x1b]7501;?` + ST only |
-| **terminfo `Pst=\E]7501;%p1%s\E\\` (SHOULD)** | **fixed** | shipped overlay `Resources/terminfo-overlay/{78/xterm-ghostty,67/ghostty}` and base `Resources/ghostty/terminfo`; red `29e6b0d17b75`, fix `3329dc33c0a2`; `scripts/cmux-next/tests/bundled-terminfo.test.sh`; live `terminfo-pst` |
+| **terminfo `Pst=\E]7501;%p1%s\E\\` (SHOULD)** | **fixed** | shipped overlay `Resources/terminfo-overlay/{78/xterm-ghostty,67/ghostty}` and base `Resources/ghostty/terminfo`; red `923186a09e37`, fix `8f789578fa97`; `scripts/cmux-next/tests/bundled-terminfo.test.sh`; live `terminfo-pst` |
 | XTGETTCAP `Pst` (same table) | **fixed in fork, pin pending** | manaflow-ai/ghostty-next#32 (red `8754b730a`, green `97f843dd9`, test "XTGETTCAP responses"); needs the ghostty-next pin bump (CORE window); live `xtgettcap-pst` stays a gap until then |
 
 ## Display, notifications, security
@@ -86,9 +96,9 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | `msg`: MUST NOT read meaning into it | yes | no code branches on `msg` |
 | tab indicator: working (progress), blocked = attention dot, error/done = unseen badge | yes | S `StatusMapping.reports/needsInput/outcome`, `TabItemMapping.status`; tests `ProgramStatusSeenTests`; live snapshots |
 | workspace row working/attention | yes | S `WorkspaceRowContent` (`showsWorking`), `StatusMapping.summary(tabs:)` |
-| **blocked -> notification worded by kind; error -> notification (contract)** | **fixed** | D `raise_alert` -> `TerminalMetadata::admit_program_status_alerts` -> `Mux::post_terminal_notifications` (Warning/Error, source `terminal`, on the record's surface); red `afa070cae194`, fix `fe521fcac6c6`; test `blocked_and_error_records_post_one_terminal_notification_each`; live `terraform`, `rsync-error`, `deploy-three-records` |
-| rate-limit external effects (SHOULD) | **fixed** | the same per-terminal gate as OSC 9/777/99 (1 s spacing, 5 s for repeated text); a repeated blocked report (progress update) posts nothing |
-| **say which terminal a shown record came from (SHOULD)** | **fixed** | tab/row indicators sit on the source tab; banners from `terminal` sources carry the workspace name as subtitle (`NotificationCenterService.bannerSubtitle`); red `67611c6d3c89`, fix (this branch); test `aTerminalProgramsBannerNamesItsWorkspace`; `debug.notifications` shows `subtitle` |
+| **blocked -> notification worded by kind; error -> notification (contract)** | **fixed** | D `raise_alert` -> `TerminalMetadata::admit_program_status_alerts` -> `Mux::post_terminal_notifications` (Warning/Error, source `terminal`, on the record's surface); red `67cf30677639`, fix `082ba024ea49`; test `blocked_and_error_records_post_one_terminal_notification_each`; live `terraform`, `rsync-error`, `deploy-three-records` |
+| rate-limit external effects (SHOULD) | **fixed** | the same per-terminal gate as OSC 9/777/99 (1 s spacing, 5 s for repeated text). A blocked record alerts again only when its kind changes (progress or message updates post nothing), and an alert for a record cleared in the same output chunk is withdrawn (`e8cef5d3a33b`). An OSC 9 in the same chunk can take the gate's slot first. |
+| **say which terminal a shown record came from (SHOULD)** | **fixed** | tab/row indicators sit on the source tab; banners from `terminal` sources carry the workspace name as subtitle (`NotificationCenterService.bannerSubtitle`); red `6bbf01aff399`, fix `7e09d189d442`; test `aTerminalProgramsBannerNamesItsWorkspace`; `debug.notifications` shows `subtitle` |
 | notifications follow the user's terminal-notification setting | yes | source `terminal` (`desktop-notifications = false` silences them, `NotificationCenterService.arrived`) |
 | OSC 9;4 mapping to the root record | n/a | cmux keeps OSC 9;4 as its own `extra.progress`, so the "stop mapping after 7501" rule never applies |
 
@@ -98,7 +108,7 @@ Verdicts: **yes** conforms; **fixed** conformed only after this bead; **gap** op
 | --- | --- | --- |
 | CLI `cmux terminal <sel> status [--json]`, MCP `terminal_get` | yes | `cmux-tui/crates/cmux-tui/src/cli/command/plan.rs`; live script reads every step through it |
 | session events / snapshot `extra.program_status` | yes | test `program_status_osc7501_reaches_snapshot_and_event_feed` |
-| cmux TUI | partial | blocked/error now raise a tab/sidebar unread dot through the notification ledger (severity color); the TUI draws no working spinner or progress for any source yet (OSC 9;4 neither); live `tui` |
+| cmux TUI | partial, not shown live | blocked and error records now post notifications to the same ledger that drives the TUI's tab and sidebar unread dots (`ui/sidebar.rs` `workspace_unread_color`). The TUI draws no working spinner or progress for any source (OSC 9;4 also has none). The live script's TUI step (TUI attached inside an app terminal) captured no usable screen, so the TUI is not proven live. |
 | daemon restart | gap | records are lost; the terminal host keeps none and the mirror is rebuilt from a screen snapshot, so the next report restores them. Fix needs the host to keep records and a host protocol field (CORE + terminal-host protocol). |
 | nested multiplexers (tmux, nested cmux, ssh) | yes for ssh; documented for the rest | ssh is transparent. A program inside tmux needs tmux passthrough (`allow-passthrough on` + DCS wrapping, the program's choice). A program inside a nested cmux reports to the inner terminal, whose daemon keeps the records; the outer cmux sees nothing, as the spec's "per pseudo-terminal" model says. |
 
