@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { FileHeader, fileTreeRowDecoration } from "../src/App";
+import { FileHeader } from "../src/diff-viewer/FileHeader";
+import { fileTreeRowDecoration } from "../src/diff-viewer/FilesSidebar";
 import {
   collapsedFileKey,
   MAX_COLLAPSED_FILES,

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 public import WebKit
@@ -343,23 +344,23 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     private func observeWebView() {
         observations = [
-            webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.urlChanged(webView.url)) }
+            webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
             },
-            webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.titleChanged(webView.title)) }
+            webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.titleChanged(webView.title)) }
             },
-            webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.apply(.progress(webView.estimatedProgress)) }
+            webView.observe(\.estimatedProgress, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.apply(.progress(webView.estimatedProgress)) }
             },
-            webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncHistory() }
+            webView.observe(\.canGoBack, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncHistory() }
             },
-            webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncHistory() }
+            webView.observe(\.canGoForward, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncHistory() }
             },
-            webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] webView, _ in
-                MainActor.assumeIsolated { self?.syncSecurity() }
+            webView.observe(\.hasOnlySecureContent, options: [.new]) { @Sendable [weak self] webView, _ in
+                MainDelivery().run { self?.syncSecurity() }
             },
         ]
     }

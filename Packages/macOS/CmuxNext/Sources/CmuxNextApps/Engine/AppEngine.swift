@@ -34,9 +34,14 @@ public actor AppEngine {
     var gestures: [String: ContinuousClock.Instant] = [:]
     static let gestureWindow: Duration = .seconds(10)
 
+    /// Marks each engine's queue with its own identity (`isOnEngineQueue`).
+    nonisolated static let queueKey = DispatchSpecificKey<UInt>()
+
     public init(configuration: AppEngineConfiguration) {
         self.configuration = configuration
-        queue = DispatchSerialQueue(label: "cmux.apps.\(configuration.manifest.id)", qos: .userInitiated)
+        let queue = DispatchSerialQueue(label: "cmux.apps.\(configuration.manifest.id)", qos: .userInitiated)
+        queue.setSpecific(key: Self.queueKey, value: UInt(bitPattern: ObjectIdentifier(queue)))
+        self.queue = queue
     }
 
     /// Loads the runtime and the app's `main`, then `__cmuxAppInit`.
@@ -62,7 +67,7 @@ public actor AppEngine {
         hasWatchdog = watchdog.install(on: context, limit: configuration.evaluationLimit)
         context.exceptionHandler = { [weak self] _, exception in
             let text = exception?.toString() ?? "exception"
-            self?.assumeIsolated { $0.lastException = text }
+            self?.onExecutor("exceptionHandler", fallback: ()) { $0.lastException = text }
         }
         installNative(in: context)
         state = .running

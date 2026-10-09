@@ -144,11 +144,14 @@ fn main() -> std::process::ExitCode {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            if key != optchat_chief::chief_settings::REMOTE_AUTO_APPROVE {
-                                return Err(format!("unknown setting {key:?}"));
+                            use optchat_chief::chief_settings::{
+                                CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl,
+                            };
+                            match key {
+                                REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
+                                CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                _ => return Err(format!("unknown setting {key:?}")),
                             }
-                            s.remote_auto_approve =
-                                optchat_chief::chief_settings::parse_bool(value)?;
                             s.save(&file)
                                 .map_err(|e| format!("{}: {e}", file.display()))?;
                         }

@@ -37,7 +37,7 @@ fn checkpoint_count(socket: &Path, id: &str) -> usize {
 /// Every `terminal.output.gap` record from the beginning of the journal as
 /// (terminal subject, reason), read from a subscription until no record
 /// arrives for two seconds.
-fn gap_reasons(socket: &Path) -> Vec<(String, String)> {
+pub(super) fn gap_reasons(socket: &Path) -> Vec<(String, String)> {
     let stream = transport::connect(socket).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
     let mut writer = stream.try_clone_box().unwrap();

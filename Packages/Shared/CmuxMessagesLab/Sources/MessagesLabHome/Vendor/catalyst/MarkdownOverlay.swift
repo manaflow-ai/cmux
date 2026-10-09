@@ -21,6 +21,9 @@ final class MarkdownOverlay {
         let content = CALayer()
         let fade = CAGradientLayer()
         let indicator = CALayer()
+        /// Incoming rows: opaque bubble grey under the clip (the edge fades must not show the
+        /// bitmap's unscrolled copy of the block).
+        let cover = CALayer()
         var index: Int
         var rendered = false
         init(_ i: Int) { index = i }
@@ -53,13 +56,22 @@ final class MarkdownOverlay {
         }
         let o = cell.markdownOverlay ?? MarkdownOverlay()
         cell.markdownOverlay = o
-        let span = RowDraw.drawSpan(spec)
+        // The overlays are siblings above the row bitmap (a mask on the bitmap would hide sublayers).
         let body = RowDraw.bodyRect(spec)
-        o.attach(to: cell.bitmap, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX - span.lowerBound, y: body.minY))
+        let host = cell.bitmap.superlayer ?? cell.contentView.layer
+        o.bitmap = cell.bitmap
+        o.attach(to: host, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX, y: body.minY))
     }
 
+    /// Hides the row bitmap under the overlays (the bitmap draws every block at offset 0).
+    private let bitmapMask = CAShapeLayer()
+    /// The row bitmap: outgoing rows mask it under the overlays (their fill is a layer below it);
+    /// incoming rows draw their fill into it, so the overlay clips are opaque bubble grey instead.
+    weak var bitmap: CALayer?
+
     func detach() {
-        for r in regions { r.clip.removeFromSuperlayer() }
+        if bitmap?.mask === bitmapMask { bitmap?.mask = nil }
+        for r in regions { r.clip.removeFromSuperlayer(); r.cover.removeFromSuperlayer() }
         regions = []
         copyButton.removeFromSuperlayer()
         layout = nil
@@ -80,11 +92,18 @@ final class MarkdownOverlay {
             for (i, reg) in md.regions.enumerated() where MarkdownOverlay.usesOverlay(reg) {
                 let r = RegionLayers(i)
                 r.clip.masksToBounds = true
+                r.clip.zPosition = 1
+                if !outgoing {
+                    r.cover.backgroundColor = Fixture.incoming.cgColor
+                    r.cover.cornerRadius = r.clip.cornerRadius
+                    r.cover.zPosition = 1
+                    host.addSublayer(r.cover)
+                }
                 r.clip.cornerRadius = reg.kind == .code ? 6 : 0
                 r.clip.addSublayer(r.content)
                 r.clip.addSublayer(r.indicator)
                 r.indicator.cornerRadius = 1.25
-                r.indicator.backgroundColor = MDPalette.make(outgoing: outgoing).text.withAlphaComponent(0.32).cgColor
+                r.indicator.backgroundColor = MDPalette.palette(outgoing: outgoing).text.withAlphaComponent(0.32).cgColor
                 r.fade.startPoint = CGPoint(x: 0, y: 0.5); r.fade.endPoint = CGPoint(x: 1, y: 0.5)
                 r.content.contentsScale = Fixture.renderScale
                 host.addSublayer(r.clip)
@@ -94,6 +113,19 @@ final class MarkdownOverlay {
             host.addSublayer(copyButton)
         }
         for r in regions { place(r) }
+        if let b = bitmap {
+            if regions.isEmpty || !outgoing {
+                if b.mask === bitmapMask { b.mask = nil }
+            } else {
+                let path = CGMutablePath()
+                path.addRect(CGRect(x: -2000, y: -2000, width: b.bounds.width + 4000, height: b.bounds.height + 4000))
+                for r in regions { path.addRect(r.clip.frame.offsetBy(dx: -b.frame.minX, dy: -b.frame.minY)) }
+                bitmapMask.fillRule = .evenOdd
+                bitmapMask.frame = b.bounds
+                bitmapMask.path = path
+                b.mask = bitmapMask
+            }
+        }
         placeCopy()
     }
 
@@ -122,6 +154,7 @@ final class MarkdownOverlay {
         let reg = md.regions[r.index]
         let off = min(reg.maxOffset, max(0, MarkdownScroll.offset(identity: md.identity, region: r.index)))
         r.clip.frame = reg.frame.offsetBy(dx: bodyOrigin.x, dy: bodyOrigin.y)
+        r.cover.frame = r.clip.frame
         r.content.frame = CGRect(x: -off, y: 0, width: reg.contentWidth, height: reg.frame.height)
         // Edge fades: left when scrolled, right when more content follows.
         let w = reg.frame.width
@@ -163,6 +196,7 @@ final class MarkdownOverlay {
         if let p { idx = md.regions.firstIndex { $0.kind == .code && $0.frame.contains(p) } }
         guard idx != hoverRegion else { return }
         hoverRegion = idx
+        if idx == nil { copiedRegion = nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         placeCopy()
         CATransaction.commit()
@@ -180,7 +214,7 @@ final class MarkdownOverlay {
 
     private func placeCopy() {
         guard let i = hoverRegion, let r = copyRect(i) else { copyButton.isHidden = true; return }
-        let pal = MDPalette.make(outgoing: outgoing)
+        let pal = MDPalette.palette(outgoing: outgoing)
         copyButton.isHidden = false
         copyButton.frame = r.offsetBy(dx: bodyOrigin.x, dy: bodyOrigin.y)
         copyButton.backgroundColor = (outgoing ? UIColor(white: 0, alpha: 0.32) : UIColor(white: 0.5, alpha: 0.35)).cgColor

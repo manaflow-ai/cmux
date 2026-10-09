@@ -14,6 +14,16 @@ export const SHOWN_ROWS = 500;
 
 export type InspectorView = "wire" | "session";
 
+/** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
+export type ExportOutcome = "saved" | "cancelled" | "unavailable";
+
+/** `acp-<session8>-<yyyyMMdd-HHmmss>.jsonl` in local time; `acp-<time>.jsonl` without a session. */
+export function exportFileName(sessionId: string | undefined, at: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  return ["acp", sessionId?.slice(0, 8), stamp].filter(Boolean).join("-") + ".jsonl";
+}
+
 export type InspectorRow = {
   key: string;
   at: number;
@@ -145,8 +155,8 @@ export function Inspector({
   /** The selected session's ACP events as the client holds them. */
   sessionEvents: () => EventRecord[];
   onClose: () => void;
-  /** Saves the exported log; resolves false when the host cannot, and the log is copied instead. */
-  onExport?: (text: string) => Promise<boolean>;
+  /** Saves the export; cancellation leaves the clipboard unchanged. */
+  onExport?: (text: string, suggestedName: string) => Promise<ExportOutcome>;
   wire?: AcpWireLog;
 }) {
   const t = useT();
@@ -185,8 +195,12 @@ export function Inspector({
       connection: snapshot.connection,
       sessionStatus: snapshot.summary?.status,
     });
-    const saved = onExport ? await onExport(text).catch(() => false) : false;
-    setNotice(saved ? t("inspector.saved") : copyText(text) ? t("inspector.copied") : t("inspector.copyFailed"));
+    const outcome = onExport
+      ? await onExport(text, exportFileName(snapshot.sessionId, new Date())).catch((): ExportOutcome => "unavailable")
+      : "unavailable";
+    if (outcome === "saved") setNotice(t("inspector.saved"));
+    else if (outcome === "cancelled") setNotice(undefined);
+    else setNotice(copyText(text) ? t("inspector.copied") : t("inspector.copyFailed"));
   };
 
   return (

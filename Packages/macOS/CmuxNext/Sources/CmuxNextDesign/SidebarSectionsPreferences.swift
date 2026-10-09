@@ -38,7 +38,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// the name, the user's icon and the unread/attention mark only
     /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
     public var workspaceRow = WorkspaceRowPreferences.defaults
-    /// Whether the device-wide Chats section is shown in the sidebar.
+    /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
+    public var showProjects = true
+    /// Whether the device-wide Chats section is shown in the sidebar; its
+    /// header's Hide Section turns it off.
     public var showChats = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.

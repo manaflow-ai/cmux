@@ -42,9 +42,11 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
     public static let currentVersion = 1
-    private static let validationDateUserInfoKey = CodingUserInfoKey(
+    /// Optional because `CodingUserInfoKey.init?(rawValue:)` is failable (it never fails
+    /// for this literal; a test pins that). Without it, decoding validates against `Date()`.
+    static let validationDateUserInfoKey = CodingUserInfoKey(
         rawValue: "dev.cmux.mobileSyncPairingPayload.validationDate"
-    )!
+    )
 
     public let version: Int
     public let macDeviceID: String
@@ -92,7 +94,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         port = try container.decode(Int.self, forKey: .port)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
         transport = try container.decode(MobileSyncTransportKind.self, forKey: .transport)
-        let now = decoder.userInfo[Self.validationDateUserInfoKey] as? Date ?? Date()
+        let now = Self.validationDateUserInfoKey.flatMap { decoder.userInfo[$0] } as? Date ?? Date()
         try validate(now: now)
     }
 
@@ -140,7 +142,9 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        decoder.userInfo[validationDateUserInfoKey] = now
+        if let key = validationDateUserInfoKey {
+            decoder.userInfo[key] = now
+        }
         let payload = try decoder.decode(MobileSyncPairingPayload.self, from: data)
         return payload
     }
@@ -188,6 +192,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 public enum MobileSyncFrameCodecError: Error, Equatable, Sendable {
     case frameTooLarge(Int)
     case tooManyFrames(Int)
+    /// A decode limit was negative (frame bytes) or below one (frame count).
+    case invalidLimit
 }
 
 /// Length-prefixed frame codec for the mobile sync wire protocol.
@@ -199,10 +205,11 @@ public struct MobileSyncFrameCodec {
     public static let defaultMaximumDecodedFrameCount = 256
 
     public static func encodeFrame(_ payload: Data) throws -> Data {
-        guard payload.count <= defaultMaximumFrameByteCount else {
+        guard payload.count <= defaultMaximumFrameByteCount,
+              let payloadLength = UInt32(exactly: payload.count) else {
             throw MobileSyncFrameCodecError.frameTooLarge(payload.count)
         }
-        var length = UInt32(payload.count).bigEndian
+        var length = payloadLength.bigEndian
         var frame = Data(bytes: &length, count: headerByteCount)
         frame.append(payload)
         return frame
@@ -217,49 +224,24 @@ public struct MobileSyncFrameCodec {
         maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
         maximumDecodedFrameCount: Int = defaultMaximumDecodedFrameCount
     ) throws -> [Data] {
-        precondition(maximumFrameByteCount >= 0)
-        precondition(maximumDecodedFrameCount > 0)
+        guard maximumFrameByteCount >= 0, maximumDecodedFrameCount > 0 else {
+            throw MobileSyncFrameCodecError.invalidLimit
+        }
         var frames: [Data] = []
         frames.reserveCapacity(min(maximumDecodedFrameCount, 16))
-        var consumedByteCount = 0
+        var reader = WireByteReader(buffer)
         defer {
-            if consumedByteCount > 0 {
-                buffer.removeSubrange(
-                    buffer.startIndex..<buffer.index(
-                        buffer.startIndex,
-                        offsetBy: consumedByteCount
-                    )
-                )
-            }
+            if reader.remainingCount < buffer.count { buffer = reader.remaining }
         }
-
-        while frames.count < maximumDecodedFrameCount,
-              buffer.count - consumedByteCount >= headerByteCount {
-            let frameStart = buffer.index(
-                buffer.startIndex,
-                offsetBy: consumedByteCount
-            )
-            let headerEnd = buffer.index(
-                frameStart,
-                offsetBy: headerByteCount
-            )
-            let length = buffer[frameStart..<headerEnd].reduce(UInt32(0)) { partial, byte in
-                (partial << 8) | UInt32(byte)
+        while frames.count < maximumDecodedFrameCount {
+            var frame = reader
+            guard let length = frame.bigEndian(UInt32.self) else { break }
+            guard let payloadLength = Int(exactly: length), payloadLength <= maximumFrameByteCount else {
+                throw MobileSyncFrameCodecError.frameTooLarge(Int(clamping: length))
             }
-            let payloadLength = Int(length)
-            guard payloadLength <= maximumFrameByteCount else {
-                throw MobileSyncFrameCodecError.frameTooLarge(payloadLength)
-            }
-            guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
-                break
-            }
-            let payloadStart = headerEnd
-            let payloadEnd = buffer.index(
-                payloadStart,
-                offsetBy: payloadLength
-            )
-            frames.append(buffer.subdata(in: payloadStart..<payloadEnd))
-            consumedByteCount += headerByteCount + payloadLength
+            guard let payload = frame.bytes(payloadLength) else { break }
+            frames.append(payload)
+            reader = frame
         }
         return frames
     }

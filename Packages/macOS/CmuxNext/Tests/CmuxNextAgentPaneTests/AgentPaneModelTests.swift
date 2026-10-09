@@ -113,6 +113,25 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(await host.asked.isEmpty)
     }
 
+    /// Saved replies true, a cancelled panel false, and no saver or a failed
+    /// write a failure the page answers by copying the log.
+    @Test func theInspectorExportRepliesSavedCancelledOrFailed() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let request = AgentPaneRequest.saveLog(text: "{}\n", suggestedName: "acp.jsonl")
+        #expect(await model.respond(to: request)["ok"] as? Bool == false)
+        // The saver gets the page's text and name; it reports a mismatch as a cancel.
+        model.onSaveLog = { text, name in text == "{}\n" && name == "acp.jsonl" }
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(reply["value"] as? Bool == true)
+        model.onSaveLog = { _, _ in false }
+        #expect(await model.respond(to: request)["value"] as? Bool == false)
+        model.onSaveLog = { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        let failed = await model.respond(to: request)
+        #expect(failed["ok"] as? Bool == false)
+        #expect((failed["error"] as? [String: Any])?["code"] as? String == "save_failed")
+    }
+
     @Test func aHostFailureBecomesALocalizedMessage() async throws {
         let model = AgentPaneModel(host: FailingHost(error: .daemonFailed(logPath: "/tmp/acpmux/daemon.log")))
         let reply = await model.respond(to: .ready)

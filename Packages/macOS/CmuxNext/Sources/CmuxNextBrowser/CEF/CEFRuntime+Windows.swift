@@ -17,7 +17,7 @@ let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, 
         profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
     )
     let address = UInt(bitPattern: context)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         CEFRuntime.from(address)?.windowRequests.handle(request) ?? 0
     }
 }

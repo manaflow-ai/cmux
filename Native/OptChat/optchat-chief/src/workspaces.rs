@@ -34,6 +34,11 @@ pub trait Workspaces: Send + Sync {
     fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// goes to the closed history; the agent session stays.
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Err("closing is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -91,11 +96,19 @@ pub struct AppWorkspaces {
 
 impl AppWorkspaces {
     /// From the host's env: `CMUX_SOCKET_PATH` (None without it) and the
-    /// daemon socket.
+    /// app's daemon, where the app makes the workspaces.
     pub fn from_env(daemon: &str) -> Option<AppWorkspaces> {
-        crate::cli::env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
+        AppWorkspaces::resolve(daemon, &crate::cli::env)
+    }
+
+    /// `CMUX_SOCKET_PATH` from `env`, and the daemon that holds the app's
+    /// workspaces: `CMUX_APP_DAEMON_SOCKET` when the app sets it (the host's
+    /// `--daemon-socket` is then the Chief's conversation owner), else
+    /// `daemon` (cmux_env::app_daemon_socket).
+    pub fn resolve(daemon: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<AppWorkspaces> {
+        env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
             control: control.into(),
-            daemon: daemon.into(),
+            daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
         })
     }
 }
@@ -169,6 +182,10 @@ impl Workspaces for AppWorkspaces {
             Err(e) if still_running(&e) => Ok(key),
             Err(e) => Err(e),
         }
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
@@ -280,6 +297,10 @@ impl Workspaces for DaemonWorkspaces {
         result.map(|()| key)
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         rename_by_key(&self.daemon, key, name)
     }
@@ -313,6 +334,28 @@ pub fn still_running(error: &str) -> bool {
 const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
+/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// agent session is acpmux's and stays.
+fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .close_workspace(CloseWorkspaceRequest {
+            end_terminals: Some(true),
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("close-workspace: {e}"));
+    client.close();
+    result
+}
+
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
@@ -335,6 +378,23 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    /// Live proof subp3: every done mark failed with "unknown workspace key":
+    /// the renames went to the Chief's conversation owner (--daemon-socket),
+    /// while the app makes the workspaces in its own daemon.
+    #[test]
+    fn app_workspaces_rename_in_the_apps_daemon() {
+        let env = |k: &str| match k {
+            "CMUX_SOCKET_PATH" => Some("/tmp/control.sock".to_owned()),
+            "CMUX_APP_DAEMON_SOCKET" => Some("/tmp/app-daemon.sock".to_owned()),
+            _ => None,
+        };
+        let app = AppWorkspaces::resolve("/tmp/chief-owner.sock", &env).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/app-daemon.sock"));
+        let without = |k: &str| (k == "CMUX_SOCKET_PATH").then(|| "/tmp/control.sock".to_owned());
+        let app = AppWorkspaces::resolve("/tmp/own.sock", &without).unwrap();
+        assert_eq!(app.daemon, std::path::PathBuf::from("/tmp/own.sock"));
+    }
+
     use super::*;
 
     #[test]

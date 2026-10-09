@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 public import Observation
 
@@ -49,6 +50,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// Opens onboarding's existing project and agent-history import flow.
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
+    /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
+    /// detached items the App renders from its action placements.
+    @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
@@ -111,6 +115,11 @@ public final class AgentPaneModel {
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
     @ObservationIgnored private(set) var handshakeCwd: String?
+
+    /// Saves the inspector's exported log (text, suggested file name) where
+    /// the user picks; true when saved, false when the user cancelled. Nil
+    /// leaves the page to copy the log instead.
+    @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     @ObservationIgnored private let draftStore: any AgentPaneDraftStoring
@@ -317,19 +326,7 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
-        case .openFile(let path, let target):
-            guard let onOpenFile else {
-                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
-            }
-            let url: URL
-            switch checkedFileOpen(path, target: target) {
-            case .success(let checked): url = checked
-            case .failure(let refusal): return Self.transportFailure(refusal)
-            }
-            guard await onOpenFile(url, target) else {
-                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
-            }
-            return AgentPaneReply.success()
+        case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss:
             guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
             onQuickDismiss()
@@ -385,6 +382,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .reply(let reply):
             return await respond(to: reply)
+        case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
         case .unsupported(let method):
             return Self.unsupported(method)
         }

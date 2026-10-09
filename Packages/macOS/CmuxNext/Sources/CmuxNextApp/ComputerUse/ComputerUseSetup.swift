@@ -127,12 +127,12 @@ final class ComputerUseSetup {
         // The person comes back from System Settings: the grant may have changed.
         observers.append(notifications.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                    queue: .main) { [weak self] _ in
-            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            // main-proof: observer on queue: .main
             MainActor.assumeIsolated { self?.recheck() }
         })
         observers.append(distributed.addObserver(forName: Self.accessibilityTrustChanged, object: nil,
                                                  queue: .main) { [weak self] _ in
-            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            // main-proof: observer on queue: .main
             MainActor.assumeIsolated { self?.recheck() }
         })
     }

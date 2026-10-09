@@ -85,15 +85,32 @@ import Testing
         let half = root.toolbarBand.frame.width
         #expect(half > 0 && half < full, "half a sidebar, a band part way collapsed (\(half) of \(full))")
         #expect(root.toolbarBand.alphaValue > 0 && root.toolbarBand.alphaValue < 1)
+        for button in Self.buttons(root) {
+            #expect(!button.isHiddenOrHasHiddenAncestor, "a part way band keeps its buttons in the key view loop")
+        }
 
         sidebar.widthConstraint.constant = 0
         root.layoutSubtreeIfNeeded()
         #expect(root.toolbarBand.frame.width == 0)
         #expect(root.toolbarBand.alphaValue == 0)
+        // Collapsed, the 0-width buttons leave the key view loop and the
+        // accessibility tree (hidden views take neither keyboard nor
+        // VoiceOver focus); the View menu, palette and shortcut remain.
+        for button in Self.buttons(root) {
+            #expect(button.isHiddenOrHasHiddenAncestor, "a collapsed band's buttons take no keyboard or VoiceOver focus")
+            #expect(!button.canBecomeKeyView)
+        }
 
         sidebar.widthConstraint.constant = model.width
         root.layoutSubtreeIfNeeded()
         #expect(root.toolbarBand.frame.width == full)
         #expect(root.toolbarBand.alphaValue == 1)
+        for button in Self.buttons(root) {
+            #expect(!button.isHiddenOrHasHiddenAncestor, "the grown band's buttons come back")
+        }
+    }
+
+    private static func buttons(_ root: WindowRootView) -> [NSButton] {
+        [root.toolbarBand.sidebarToggle, root.toolbarBand.backButton, root.toolbarBand.forwardButton]
     }
 }

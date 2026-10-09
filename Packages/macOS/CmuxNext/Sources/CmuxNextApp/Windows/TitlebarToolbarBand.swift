@@ -19,11 +19,14 @@ final class TitlebarToolbarBand: NSView {
     static var expandSymbol: String { SidebarToggleIcon.currentExpandSymbol }
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
     /// hidden, in between while the sidebar's width animates. The items
-    /// close up toward the band's origin and fade with it.
+    /// close up toward the band's origin and fade with it. Fully collapsed,
+    /// the band is hidden: its 0-width buttons leave the key view loop and
+    /// the accessibility tree, and come back as soon as it grows.
     var presence: CGFloat = 1 {
         didSet {
             guard presence != oldValue else { return }
             alphaValue = presence
+            isHidden = presence == 0
             needsLayout = true
         }
     }

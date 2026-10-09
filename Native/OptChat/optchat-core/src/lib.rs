@@ -23,8 +23,8 @@ pub use compact::{
 pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};
 pub use render::{
-    block_cuts, block_pieces, cache_marks, cache_pieces, render_parts, render_view, view_line,
-    zoom, RenderedView, ZoomError, BLOCK_LINES,
+    block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,
+    view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
 };
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
@@ -34,8 +34,12 @@ pub const NODE: usize = 512;
 /// 64-128 KB sawtooth); the compaction view runs from a quarter down to an
 /// eighth of it (16-32 KB).
 pub const VIEW: usize = 128_000;
-/// Compactor model calls running at once (section 4.1).
-pub const JOBS: usize = 8;
+/// Compactor model calls running at once (section 4.1; the spec runs 8, the
+/// reference client 64). Bounded by the provider's rate limits: 64 calls of
+/// about 1 s are under 4,000 requests a minute, and a call refused with 429
+/// is retried after `RETRY`. A host may run fewer at once (the acpmux
+/// compactor's `COMPACTOR_SESSIONS`); the rest wait for a slot.
+pub const JOBS: usize = 64;
 /// Attempts per node to get under `NODE` (section 4.3).
 pub const TRIES: usize = 5;
 /// Largest tool result logged, in characters; head and tail are kept (section 7).

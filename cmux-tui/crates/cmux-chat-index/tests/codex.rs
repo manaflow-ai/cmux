@@ -100,7 +100,8 @@ fn the_newest_state_db_gives_threads_with_names_titles_and_filters() {
     assert_eq!(chats["t1"].cwd.as_deref(), Some("/work/t1"));
     assert_eq!(chats["t1"].created_ms, Some(1_790_848_800_000));
     assert_eq!(chats["t1"].updated_ms, 1_790_852_400_000);
-    assert_eq!(chats["t1"].source_path, Path::new("/r/t1.jsonl"));
+    // `/r/t1.jsonl` is outside the Codex home: the DB stands in for it.
+    assert_eq!(chats["t1"].source_path, dir.path().join("state_5.sqlite"));
     assert_eq!(chats["t1"].resume, Resume::Adopt);
 }
 

@@ -1,10 +1,20 @@
 // Menus over Base UI Menu: a menu button, items, check and radio items, groups, separators and
 // submenus. Base UI owns roles, focus, arrows (direction-aware), typeahead and Escape per level.
-import { createContext, use, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useRef,
+  useState,
+  type ComponentProps,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { isMousePress, trackPressRelease } from "./pressRelease";
 
 export interface MenuProps {
   open?: boolean;
@@ -34,7 +44,7 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
   };
   const context: MenuContextValue = {
     beginPointer(event) {
-      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (!isMousePress(event)) return;
       session.current = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -44,43 +54,17 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
       };
       setMenuOpen(true);
       pointerCleanup.current?.();
-      const doc = event.currentTarget.ownerDocument;
-      const move = (next: globalThis.PointerEvent) => {
-        if (next.pointerId !== event.pointerId) return;
-        const current = session.current;
-        if (!current) return;
-        if (!current.moved)
-          current.moved = Math.hypot(next.clientX - current.x, next.clientY - current.y) >= POINTER_SLOP;
-        if (!current.moved) return;
-        const item = doc.elementFromPoint?.(next.clientX, next.clientY)?.closest<HTMLElement>('[role^="menuitem"]');
-        item?.focus({ preventScroll: true });
-      };
-      const up = (next: globalThis.PointerEvent) => {
-        if (next.pointerId !== event.pointerId) return;
-        const current = session.current;
-        const target = doc.elementFromPoint?.(next.clientX, next.clientY);
-        pointerCleanup.current?.();
-        pointerCleanup.current = null;
-        if (current?.moved && target instanceof HTMLElement && target.closest('[role^="menuitem"]')) {
-          const item = target.closest<HTMLElement>('[role^="menuitem"]');
-          if (item && !item.matches('[aria-disabled="true"]')) item.click();
-          setMenuOpen(false);
-        }
-        session.current = null;
-      };
-      const cancel = () => {
-        pointerCleanup.current?.();
-        pointerCleanup.current = null;
-        session.current = null;
-      };
-      doc.addEventListener("pointermove", move, true);
-      doc.addEventListener("pointerup", up, true);
-      doc.addEventListener("pointercancel", cancel, true);
-      pointerCleanup.current = () => {
-        doc.removeEventListener("pointermove", move, true);
-        doc.removeEventListener("pointerup", up, true);
-        doc.removeEventListener("pointercancel", cancel, true);
-      };
+      pointerCleanup.current = trackPressRelease(event, {
+        hover: (row) => row.focus({ preventScroll: true }),
+        // Base UI items act on the click.
+        pick: (row) => row.click(),
+        picked: () => setMenuOpen(false),
+        close: () => setMenuOpen(false),
+        end: () => {
+          pointerCleanup.current = null;
+          session.current = null;
+        },
+      });
     },
     movePointer(event) {
       const current = session.current;
@@ -98,8 +82,8 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
       return true;
     },
     endPointer() {
-      // Pointerup is handled by the document capture listener so the row remains selectable
-      // while the original trigger still owns pointer capture.
+      // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
+      // remains selectable while the original trigger still owns pointer capture.
     },
   };
   return (
@@ -169,10 +153,22 @@ export interface MenuPopupProps {
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
+  /**
+   * Where focus goes when the menu closes (default: its trigger). A page whose keys live in one
+   * field (a picker's search) returns focus there.
+   */
+  finalFocus?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
-export function MenuPopup({ className, side = "bottom", align = "start", anchor, children }: MenuPopupProps) {
+export function MenuPopup({
+  className,
+  side = "bottom",
+  align = "start",
+  anchor,
+  finalFocus,
+  children,
+}: MenuPopupProps) {
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
@@ -183,7 +179,9 @@ export function MenuPopup({ className, side = "bottom", align = "start", anchor,
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
-        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
+        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
+          {children}
+        </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );

@@ -1,657 +1,133 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.appearance.appTheme": {
+    "settings.sidebar.showProjects": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Theme"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سمة التطبيق"
+            "value": "إظهار المشاريع"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tema aplikacije"
+            "value": "Prikaži projekte"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apptema"
+            "value": "Vis projekter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "App-Design"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema de la app"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thème de l’app"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema dell’app"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "アプリのテーマ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបរាងកម្មវិធី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "앱 테마"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apptema"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Motyw aplikacji"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tema do App"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема приложения"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ธีมของแอป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uygulama Teması"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тема застосунку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chủ đề ứng dụng"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "应用主题"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "App 主題"
-          }
-        }
-      }
-    },
-    "settings.default.followTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Match Terminal Theme"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مطابقة سمة الطرفية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prati temu terminala"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Følg terminaltemaet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wie Terminal-Design"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Igual que el terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Comme le terminal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Come il terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ターミナルに合わせる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តាមរូបរាងទែមីណាល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "터미널 테마에 맞추기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Som terminaltemaet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jak motyw terminala"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Igual ao Terminal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Как у терминала"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตามธีมเทอร์มินัล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminal Temasına Uy"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Як у термінала"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Theo chủ đề terminal"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "与终端主题一致"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "與終端機主題一致"
-          }
-        }
-      }
-    },
-    "settings.appearance.appTheme.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ألوان صفحات cmux نفسها. تصلح هنا كل سمة مضمّنة، وكل لون يستوفي تباين WCAG AA."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Boje za vlastite stranice cmuxa. Ovdje radi svaka ugrađena tema, a svaka boja ispunjava WCAG AA kontrast."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Farver til cmux' egne sider. Alle medfølgende temaer virker her, og hver farve opfylder WCAG AA-kontrast."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Farben für die eigenen Seiten von cmux. Jedes mitgelieferte Design funktioniert hier, und jede Farbe erfüllt den WCAG-AA-Kontrast."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Colores de las páginas propias de cmux. Aquí sirve cualquier tema incluido y cada color cumple el contraste WCAG AA."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Couleurs des pages de cmux. Chaque thème fourni fonctionne ici, et chaque couleur respecte le contraste WCAG AA."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Colori delle pagine di cmux. Qui funziona ogni tema incluso e ogni colore rispetta il contrasto WCAG AA."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 自身のページの色です。同梱のどのテーマも使え、どの色も WCAG AA のコントラストを満たします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពណ៌សម្រាប់ទំព័ររបស់ cmux ផ្ទាល់។ រូបរាងភ្ជាប់មកជាមួយនីមួយៗប្រើបាននៅទីនេះ ហើយពណ៌នីមួយៗបំពេញកម្រិតពណ៌ WCAG AA។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 자체 페이지의 색상입니다. 기본 제공 테마를 모두 쓸 수 있으며 모든 색상이 WCAG AA 대비를 충족합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Farger for cmux sine egne sider. Alle medfølgende temaer fungerer her, og hver farge oppfyller WCAG AA-kontrast."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kolory własnych stron cmux. Działa tu każdy wbudowany motyw, a każdy kolor spełnia kontrast WCAG AA."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cores das páginas do próprio cmux. Todo tema incluído funciona aqui, e cada cor atende ao contraste WCAG AA."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Цвета собственных страниц cmux. Подходит любая встроенная тема, и каждый цвет соответствует контрасту WCAG AA."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สีของหน้าต่าง ๆ ของ cmux เอง ใช้ธีมในตัวได้ทุกธีม และทุกสีผ่านค่าความต่างสี WCAG AA"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux'un kendi sayfalarının renkleri. Her yerleşik tema burada çalışır ve her renk WCAG AA kontrastını karşılar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Кольори власних сторінок cmux. Підходить будь-яка вбудована тема, і кожен колір відповідає контрасту WCAG AA."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Màu cho các trang của chính cmux. Mọi chủ đề có sẵn đều dùng được, và mọi màu đều đạt độ tương phản WCAG AA."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 自身页面的颜色。所有内置主题都可用于此处,每种颜色都达到 WCAG AA 对比度。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 自身頁面的顏色。所有內建主題都可用於此處,每種顏色都達到 WCAG AA 對比度。"
-          }
-        }
-      }
-    },
-    "settings.app.globalHotKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اختصار عام"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Globalna prečica"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global genvejstast"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Globaler Kurzbefehl"
+            "value": "Projekte anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Global Hot Key"
+            "value": "Show Projects"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Atajo global"
+            "state": "needs_review",
+            "value": "Mostrar proyectos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Raccourci global"
+            "state": "needs_review",
+            "value": "Afficher les projets"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Scorciatoia globale"
+            "state": "needs_review",
+            "value": "Mostra progetti"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "グローバルホットキー"
+            "state": "needs_review",
+            "value": "プロジェクトを表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "គ្រាប់ចុចកាត់សកល"
+            "state": "needs_review",
+            "value": "បង្ហាញគម្រោង"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "전역 단축키"
+            "state": "needs_review",
+            "value": "프로젝트 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Global hurtigtast"
+            "state": "needs_review",
+            "value": "Vis prosjekter"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Globalny skrót"
+            "state": "needs_review",
+            "value": "Pokaż projekty"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Atalho global"
+            "state": "needs_review",
+            "value": "Mostrar projetos"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Глобальная горячая клавиша"
+            "state": "needs_review",
+            "value": "Показывать проекты"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ปุ่มลัดส่วนกลาง"
+            "state": "needs_review",
+            "value": "แสดงโปรเจกต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Genel kısayol tuşu"
+            "state": "needs_review",
+            "value": "Projeleri göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Глобальна гаряча клавіша"
+            "state": "needs_review",
+            "value": "Показувати проєкти"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Phím tắt toàn cục"
+            "state": "needs_review",
+            "value": "Hiện dự án"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "全局快捷键"
+            "state": "needs_review",
+            "value": "显示项目"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "全域快速鍵"
-          }
-        }
-      }
-    },
-    "settings.app.globalHotKey.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل إظهار/إخفاء كل النوافذ (⌃⌥⌘.) أثناء وجود تطبيق آخر في المقدمة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži/sakrij sve prozore (⌃⌥⌘.) radi dok je druga aplikacija u prvom planu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker, mens en anden app er forrest."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„Alle Fenster ein-/ausblenden“ (⌃⌥⌘.) funktioniert, während eine andere App im Vordergrund ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar todas las ventanas (⌃⌥⌘.) funciona mientras otra app está en primer plano."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer toutes les fenêtres (⌃⌥⌘.) fonctionne lorsqu’une autre app est au premier plan."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra/nascondi tutte le finestre (⌃⌥⌘.) funziona mentre un’altra app è in primo piano."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のアプリが前面にあっても「すべてのウインドウを表示/非表示」(⌃⌥⌘.)が使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ/លាក់បង្អួចទាំងអស់ (⌃⌥⌘.) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 앱이 앞에 있을 때도 모든 윈도우 보기/가리기(⌃⌥⌘.)가 작동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker mens en annen app er foran."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż/ukryj wszystkie okna (⌃⌥⌘.) działa, gdy na pierwszym planie jest inna aplikacja."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar todas as janelas (⌃⌥⌘.) funciona enquanto outro app está em primeiro plano."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Показать/скрыть все окна» (⌃⌥⌘.) работает, когда впереди другое приложение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดง/ซ่อนหน้าต่างทั้งหมด (⌃⌥⌘.) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm pencereleri göster/gizle (⌃⌥⌘.), başka bir uygulama öndeyken de çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "«Показати/сховати всі вікна» (⌃⌥⌘.) працює, коли попереду інша програма."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiện/ẩn tất cả cửa sổ (⌃⌥⌘.) hoạt động khi một ứng dụng khác ở phía trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他应用位于前台时，“显示/隐藏所有窗口”(⌃⌥⌘.)也可使用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他 App 位於前景時，「顯示/隱藏所有視窗」(⌃⌥⌘.) 也能使用。"
+            "state": "needs_review",
+            "value": "顯示專案"
           }
         }
       }
@@ -787,137 +263,6 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingTab.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب أو مساحة عمل تشغّل الطرفية فيها برنامجًا. علامات التبويب الخاملة تُغلق فورًا دائمًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice ili radnog prostora čiji terminal pokreće program. Neaktivne kartice se uvijek odmah zatvaraju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en fane eller et arbejdsområde, hvor terminalen kører et program. Inaktive faner lukkes altid med det samme."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Tabs oder Arbeitsbereichs fragen, dessen Terminal ein Programm ausführt. Untätige Tabs schließen immer sofort."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña o un espacio de trabajo cuyo terminal ejecuta un programa. Las pestañas inactivas se cierran siempre al instante."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet ou un espace de travail dont le terminal exécute un programme. Les onglets inactifs se ferment toujours immédiatement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda o uno spazio di lavoro il cui terminale esegue un programma. Le schede inattive si chiudono sempre subito."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルでプログラムが実行中のタブやワークスペースを閉じる前に確認します。アイドル状態のタブはいつでもすぐに閉じます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំង ឬកន្លែងធ្វើការដែលទែមីណាល់កំពុងដំណើរការកម្មវិធី។ ផ្ទាំងទំនេរតែងតែបិទភ្លាមៗ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널에서 프로그램이 실행 중인 탭이나 워크스페이스를 닫기 전에 묻습니다. 유휴 탭은 항상 바로 닫힙니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en fane eller et arbeidsområde lukkes når terminalen kjører et program. Inaktive faner lukkes alltid med en gang."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty lub obszaru roboczego, w którego terminalu działa program. Bezczynne karty zawsze zamykają się od razu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba ou um espaço de trabalho cujo terminal está executando um programa. Abas ociosas sempre fecham na hora."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки или рабочего пространства, в терминале которых работает программа. Неактивные вкладки всегда закрываются сразу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บหรือพื้นที่ทำงานที่เทอร์มินัลกำลังเรียกใช้โปรแกรม แท็บที่ว่างอยู่จะปิดทันทีเสมอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalinde bir program çalışan sekmeyi veya çalışma alanını kapatmadan önce sor. Boştaki sekmeler her zaman hemen kapanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки чи робочого простору, у терміналі яких працює програма. Неактивні вкладки завжди закриваються одразу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab hoặc không gian làm việc có terminal đang chạy chương trình. Tab rảnh luôn đóng ngay."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭终端正在运行程序的标签页或工作区前先询问。空闲的标签页始终会立即关闭。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉終端機正在執行程式的分頁或工作區前先詢問。閒置的分頁一律立即關閉。"
-          }
-        }
-      }
-    },
     "settings.app.warnBeforeClosingAgentSession": {
       "extractionState": "manual",
       "localizations": {
@@ -1045,137 +390,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉正在工作的代理程式前發出警告"
-          }
-        }
-      }
-    },
-    "settings.app.warnBeforeClosingAgentSession.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب طرفية لا يزال وكيلها يعمل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice terminala čiji agent još radi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en terminalfane, hvor agenten stadig arbejder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Terminal-Tabs fragen, dessen Agent noch arbeitet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a terminal tab whose agent is still working."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña de terminal cuyo agente sigue trabajando."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet de terminal dont l’agent travaille encore."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda del terminale il cui agente sta ancora lavorando."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントがまだ作業中のターミナルタブを閉じる前に確認します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំងទែមីណាល់ដែលភ្នាក់ងាររបស់វានៅតែកំពុងធ្វើការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 아직 작업 중인 터미널 탭을 닫기 전에 묻습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en terminalfane lukkes når agenten fortsatt arbeider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty terminala, której agent wciąż pracuje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba de terminal cujo agente ainda está trabalhando."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки терминала, агент которой ещё работает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บเทอร์มินัลที่เอเจนต์ยังทำงานอยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajanı hâlâ çalışan bir terminal sekmesini kapatmadan önce sor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки термінала, агент якої ще працює."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab terminal có tác tử vẫn đang làm việc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭智能体仍在工作的终端标签页前先询问。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉代理程式仍在工作的終端機分頁前先詢問。"
           }
         }
       }
@@ -46637,268 +45851,6 @@
         }
       }
     },
-    "settings.sidebar.spacesVisibility": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Spaces"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "スペースを表示"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار المساحات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži prostore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis rum"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bereiche anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar espacios"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher les espaces"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra spazi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញលំហ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스페이스 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis områder"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż przestrzenie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar espaços"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывать пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงสเปซ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alanları Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показувати простори"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện không gian"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示空间"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示空間"
-          }
-        }
-      }
-    },
-    "settings.sidebar.spacesVisibility.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「ポインタを置いたとき」を選ぶと、ポインタがサイドバー上にあるときだけ、ほかのボタンと同じようにスペースを表示します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض خيار «عند التمرير» المساحات فقط أثناء وجود المؤشر فوق الشريط الجانبي، مثل أزراره الأخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pri prelasku prikazuje prostore samo dok je pokazivač iznad bočne trake, kao i njena ostala dugmad."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ved markør viser rummene kun, mens markøren er over sidepanelet, ligesom dets andre knapper."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Beim Darüberfahren“ zeigt die Bereiche nur, solange der Zeiger über der Seitenleiste ist, wie ihre anderen Tasten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Al pasar el puntero muestra los espacios solo mientras el puntero está sobre la barra lateral, como sus otros botones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Au survol affiche les espaces uniquement lorsque le pointeur est sur la barre latérale, comme ses autres boutons."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Al passaggio mostra gli spazi solo mentre il puntatore è sulla barra laterale, come gli altri pulsanti."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញលំហតែពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ ដូចប៊ូតុងផ្សេងទៀតរបស់វា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "마우스를 올렸을 때를 선택하면 다른 버튼처럼 포인터가 사이드바 위에 있을 때만 스페이스를 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ved peker viser områdene bare mens pekeren er over sidefeltet, som de andre knappene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Po najechaniu pokazuje przestrzenie tylko wtedy, gdy wskaźnik jest nad paskiem bocznym, tak jak jego pozostałe przyciski."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ao passar o cursor mostra os espaços apenas enquanto o ponteiro está sobre a barra lateral, como os outros botões."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«При наведении» показывает пространства только когда указатель над боковой панелью, как и её другие кнопки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อวางเมาส์จะแสดงสเปซเฉพาะขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง เหมือนปุ่มอื่นๆ ของแถบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Üzerine gelince seçeneği, alanları yalnızca işaretçi kenar çubuğunun üzerindeyken, diğer düğmeleri gibi gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«При наведенні» показує простори лише тоді, коли вказівник над бічною панеллю, як і її інші кнопки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi di chuột chỉ hiện các không gian khi con trỏ ở trên thanh bên, giống các nút khác của nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“悬停时”仅在指针位于边栏上方时显示空间，与边栏的其他按钮一样。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「懸停時」僅在指標位於側邊欄上方時顯示空間，與側邊欄的其他按鈕一樣。"
-          }
-        }
-      }
-    },
     "settings.group.picker": {
       "extractionState": "manual",
       "localizations": {
@@ -61313,6 +60265,346 @@
         }
       }
     },
+    "settings.source.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
+      }
+    },
+    "settings.notifications.mutedWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات العمل المكتومة" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Utišani radni prostori" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Lydløse arbejdsområder" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Stummgeschaltete Workspaces" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Muted Workspaces" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Espacios de trabajo silenciados" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Espaces de travail en sourdine" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Workspace silenziati" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "ミュート中のワークスペース" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "កន្លែងធ្វើការដែលបានបិទសំឡេង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "음소거된 워크스페이스" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Dempede arbeidsområder" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wyciszone obszary robocze" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Espaços de trabalho silenciados" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Беззвучные рабочие пространства" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "เวิร์กสเปซที่ปิดเสียง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sessize alınan çalışma alanları" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Беззвучні робочі простори" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Không gian làm việc đã tắt tiếng" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "已静音的工作区" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "已靜音的工作區" } }
+      }
+    },
+    "settings.notifications.mutedWorkspaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "معرّفات مساحات العمل التي تكون إشعاراتها صامتة. اكتم مساحة عمل من قائمة صفها في الشريط الجانبي." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "ID-ovi radnih prostora čije su obavijesti utišane. Utišajte radni prostor iz menija njegovog reda na bočnoj traci." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Id'er for arbejdsområder, hvis notifikationer er lydløse. Gør et arbejdsområde lydløst fra dets rækkemenu i sidepanelet." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "IDs der Workspaces, deren Mitteilungen stumm sind. Schalte einen Workspace über das Menü seiner Zeile in der Seitenleiste stumm." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Identificadores de los espacios de trabajo cuyas notificaciones están silenciadas. Silencia un espacio desde el menú de su fila en la barra lateral." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Identifiants des espaces de travail dont les notifications sont silencieuses. Mettez un espace en sourdine depuis le menu de sa ligne dans la barre latérale." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "ID dei workspace le cui notifiche sono silenziate. Silenzia un workspace dal menu della sua riga nella barra laterale." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "通知を鳴らさないワークスペースの ID。ワークスペースのミュートはサイドバーの行メニューから行います。" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "លេខសម្គាល់កន្លែងធ្វើការដែលការជូនដំណឹងត្រូវបានបិទសំឡេង។ បិទសំឡេងកន្លែងធ្វើការពីម៉ឺនុយជួររបស់វានៅរបារចំហៀង។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "알림이 울리지 않는 워크스페이스 ID입니다. 사이드바 행 메뉴에서 워크스페이스를 음소거하세요." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "ID-er for arbeidsområder med dempede varsler. Demp et arbeidsområde fra radmenyen i sidepanelet." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Identyfikatory obszarów roboczych z wyciszonymi powiadomieniami. Wycisz obszar roboczy z menu jego wiersza na pasku bocznym." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "IDs dos espaços de trabalho com notificações silenciadas. Silencie um espaço de trabalho pelo menu da linha dele na barra lateral." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Идентификаторы рабочих пространств с беззвучными уведомлениями. Выключите звук пространства в меню его строки на боковой панели." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "รหัสของเวิร์กสเปซที่ปิดเสียงการแจ้งเตือน ปิดเสียงเวิร์กสเปซได้จากเมนูของแถวในแถบด้านข้าง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bildirimleri sessiz olan çalışma alanlarının kimlikleri. Bir çalışma alanını kenar çubuğundaki satır menüsünden sessize alın." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Ідентифікатори робочих просторів із беззвучними сповіщеннями. Вимкніть звук простору в меню його рядка на бічній панелі." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "ID của các không gian làm việc có thông báo bị tắt tiếng. Tắt tiếng một không gian làm việc từ menu hàng của nó trên thanh bên." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "通知静音的工作区 ID。可在侧边栏的工作区行菜单中静音。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
+      }
+    },
+    "settings.app.globalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختصار عام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalna prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global genvejstast"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globaler Kurzbefehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Hot Key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atajo global"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccourci global"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorciatoia globale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រាប់ចុចកាត់សកល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 단축키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global hurtigtast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Globalny skrót"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atalho global"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальная горячая клавиша"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มลัดส่วนกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genel kısayol tuşu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальна гаряча клавіша"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phím tắt toàn cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域快速鍵"
+          }
+        }
+      }
+    },
+    "settings.app.globalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل إظهار/إخفاء كل النوافذ (⌃⌥⌘.) أثناء وجود تطبيق آخر في المقدمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži/sakrij sve prozore (⌃⌥⌘.) radi dok je druga aplikacija u prvom planu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker, mens en anden app er forrest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Alle Fenster ein-/ausblenden“ (⌃⌥⌘.) funktioniert, während eine andere App im Vordergrund ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas las ventanas (⌃⌥⌘.) funciona mientras otra app está en primer plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher/masquer toutes les fenêtres (⌃⌥⌘.) fonctionne lorsqu’une autre app est au premier plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra/nascondi tutte le finestre (⌃⌥⌘.) funziona mentre un’altra app è in primo piano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリが前面にあっても「すべてのウインドウを表示/非表示」(⌃⌥⌘.)が使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ/លាក់បង្អួចទាំងអស់ (⌃⌥⌘.) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이 앞에 있을 때도 모든 윈도우 보기/가리기(⌃⌥⌘.)가 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis/skjul alle vinduer (⌃⌥⌘.) virker mens en annen app er foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż/ukryj wszystkie okna (⌃⌥⌘.) działa, gdy na pierwszym planie jest inna aplikacja."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar/ocultar todas as janelas (⌃⌥⌘.) funciona enquanto outro app está em primeiro plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показать/скрыть все окна» (⌃⌥⌘.) работает, когда впереди другое приложение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง/ซ่อนหน้าต่างทั้งหมด (⌃⌥⌘.) ใช้ได้ขณะที่แอปอื่นอยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm pencereleri göster/gizle (⌃⌥⌘.), başka bir uygulama öndeyken de çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Показати/сховати всі вікна» (⌃⌥⌘.) працює, коли попереду інша програма."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện/ẩn tất cả cửa sổ (⌃⌥⌘.) hoạt động khi một ứng dụng khác ở phía trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他应用位于前台时，“显示/隐藏所有窗口”(⌃⌥⌘.)也可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他 App 位於前景時，「顯示/隱藏所有視窗」(⌃⌥⌘.) 也能使用。"
+          }
+        }
+      }
+    },
     "settings.sidebar.showWorkspaceDirectory": {
       "extractionState": "manual",
       "localizations": {
@@ -61573,84 +60865,6 @@
             "value": "在每個工作區名稱下方顯示其資料夾。代理的即時狀態一律顯示。"
           }
         }
-      }
-    },
-    "settings.source.ghostty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "km": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "th": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "vi": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
-      }
-    },
-    "settings.notifications.mutedWorkspaces": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات العمل المكتومة" } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Utišani radni prostori" } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Lydløse arbejdsområder" } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Stummgeschaltete Workspaces" } },
-        "en": { "stringUnit": { "state": "translated", "value": "Muted Workspaces" } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Espacios de trabajo silenciados" } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Espaces de travail en sourdine" } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "Workspace silenziati" } },
-        "ja": { "stringUnit": { "state": "needs_review", "value": "ミュート中のワークスペース" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "កន្លែងធ្វើការដែលបានបិទសំឡេង" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "음소거된 워크스페이스" } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Dempede arbeidsområder" } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Wyciszone obszary robocze" } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Espaços de trabalho silenciados" } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Беззвучные рабочие пространства" } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "เวิร์กสเปซที่ปิดเสียง" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Sessize alınan çalışma alanları" } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Беззвучні робочі простори" } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Không gian làm việc đã tắt tiếng" } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "已静音的工作区" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "已靜音的工作區" } }
-      }
-    },
-    "settings.notifications.mutedWorkspaces.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": { "stringUnit": { "state": "needs_review", "value": "معرّفات مساحات العمل التي تكون إشعاراتها صامتة. اكتم مساحة عمل من قائمة صفها في الشريط الجانبي." } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "ID-ovi radnih prostora čije su obavijesti utišane. Utišajte radni prostor iz menija njegovog reda na bočnoj traci." } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Id'er for arbejdsområder, hvis notifikationer er lydløse. Gør et arbejdsområde lydløst fra dets rækkemenu i sidepanelet." } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "IDs der Workspaces, deren Mitteilungen stumm sind. Schalte einen Workspace über das Menü seiner Zeile in der Seitenleiste stumm." } },
-        "en": { "stringUnit": { "state": "translated", "value": "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu." } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Identificadores de los espacios de trabajo cuyas notificaciones están silenciadas. Silencia un espacio desde el menú de su fila en la barra lateral." } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Identifiants des espaces de travail dont les notifications sont silencieuses. Mettez un espace en sourdine depuis le menu de sa ligne dans la barre latérale." } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "ID dei workspace le cui notifiche sono silenziate. Silenzia un workspace dal menu della sua riga nella barra laterale." } },
-        "ja": { "stringUnit": { "state": "needs_review", "value": "通知を鳴らさないワークスペースの ID。ワークスペースのミュートはサイドバーの行メニューから行います。" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "លេខសម្គាល់កន្លែងធ្វើការដែលការជូនដំណឹងត្រូវបានបិទសំឡេង។ បិទសំឡេងកន្លែងធ្វើការពីម៉ឺនុយជួររបស់វានៅរបារចំហៀង។" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "알림이 울리지 않는 워크스페이스 ID입니다. 사이드바 행 메뉴에서 워크스페이스를 음소거하세요." } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "ID-er for arbeidsområder med dempede varsler. Demp et arbeidsområde fra radmenyen i sidepanelet." } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Identyfikatory obszarów roboczych z wyciszonymi powiadomieniami. Wycisz obszar roboczy z menu jego wiersza na pasku bocznym." } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "IDs dos espaços de trabalho com notificações silenciadas. Silencie um espaço de trabalho pelo menu da linha dele na barra lateral." } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Идентификаторы рабочих пространств с беззвучными уведомлениями. Выключите звук пространства в меню его строки на боковой панели." } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "รหัสของเวิร์กสเปซที่ปิดเสียงการแจ้งเตือน ปิดเสียงเวิร์กสเปซได้จากเมนูของแถวในแถบด้านข้าง" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Bildirimleri sessiz olan çalışma alanlarının kimlikleri. Bir çalışma alanını kenar çubuğundaki satır menüsünden sessize alın." } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Ідентифікатори робочих просторів із беззвучними сповіщеннями. Вимкніть звук простору в меню його рядка на бічній панелі." } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "ID của các không gian làm việc có thông báo bị tắt tiếng. Tắt tiếng một không gian làm việc từ menu hàng của nó trên thanh bên." } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "通知静音的工作区 ID。可在侧边栏的工作区行菜单中静音。" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
       }
     },
     "settings.group.agentChat" : {
@@ -64949,6 +64163,268 @@
         }
       }
     },
+    "settings.tabs.cmdWClosesPinnedTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Closes Pinned Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W يغلق علامات التبويب المثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zatvara prikačene kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker fastgjorte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W schließt angeheftete Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W cierra las pestañas fijadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ferme les onglets épinglés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W chiude le schede fissate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W でピン留めしたタブを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W로 고정된 탭 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W lukker festede faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W zamyka przypięte karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Fecha Abas Fixadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закрывает закреплённые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W закриває закріплені вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W đóng các thẻ đã ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 关闭固定的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-W 關閉固定的分頁"
+          }
+        }
+      }
+    },
+    "settings.tabs.cmdWClosesPinnedTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+          }
+        }
+      }
+    },
     "settings.layout.newPanePlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -65733,110 +65209,6 @@
             "value": "使用「自動分割」時，新瀏覽器也會取得自己的窗格，而不是分頁。"
           }
         }
-      }
-    },
-    "settings.statusIndicator.showAgentWorkingOnTabs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タブにエージェントの作業中を表示" } },
-        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار عمل الوكيل على علامات التبويب" } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži rad agenta na karticama" } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbejde på faner" } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Agentenarbeit auf Tabs anzeigen" } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabajando en pestañas" } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher l'agent au travail sur les onglets" } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra agente al lavoro nelle schede" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញភ្នាក់ងារកំពុងធ្វើការលើផ្ទាំង" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 에이전트 작업 중 표시" } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbeid på faner" } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj pracę agenta na kartach" } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabalhando nas abas" } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать работу агента на вкладках" } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงเอเจนต์กำลังทำงานบนแท็บ" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde ajan çalışmasını göster" } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати роботу агента на вкладках" } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tác tử đang làm việc trên thẻ" } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示代理工作中" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
-      }
-    },
-    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業している間、タブのアイコンの位置に3つの点を表示します。" } },
-        "ar": { "stringUnit": { "state": "needs_review", "value": "تظهر ثلاث نقاط مكان أيقونة علامة التبويب أثناء عمل الوكيل." } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Tri tačke zauzimaju mjesto ikone kartice dok agent radi." } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon, mens en agent arbejder." } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Drei Punkte ersetzen das Tab-Symbol, solange ein Agent arbeitet." } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Tres puntos ocupan el lugar del icono de la pestaña mientras un agente trabaja." } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Trois points remplacent l'icône de l'onglet pendant qu'un agent travaille." } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "Tre punti prendono il posto dell'icona della scheda mentre un agente lavora." } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "ចំណុចបីជំនួសរូបតំណាងផ្ទាំង ពេលភ្នាក់ងារកំពុងធ្វើការ។" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트가 작업하는 동안 탭 아이콘 자리에 점 세 개가 표시됩니다." } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon mens en agent jobber." } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Trzy kropki zastępują ikonę karty, gdy agent pracuje." } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Três pontos ocupam o lugar do ícone da aba enquanto um agente trabalha." } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока агент работает, вместо значка вкладки показываются три точки." } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "จุดสามจุดแสดงแทนไอคอนของแท็บขณะที่เอเจนต์ทำงาน" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Bir ajan çalışırken sekme simgesinin yerinde üç nokta görünür." } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки агент працює, замість значка вкладки показуються три крапки." } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Ba chấm thay chỗ biểu tượng của thẻ khi tác tử đang làm việc." } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理工作时，标签页图标位置显示三个点。" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
-      }
-    },
-    "settings.statusIndicator.showPageLoading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "タブにページの読み込みを表示" } },
-        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار تحميل الصفحة على علامات التبويب" } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži učitavanje stranice na karticama" } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "Vis sideindlæsning på faner" } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Seitenladen auf Tabs anzeigen" } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar carga de página en pestañas" } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher le chargement de la page sur les onglets" } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra caricamento pagina nelle schede" } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញការផ្ទុកទំព័រលើផ្ទាំង" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 페이지 로딩 표시" } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis sidelasting på faner" } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj ładowanie strony na kartach" } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar carregamento da página nas abas" } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать загрузку страницы на вкладках" } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงการโหลดหน้าบนแท็บ" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde sayfa yüklenmesini göster" } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати завантаження сторінки на вкладках" } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tải trang trên thẻ" } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示页面加载" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
-      }
-    },
-    "settings.statusIndicator.showPageLoading.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ページの読み込み中、ブラウザタブのアイコンの位置にスピナーを表示します。" } },
-        "ar": { "stringUnit": { "state": "needs_review", "value": "يظهر مؤشر دوار مكان أيقونة علامة تبويب المتصفح أثناء تحميل صفحتها." } },
-        "bs": { "stringUnit": { "state": "needs_review", "value": "Indikator zauzima mjesto ikone kartice preglednika dok se stranica učitava." } },
-        "da": { "stringUnit": { "state": "needs_review", "value": "En spinner står i browserfanens ikon, mens siden indlæses." } },
-        "de": { "stringUnit": { "state": "needs_review", "value": "Ein Ladekreis ersetzt das Symbol eines Browser-Tabs, solange die Seite lädt." } },
-        "es": { "stringUnit": { "state": "needs_review", "value": "Un indicador giratorio ocupa el lugar del icono de la pestaña mientras carga la página." } },
-        "fr": { "stringUnit": { "state": "needs_review", "value": "Un indicateur remplace l'icône de l'onglet pendant le chargement de la page." } },
-        "it": { "stringUnit": { "state": "needs_review", "value": "Un indicatore prende il posto dell'icona della scheda mentre la pagina si carica." } },
-        "km": { "stringUnit": { "state": "needs_review", "value": "សញ្ញាវិលជំនួសរូបតំណាងផ្ទាំងកម្មវិធីរុករក ពេលទំព័រកំពុងផ្ទុក។" } },
-        "ko": { "stringUnit": { "state": "needs_review", "value": "페이지가 로드되는 동안 브라우저 탭 아이콘 자리에 스피너가 표시됩니다." } },
-        "nb": { "stringUnit": { "state": "needs_review", "value": "En spinner står i nettleserfanens ikon mens siden lastes." } },
-        "pl": { "stringUnit": { "state": "needs_review", "value": "Wskaźnik zastępuje ikonę karty przeglądarki podczas ładowania strony." } },
-        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Um indicador ocupa o lugar do ícone da aba enquanto a página carrega." } },
-        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока страница загружается, вместо значка вкладки браузера показывается индикатор." } },
-        "th": { "stringUnit": { "state": "needs_review", "value": "ตัวหมุนแสดงแทนไอคอนของแท็บเบราว์เซอร์ขณะโหลดหน้า" } },
-        "tr": { "stringUnit": { "state": "needs_review", "value": "Sayfa yüklenirken tarayıcı sekmesinin simgesinin yerinde bir gösterge döner." } },
-        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки сторінка завантажується, замість значка вкладки браузера показується індикатор." } },
-        "vi": { "stringUnit": { "state": "needs_review", "value": "Biểu tượng xoay thay chỗ biểu tượng của thẻ trình duyệt khi trang đang tải." } },
-        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
-        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
       }
     },
     "settings.sidebar.showChats": {
@@ -67594,264 +66966,499 @@
         }
       }
     },
-    "settings.tabs.cmdWClosesPinnedTabs": {
+    "settings.statusIndicator.showAgentWorkingOnTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Agent Working on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにエージェントの作業中を表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار عمل الوكيل على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži rad agenta na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbejde på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Agentenarbeit auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabajando en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher l'agent au travail sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra agente al lavoro nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញភ្នាក់ងារកំពុងធ្វើការលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 에이전트 작업 중 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis agentarbeid på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj pracę agenta na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar agente trabalhando nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать работу агента на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงเอเจนต์กำลังทำงานบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde ajan çalışmasını göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати роботу агента на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tác tử đang làm việc trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示代理工作中" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示代理工作中" } }
+      }
+    },
+    "settings.statusIndicator.showAgentWorkingOnTabs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three dots take the tab's icon place while an agent works." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが作業している間、タブのアイコンの位置に3つの点を表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "تظهر ثلاث نقاط مكان أيقونة علامة التبويب أثناء عمل الوكيل." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Tri tačke zauzimaju mjesto ikone kartice dok agent radi." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon, mens en agent arbejder." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Drei Punkte ersetzen das Tab-Symbol, solange ein Agent arbeitet." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Tres puntos ocupan el lugar del icono de la pestaña mientras un agente trabaja." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Trois points remplacent l'icône de l'onglet pendant qu'un agent travaille." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Tre punti prendono il posto dell'icona della scheda mentre un agente lavora." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "ចំណុចបីជំនួសរូបតំណាងផ្ទាំង ពេលភ្នាក់ងារកំពុងធ្វើការ។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "에이전트가 작업하는 동안 탭 아이콘 자리에 점 세 개가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Tre prikker står i fanens ikon mens en agent jobber." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Trzy kropki zastępują ikonę karty, gdy agent pracuje." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Três pontos ocupam o lugar do ícone da aba enquanto um agente trabalha." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока агент работает, вместо значка вкладки показываются три точки." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "จุดสามจุดแสดงแทนไอคอนของแท็บขณะที่เอเจนต์ทำงาน" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bir ajan çalışırken sekme simgesinin yerinde üç nokta görünür." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки агент працює, замість значка вкладки показуються три крапки." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Ba chấm thay chỗ biểu tượng của thẻ khi tác tử đang làm việc." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "代理工作时，标签页图标位置显示三个点。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "代理工作時，分頁圖示位置顯示三個點。" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Page Loading on Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブにページの読み込みを表示" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "إظهار تحميل الصفحة على علامات التبويب" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Prikaži učitavanje stranice na karticama" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Vis sideindlæsning på faner" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Seitenladen auf Tabs anzeigen" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Mostrar carga de página en pestañas" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Afficher le chargement de la page sur les onglets" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Mostra caricamento pagina nelle schede" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "បង្ហាញការផ្ទុកទំព័រលើផ្ទាំង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "탭에 페이지 로딩 표시" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Vis sidelasting på faner" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Pokazuj ładowanie strony na kartach" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Mostrar carregamento da página nas abas" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Показывать загрузку страницы на вкладках" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "แสดงการโหลดหน้าบนแท็บ" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sekmelerde sayfa yüklenmesini göster" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Показувати завантаження сторінки на вкладках" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Hiện tải trang trên thẻ" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "在标签页上显示页面加载" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "在分頁上顯示頁面載入" } }
+      }
+    },
+    "settings.statusIndicator.showPageLoading.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A spinner takes a browser tab's icon place while its page loads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ページの読み込み中、ブラウザタブのアイコンの位置にスピナーを表示します。" } },
+        "ar": { "stringUnit": { "state": "needs_review", "value": "يظهر مؤشر دوار مكان أيقونة علامة تبويب المتصفح أثناء تحميل صفحتها." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Indikator zauzima mjesto ikone kartice preglednika dok se stranica učitava." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "En spinner står i browserfanens ikon, mens siden indlæses." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Ein Ladekreis ersetzt das Symbol eines Browser-Tabs, solange die Seite lädt." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Un indicador giratorio ocupa el lugar del icono de la pestaña mientras carga la página." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Un indicateur remplace l'icône de l'onglet pendant le chargement de la page." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Un indicatore prende il posto dell'icona della scheda mentre la pagina si carica." } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "សញ្ញាវិលជំនួសរូបតំណាងផ្ទាំងកម្មវិធីរុករក ពេលទំព័រកំពុងផ្ទុក។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "페이지가 로드되는 동안 브라우저 탭 아이콘 자리에 스피너가 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "En spinner står i nettleserfanens ikon mens siden lastes." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wskaźnik zastępuje ikonę karty przeglądarki podczas ładowania strony." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Um indicador ocupa o lugar do ícone da aba enquanto a página carrega." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Пока страница загружается, вместо значка вкладки браузера показывается индикатор." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "ตัวหมุนแสดงแทนไอคอนของแท็บเบราว์เซอร์ขณะโหลดหน้า" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sayfa yüklenirken tarayıcı sekmesinin simgesinin yerinde bir gösterge döner." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Поки сторінка завантажується, замість значка вкладки браузера показується індикатор." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Biểu tượng xoay thay chỗ biểu tượng của thẻ trình duyệt khi trang đang tải." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "页面加载时，浏览器标签页图标位置显示旋转指示器。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "頁面載入時，瀏覽器分頁圖示位置顯示旋轉指示器。" } }
+      }
+    },
+    "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-W Closes Pinned Tabs"
+            "value": "App Theme"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W يغلق علامات التبويب المثبتة"
+            "state": "needs_review",
+            "value": "سمة التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zatvara prikačene kartice"
+            "state": "needs_review",
+            "value": "Tema aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker fastgjorte faner"
+            "state": "needs_review",
+            "value": "Apptema"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W schließt angeheftete Tabs"
+            "state": "needs_review",
+            "value": "App-Design"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W cierra las pestañas fijadas"
+            "state": "needs_review",
+            "value": "Tema de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ferme les onglets épinglés"
+            "state": "needs_review",
+            "value": "Thème de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W chiude le schede fissate"
+            "state": "needs_review",
+            "value": "Tema dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W でピン留めしたタブを閉じる"
+            "state": "needs_review",
+            "value": "アプリのテーマ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W បិទផ្ទាំងដែលបានខ្ទាស់"
+            "state": "needs_review",
+            "value": "រូបរាងកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W로 고정된 탭 닫기"
+            "state": "needs_review",
+            "value": "앱 테마"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W lukker festede faner"
+            "state": "needs_review",
+            "value": "Apptema"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W zamyka przypięte karty"
+            "state": "needs_review",
+            "value": "Motyw aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Fecha Abas Fixadas"
+            "state": "needs_review",
+            "value": "Tema do App"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закрывает закреплённые вкладки"
+            "state": "needs_review",
+            "value": "Тема приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W ปิดแท็บที่ปักหมุด"
+            "state": "needs_review",
+            "value": "ธีมของแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W Sabitlenmiş Sekmeleri Kapatır"
+            "state": "needs_review",
+            "value": "Uygulama Teması"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W закриває закріплені вкладки"
+            "state": "needs_review",
+            "value": "Тема застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W đóng các thẻ đã ghim"
+            "state": "needs_review",
+            "value": "Chủ đề ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 关闭固定的标签页"
+            "state": "needs_review",
+            "value": "应用主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd-W 關閉固定的分頁"
+            "state": "needs_review",
+            "value": "App 主題"
           }
         }
       }
     },
-    "settings.tabs.cmdWClosesPinnedTabs.help": {
+    "settings.default.followTerminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."
+            "value": "Match Terminal Theme"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "عند الإيقاف، يحدد Cmd-W على علامة تبويب مثبتة علامة التبويب التالية ويحتفظ بالعلامة المثبتة. أغلق علامة التبويب المثبتة من قائمتها."
+            "state": "needs_review",
+            "value": "مطابقة سمة الطرفية"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kada je isključeno, Cmd-W na prikačenoj kartici bira sljedeću karticu i zadržava prikačenu. Zatvorite prikačenu karticu iz njenog menija."
+            "state": "needs_review",
+            "value": "Prati temu terminala"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Når den er slået fra, vælger Cmd-W på en fastgjort fane den næste fane og beholder den fastgjorte fane. Luk en fastgjort fane fra dens menu."
+            "state": "needs_review",
+            "value": "Følg terminaltemaet"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wenn aus, wählt Cmd-W auf einem angehefteten Tab den nächsten Tab und behält den angehefteten Tab. Schließe einen angehefteten Tab über sein Menü."
+            "state": "needs_review",
+            "value": "Wie Terminal-Design"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Si está desactivado, Cmd-W en una pestaña fijada selecciona la siguiente pestaña y conserva la fijada. Cierra una pestaña fijada desde su menú."
+            "state": "needs_review",
+            "value": "Igual que el terminal"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé, Cmd-W sur un onglet épinglé sélectionne l’onglet suivant et garde l’onglet épinglé. Fermez un onglet épinglé depuis son menu."
+            "state": "needs_review",
+            "value": "Comme le terminal"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Se disattivato, Cmd-W su una scheda fissata seleziona la scheda successiva e mantiene quella fissata. Chiudi una scheda fissata dal suo menu."
+            "state": "needs_review",
+            "value": "Come il terminale"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "オフのとき、ピン留めしたタブで Cmd-W を押すと次のタブを選択し、ピン留めしたタブは残ります。ピン留めしたタブはそのメニューから閉じます。"
+            "state": "needs_review",
+            "value": "ターミナルに合わせる"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ពេលបិទ Cmd-W លើផ្ទាំងដែលបានខ្ទាស់ ជ្រើសផ្ទាំងបន្ទាប់ ហើយរក្សាផ្ទាំងដែលបានខ្ទាស់។ បិទផ្ទាំងដែលបានខ្ទាស់ពីម៉ឺនុយរបស់វា។"
+            "state": "needs_review",
+            "value": "តាមរូបរាងទែមីណាល់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "끄면 고정된 탭에서 Cmd-W를 누를 때 다음 탭을 선택하고 고정된 탭은 유지합니다. 고정된 탭은 탭 메뉴에서 닫으세요."
+            "state": "needs_review",
+            "value": "터미널 테마에 맞추기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Når av, velger Cmd-W på en festet fane neste fane og beholder den festede fanen. Lukk en festet fane fra menyen dens."
+            "state": "needs_review",
+            "value": "Som terminaltemaet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gdy wyłączone, Cmd-W na przypiętej karcie wybiera następną kartę i zachowuje przypiętą. Zamknij przypiętą kartę z jej menu."
+            "state": "needs_review",
+            "value": "Jak motyw terminala"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quando desativado, Cmd-W em uma aba fixada seleciona a próxima aba e mantém a fixada. Feche uma aba fixada pelo menu dela."
+            "state": "needs_review",
+            "value": "Igual ao Terminal"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Если выключено, Cmd-W на закреплённой вкладке выбирает следующую вкладку и оставляет закреплённую. Закройте закреплённую вкладку через её меню."
+            "state": "needs_review",
+            "value": "Как у терминала"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อปิด Cmd-W บนแท็บที่ปักหมุดจะเลือกแท็บถัดไปและเก็บแท็บที่ปักหมุดไว้ ปิดแท็บที่ปักหมุดจากเมนูของแท็บ"
+            "state": "needs_review",
+            "value": "ตามธีมเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kapalıyken sabitlenmiş bir sekmede Cmd-W sonraki sekmeyi seçer ve sabitlenmiş sekmeyi tutar. Sabitlenmiş bir sekmeyi menüsünden kapatın."
+            "state": "needs_review",
+            "value": "Terminal Temasına Uy"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, Cmd-W на закріпленій вкладці вибирає наступну вкладку й залишає закріплену. Закрийте закріплену вкладку з її меню."
+            "state": "needs_review",
+            "value": "Як у термінала"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Khi tắt, Cmd-W trên một thẻ đã ghim sẽ chọn thẻ tiếp theo và giữ thẻ đã ghim. Đóng thẻ đã ghim từ menu của nó."
+            "state": "needs_review",
+            "value": "Theo chủ đề terminal"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭时，在固定的标签页上按 Cmd-W 会选择下一个标签页并保留固定的标签页。请从标签页菜单关闭固定的标签页。"
+            "state": "needs_review",
+            "value": "与终端主题一致"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "與終端機主題一致"
+          }
+        }
+      }
+    },
+    "settings.appearance.appTheme.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "關閉時，在固定的分頁上按 Cmd-W 會選取下一個分頁並保留固定的分頁。請從分頁選單關閉固定的分頁。"
+            "value": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألوان صفحات cmux نفسها. تصلح هنا كل سمة مضمّنة، وكل لون يستوفي تباين WCAG AA."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boje za vlastite stranice cmuxa. Ovdje radi svaka ugrađena tema, a svaka boja ispunjava WCAG AA kontrast."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farver til cmux' egne sider. Alle medfølgende temaer virker her, og hver farve opfylder WCAG AA-kontrast."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farben für die eigenen Seiten von cmux. Jedes mitgelieferte Design funktioniert hier, und jede Farbe erfüllt den WCAG-AA-Kontrast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colores de las páginas propias de cmux. Aquí sirve cualquier tema incluido y cada color cumple el contraste WCAG AA."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleurs des pages de cmux. Chaque thème fourni fonctionne ici, et chaque couleur respecte le contraste WCAG AA."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colori delle pagine di cmux. Qui funziona ogni tema incluso e ogni colore rispetta il contrasto WCAG AA."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身のページの色です。同梱のどのテーマも使え、どの色も WCAG AA のコントラストを満たします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌សម្រាប់ទំព័ររបស់ cmux ផ្ទាល់។ រូបរាងភ្ជាប់មកជាមួយនីមួយៗប្រើបាននៅទីនេះ ហើយពណ៌នីមួយៗបំពេញកម្រិតពណ៌ WCAG AA។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 자체 페이지의 색상입니다. 기본 제공 테마를 모두 쓸 수 있으며 모든 색상이 WCAG AA 대비를 충족합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farger for cmux sine egne sider. Alle medfølgende temaer fungerer her, og hver farge oppfyller WCAG AA-kontrast."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolory własnych stron cmux. Działa tu każdy wbudowany motyw, a każdy kolor spełnia kontrast WCAG AA."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cores das páginas do próprio cmux. Todo tema incluído funciona aqui, e cada cor atende ao contraste WCAG AA."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвета собственных страниц cmux. Подходит любая встроенная тема, и каждый цвет соответствует контрасту WCAG AA."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีของหน้าต่าง ๆ ของ cmux เอง ใช้ธีมในตัวได้ทุกธีม และทุกสีผ่านค่าความต่างสี WCAG AA"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kendi sayfalarının renkleri. Her yerleşik tema burada çalışır ve her renk WCAG AA kontrastını karşılar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольори власних сторінок cmux. Підходить будь-яка вбудована тема, і кожен колір відповідає контрасту WCAG AA."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu cho các trang của chính cmux. Mọi chủ đề có sẵn đều dùng được, và mọi màu đều đạt độ tương phản WCAG AA."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身页面的颜色。所有内置主题都可用于此处,每种颜色都达到 WCAG AA 对比度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自身頁面的顏色。所有內建主題都可用於此處,每種顏色都達到 WCAG AA 對比度。"
           }
         }
       }
@@ -68507,6 +68114,268 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "帳號按鈕上方的「你知道嗎」卡片每天介紹一項你還沒用過的 cmux 功能。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spacesVisibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Spaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペースを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis rum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les espaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញលំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis områder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przestrzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanları Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示空間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spacesVisibility.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ポインタを置いたとき」を選ぶと、ポインタがサイドバー上にあるときだけ、ほかのボタンと同じようにスペースを表示します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض خيار «عند التمرير» المساحات فقط أثناء وجود المؤشر فوق الشريط الجانبي، مثل أزراره الأخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku prikazuje prostore samo dok je pokazivač iznad bočne trake, kao i njena ostala dugmad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør viser rummene kun, mens markøren er over sidepanelet, ligesom dets andre knapper."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Beim Darüberfahren“ zeigt die Bereiche nur, solange der Zeiger über der Seitenleiste ist, wie ihre anderen Tasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero muestra los espacios solo mientras el puntero está sobre la barra lateral, como sus otros botones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol affiche les espaces uniquement lorsque le pointeur est sur la barre latérale, comme ses autres boutons."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio mostra gli spazi solo mentre il puntatore è sulla barra laterale, come gli altri pulsanti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញលំហតែពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ ដូចប៊ូតុងផ្សេងទៀតរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올렸을 때를 선택하면 다른 버튼처럼 포인터가 사이드바 위에 있을 때만 스페이스를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker viser områdene bare mens pekeren er over sidefeltet, som de andre knappene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu pokazuje przestrzenie tylko wtedy, gdy wskaźnik jest nad paskiem bocznym, tak jak jego pozostałe przyciski."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o cursor mostra os espaços apenas enquanto o ponteiro está sobre a barra lateral, como os outros botões."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведении» показывает пространства только когда указатель над боковой панелью, как и её другие кнопки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์จะแสดงสเปซเฉพาะขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง เหมือนปุ่มอื่นๆ ของแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince seçeneği, alanları yalnızca işaretçi kenar çubuğunun üzerindeyken, diğer düğmeleri gibi gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведенні» показує простори лише тоді, коли вказівник над бічною панеллю, як і її інші кнопки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột chỉ hiện các không gian khi con trỏ ở trên thanh bên, giống các nút khác của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“悬停时”仅在指针位于边栏上方时显示空间，与边栏的其他按钮一样。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「懸停時」僅在指標位於側邊欄上方時顯示空間，與側邊欄的其他按鈕一樣。"
           }
         }
       }

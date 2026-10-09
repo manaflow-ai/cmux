@@ -296,7 +296,7 @@ public struct CloudAPIClient: Sendable {
         guard (200..<300).contains(http.statusCode) else {
             throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
         }
-        if T.self == Ignored.self { return Ignored() as! T } // swiftlint:disable:this force_cast
+        if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {

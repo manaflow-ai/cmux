@@ -137,9 +137,9 @@ struct AgentTurnIndicatorTests {
         #expect(working.primary?.label == "Build")
         #expect(SidebarMapping.shared.row(workspace, machine: .local).activity == .working(progress: 0.4))
         tab.programStatus.append(ProgramStatusRecord(id: "deploy", state: .blocked, kind: .permission, updatedSeq: 2))
-        #expect(StatusMapping.shared.summary(tab).state == .waiting)
+        #expect(StatusMapping.shared.summary(tab).state == .waiting(kind: .permission))
         #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .needsInput)
-        #expect(SidebarMapping.shared.row(workspace, machine: .local).activity == .waiting)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local).activity == .waiting(kind: .permission))
         tab.programStatus = [ProgramStatusRecord(state: .idle, updatedSeq: 3)]
         #expect(StatusMapping.shared.summary(tab) == .idle)
     }
@@ -178,7 +178,7 @@ struct RowWorkingSlotTests {
         tabs[0].programStatus = [ProgramStatusRecord(state: .working, updatedSeq: 1)]
         tabs[1].programStatus = [ProgramStatusRecord(state: .blocked, kind: .question, updatedSeq: 2)]
         let row = SidebarMapping.shared.row(workspace, machine: .local)
-        #expect(row.activity == .waiting)
+        #expect(row.activity == .waiting(kind: .question))
         #expect(row.agentWorking)
     }
 }

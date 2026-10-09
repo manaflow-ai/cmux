@@ -121,3 +121,36 @@ fn an_unknown_harness_keeps_the_default() {
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].harness, "claude-sr");
 }
+
+/// cx-1hpt: with no compactor harness of its own, the compactor runs on the
+/// turns' harness from engine.json (a home whose Claude has no login picks
+/// codex there; the compactor must not stay on Claude). Its own choice
+/// (env, then engine.json's compactor-harness) still wins.
+#[test]
+fn the_compactor_harness_follows_the_engine_file_turn_harness() {
+    use optchat_chief::engine::compactor_harness_setting;
+    let codex_turns = EngineChoice {
+        harness: Some("codex".into()),
+        ..EngineChoice::default()
+    };
+    assert_eq!(
+        compactor_harness_setting(None, &codex_turns).as_deref(),
+        Some("codex")
+    );
+    let pinned = EngineChoice {
+        compactor_harness: Some("claude".into()),
+        ..codex_turns.clone()
+    };
+    assert_eq!(
+        compactor_harness_setting(None, &pinned).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        compactor_harness_setting(Some("claude-sr".into()), &pinned).as_deref(),
+        Some("claude-sr")
+    );
+    assert_eq!(
+        compactor_harness_setting(None, &EngineChoice::default()),
+        None
+    );
+}

@@ -1,0 +1,6 @@
+{
+  "_doc": "Requests where STAGING differs from production for a reason outside cmux-next (environment configuration). cmux-old.ts replay accepts a listed request only when staging answers exactly this status, and reports it as a warning in the receipt. Every entry needs a reason and a date; remove it when staging is fixed.",
+  "gaps": [
+    { "method": "POST", "path": "/api/billing/recover", "status": 503, "reason": "staging has no billing recovery configured: {\"error\":\"recovery_unavailable\"} (production answers 400 invalid_email to {})", "since": "2026-10-09" }
+  ]
+}

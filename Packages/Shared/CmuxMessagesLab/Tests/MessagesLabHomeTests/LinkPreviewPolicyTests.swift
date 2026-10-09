@@ -24,7 +24,7 @@ import Testing
         p.apply(items: first + [Fixture2.item(2, them, "https://example.com/report\nhere it is", key: "turn:s1:2")],
                 summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
         #expect(previews.requested.isEmpty, "a received card fetched: \(previews.requested)")
-        let card = try #require(c.store.state.message(HomeMapping.rowSafe("turn:s1:2"))?.parts.first)
+        let card = try #require(c.store!.state.message(HomeMapping.rowSafe("turn:s1:2"))?.parts.first)
         guard case let .link(_, title, site, image, _) = card else { Issue.record("not a card: \(card)"); return }
         #expect(title == "example.com" && site == "example.com" && image == nil, "the domain-only card")
     }

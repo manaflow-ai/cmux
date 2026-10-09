@@ -5760,6 +5760,21 @@ mod unix {
         .map_err(|_| anyhow::anyhow!("terminal-host Kitty graphics limits are out of range"))
     }
 
+    /// The Kitty limits a smart host's `ResyncRequired` carries when a quota
+    /// change evicted nothing (nx-scale 1b); `None` for an empty or attach-gap
+    /// payload, which still requires a reconnect.
+    pub(crate) fn decode_resync_kitty_graphics_limits(
+        payload: &[u8],
+    ) -> Option<KittyGraphicsLimits> {
+        if payload.len() != KITTY_GRAPHICS_LIMITS_ENCODED_LEN {
+            return None;
+        }
+        let mut decoder = PayloadDecoder::new(payload);
+        let limits = decode_kitty_graphics_limits(&mut decoder).ok()?;
+        decoder.finish().ok()?;
+        Some(limits)
+    }
+
     fn encode_kitty_replay_state(
         output: &mut Vec<u8>,
         state: KittyReplayState,
@@ -9752,9 +9767,9 @@ pub use unix::unadoptable::*;
 pub(crate) use unix::{
     ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
     StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, launch_terminal_host_from, launch_terminal_host_seeded,
-    live_successor_record, load_terminal_host_records_for_reset, record_owner_token,
-    sweep_released_pty_locks,
+    decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
+    launch_terminal_host_from, launch_terminal_host_seeded, live_successor_record,
+    load_terminal_host_records_for_reset, record_owner_token, sweep_released_pty_locks,
 };
 #[cfg(unix)]
 pub use unix::{

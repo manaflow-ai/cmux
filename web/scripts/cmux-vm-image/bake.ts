@@ -53,7 +53,7 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
+import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -214,8 +214,14 @@ function warmBindPathCommand(): string {
   ].join(" && ");
 }
 
+/**
+ * Every baked file is a system file: the provider's file API writes as the work user, so the file is handed
+ * to root right after (a work-user-owned unit or sshd drop-in would let that user change what root runs).
+ */
 async function writeGuestFile(vm: Vm, target: string, bytes: string | Uint8Array, mode: number): Promise<void> {
   await vm.fs.writeFile(target, bytes, { mode });
+  const r = await run(vm, `chown root:root ${sq(target)}`);
+  if (r.code !== 0) throw new Error(`chown root:root ${target}: ${r.stderr.slice(-300)}`);
 }
 
 async function readGuestText(vm: Vm, file: string): Promise<string> {
@@ -340,7 +346,9 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   const cronAt = cronAtAllowProblems(await L.step(vm, "cron-at-allow", cronAtAllowCommand(DEVBOX_WORK_USER)), DEVBOX_WORK_USER);
   if (cronAt.length > 0) throw new Error(`cron/at policy:\n${cronAt.join("\n")}`);
   await writeGuestFile(vm, `/etc/systemd/system/${SSH_SYNC_UNIT}`, sshSyncUnit(), 0o644);
-  await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --quiet ${SSH_SYNC_UNIT}`);
+  // --now: a clone resumes this running system (no boot), so an enabled-only unit would never run. Until a team
+  // bind it blocks on inotify (no wakeups).
+  await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --now --quiet ${SSH_SYNC_UNIT} && systemctl is-active ${SSH_SYNC_UNIT}`);
 }
 
 /** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
