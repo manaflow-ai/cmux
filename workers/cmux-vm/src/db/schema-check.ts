@@ -48,6 +48,8 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.stack_webhook_deliveries", migration: "0007" },
   // Without these privileges every Stack webhook answers 503 (first receipt time, G1 retries).
   { table: "cmux_vm.stack_webhook_events", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0008" },
+  // A device's published public IPv6 address (address rules, bead cx-wb5.45).
+  { table: "cmux_vm.mesh_devices", column: "public_ipv6", migration: "0009" },
 ];
 
 /** A Postgres text[] literal of identifiers (letters, digits, '_' and '.' only, so quoting needs no escapes). */
