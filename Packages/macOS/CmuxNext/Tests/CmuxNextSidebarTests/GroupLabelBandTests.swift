@@ -3,11 +3,11 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// Workspace groups, option B "Color label and band" (Lawrence 2026-10-07:
-/// "i like Option B"; spec WORKSPACE-GROUPS-OPTION-A amendment 1): the group
-/// name sits in a colored label (the tab-group chip: GroupColor.fill, a
-/// neutral chip without a color), and the members carry one continuous band
-/// in the group color under the header's caret, indented past it.
+/// Workspace groups as Chrome tab group chips (cx-rcby, Lawrence 2026-10-08,
+/// after option B of 2026-10-07): the group name sits in a pill chip filled
+/// with the group's theme color (neutral without one) that ends in the
+/// collapse chevron, and the members carry one thin continuous bar in the
+/// group color under the chip's start, indented past it.
 @MainActor @Suite struct GroupLabelBandTests {
     @Test func theNameSitsInAColoredLabel() throws {
         let h = MinimalChromeTests.Harness(sections: fixture())
@@ -16,7 +16,7 @@ import Testing
         header.updateLayer()
         let chip = header.labelFrame
         #expect(chip.width > 0 && chip.height > 0)
-        #expect(chip.minX > header.disclosureFrame.minX, "the caret leads (S1)")
+        #expect(chip.contains(NSPoint(x: header.disclosureFrame.midX, y: header.disclosureFrame.midY)), "the chevron ends the chip")
         #expect(chip.contains(NSPoint(x: header.titleFrame.midX, y: header.titleFrame.midY)), "the name is inside the label")
         #expect(header.labelFill != nil, "a colored group's label is filled")
     }
@@ -40,11 +40,12 @@ import Testing
         let loose = try #require(h.sidebar.list.rowViews[.workspace(id("b"))] as? WorkspaceRowView)
         [header, first, second, loose].forEach { $0.layoutSubtreeIfNeeded() }
         #expect(loose.titleFrame.minX == SidebarStyle.titleLeading, "a loose row keeps the inset")
-        #expect(first.titleFrame.minX > header.disclosureFrame.maxX, "member \(first.titleFrame.minX) caret \(header.disclosureFrame.maxX)")
+        #expect(first.titleFrame.minX > first.groupBandFrame.maxX, "member \(first.titleFrame.minX) bar \(first.groupBandFrame.maxX)")
+        #expect(first.groupBandFrame.minX >= header.labelFrame.minX, "the bar starts under the chip")
         // The band fills each member row top to bottom, so adjacent rows join.
         for row in [first, second] {
             let band = row.groupBandFrame
-            #expect(band.width >= 2, "a visible band")
+            #expect(band.width >= 2 && band.width <= 3, "a thin visible bar")
             #expect(band.minY <= 0 && band.maxY >= row.bounds.height, "full height \(band) in \(row.bounds)")
             #expect(band.midX < first.titleFrame.minX)
         }
@@ -68,7 +69,7 @@ import Testing
         #expect(header.glyph.emojiText == "🚀")
         #expect(header.labelFrame.contains(NSPoint(x: header.glyph.frame.midX, y: header.glyph.frame.midY)), "the icon is inside the label")
         #expect(header.glyph.frame.maxX <= header.titleFrame.minX, "the icon leads the name")
-        #expect(header.labelFrame.width > plainHeader.labelFrame.width, "the label grows by the icon")
+        #expect(header.titleFrame.minX > plainHeader.titleFrame.minX, "the name moves past the icon")
         #expect(header.titleFrame.width >= header.titleIntrinsicWidth, "the name still draws whole")
     }
 

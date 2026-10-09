@@ -44,12 +44,15 @@ impl PairingCode {
 
     /// The canonical form, as sent to the API and in the QR: `7KQ4M2XD`.
     pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.0).expect("symbols are ASCII")
+        // Both constructors store only ALPHABET bytes (ASCII), so this is
+        // always Ok.
+        std::str::from_utf8(&self.0).unwrap_or_default()
     }
 
     /// The display form: `7KQ4-M2XD`.
     pub fn display(&self) -> String {
-        format!("{}-{}", &self.as_str()[..4], &self.as_str()[4..])
+        let (head, tail) = self.as_str().split_at_checked(4).unwrap_or_default();
+        format!("{head}-{tail}")
     }
 
     /// Parses what a person typed or read aloud.
@@ -84,7 +87,9 @@ impl fmt::Display for PairingCode {
 /// Four words from the first 44 bits of SHA-256(pubkey), 11 bits each.
 pub fn fingerprint_words(pubkey: &[u8]) -> [&'static str; 4] {
     let digest = Sha256::digest(pubkey);
-    let bits = u64::from_be_bytes(digest[..8].try_into().expect("8 bytes"));
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&digest[..8]);
+    let bits = u64::from_be_bytes(first);
     std::array::from_fn(|i| {
         let index = (bits >> (64 - 11 * (i as u32 + 1))) & 0x7ff;
         WORDLIST[index as usize]

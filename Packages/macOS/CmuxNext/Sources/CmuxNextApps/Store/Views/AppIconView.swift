@@ -36,7 +36,7 @@ struct AppIconView: View {
     }
 }
 
-/// A small capsule label (tier, Installed, Disabled, Local).
+/// A small label (tier, Installed, Disabled, Local) on a small-radius tile.
 struct AppStoreBadge: View {
     let text: String
     var emphasized = false
@@ -46,38 +46,72 @@ struct AppStoreBadge: View {
         Text(text)
             .font(Font(Typography.caption))
             .foregroundStyle(emphasized ? colors.primary : colors.secondary)
-            .padding(.horizontal, Metrics.space2)
+            .padding(.horizontal, Metrics.space2 - 2)
             .padding(.vertical, 1)
-            .background(Capsule().fill(emphasized ? colors.selection : colors.hover))
+            .background(RoundedRectangle(cornerRadius: AppStoreColumn.tagRadius, style: .continuous)
+                .fill(emphasized ? colors.selection : colors.hover))
     }
 }
 
-/// Install or Remove for a listing (user gesture; never automation).
+/// Install, or Remove for an installed app (user gesture; never
+/// automation). Remove is a quiet destructive text button with no
+/// confirmation: it is undone from the same place until it commits
+/// (`AppStoreModel.requestRemove`). A built-in app has none. Every state
+/// keeps the same height, so the header never shifts.
 struct AppInstallButton: View {
     let model: AppStoreModel
     let id: String
+    var builtIn = false
     @State private var busy = false
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
-        let installed = model.state(of: id)?.isInstalled == true
-        Button {
-            busy = true
-            // task-owner: one install/remove from a button press
-            Task {
-                if installed { try? await model.remove(id) } else { try? await model.install(id) }
-                busy = false
+        Group {
+            if model.pendingRemoval == id {
+                HStack(spacing: Metrics.space2) {
+                    Text(AppsStrings.removed).foregroundStyle(colors.secondary)
+                    textButton(AppsStrings.undo, color: colors.primary) { await model.undoRemove() }
+                        .accessibilityIdentifier("appStore.undoRemove.\(id)")
+                }
+                .font(Font(Typography.body))
+            } else if builtIn {
+                Color.clear.frame(width: 0)
+            } else if model.state(of: id)?.isInstalled == true {
+                textButton(AppsStrings.remove, color: colors.danger) { await model.requestRemove(id) }
+                    .font(Font(Typography.body))
+                    .accessibilityIdentifier("appStore.install.\(id)")
+            } else {
+                Button { run { try? await model.install(id) } } label: {
+                    Text(AppsStrings.install)
+                        .font(Font(Typography.bodyEmphasized))
+                        .foregroundStyle(colors.primary)
+                        .padding(.horizontal, Metrics.space3)
+                        .frame(height: AppStoreColumn.actionHeight)
+                        .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.selection))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .accessibilityIdentifier("appStore.install.\(id)")
             }
-        } label: {
-            Text(installed ? AppsStrings.remove : AppsStrings.install)
-                .font(Font(Typography.bodyEmphasized))
-                .foregroundStyle(installed ? colors.danger : colors.primary)
-                .padding(.horizontal, Metrics.space4)
-                .padding(.vertical, Metrics.space1 + 1)
-                .background(Capsule().fill(installed ? colors.hover : colors.selection))
+        }
+        .frame(minHeight: AppStoreColumn.actionHeight)
+    }
+
+    private func textButton(_ title: String, color: Color, action: @escaping () async -> Void) -> some View {
+        Button { run(action) } label: {
+            Text(title).foregroundStyle(color).padding(.horizontal, Metrics.space1).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(busy)
-        .accessibilityIdentifier("appStore.install.\(id)")
+    }
+
+    private func run(_ action: @escaping () async -> Void) {
+        busy = true
+        // task-owner: one install, remove or undo from a button press
+        Task {
+            await action()
+            busy = false
+        }
     }
 }

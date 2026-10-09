@@ -75,7 +75,7 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, retry } = useContext(TurnActionsContext);
+  const { fork, forkSeq, retry } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -110,7 +110,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           <Retry />
         </button>
       )}
-      {fork && seq !== undefined && (
+      {fork && seq !== undefined && seq === forkSeq && (
         <button
           type="button"
           className="cv-iconbtn"

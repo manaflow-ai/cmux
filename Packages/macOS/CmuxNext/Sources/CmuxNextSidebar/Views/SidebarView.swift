@@ -60,7 +60,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), tipCardView = SidebarTipCardView() // SidebarBottomCards
+    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), tipCardView = SidebarTipCardView()
     /// Back, in the footer band's spot while a destination is open (`SidebarView+Footer`).
     let backButton = SidebarBackButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
@@ -347,7 +347,7 @@ public final class SidebarView: NSView {
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
                     showsBack: model.showsBack,
-                    cards: SidebarBottomCards(update: model.updateCard, tip: model.tipCard)
+                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, tip: model.tipCard)
                 )
             }) {
                 self?.render(state)
@@ -367,9 +367,7 @@ public final class SidebarView: NSView {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
-            || lastState?.preferences.workspaceRow != state.preferences.workspaceRow
-            || lastState?.preferences.groupsByComputer != state.preferences.groupsByComputer
+            || state.preferences.changesList(from: lastState?.preferences)
         let previous = lastState?.sections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.

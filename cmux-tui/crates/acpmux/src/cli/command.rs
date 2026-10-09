@@ -364,6 +364,32 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a
+        /// profile that starts it at the registry's pinned version (its
+        /// installed program, else npx, else uvx).
+        #[arg(long, conflicts_with_all = ["command", "example"])]
+        registry: bool,
+    },
+    /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
+    /// for Claude Code). `--status` checks it; `--list` shows the methods.
+    Login {
+        id: String,
+        /// The sign-in method id (default: the harness's first browser or
+        /// terminal sign-in).
+        #[arg(long)]
+        method: Option<String>,
+        /// Show the sign-in methods and whether the harness is signed in.
+        #[arg(long)]
+        list: bool,
+        /// Only check whether the harness is signed in.
+        #[arg(long)]
+        status: bool,
+    },
+    /// The ACP Registry's agents and how each can start here.
+    Registry {
+        /// Fetch the registry now instead of reading the cached copy.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.

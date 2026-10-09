@@ -3,6 +3,9 @@ import Foundation
 public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidFormat(String)
     case invalidDimensions(columns: Int, rows: Int)
+    /// Past the replay's bounds (`maximumDimension`, `maximumScrollbackRows`,
+    /// `maximumReplayCells`), or more rows scrolled than the frame holds.
+    case invalidSize(columns: Int, rows: Int, scrollbackRows: Int, scrolledRows: Int)
     case invalidRow(Int)
     case invalidColumn(Int)
     case invalidCursor(row: Int, column: Int)
@@ -12,6 +15,17 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
 
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
+    /// Largest column or row count a frame may carry: the Mac producer clamps
+    /// to the same 4096 (`DaemonRenderGridState.maxDimension`).
+    public static let maximumDimension = 4_096
+    /// Largest scrollback row count a frame may carry: Macs clamp requested
+    /// scrollback to `MobileTerminalScrollbackPreference.maximumRows`, and a
+    /// burst delta carries at most 2000 rows.
+    public static let maximumScrollbackRows = MobileTerminalScrollbackPreference.maximumRows
+    /// Largest `columns * (rows + scrollbackRows)` a frame may carry. A full
+    /// replay pads every line to `columns`, so this bounds the bytes a frame
+    /// makes the phone build (about 32 MB of cells).
+    public static let maximumReplayCells = 32 * 1_024 * 1_024
 
     public var format: String
     public var surfaceID: String
@@ -148,6 +162,17 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
+        // A frame past what any Mac sends would make the phone's replay build
+        // an unbounded byte stream (crash program phase 3,
+        // MobileProtocolFuzzTests): reject it as malformed. Every product
+        // below is of values already bounded, so nothing overflows.
+        guard columns <= Self.maximumDimension, rows <= Self.maximumDimension,
+              scrollbackRows <= Self.maximumScrollbackRows,
+              columns * (rows + max(0, scrollbackRows)) <= Self.maximumReplayCells,
+              scrolledRows <= rows + max(0, scrollbackRows) else {
+            throw MobileTerminalRenderGridError.invalidSize(
+                columns: columns, rows: rows, scrollbackRows: scrollbackRows, scrolledRows: scrolledRows)
+        }
         if let cursor,
            !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {
             throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
@@ -170,7 +195,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,
@@ -191,7 +216,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
             }
             let width = span.gridCellWidth
-            guard width > 0, span.column + width <= columns else {
+            guard width > 0, width <= columns - span.column else {
                 throw MobileTerminalRenderGridError.invalidSpanWidth(
                     row: span.row,
                     column: span.column,

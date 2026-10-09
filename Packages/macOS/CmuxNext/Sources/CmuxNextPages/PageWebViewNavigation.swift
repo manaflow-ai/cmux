@@ -1,5 +1,5 @@
 import AppKit
-import WebKit
+public import WebKit
 
 @MainActor
 extension PageWebView {

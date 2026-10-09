@@ -64,6 +64,9 @@ const KITTY_REPLAY_CHUNK: usize = 4096;
 /// surface-side encoder in ghostty-next.
 pub const SNAPSHOT_CONTINUATION_MAX_BYTES: usize = 1 << 20;
 const KITTY_REPLAY_RAW_CHUNK: usize = KITTY_REPLAY_CHUNK / 4 * 3;
+const _: () = assert!(
+    matches!(base64::encoded_len(KITTY_REPLAY_RAW_CHUNK, true), Some(len) if len <= KITTY_REPLAY_CHUNK)
+);
 const MAX_COLOR_OSC_BYTES: usize = 16 * 1024;
 const MOUSE_DEC_MODES: [u16; 8] = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
 
@@ -895,10 +898,9 @@ impl Terminal {
                 self.color_overrides.cursor,
                 sys::GHOSTTY_TERMINAL_DATA_COLOR_CURSOR,
             ),
-            cursor_visual: Some(
-                self.effective_cursor_visual()
-                    .expect("valid terminals expose an effective cursor visual"),
-            ),
+            // A valid terminal always exposes its cursor visual; a failed
+            // read reports none instead of ending the process.
+            cursor_visual: self.effective_cursor_visual().ok(),
             palette,
         }
     }
@@ -1253,6 +1255,13 @@ impl Terminal {
     pub fn set_kitty_inflight_storage_limit(&mut self, bytes: u64) {
         let bounded = bytes.min(KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64) as usize;
         self.kitty_inflight.set_max_bytes(bounded);
+    }
+
+    /// Whether a Kitty image upload is being assembled: a chunked
+    /// transmission still loading, or a Kitty command not yet terminated. A
+    /// limit change while one is can drop its retained bytes.
+    pub fn kitty_upload_in_progress(&self) -> bool {
+        self.kitty_inflight.loading || self.kitty_inflight.has_partial_command()
     }
 
     pub fn kitty_inflight_storage_limit(&self) -> u64 {
@@ -2986,10 +2995,13 @@ fn append_kitty_replay_image(bytes: &mut Vec<u8>, image: &KittyImage) {
         } else {
             bytes.extend_from_slice(format!("\x1b_Gq=2,m={more};").as_bytes());
         }
-        let encoded = base64::engine::general_purpose::STANDARD
-            .encode_slice(chunk, &mut payload)
-            .expect("a 3:4-sized replay buffer must fit base64 output");
-        bytes.extend_from_slice(&payload[..encoded]);
+        let engine = &base64::engine::general_purpose::STANDARD;
+        match engine.encode_slice(chunk, &mut payload) {
+            Ok(encoded) => bytes.extend_from_slice(&payload[..encoded]),
+            // KITTY_REPLAY_CHUNK holds the base64 of a full raw chunk
+            // (checked at compile time), so this allocating path never runs.
+            Err(_) => bytes.extend_from_slice(engine.encode(chunk).as_bytes()),
+        }
         bytes.extend_from_slice(b"\x1b\\");
     }
 }

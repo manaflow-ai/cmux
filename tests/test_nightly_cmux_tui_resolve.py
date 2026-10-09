@@ -58,7 +58,14 @@ RESOLVE = "resolve-nightly-cmux-tui-client"
 BUILD_SHA = "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
 jobs_text = text[text.index("\njobs:\n"):]
 blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", jobs_text, re.MULTILINE | re.DOTALL))
-exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission"}
+# find-nightly-next-recovery and recover-nightly-next-notarization continue an
+# EARLIER run's build with this run's tools; this run's build commit does not
+# apply to them (the recovered build carries its own, from its manifest).
+exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+          "find-nightly-next-recovery", "recover-nightly-next-notarization"}
+# publish-nightly checks out the build it selected: this run's resolved build
+# commit, or a recovered earlier build's own build commit.
+SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
 shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
 for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):
     check(name in shipping, f"{name} must check out the source (guard setup)")
@@ -66,8 +73,9 @@ for name in shipping:
     body = blocks[name]
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
+    allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
-        check(ref.strip() == BUILD_SHA, f"{name} checks out {ref.strip()}, not the resolved build commit")
+        check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
     for line in body.splitlines():
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,
@@ -79,6 +87,8 @@ for output in ("build_sha", "build_short_sha", "tip_sha", "behind", "behind_hour
           f"{RESOLVE} must output {output}")
 check('CMUX_TUI_TREE_MAX_AGE_HOURS: "24"' in blocks.get(RESOLVE, ""), "the resolver must bound the age at 24 h")
 publish = blocks.get("publish-nightly", "")
+check(f"OWN_BUILD_SHA: {BUILD_SHA}" in publish,
+      "publish-nightly must select this run's resolved build commit for its own build")
 for needle in ("outputs.tip_sha", "outputs.behind }}", "outputs.behind_hours"):
     check(publish.count(needle) >= 2, f"both nightly release bodies must record {needle}")
 

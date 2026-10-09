@@ -37,18 +37,29 @@ interfaces! {
 /// plans/cmux-next/app-platform.md 14.4).
 pub const KNOWN_HOST_CAPABILITIES: &[&str] = &["power.assertion/1"];
 
-/// The compiled options schema of each known interface; `None` when the
-/// interface takes no options.
-fn option_validators() -> &'static Vec<(&'static str, Option<jsonschema::Validator>)> {
-    static V: OnceLock<Vec<(&'static str, Option<jsonschema::Validator>)>> = OnceLock::new();
+/// The compiled options schema of each known interface; `Ok(None)` when the
+/// interface takes no options, `Err` when its embedded file does not load
+/// (a unit test loads every file).
+type OptionValidator = Result<Option<jsonschema::Validator>, String>;
+
+pub(crate) fn option_validators() -> &'static Vec<(&'static str, OptionValidator)> {
+    static V: OnceLock<Vec<(&'static str, OptionValidator)>> = OnceLock::new();
     V.get_or_init(|| {
         FILES
             .iter()
             .map(|(name, raw)| {
-                let file: Value = serde_json::from_str(raw).expect("interface file is JSON");
-                let validator = file.get("options").map(|schema| {
-                    jsonschema::draft202012::new(schema).expect("interface options schema compiles")
-                });
+                let validator = serde_json::from_str::<Value>(raw)
+                    .map_err(|e| format!("the {name} interface file is not JSON: {e}"))
+                    .and_then(|file| {
+                        file.get("options")
+                            .map(|schema| {
+                                crate::compile_schema_value(
+                                    &format!("the {name} options schema"),
+                                    schema,
+                                )
+                            })
+                            .transpose()
+                    });
                 (*name, validator)
             })
             .collect()
@@ -60,6 +71,10 @@ fn option_validators() -> &'static Vec<(&'static str, Option<jsonschema::Validat
 pub(crate) fn option_errors(interface: &str, options: &Value) -> Vec<(String, String)> {
     let Some((_, validator)) = option_validators().iter().find(|(n, _)| *n == interface) else {
         return Vec::new();
+    };
+    let validator = match validator {
+        Ok(validator) => validator,
+        Err(error) => return vec![(String::new(), error.clone())],
     };
     match validator {
         Some(v) => {

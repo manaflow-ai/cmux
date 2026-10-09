@@ -18,7 +18,8 @@ public nonisolated enum SidebarEdits {
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
         case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
-             .openUpdateLink, .tryTip, .dismissTip, .layout, .toggleLayoutSection, .dropOnLayoutSection:
+             .openUpdateLink, .tryTip, .dismissTip, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
+             .dropOnLayoutSection, .groupEditorEnded:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }

@@ -32,8 +32,15 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    /// Inline rename of a workspace or group row.
+    /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
+    var leaving: Set<WorkspaceID> = []
+    /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
+    /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
+    let groupEditor = SidebarGroupEditor()
+    var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
+    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
     var external: ExternalDrag?
@@ -67,6 +74,7 @@ final class SidebarListView: NSView {
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
         inlineRename.list = self
+        groupEditing.wire()
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
@@ -128,10 +136,13 @@ final class SidebarListView: NSView {
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         applyKeepingViewport(displayLayout(), animated: animated)
         inlineRename.follow()
+        groupEditor.follow(groups)
+        if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -139,12 +150,12 @@ final class SidebarListView: NSView {
         guard let drag else { return o }
         switch drag.payload {
         case let .workspaces(ids):
-            o.excludedWorkspaces = Set(ids)
+            o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
         case let .group(group):
             o.excludedGroup = group
         }
-        if includeGap, case let .position(position) = drag.target {
+        if includeGap, drag.pinTarget == nil, case let .position(position) = drag.target {
             o.gap = position
             o.gapHeight = drag.gapHeight
         }
@@ -164,6 +175,7 @@ final class SidebarListView: NSView {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
         let realize = realizationRect()
@@ -198,6 +210,7 @@ final class SidebarListView: NSView {
                 view.alphaValue = 0
             } else if animate, existing == nil, old.row(for: row.key) == nil {
                 appearing.append((view, target))
+                (view as? GroupHeaderRowView)?.playAppear()
             } else {
                 targets.append((view, target))
             }
@@ -313,6 +326,7 @@ final class SidebarListView: NSView {
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {
         guard !isShiftingViewport else { return }
+        groupEditing.followScroll()
         let realize = realizationRect()
         for row in displayed.rows where rowViews[row.key] == nil {
             let target = frame(for: row)
@@ -332,7 +346,7 @@ final class SidebarListView: NSView {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
         for row in displayed.rows {
             guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
-                  inlineRename.session?.key != row.key else { continue }
+                  inlineRename.session?.key != row.key, row.key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[row.key] = nil
         }

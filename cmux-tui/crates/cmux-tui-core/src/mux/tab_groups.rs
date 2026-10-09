@@ -28,6 +28,7 @@ use crate::workspace_registry::{
 mod blocks;
 pub(crate) use blocks::place_block;
 mod public_ids;
+mod reopen_saved;
 pub(crate) use public_ids::{is_pinned, pane_by_public_id, pane_public_id, tab_public_id};
 
 /// One contiguous group run in a pane's tab strip, as frontends see it.
@@ -191,12 +192,13 @@ impl Mux {
     /// Commit a raw tab group command (a local mutation that never replays).
     fn commit_tab_group_change<R>(
         self: &Arc<Self>,
+        actor: &Actor,
         operation: &str,
         workspace_group: Option<String>,
         mutate: impl FnOnce(&Arc<Mux>, &mut State, &mut TabGroupState) -> anyhow::Result<R>,
     ) -> anyhow::Result<R> {
         let (output, _) = self.commit_tab_strip_change(
-            StripRequest::local(operation),
+            StripRequest::local(actor, operation),
             workspace_group,
             |mux, state, edit| mutate(mux, state, &mut edit.groups),
         )?;
@@ -225,8 +227,9 @@ impl Mux {
     /// Create a group from tabs of one pane. The members become contiguous
     /// at the strip position of the first of them; tabs leave any group
     /// they were in. Pinned tabs cannot be grouped.
-    pub fn create_tab_group(
+    pub fn create_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surfaces: &[SurfaceId],
         name: Option<String>,
         color: Option<String>,
@@ -237,7 +240,7 @@ impl Mux {
         let id = id.unwrap_or_else(new_tab_group_id);
         let requested = surfaces.to_vec();
         self.tab_group_create(
-            StripRequest::local("tab.group.create"),
+            StripRequest::local(actor, "tab.group.create"),
             move |_| Ok(requested),
             name,
             color,
@@ -317,15 +320,16 @@ impl Mux {
     }
 
     /// Rename, recolor, or collapse a group. A linked saved group follows.
-    pub fn update_tab_group(
+    pub fn update_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<TabGroupOutcome> {
         self.tab_group_update(
-            StripRequest::local("tab.group.update"),
+            StripRequest::local(actor, "tab.group.update"),
             group,
             name,
             color,
@@ -373,14 +377,20 @@ impl Mux {
 
     /// Add tabs to a group, at the end of its run. Tabs in other panes move
     /// into the group's pane in the same commit.
-    pub fn add_tabs_to_tab_group(
+    pub fn add_tabs_to_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         surfaces: &[SurfaceId],
         transaction: Option<&str>,
     ) -> anyhow::Result<TabGroupOutcome> {
         let added = surfaces.to_vec();
-        self.tab_group_add(StripRequest::local("tab.group.add"), group, move |_| Ok(added), None)?;
+        self.tab_group_add(
+            StripRequest::local(actor, "tab.group.add"),
+            group,
+            move |_| Ok(added),
+            None,
+        )?;
         let outcome = self.tab_group_outcome(group);
         self.emit_tab_group_members(surfaces, transaction);
         Ok(outcome)
@@ -446,14 +456,17 @@ impl Mux {
     }
 
     /// Remove tabs from their groups; each lands just after its old group.
-    pub fn remove_tabs_from_tab_group(
+    pub fn remove_tabs_from_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         surfaces: &[SurfaceId],
         transaction: Option<&str>,
     ) -> anyhow::Result<Vec<String>> {
         let removed = surfaces.to_vec();
-        let (touched, _) =
-            self.tab_group_remove(StripRequest::local("tab.group.remove"), move |_| Ok(removed))?;
+        let (touched, _) = self
+            .tab_group_remove(StripRequest::local(actor, "tab.group.remove"), move |_| {
+                Ok(removed)
+            })?;
         self.emit_tab_group_members(surfaces, transaction);
         Ok(touched.unwrap_or_default())
     }
@@ -502,8 +515,9 @@ impl Mux {
     /// Move a whole group: within or across strips, into a new split or
     /// column, or into a new workspace. Members keep their order and stay
     /// grouped; the group is not layout-undoable.
-    pub fn move_tab_group(
+    pub fn move_tab_group_as(
         self: &Arc<Self>,
+        actor: &Actor,
         group: &str,
         destination: TabGroupDestination,
         transaction: Option<&str>,
@@ -526,6 +540,7 @@ impl Mux {
         let workspace_id = self.next_id();
         let presentation = self.presentation_snapshot();
         self.commit_tab_group_change(
+            actor,
             "tab.group.move",
             workspace_group.clone(),
             |mux, state, groups| {
@@ -647,9 +662,13 @@ impl Mux {
     }
 
     /// Ungroup: the members stay in place without a group.
-    pub fn ungroup_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<Vec<SurfaceId>> {
+    pub fn ungroup_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<Vec<SurfaceId>> {
         let members = self.tab_group_outcome(group).members;
-        self.tab_group_ungroup(StripRequest::local("tab.group.ungroup"), group)?;
+        self.tab_group_ungroup(StripRequest::local(actor, "tab.group.ungroup"), group)?;
         Ok(members)
     }
 
@@ -679,8 +698,13 @@ impl Mux {
     /// Close a group: close every member placement in one commit. Terminal
     /// processes keep running (closing a view never ends a terminal);
     /// browsers close with their only tab. A linked saved group remains.
-    pub fn close_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<Vec<SurfaceId>> {
-        let (closed, _) = self.tab_group_close(StripRequest::local("tab.group.close"), group)?;
+    pub fn close_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let (closed, _) =
+            self.tab_group_close(StripRequest::local(actor, "tab.group.close"), group)?;
         closed.context("tab group close committed no result")
     }
 
@@ -772,6 +796,7 @@ impl Mux {
     /// Add a new view of a running terminal to `pane` (its last tab).
     pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
+        actor: &Actor,
         terminal_id: &str,
         pane: PaneId,
     ) -> anyhow::Result<SurfaceId> {
@@ -795,7 +820,7 @@ impl Mux {
             index,
             None,
             None,
-            &WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
         )?;
         self.with_state(|state| {
             state.panes.get(&pane).and_then(|record| record.tabs.get(index).copied())
@@ -856,8 +881,13 @@ impl Mux {
     }
 
     /// Save (pin) a live group. Returns the saved record's id.
-    pub fn save_tab_group(self: &Arc<Self>, group: &str) -> anyhow::Result<String> {
-        let commit = self.tab_group_save(StripRequest::local("tab.group.save"), group, None)?;
+    pub fn save_tab_group_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        group: &str,
+    ) -> anyhow::Result<String> {
+        let commit =
+            self.tab_group_save(StripRequest::local(actor, "tab.group.save"), group, None)?;
         commit.result["id"].as_str().map(str::to_string).context("saved group has no id")
     }
 
@@ -894,7 +924,7 @@ impl Mux {
     }
 
     /// Unsave a live group: delete its saved record and keep the group.
-    pub fn unsave_tab_group(&self, group: &str) -> anyhow::Result<bool> {
+    pub fn unsave_tab_group_as(&self, actor: &Actor, group: &str) -> anyhow::Result<bool> {
         let saved_id = self
             .presentation_snapshot()
             .tab_groups
@@ -904,13 +934,13 @@ impl Mux {
             .saved_id
             .clone();
         let Some(saved_id) = saved_id else { return Ok(false) };
-        self.delete_saved_tab_group(&saved_id)
+        self.delete_saved_tab_group_as(actor, &saved_id)
     }
 
     /// Delete a saved group. A live group linked to it stays, unlinked.
-    pub fn delete_saved_tab_group(&self, saved_id: &str) -> anyhow::Result<bool> {
+    pub fn delete_saved_tab_group_as(&self, actor: &Actor, saved_id: &str) -> anyhow::Result<bool> {
         let commit = self.saved_tab_group_delete(
-            &WorkspaceMutation::daemon_local("cmux-tui-tab-groups"),
+            &WorkspaceMutation::local("cmux-tui-tab-groups", actor.clone()),
             None,
             saved_id,
             true,
@@ -920,112 +950,6 @@ impl Mux {
 
     pub fn saved_tab_groups(&self) -> Vec<SavedTabGroupRecord> {
         self.presentation_snapshot().saved_tab_groups.clone()
-    }
-
-    /// Reopen a saved group into `pane`. A live group already linked to the
-    /// record is returned unchanged. Otherwise each member is restored: a
-    /// terminal still running is reattached (a new view of the same
-    /// terminal), other terminals start in their saved directory, and
-    /// browsers reopen at their saved URL.
-    pub fn reopen_saved_tab_group_as(
-        self: &Arc<Self>,
-        actor: &Actor,
-        saved_id: &str,
-        pane: PaneId,
-        transaction: Option<&str>,
-    ) -> anyhow::Result<TabGroupOutcome> {
-        let presentation = self.presentation_snapshot();
-        let saved = presentation
-            .saved_tab_groups
-            .iter()
-            .find(|record| record.id == saved_id)
-            .cloned()
-            .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved_id))?;
-        if let Some(live) = presentation
-            .tab_groups
-            .groups
-            .values()
-            .find(|group| group.saved_id.as_deref() == Some(saved_id))
-        {
-            return Ok(self.tab_group_outcome(&live.id));
-        }
-        anyhow::ensure!(
-            self.with_state(|state| state.panes.contains_key(&pane)),
-            "unknown pane {pane}"
-        );
-        let mut surfaces = Vec::new();
-        for member in &saved.members {
-            let surface = match member {
-                SavedTabMember::Terminal { terminal_id, cwd, .. } => {
-                    let reattached = terminal_id
-                        .as_deref()
-                        .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                        .filter(|resolution| {
-                            resolution.terminal.lifecycle == TerminalLifecycle::Running
-                        })
-                        .and_then(|resolution| {
-                            self.project_terminal_into_pane(&resolution.terminal.terminal_id, pane)
-                                .ok()
-                        });
-                    match reattached {
-                        Some(surface) => surface,
-                        None => self.new_tab_as(actor, Some(pane), cwd.clone(), None)?.id,
-                    }
-                }
-                SavedTabMember::Browser { url, engine, profile_id, title } => match engine {
-                    Some(engine) => {
-                        self.new_frontend_browser_tab_as(
-                            actor,
-                            Some(pane),
-                            crate::workspace_registry::FrontendBrowserRecord {
-                                engine: engine.clone(),
-                                url: url.clone(),
-                                title: title.clone(),
-                                favicon_url: None,
-                                profile_id: profile_id.clone(),
-                                // The app that shows the reopened tab claims it.
-                                owner: None,
-                            },
-                            None,
-                        )?
-                        .id
-                    }
-                    None => self.new_browser_tab_as(actor, url.clone(), Some(pane), None)?.id,
-                },
-            };
-            surfaces.push(surface);
-        }
-        let outcome = self.create_tab_group(
-            &surfaces,
-            Some(saved.name),
-            Some(saved.color),
-            None,
-            transaction,
-        )?;
-        let group = outcome
-            .group
-            .as_ref()
-            .map(|group| group.id.clone())
-            .context("reopened group missing")?;
-        let link = saved_id.to_string();
-        let room = saved.room;
-        let linked = group.clone();
-        self.commit_tab_strip_change(
-            StripRequest::local("tab.group.save"),
-            None,
-            move |mux, state, edit| {
-                let group = linked;
-                if let Some(record) = edit.groups.groups.get_mut(&group) {
-                    record.saved_id = Some(link.clone());
-                }
-                if let Some(mut record) = mux.saved_record_for(state, &edit.groups, &group) {
-                    record.room = room;
-                    edit.saved = Some(record);
-                }
-                Ok(())
-            },
-        )?;
-        Ok(self.tab_group_outcome(&group))
     }
 }
 

@@ -473,7 +473,7 @@ final class FlightRecorder: NSObject {
                                      "frame": c.window.map { NSStringFromRect($0.frame) } ?? ""],
                           "load": HomeFlightRecorder.loadAverage, "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
                          dir + "/meta.json")
-        FileHandle.standardError.write("MessagesLab flight recorder: \(reason) -> \(dir)\n".data(using: .utf8)!)
+        FileHandle.standardError.write(Data("MessagesLab flight recorder: \(reason) -> \(dir)\n".utf8)) // cmux: no force unwrap
         dumps.append(dir)
         // cmux: window captures only with their own opt-in (HomeFlightRecorder.capturesWindow).
         if HomeFlightRecorder.capturesWindow() { burst(dir, c, count: 30) }

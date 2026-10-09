@@ -21,11 +21,11 @@ enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
         "l": ("l", 37), "w": ("w", 13), "t": ("t", 17), "h": ("h", 4), "j": ("j", 38), "k": ("k", 40),
-        "left": (String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123), "right": (String(UnicodeScalar(NSRightArrowFunctionKey)!), 124),
-        "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
-        "pageup": (String(UnicodeScalar(NSPageUpFunctionKey)!), 116), "pagedown": (String(UnicodeScalar(NSPageDownFunctionKey)!), 121),
-        "home": (String(UnicodeScalar(NSHomeFunctionKey)!), 115), "end": (String(UnicodeScalar(NSEndFunctionKey)!), 119),
-        "delete": ("\u{7f}", 51), "forwarddelete": (String(UnicodeScalar(NSDeleteFunctionKey)!), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
+        "left": (Shortcut.leftArrowKey, 123), "right": (Shortcut.rightArrowKey, 124),
+        "down": (Shortcut.downArrowKey, 125), "up": (Shortcut.upArrowKey, 126),
+        "pageup": (FunctionKeyCharacter.string(NSPageUpFunctionKey), 116), "pagedown": (FunctionKeyCharacter.string(NSPageDownFunctionKey), 121),
+        "home": (FunctionKeyCharacter.string(NSHomeFunctionKey), 115), "end": (FunctionKeyCharacter.string(NSEndFunctionKey), 119),
+        "delete": ("\u{7f}", 51), "forwarddelete": (FunctionKeyCharacter.string(NSDeleteFunctionKey), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
     ]
 
     /// ANSI virtual key codes, so Chromium accelerators (extension commands
@@ -46,12 +46,15 @@ enum DebugKey {
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let windowID = params["window"]?.stringValue
-        guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
-              let shell = controller.window else { return .object(["error": .string("no window")]) }
+        let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
+        // The palette opens with no main window (after Close All Windows), so its keys need none:
+        // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
+        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
+        guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let page = pageWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let page = pageWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no Chromium page window for pane")])
             }
             window = page
@@ -64,8 +67,8 @@ enum DebugKey {
             }
             window = debugWindow
         } else if params["target"]?.stringValue == "devtools" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no docked DevTools window for pane")])
             }
             window = devTools
@@ -115,7 +118,9 @@ enum DebugKey {
             // notice, and key-downs that reached the system beep.
             let palette = services.palette!
             return .object([
-                "handled_by": .string(handledBy == "page" ? "palette" : handledBy), "action": action, "window_kind": .string("palette"),
+                // With no main window the palette is the dispatch's only window.
+                "handled_by": .string(handledBy == "page" || (controller == nil && ["window", "responder"].contains(handledBy)) ? "palette" : handledBy),
+                "action": action, "window_kind": .string("palette"),
                 "palette_open": .bool(palette.isVisible), "palette_page": .string(palette.model.pageTitle),
                 "palette_text_input": .bool(palette.model.isTextInput),
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,

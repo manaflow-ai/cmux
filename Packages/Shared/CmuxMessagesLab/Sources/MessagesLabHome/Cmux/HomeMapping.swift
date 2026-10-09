@@ -31,7 +31,13 @@ enum HomeMapping {
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
-        return Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+        let messageID = id(item, aliases: aliases)
+        // A person's text shows as typed, and so does a part with mentions (their offsets index
+        // the text as written): MessagesLab's Markdown engine skips the message (only an
+        // agent's text is Markdown, HomeMarkdown). Marked before the message is measured.
+        let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
+        MarkdownStore.shared.setPlain(messageID, !isAgent(item.author, summary) || mentions)
+        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) })

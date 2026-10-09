@@ -15,6 +15,7 @@ mod browser;
 pub mod browser_host;
 mod browser_provider;
 pub mod cloud_conversations;
+mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -94,6 +95,7 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,

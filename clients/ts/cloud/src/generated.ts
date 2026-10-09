@@ -1023,6 +1023,13 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmAccountUser = {
+  readonly user: string
+  readonly uid: number
+  readonly class: SshCertClass
+  readonly principals: ReadonlyArray<string>
+}
+
 export type TeamVmError = {
   readonly code: string
   readonly message: string
@@ -2648,6 +2655,14 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise). */
+  readonly "team_vm.accounts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly users: ReadonlyArray<TeamVmAccountUser>
+    }
+  }
   /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
   readonly "team_vm.ensure_awake": {
     readonly params: {
@@ -2720,7 +2735,7 @@ export interface CloudOps {
       readonly released: boolean
     }
   }
-  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (copy its files off first); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited. */
+  /** Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.rebuild": {
     readonly params: {
       readonly epoch: number
@@ -2730,14 +2745,31 @@ export interface CloudOps {
       readonly epoch: number
     }
   }
-  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good. Owners and admins only, in a person's session; audited. */
+  /** Delete a VM that a rebuild replaced (team_vm.status `retired`), by its exact id. Its files are gone for good: a rebuild does not carry /srv/team, so the caller sets files_copied: true to attest the files were copied off the paused VM; without it the op answers team_vm.retired_files_unconfirmed and changes nothing. Owners and admins only, in a person's session; audited. */
   readonly "team_vm.retired.delete": {
+    readonly params: {
+      readonly vm: string
+      readonly files_copied: true
+    }
+    readonly result: {
+      readonly vm: string
+      readonly deleted: boolean
+    }
+  }
+  /** Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited. */
+  readonly "team_vm.retired.export": {
     readonly params: {
       readonly vm: string
     }
     readonly result: {
       readonly vm: string
-      readonly deleted: boolean
+      readonly path: string
+      readonly expires_at: number
+      readonly files: number
+      readonly bytes: number
+      readonly archive_bytes: number
+      readonly skipped: ReadonlyArray<string>
+      readonly skipped_count: number
     }
   }
   /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
@@ -3239,6 +3271,7 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.accounts": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
   "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
@@ -3246,6 +3279,7 @@ export const cloudOpMeta = {
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.rebuild": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.retired.delete": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.retired.export": { class: "mutation", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },

@@ -13,14 +13,42 @@ public protocol CmuxToastHosting: AnyObject {
 /// taking clicks only on the toast itself.
 @MainActor
 public final class CmuxToastOverlayHost: CmuxToastHosting {
-    private var handles: [ObjectIdentifier: (handle: OverlayHandle, window: NSWindow)] = [:]
+    private var handles: [ObjectIdentifier: (handle: OverlayHandle, window: NSWindow, view: CmuxToastView, slot: Int)] = [:]
+    private var avoidanceObserver: (any NSObjectProtocol)?
 
-    public init() {}
+    public init() {
+        avoidanceObserver = NotificationCenter.default.addObserver(forName: .cmuxToastAvoidanceDidChange, object: nil,
+                                                                   queue: .main) { [weak self] _ in
+            // task-owner: one hop to the main actor; moves this host's toasts once
+            Task { @MainActor in self?.reanchor(in: nil) }
+        }
+    }
 
-    /// The anchor of `slot` in window coordinates: the overlay places a
-    /// toast 24 pt above the anchor's bottom, centered.
-    static func anchor(slot: Int, height: CGFloat, in bounds: NSRect) -> NSRect {
-        NSRect(x: bounds.minX, y: bounds.minY + CGFloat(slot) * (height + 8), width: bounds.width, height: height)
+    isolated deinit {
+        if let avoidanceObserver { NotificationCenter.default.removeObserver(avoidanceObserver) }
+    }
+
+    /// The overlay places a toast 24 pt above the anchor's bottom, centered.
+    static let overlayLift: CGFloat = 24
+
+    /// The anchor of `slot` in window coordinates, its toast's bottom at
+    /// `floor` or higher (clear of the views toasts avoid).
+    static func anchor(slot: Int, height: CGFloat, in bounds: NSRect, floor: CGFloat? = nil) -> NSRect {
+        let base = max(bounds.minY, (floor ?? bounds.minY) - overlayLift)
+        return NSRect(x: bounds.minX, y: base + CGFloat(slot) * (height + 8), width: bounds.width, height: height)
+    }
+
+    private func anchor(for toast: CmuxToastView, slot: Int, in window: NSWindow) -> NSRect {
+        let bounds = window.contentView?.bounds ?? .zero
+        return Self.anchor(slot: slot, height: toast.frame.height, in: bounds,
+                           floor: Self.floor(width: toast.frame.width, in: bounds, window: window))
+    }
+
+    /// Moves every toast in `window` (all windows when nil) clear of the avoided views.
+    private func reanchor(in window: NSWindow?) {
+        for entry in handles.values where window == nil || entry.window === window {
+            entry.handle.update(anchor: anchor(for: entry.view, slot: entry.slot, in: entry.window))
+        }
     }
 
     public func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void) {
@@ -28,21 +56,22 @@ public final class CmuxToastOverlayHost: CmuxToastHosting {
         let size = toast.fittingSize
         toast.translatesAutoresizingMaskIntoConstraints = true
         toast.frame = NSRect(origin: .zero, size: size)
-        let bounds = window.contentView?.bounds ?? .zero
-        let options = OverlayOptions(kind: .toast, anchor: Self.anchor(slot: slot, height: size.height, in: bounds),
+        let options = OverlayOptions(kind: .toast, anchor: anchor(for: toast, slot: slot, in: window),
                                      passesThroughClicks: false)
         let handle = WindowOverlayHost.host(for: window).present(toast, options: options)
         handle.onDismiss = windowGone
-        handles[ObjectIdentifier(toast)] = (handle, window)
+        handles[ObjectIdentifier(toast)] = (handle, window, toast, slot)
     }
 
     public func move(_ toast: CmuxToastView, to slot: Int) {
-        guard let (handle, window) = handles[ObjectIdentifier(toast)] else { return }
-        handle.update(anchor: Self.anchor(slot: slot, height: toast.frame.height, in: window.contentView?.bounds ?? .zero))
+        guard var entry = handles[ObjectIdentifier(toast)] else { return }
+        entry.slot = slot
+        handles[ObjectIdentifier(toast)] = entry
+        entry.handle.update(anchor: anchor(for: toast, slot: slot, in: entry.window))
     }
 
     public func hide(_ toast: CmuxToastView) {
-        guard let (handle, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
+        guard let (handle, _, _, _) = handles.removeValue(forKey: ObjectIdentifier(toast)) else { return }
         handle.onDismiss = nil
         handle.dismiss()
     }

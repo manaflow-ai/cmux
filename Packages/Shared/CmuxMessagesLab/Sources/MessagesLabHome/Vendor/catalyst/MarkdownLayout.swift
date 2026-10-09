@@ -102,11 +102,11 @@ extension Markdown {
     /// Body text baseline below a line top (13 pt SF in a 16 pt line; Fixture.textBaseline - bubblePadY).
     static let bodyBaseline: CGFloat = 13
     static let codeBaseline: CGFloat = 12.5
-    static let codeFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    static let codeBoldFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
-    static let inlineCodeFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    static let codeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
+    static let codeBoldFont = HomeFonts.monospaced(ofSize: 12, weight: .semibold) // cmux: nil-checked (HomeFonts, cx-qpqs)
+    static let inlineCodeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
     /// Headings are body size (Lawrence, 2026-10-06): weight only, one step.
-    static func headingFont(_ level: Int) -> UIFont { .systemFont(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) }
+    static func headingFont(_ level: Int) -> UIFont { HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) } // cmux: held for the process (HomeFonts, cx-qpqs)
     static let codePadX: CGFloat = 8
     /// Space under a scrollable block's content for its scroll indicator.
     static let indicatorRoom: CGFloat = 5
@@ -127,7 +127,7 @@ extension Markdown {
 enum MarkdownLayoutEngine {
     /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
     private static let cache = MDLRU<BlockKey, BlockLayout>(capacity: 2048)
-    struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat }
+    struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
 
     /// A block laid out at y = 0, x = 0 (content-local).
     final class BlockLayout {
@@ -141,7 +141,10 @@ enum MarkdownLayoutEngine {
         var ax: [MDAXNode] = []
     }
 
-    static func layout(_ doc: MDDocument, source: String, maxWidth: CGFloat) -> MarkdownLayout {
+    /// `tableColumns`: fixed column widths for the first table (a long message's table continued
+    /// from an earlier block). `fill`: the inner width is the whole column (long rows are always
+    /// column wide), not the widest content.
+    static func layout(_ doc: MDDocument, source: String, maxWidth: CGFloat, tableColumns: [CGFloat]? = nil, fill: Bool = false) -> MarkdownLayout {
         let padX = Fixture.bubblePadX, padY = Fixture.bubblePadY
         var frags: [MDFrag] = [], boxes: [MDBox] = [], regions: [MDRegion] = [], ax: [MDAXNode] = []
         var plain = ""
@@ -149,12 +152,16 @@ enum MarkdownLayoutEngine {
         var y: CGFloat = 0
         var extent: CGFloat = 0
         var prev: MDBlock?
+        var fixed = tableColumns
         for b in doc.blocks {
-            let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth)
+            var cols: [CGFloat]?
+            if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
+            let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
             let bl: BlockLayout
             if let c = cache.get(key) { bl = c } else {
                 bl = BlockLayout()
                 var w = Writer(out: bl, width: maxWidth)
+                w.fixedColumns = cols
                 w.block(b.kind, x: 0, width: maxWidth, depth: 0, listDepth: 0)
                 bl.height = w.y
                 cache.set(key, bl)
@@ -194,7 +201,7 @@ enum MarkdownLayoutEngine {
         }
         // Inner width: the widest content, at most the column. Stretchable boxes and
         // regions fill it; wider regions scroll.
-        let inner = min(maxWidth, max(extent, 1).rounded(.up))
+        let inner = fill ? maxWidth : min(maxWidth, max(extent, 1).rounded(.up))
         for i in boxes.indices where boxes[i].stretch {
             let left = boxes[i].rect.minX - padX
             boxes[i].rect.size.width = max(boxes[i].rect.width, inner - left)
@@ -243,6 +250,8 @@ enum MarkdownLayoutEngine {
         var y: CGFloat = 0
         var plainLen = 0
         var region = -1
+        /// Fixed table column widths (long-message continuation), used by the first table.
+        var fixedColumns: [CGFloat]?
         init(out: BlockLayout, width: CGFloat) { self.out = out; self.width = width }
 
         mutating func appendPlain(_ s: String) { out.plain += s; plainLen += (s as NSString).length }
@@ -471,7 +480,7 @@ enum MarkdownLayoutEngine {
             let rid = out.regions.count
             let cols = max(1, t.columns)
             let pad = Markdown.cellPadX
-            let headFont = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
+            let headFont = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold) // cmux: held for the process (HomeFonts, cx-qpqs)
             let all: [[MDText]] = [t.header] + t.rows
             // Column widths: min = widest unbreakable word (capped), max = widest one-line cell.
             var minW = [CGFloat](repeating: 16, count: cols), maxW = [CGFloat](repeating: 16, count: cols)
@@ -498,7 +507,11 @@ enum MarkdownLayoutEngine {
             let avail = max(40, w - chrome)
             let sumMax = maxW.reduce(0, +), sumMin = minW.reduce(0, +)
             var colW: [CGFloat]
-            if sumMax <= avail { colW = maxW }
+            if let fixed = fixedColumns, !fixed.isEmpty {
+                // Continued table: the first block's widths; extra columns get their one-line width.
+                colW = (0..<cols).map { $0 < fixed.count ? fixed[$0] : min(maxW[$0], 200) }
+                fixedColumns = nil
+            } else if sumMax <= avail { colW = maxW }
             else if sumMin >= avail {
                 // The table scrolls anyway: no column narrower than its longest word (up to
                 // 320 pt) or 200 pt, so cells do not break inside words.
@@ -600,8 +613,9 @@ enum MarkdownLayoutEngine {
                 var traits: UIFontDescriptor.SymbolicTraits = []
                 if s.style.contains(.strong) { traits.insert(.traitBold) }
                 if s.style.contains(.emphasis) { traits.insert(.traitItalic) }
-                if !traits.isEmpty, let d = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(traits)) {
-                    a.addAttribute(.font, value: UIFont(descriptor: d, size: font.pointSize), range: r)
+                // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+                if !traits.isEmpty, let f = HomeFonts.font(font, adding: traits) {
+                    a.addAttribute(.font, value: f, range: r)
                 }
             }
             if let l = s.link { a.addAttribute(.link, value: l, range: r) }

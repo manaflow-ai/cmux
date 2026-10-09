@@ -331,7 +331,7 @@ public final class ActionRegistry {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {
             let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0
-            if best == nil || specificity > best!.specificity {
+            if specificity > best?.specificity ?? Int.min {
                 best = (id, specificity)
             }
         }

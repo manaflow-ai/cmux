@@ -66,35 +66,33 @@ import Testing
         #expect(groups[0].workspaces.map(\.id) == [id("x"), id("y")])
         #expect(groups[0].name == SidebarGroup.named(""))
         #expect(groups[0].color != .grey)
-        #expect(h.list.inlineRename.session?.key == .group(groups[0].id), "the new group renames in place")
-        let field = try #require(h.list.inlineRename.session?.field)
-        let header = try h.frame(.group(groups[0].id)), title = try #require(h.list.rowViews[.group(groups[0].id)]).titleFrame
-        #expect(abs(field.frame.midY - (header.minY + title.midY)) < 1, "the rename field sits on the header's settled title")
-
-        h.list.inlineRename.end(commit: false)
+        // cx-rcby: the new group's editor opens on it (the Chrome flow).
+        #expect(h.list.groupEditor.shownGroup == groups[0].id, "the new group's editor opens")
+        h.list.groupEditor.hide()
         h.window.undoManager?.undo()
         #expect(h.groups(cloudSection).isEmpty)
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
-    /// The home daemon makes the group under its own id: the rename follows
-    /// the group its row moved to and keeps what was typed.
+    /// The home daemon makes the group under its own id: the editor follows
+    /// the group its row moved to and keeps what was typed (cx-rcby).
     @Test func theRenameFollowsTheGroupTheStoreMadeInItsPlace() throws {
         let h = Harness()
         defer { h.window.close() }
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.5)
         h.list.finishDrag()
         let made = try #require(h.groups(cloudSection).first)
-        try #require(h.list.inlineRename.session?.key == .group(made.id))
-        h.list.inlineRename.session?.field.stringValue = "Infra"
+        try #require(h.list.groupEditor.shownGroup == made.id)
+        let bubble = try #require(h.list.groupEditor.bubble)
+        bubble.nameField.stringValue = "Infra"
 
         let stored = GroupID.make()
         h.model.send(.ungroup(made.id))
         h.model.send(.createGroup(stored, name: made.name, color: made.color, workspaces: [id("x"), id("y")], anchor: id("x")))
         h.list.reload(animated: false)
-        #expect(h.list.inlineRename.session?.key == .group(stored))
-        #expect(h.list.inlineRename.session?.field.stringValue == "Infra")
-        #expect(h.list.subviews.filter { $0 is NSTextField }.count == 1, "no orphaned field")
+        #expect(h.list.groupEditor.shownGroup == stored)
+        #expect(bubble.nameField.stringValue == "Infra", "what was typed stays")
+        h.list.groupEditor.hide()
     }
 
     @Test func theBandsEdgesAreStickyOnceEntered() throws {
@@ -109,13 +107,13 @@ import Testing
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
-    /// With a header per computer (`sidebar.groupByComputer`): in one list
-    /// the top of a computer's first row is also the end of the one above.
+    /// In one list (`sidebar.groupByComputer` off) too: the top of the
+    /// first row of another computer is a slot of that computer, not the end
+    /// of the rows above it (cx-hzpd).
     @Test func theTopOfARowReorders() throws {
         let h = Harness()
-        h.model.groupsByComputer = true
-        h.list.reload(animated: false)
         defer { h.window.close() }
+        try #require(h.model.groupsByComputer == false)
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.1)
         #expect(h.list.drag?.target == .position(DropPosition(section: cloudSection, index: 0)))
         h.list.finishDrag()
