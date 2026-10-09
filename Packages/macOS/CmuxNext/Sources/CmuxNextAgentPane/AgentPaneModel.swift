@@ -115,10 +115,13 @@ public final class AgentPaneModel {
     /// agent folder; a refusal carries its localized text (an older background service, a save
     /// that failed).
     @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
+    /// Choose Folder… for a chat whose folder is missing: the native folder sheet on this pane,
+    /// then acpmux's `chat_open` with the pick (cx-nn3e.1).
+    @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
-    @ObservationIgnored private(set) var handshakeCwd: String?
+    @ObservationIgnored internal(set) var handshakeCwd: String?
 
     /// Saves the inspector's exported log (text, suggested file name) where
     /// the user picks; true when saved, false when the user cancelled. Nil
@@ -127,7 +130,7 @@ public final class AgentPaneModel {
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
-    @ObservationIgnored private let seed: AgentPaneSeedSource?
+    @ObservationIgnored let seed: AgentPaneSeedSource?
 
     public init(
         host: any AgentPaneHostProviding,
@@ -223,6 +226,7 @@ public final class AgentPaneModel {
                     handshake.newSession = true
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
+                if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
@@ -274,8 +278,7 @@ public final class AgentPaneModel {
             guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
             onTypeAhead(text)
             return AgentPaneReply.success()
-        case .touched:
-            return AgentPaneReply.success()
+        case .touched: return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .newTabInputReady(let token):
@@ -286,16 +289,15 @@ public final class AgentPaneModel {
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
             return AgentPaneReply.success()
-        case .runAction(let id):
-            return runAction(id)
+        case .runAction(let id): return runAction(id)
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
             return AgentPaneReply.success()
         case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
         case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
-        case .chooseFolder:
-            return await chooseFolder()
+        case .chooseFolder: return await chooseFolder()
+        case .chooseChatFolder: return await chooseChatFolder()
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -384,11 +386,9 @@ public final class AgentPaneModel {
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
-        case .reply(let reply):
-            return await respond(to: reply)
+        case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
-        case .unsupported(let method):
-            return Self.unsupported(method)
+        case .unsupported(let method): return Self.unsupported(method)
         }
     }
 

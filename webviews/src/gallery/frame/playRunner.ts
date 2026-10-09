@@ -1,6 +1,7 @@
 // Runs a variant's play steps in the stage frame and measures each one (play.ts has the rules).
 import {
   describeTarget,
+  judgePopups,
   judgeStep,
   overall,
   rectDelta,
@@ -11,6 +12,7 @@ import {
   type PlayContext,
   type PlayReport,
   type PlayTarget,
+  type PopupMeasure,
   type Rect,
   type Shift,
   type StepReport,
@@ -128,6 +130,67 @@ function syntheticKey(key: string): void {
   }
 }
 
+/** What counts as an open popup: the shared primitives' surfaces and ARIA popups. */
+const POPUP_SELECTOR =
+  '.ui-popup, [role="menu"], [role="listbox"], [role="dialog"], [role="tooltip"], .acpmux-menu, [data-agent-popup]';
+
+function describeElement(element: Element): string {
+  const name = element.getAttribute("aria-label");
+  const className = typeof element.className === "string" ? element.className.split(/\s+/)[0] : "";
+  return `${element.tagName.toLowerCase()}${className ? `.${className}` : ""}${name ? `[${name}]` : ""}`;
+}
+
+/**
+ * The open popups after a step, outermost only, each sampled at its corners (inset 3 px) and
+ * center with elementFromPoint, and checked against every ancestor that clips its overflow.
+ * Needs a real engine's layout (the shell and the matrix runner); jsdom has none.
+ */
+function measurePopups(): PopupMeasure[] {
+  const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
+  });
+  const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
+  return outermost.map((popup) => {
+    const rect = popup.getBoundingClientRect();
+    const inset = 3;
+    const points: [string, number, number][] = [
+      ["top-left", rect.left + inset, rect.top + inset],
+      ["top-right", rect.right - inset, rect.top + inset],
+      ["bottom-left", rect.left + inset, rect.bottom - inset],
+      ["bottom-right", rect.right - inset, rect.bottom - inset],
+      ["center", rect.left + rect.width / 2, rect.top + rect.height / 2],
+    ];
+    const hits = points
+      .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
+      .map(([point, x, y]) => {
+        const top = document.elementFromPoint(x, y);
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
+        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
+      });
+    const clippedBy: string[] = [];
+    for (let parent = popup.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+      const box = parent.getBoundingClientRect();
+      if (
+        rect.left < box.left - 1 ||
+        rect.top < box.top - 1 ||
+        rect.right > box.right + 1 ||
+        rect.bottom > box.bottom + 1
+      )
+        clippedBy.push(describeElement(parent));
+    }
+    return {
+      label: describeElement(popup),
+      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      hits,
+      clippedBy,
+    };
+  });
+}
+
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
 async function measured(
   step: string,
@@ -220,6 +283,7 @@ async function measured(
     shifts,
     longFrames,
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
+    popupProblems: judgePopups(measurePopups(), { width: innerWidth, height: innerHeight }),
   };
   return { ...result, ...judgeStep(result, checks) };
 }

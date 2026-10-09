@@ -870,7 +870,6 @@
       ],
       "packages": [],
       "reads": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/README.md",
         "cmux-tui/crates/cmux-rd-proto/tests/vectors/control.json"
       ]
     },
