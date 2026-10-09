@@ -54,7 +54,11 @@ describe("direct acpmux event helpers", () => {
       kind: "status",
       msg: { status: "ready" },
     });
-    expect(mergeEventRecords([event(1), event(2)], [event(2), event(3)]).map((item) => item.seq)).toEqual([1, 2, 3]);
+    expect(mergeEventRecords([event(1), event(2)], [event(2), event(3)]).map((item) => item.seq)).toEqual([
+      1,
+      2,
+      3,
+    ]);
   });
 
   test("reconciles older user messages by text when promptId is absent", () => {
