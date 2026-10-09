@@ -32,7 +32,7 @@ struct BrowserOpenerOrderTests {
         ])
         let daemon = Daemon()
         let store = h.services.daemon.store
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
@@ -137,7 +137,7 @@ struct BrowserOpenerOrderTests {
         ])
         let daemon = Daemon()
         let store = h.services.daemon.store
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count
@@ -203,7 +203,7 @@ struct BrowserOpenerOrderTests {
         daemon.order = [4, 32, 31]
         let store = h.services.daemon.store
         store.apply(snapshot: try daemon.tree())
-        h.browserTabs.create = { _, _, _, _, _, after in
+        h.browserTabs.create = { _, _, _, _, _, _, after in
             daemon.afters.append(after)
             daemon.next += 1
             let slot = after.flatMap { daemon.order.firstIndex(of: $0.rawValue) }.map { $0 + 1 } ?? daemon.order.count

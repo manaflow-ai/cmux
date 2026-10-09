@@ -46,7 +46,13 @@ struct PaneBrowserTabOpener {
         }
         let requested = requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs
-        if browserTabs.isAvailable() {
+        // Another machine's pane that cannot take a tab says why (cx-2cob).
+        if let refusal = browserTabs.refusal(in: controller.pane) {
+            child?.close()
+            services.registry.refuse(refusal)
+            return false
+        }
+        if browserTabs.isAvailable(in: controller.pane) {
             var choice: BrowserEngineChoice
             switch browserTabs.resolve(requested: requested, inherited: inherited) {
             case .refuse(let reason):
@@ -57,7 +63,7 @@ struct PaneBrowserTabOpener {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
-            let controller = controller, handle = controller.pane.handle, model = controller.pane
+            let controller = controller, model = controller.pane
             let intent = background ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
@@ -66,7 +72,7 @@ struct PaneBrowserTabOpener {
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
                     let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
-                        try await browserTabs.open(choice, in: handle, url: address, profile: profile, notice: notice, after: after)
+                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     then?(surface)

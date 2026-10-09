@@ -102,10 +102,10 @@ struct DefaultChromiumTests {
         store.apply(snapshot: try Self.tree(extraTabs))
         let recorder = BrowserTabTests.Recorder()
         let browserTabs = try #require(services.cache.browserTabs)
-        browserTabs.isAvailable = { true }
+        browserTabs.serves = { _ in true }
         browserTabs.cefUnavailable = { cef }
         var next: UInt64 = 20
-        browserTabs.create = { pane, url, engine, _, _, _ in
+        browserTabs.create = { _, pane, url, engine, _, _, _ in
             recorder.created.append((pane, url, engine))
             next += 1
             return SurfaceID(rawValue: next)

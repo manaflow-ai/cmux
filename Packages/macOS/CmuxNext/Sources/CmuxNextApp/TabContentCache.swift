@@ -201,7 +201,7 @@ final class TabContentCache {
         }
         let url = recordURL(tab)
         if let page = appPage(for: tab, url: url) { return page }
-        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
+        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
@@ -222,7 +222,7 @@ final class TabContentCache {
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
             browserTabs.track(page, tabID: key)
-            if let surface = browserTabs.tabModel(key)?.surface, let notice = browserTabs.takeNotice(for: surface) {
+            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) {
                 entry.chrome.showNotice(notice)
             }
             onBrowserReady?(key)
@@ -295,7 +295,7 @@ final class TabContentCache {
     private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
         if let notice = browserTabs.fallbacks.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
-        if let notice = browserTabs.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
+        if let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
         return entry
     }
 
