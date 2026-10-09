@@ -354,7 +354,10 @@ cmux_agent_login_guide() {
     if command -v cmux_message >/dev/null 2>&1; then
       cmux_message agentLoginConnect "$cmux_agent_connect_hint" >&2
     else
-      printf 'cmux: on your Mac, run %s to share an account with this Cloud VM.\n' "$cmux_agent_connect_hint" >&2
+      case "${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}" in
+        ja*) printf 'cmux: アカウントを共有するには、Mac で `%s` を実行してください。\n' "$cmux_agent_connect_hint" >&2 ;;
+        *) printf 'cmux: To share an account, run `%s` on your Mac.\n' "$cmux_agent_connect_hint" >&2 ;;
+      esac
     fi
   fi
   if command -v cmux >/dev/null 2>&1; then
