@@ -1946,7 +1946,8 @@ function AcpmuxPane() {
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx).
           "chat.new": async ({ harness, cwd, peer, deferred }) => {
             const folder = cwd ? String(cwd) : peer ? undefined : startFolderRef.current;
-            if (harness && !peer) return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
+            if (harness && !peer)
+              return harnessSwitch.switchTo(String(harness), folder, { deferred: deferred === true });
             harnessSwitch.cancel();
             return persistSession(
               await client.create(harness ? String(harness) : undefined, folder, peer ? String(peer) : undefined),
