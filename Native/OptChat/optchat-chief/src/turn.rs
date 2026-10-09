@@ -620,3 +620,9 @@ pub fn adopt_orphan(
     }
     Ok(())
 }
+
+/// How long to wait before a turn that failed for want of model capacity
+/// runs again; None for any other error.
+pub fn capacity_retry_after(_error: &str) -> Option<Duration> {
+    None
+}
