@@ -40,6 +40,8 @@ pub(crate) struct Overlay {
 }
 
 impl Overlay {
+    // Used by `disable_source`, which the per-source settings call (projects.md slice 3).
+    #[cfg_attr(not(test), allow(dead_code))]
     fn is_empty(&self) -> bool {
         self == &Overlay::default()
     }
@@ -349,6 +351,8 @@ impl Projects {
 
     /// The user turned `source` off: it leaves every project. A project with
     /// nothing left (no source, no edit) goes; an edited one stays.
+    // The per-source settings call it (projects.md slice 3).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn disable_source(&mut self, source: &str) -> Vec<String> {
         let mut changed = Vec::new();
         self.by_path.retain(|path, project| {

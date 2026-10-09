@@ -35,7 +35,9 @@ pub(crate) fn load(connection: &Connection) -> anyhow::Result<Projects> {
         let (path, json) = row?;
         match serde_json::from_str::<Project>(&json) {
             Ok(project) if project.path == path => projects.push(project),
-            Ok(_) => eprintln!("cmux-tui: project row {path:?} names another path; skipped"),
+            Ok(_) => {
+                eprintln!("cmux-tui: project row {path:?} names another path; skipped");
+            }
             Err(error) => {
                 eprintln!("cmux-tui: project row {path:?} does not parse ({error}); skipped")
             }
