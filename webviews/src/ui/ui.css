@@ -49,7 +49,6 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
-  animation: ui-popup-open var(--ui-popup-open) ease-out;
 }
 
 .ui-menu-item {
@@ -313,6 +312,10 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .ui-popup {
+    animation: ui-popup-open var(--ui-popup-open) ease-out;
+  }
+
   .ui-tooltip,
   .ui-sheet {
     transition: opacity 90ms ease-out;

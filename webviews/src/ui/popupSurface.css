@@ -9,6 +9,7 @@
   --ui-row-height: 28px;
   --ui-row-radius: 5px;
   --ui-row-padding-inline: 8px;
+  /* Each surface runs the open only under prefers-reduced-motion: no-preference. */
   --ui-popup-open: 120ms;
 }
 
@@ -16,11 +17,5 @@
   from {
     opacity: 0;
     transform: scale(0.97);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --ui-popup-open: 0s;
   }
 }

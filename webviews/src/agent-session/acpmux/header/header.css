@@ -7,7 +7,7 @@
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open],.acpmux-header-changes:not(:disabled):hover,.acpmux-header-changes[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:not(:disabled):active,.acpmux-header-changes:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-header-tool:focus-visible,.acpmux-header-changes:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);animation:ui-popup-open var(--ui-popup-open) ease-out;color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-user-select:none;user-select:none;cursor:default;outline:none}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:var(--transform-origin);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
@@ -35,3 +35,4 @@
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-handoff-header-tools{flex:none}
+@media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}

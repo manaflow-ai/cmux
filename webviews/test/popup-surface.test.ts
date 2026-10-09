@@ -15,6 +15,25 @@ function rule(text: string, selector: string): string {
   return body;
 }
 
+/** Whether `selector` opens with `ui-popup-open` inside a `prefers-reduced-motion: no-preference` block. */
+function opensWhenMotionAllowed(text: string, selector: string): boolean {
+  const guard = /@media\s+\(\s*prefers-reduced-motion:\s*no-preference\s*\)\s*\{/g;
+  for (let match = guard.exec(text); match; match = guard.exec(text)) {
+    let depth = 1;
+    let end = guard.lastIndex;
+    for (; end < text.length && depth > 0; end += 1) {
+      if (text[end] === "{") depth += 1;
+      else if (text[end] === "}") depth -= 1;
+    }
+    const block = text.slice(guard.lastIndex, end - 1);
+    for (const [, selectors, body] of block.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const listed = selectors!.split(",").map((part) => part.trim());
+      if (listed.includes(selector) && /animation:\s*ui-popup-open var\(--ui-popup-open\)/.test(body!)) return true;
+    }
+  }
+  return false;
+}
+
 const popups: [file: string, selector: string][] = [
   ["ui/ui.css", ".ui-popup"],
   ["agent-session/acpmux/styles.css", ".acpmux-menu"],
@@ -34,7 +53,7 @@ const rows: [file: string, selector: string][] = [
 ];
 
 describe("one popup surface", () => {
-  test("the surface: 28 px rows, small radii, one subtle shadow, a short open that respects reduced motion", () => {
+  test("the surface: 28 px rows, small radii, one subtle shadow and a short open", () => {
     const surface = css("ui/popupSurface.css");
     const root = rule(surface, ":root");
     const value = (name: string) => new RegExp(`${name}:\\s*([^;]+);`).exec(root)?.[1]?.trim();
@@ -44,7 +63,7 @@ describe("one popup surface", () => {
     const shadow = value("--ui-popup-shadow") ?? "";
     expect(shadow.replace(/\([^)]*\)/g, "").includes(",")).toBe(false);
     expect(surface).toContain("@keyframes ui-popup-open");
-    expect(surface).toMatch(/prefers-reduced-motion: reduce[\s\S]*--ui-popup-open:\s*0s/);
+    expect(value("--ui-popup-open")).toBe("120ms");
   });
 
   test("every page with menus loads the surface; the agent pane, which skips ui.css, loads it too", () => {
@@ -65,8 +84,10 @@ describe("one popup surface", () => {
       expect(body).toContain("border-radius:var(--ui-popup-radius)");
       expect(body).toContain("var(--ui-popup-shadow)");
       expect(body).not.toMatch(/0 10px 30px/);
-      expect(body).toMatch(/animation:ui-popup-open var\(--ui-popup-open\)/);
       expect(body).toMatch(/transform-origin:/);
+      // Reduce Motion: the open runs only under prefers-reduced-motion: no-preference.
+      expect(body).not.toMatch(/animation:/);
+      expect(opensWhenMotionAllowed(css(file), selector)).toBe(true);
     });
   }
 
