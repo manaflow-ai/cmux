@@ -15,7 +15,7 @@ import os
 final class DaemonPaletteUsageStore: PaletteUsageStore {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.usage")
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private let local: LocalPaletteUsageStore
     private let preferences: URL
     /// The connection whose former histories were imported this launch.
@@ -35,8 +35,6 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
         history = local.history
     }
 
-    private var daemon: DaemonService { services.machines.local }
-
     private enum Owner {
         case daemon(PaletteUsageStateClient, ObjectIdentifier)
         /// Connected to a daemon without `palette-usage-v1`.
@@ -45,7 +43,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     }
 
     private var owner: Owner {
-        guard let connection = daemon.connection else { return .away }
+        guard let daemon = services?.machines.local, let connection = daemon.connection else { return .away }
         guard daemon.supports(DaemonCapabilities.shared.paletteUsage) else { return .local }
         return .daemon(PaletteUsageStateClient(connection: connection), ObjectIdentifier(connection))
     }
