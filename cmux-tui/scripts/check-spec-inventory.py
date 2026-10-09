@@ -628,7 +628,7 @@ def event_names() -> set[str]:
     if conversations.exists():
         names.update(function_event_names(conversations.read_text(), "wire_json"))
     # So does the cloud conversations proxy (cloud-conversations-v1).
-    cloud = TUI / "crates/cmux-tui-core/src/cloud_conversations/stream.rs"
+    cloud = TUI / "crates/cmux-tui-cloud-conversations/src/stream.rs"
     if cloud.exists():
         names.update(function_event_names(cloud.read_text(), "wire_json"))
 
