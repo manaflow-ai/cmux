@@ -286,6 +286,49 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["harness codex"]);
   });
 
+  // Leo (dogfood 2026-10-08, picker v2): too many models at once. A harness with more than a
+  // handful shows a short list (starred, the running model, the flagship and the newest) under a
+  // "More models" row at the top, furthest from the chip. Search still matches every model, and
+  // starring a model from More promotes it into the short list.
+  test("a long catalog shows a short list under a More models row", async () => {
+    const long = snapshot();
+    long.catalog![0]!.models = [
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+      { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+      { id: "claude-opus-4-1", name: "Opus 4.1" },
+      { id: "claude-opus-4", name: "Opus 4" },
+      { id: "claude-sonnet-4", name: "Sonnet 4" },
+      { id: "claude-sonnet-3-7", name: "Sonnet 3.7" },
+      { id: "claude-haiku-3-5", name: "Haiku 3.5" },
+    ];
+    await render(long);
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    const more = () => doc.querySelector<HTMLButtonElement>(".acpmux-mp-models .acpmux-mp-more");
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    expect(more()?.textContent).toContain("More models");
+    expect(doc.querySelector(".acpmux-mp-models")!.firstElementChild).toBe(more());
+    const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    const type = async (text: string) => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, text);
+      await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    };
+    await type("haiku");
+    expect(labels()).toEqual(["Haiku 3.5", "Haiku 4.5"]);
+    expect(more()).toBeNull();
+    await type("");
+    await act(async () => more()!.click());
+    expect(labels()).toHaveLength(8);
+    expect(labels()[0]).toBe("Haiku 3.5");
+    const haiku = modelRows().find((row) => row.textContent?.includes("Haiku 3.5"))!;
+    await act(async () => haiku.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
+    await act(async () => modelButton().click());
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 3.5"]);
+    expect(more()).not.toBeNull();
+  });
+
   test("no empty footer band: refresh and fast mode sit in the search row", async () => {
     await render({
       ...snapshot(),
