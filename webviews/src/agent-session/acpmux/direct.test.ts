@@ -1321,7 +1321,12 @@ describe("direct client session state", () => {
           : {};
     await connect();
     const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
-    expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
+    expect(attach.params.kinds).toEqual([
+      "transcript",
+      "available_commands_update",
+      "usage_update",
+      "config_option_update",
+    ]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
     expect(latest().commands).toEqual([
