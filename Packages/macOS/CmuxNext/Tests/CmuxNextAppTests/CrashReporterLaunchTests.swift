@@ -12,7 +12,9 @@ import Testing
         func read() -> ManagedPreferences { ManagedPreferences(forced: forced) }
     }
 
-    private func reporter(optIn: Bool?, forced: [String: CmuxNextSettings.JSONValue] = [:]) throws -> CrashReporter {
+    /// Test builds are Debug compiles (DEV): they report only with the opt-in.
+    private func reporter(optIn: Bool?, forced: [String: CmuxNextSettings.JSONValue] = [:],
+                          environment: [String: String] = [CrashReportingPolicy.devOptInKey: "1"]) throws -> CrashReporter {
         let name = "crash-launch-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -20,7 +22,7 @@ import Testing
         return CrashReporter.forThisLaunch(
             bundleID: "com.cmuxterm.app.nightly.nxsntr",
             info: ["CFBundleShortVersionString": "1.0.0-nightly.42", "CFBundleVersion": "42"],
-            defaults: defaults, managed: Managed(forced: forced), environment: [:])
+            defaults: defaults, managed: Managed(forced: forced), environment: environment)
     }
 
     @Test func consentAndLabelsComeFromTheLaunch() throws {
@@ -31,6 +33,7 @@ import Testing
         #expect(try !reporter(optIn: false).policy.shouldStart)
         #expect(try !reporter(optIn: true, forced: ["DisableTelemetry": .bool(true)]).policy.shouldStart)
         #expect(try reporter(optIn: true, forced: ["DisableTelemetry": .bool(false)]).policy.shouldStart)
+        #expect(try !reporter(optIn: nil, environment: [:]).policy.shouldStart, "DEV is off without the opt-in")
     }
 
     @Test func disableTelemetryIsAPublishedPolicyKeyAlsoReadFromTheShippedAppsDomain() {

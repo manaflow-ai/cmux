@@ -9,6 +9,9 @@ public import Foundation
 /// only for a build that identifies as cmux (forks keep the public source
 /// and its DSN; their reports must not reach us).
 ///
+/// DEV builds (Debug compiles and debug/staging bundles) stay off unless
+/// ``devOptInKey`` is `1`.
+///
 /// The labels keep cmux-next reports apart from the main app's, which
 /// shares the Sentry project: a `-next` environment per channel (`dev` for
 /// DEV builds and tags), a `cmux-next@<version>+<build>` release, and an
@@ -38,6 +41,11 @@ public nonisolated struct CrashReportingPolicy: Sendable, Equatable {
     public static let telemetryKey = "sendAnonymousTelemetry"
     /// The managed policy key that turns telemetry off for every channel.
     public static let disableTelemetryPolicyKey = "DisableTelemetry"
+    /// DEV builds report only with this set to `1` (E2E proofs): deliberate
+    /// test crashes from many lanes must not reach the production project.
+    /// A `CMUX_NEXT_` name, because the app strips other inherited `CMUX`
+    /// variables at launch (LaunchIdentity.stripInheritedEnvironment).
+    public static let devOptInKey = "CMUX_NEXT_DEV_SENTRY"
     /// The stable bundle identifier every cmux build descends from.
     public static let baseBundleID = "com.cmuxterm.app"
 
@@ -71,7 +79,8 @@ public nonisolated struct CrashReportingPolicy: Sendable, Equatable {
         devTag = identity?.tag
         release = "cmux-next@\(shortVersion)+\(build)"
         dist = build
-        shouldStart = identity != nil && telemetryOptIn && !managedDisablesTelemetry
+        let devAllowed = identity?.channel != .dev || processEnvironment[Self.devOptInKey] == "1"
+        shouldStart = identity != nil && devAllowed && telemetryOptIn && !managedDisablesTelemetry
             && !Self.isTestProcess(processEnvironment)
     }
 
