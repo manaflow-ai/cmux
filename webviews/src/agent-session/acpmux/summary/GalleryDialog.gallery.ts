@@ -50,6 +50,13 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/summary/GalleryDialog.tsx", "agent-session/acpmux/summary/SummaryPopover.tsx"],
   // The gallery opens over the pane; nothing under it moves.
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
+  checks: {
+    layoutShiftMax: {
+      value: 0.1,
+      reason:
+        "A kind filter changes the gallery's grid on purpose: the kept tiles move up into the filtered ones' places. The pane under the gallery stays put (anchors).",
+    },
+  },
   variants: {
     outputs: {
       note: "Play: open the chat summary; Outputs offers the gallery with its five items.",
