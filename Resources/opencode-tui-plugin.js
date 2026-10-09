@@ -79,19 +79,8 @@ export function sessionBelongsToTUI(ctx, id) {
 
 function createOwnership(ctx) {
   let roots = new Set();
-  let routeKey = null;
-  const currentRouteKey = () => {
-    try {
-      const route = ctx?.ui?.router?.current?.() || ctx?.ui?.route?.current;
-      const routeID = route?.sessionID || route?.sessionId || route?.params?.sessionID || route?.params?.sessionId;
-      return `${route?.type || route?.name || ""}:${routeID || ""}`;
-    } catch (_) {
-      return "";
-    }
-  };
   const refresh = () => {
     roots = visibleRoots(ctx);
-    routeKey = currentRouteKey();
   };
   refresh();
   const disposers = [];
@@ -108,16 +97,11 @@ function createOwnership(ctx) {
   }
   return {
     // OpenCode v2.0.21 exposes current()/list() but no stable route-change
-    // notification. Invalidate the cache when the active route changes, and
-    // retry a miss after refreshing so sessions opened in another tab are
-    // admitted without rebuilding the tab-root set for every event.
+    // notification. Refresh on the event boundary so a session removed from
+    // a background tab, or a closed starter surface, cannot retain ownership.
     belongs: (id) => {
-      if (!id) return false;
-      if (currentRouteKey() !== routeKey) refresh();
-      const root = rootFor(ctx, id);
-      if (roots.has(root)) return true;
       refresh();
-      return roots.has(root);
+      return Boolean(id && roots.has(rootFor(ctx, id)));
     },
     refresh,
     dispose: () => disposers.forEach((stop) => { try { stop(); } catch (_) {} }),
