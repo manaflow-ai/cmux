@@ -59,7 +59,7 @@ public final class ControlEventBus: Sendable {
             state.nextSequence += 1
             let event: JSONValue = .object([
                 "type": "event", "protocol": .string(Self.protocolName), "version": JSONValue(Self.protocolVersion),
-                "boot_id": .string(bootID), "seq": JSONValue(Int(sequence)), "id": .string("\(bootID)-\(sequence)"),
+                "boot_id": .string(bootID), "seq": JSONValue(Int(clamping: sequence)), "id": .string("\(bootID)-\(sequence)"),
                 "name": .string(name), "category": .string(category), "source": .string(source),
                 "occurred_at": .string(Self.timestamp()), "workspace_id": .null, "surface_id": .null, "pane_id": .null,
                 "window_id": .null, "payload": .object(payload),
@@ -89,8 +89,8 @@ public final class ControlEventBus: Sendable {
             if let afterSequence, afterSequence > latest { gap = "requested sequence is newer than this cmux process; cmux probably restarted" }
             state.subscribers[id] = Subscriber(names: names, categories: categories, continuation: continuation)
             var resume: [String: JSONValue] = [
-                "after_seq": afterSequence.map { JSONValue(Int($0)) } ?? .null, "requested_after_seq": JSONValue(Int(after)),
-                "oldest_seq": JSONValue(Int(oldest)), "latest_seq": JSONValue(Int(latest)), "next_seq": JSONValue(Int(latest + 1)),
+                "after_seq": afterSequence.map { JSONValue(Int(clamping: $0)) } ?? .null, "requested_after_seq": JSONValue(Int(clamping: after)),
+                "oldest_seq": JSONValue(Int(clamping: oldest)), "latest_seq": JSONValue(Int(clamping: latest)), "next_seq": JSONValue(Int(clamping: latest + 1)),
                 "gap": .bool(gap != nil), "restore_gap": false,
             ]
             if let gap { resume["gap_reason"] = .string(gap) }
@@ -111,7 +111,7 @@ public final class ControlEventBus: Sendable {
         .object([
             "type": "heartbeat", "protocol": .string(Self.protocolName), "version": JSONValue(Self.protocolVersion),
             "boot_id": .string(bootID), "subscription_id": .string(subscription.id.uuidString),
-            "latest_seq": JSONValue(Int(latestSequence)), "occurred_at": .string(Self.timestamp()),
+            "latest_seq": JSONValue(Int(clamping: latestSequence)), "occurred_at": .string(Self.timestamp()),
         ])
     }
 

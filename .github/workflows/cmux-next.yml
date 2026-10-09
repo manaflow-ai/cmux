@@ -1025,7 +1025,27 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The package graph reads no submodule; GhosttyNextKit comes from
@@ -1248,7 +1268,29 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Same-tree mode tests the commit the tree was probed for.
+          ref: ${{ inputs.same_tree_sha || '' }}
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Same-tree mode tests the commit the tree was probed for.
           ref: ${{ inputs.same_tree_sha || '' }}
@@ -1421,7 +1463,27 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The package graph reads no submodule; GhosttyNextKit comes from
@@ -1587,7 +1649,25 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: false
@@ -1723,7 +1803,26 @@ jobs:
           ws="${GITHUB_WORKSPACE:-$PWD}"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Same-tree mode tests the commit the tree was probed for.
+          ref: ${{ inputs.same_tree_sha || '' }}
+          persist-credentials: false
+          submodules: false
+
+      # A blob-filtered checkout by another job leaves a partial clone in this
+      # reused workspace, and a missing blob is fetched from GitHub mid-step,
+      # unretried. Retry once from a fresh repository; a second failure fails.
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Same-tree mode tests the commit the tree was probed for.
           ref: ${{ inputs.same_tree_sha || '' }}
