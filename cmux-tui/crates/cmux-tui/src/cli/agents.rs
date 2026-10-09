@@ -24,14 +24,59 @@ const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (mut global, command_args) = parse_globals(args).ok()?;
+    let (mut global, mut command_args) = parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
     }
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
+    if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
+        return Some(print_usage(&global, &error.0));
+    }
     Some(run(global, &command_args[1..]))
+}
+
+fn normalize_qualified_targets(
+    global: &mut GlobalArgs,
+    args: &mut [String],
+) -> Result<(), UsageError> {
+    let target_indices = match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
+        (Some("workspace" | "tab"), Some("select")) | (Some("terminal"), Some("focus")) => Some(2),
+        (Some("terminal"), Some("split")) => {
+            args.iter().position(|value| value == "--surface").map(|index| index + 1)
+        }
+        _ => None,
+    };
+    if let Some(index) = target_indices {
+        let Some(target) = args.get_mut(index) else {
+            return Err(UsageError::new("agent alias target is missing"));
+        };
+        normalize_qualified_target(global, target)?;
+    }
+    Ok(())
+}
+
+fn normalize_qualified_target(
+    global: &mut GlobalArgs,
+    target: &mut String,
+) -> Result<(), UsageError> {
+    let Some((session, id)) = super::federation::qualified(target) else { return Ok(()) };
+    if global.socket.is_some() {
+        return Err(UsageError::new(format!(
+            "{session}: a qualified id names its session; drop --socket"
+        )));
+    }
+    if let Some(named) = &global.session
+        && named != session
+    {
+        return Err(UsageError::new(format!(
+            "--session {named} and an id qualified with {session}: name one session"
+        )));
+    }
+    global.session = Some(session.to_owned());
+    *target = id.to_owned();
+    Ok(())
 }
 
 fn run(global: GlobalArgs, args: &[String]) -> i32 {
@@ -313,21 +358,22 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         Err(error) => (None, Some(error)),
     };
     let topology = app_value.as_ref().and_then(|value| value.get("topology"));
+    let workspace_ids = daemon_workspace_ids(daemon_value.as_ref());
     let mut tabs = daemon_value
         .as_ref()
         .and_then(|value| value.get("tabs"))
         .cloned()
         .unwrap_or_else(|| json!([]));
-    merge_app_tabs(&mut tabs, topology);
+    merge_app_tabs(&mut tabs, topology, workspace_ids.as_ref());
     let focus = topology
         .and_then(|value| value.get("focus"))
-        .filter(|value| has_resource_focus(value))
+        .filter(|value| focus_in_scope(value, workspace_ids.as_ref()))
         .cloned()
         .or_else(|| daemon_value.as_ref().and_then(|value| value.get("focus")).cloned())
         .unwrap_or(Value::Null);
     let mut snapshot = json!({
         "schema_version": 1,
-        "windows": topology.and_then(|value| value.get("windows")).cloned().unwrap_or_else(|| json!([])),
+        "windows": scoped_windows(topology, workspace_ids.as_ref()),
         "workspaces": daemon_value.as_ref().and_then(|value| value.get("workspaces")).cloned().or_else(|| topology.and_then(|value| value.get("workspaces")).cloned()).unwrap_or_else(|| json!([])),
         "screens": daemon_value.as_ref().and_then(|value| value.get("screens")).cloned().unwrap_or_else(|| json!([])),
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
@@ -335,14 +381,16 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
         "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
         "focus": focus,
-        "selection": selection(topology, daemon_value.as_ref()),
+        "selection": selection(topology, daemon_value.as_ref(), workspace_ids.as_ref()),
         "sources": {
             "daemon": {"available": daemon_value.is_some(), "error": daemon_error.unwrap_or(Value::Null)},
             "app": {"available": app_value.is_some(), "error": app_error.unwrap_or(Value::Null)},
         },
     });
     if let Some(shown) = topology
-        .filter(|value| value.get("focus").is_some_and(has_resource_focus))
+        .filter(|value| {
+            value.get("focus").is_some_and(|focus| focus_in_scope(focus, workspace_ids.as_ref()))
+        })
         .and_then(|value| value.get("focus"))
         .and_then(|value| value.get("workspace"))
         .and_then(Value::as_str)
@@ -356,8 +404,76 @@ fn has_resource_focus(value: &Value) -> bool {
     ["workspace", "pane", "tab"].iter().any(|key| value.get(*key).and_then(Value::as_str).is_some())
 }
 
-fn merge_app_tabs(tabs: &mut Value, topology: Option<&Value>) {
-    let Some(Value::Array(app_tabs)) = topology.map(collect_app_tabs) else { return };
+fn focus_in_scope(value: &Value, workspace_ids: Option<&HashSet<String>>) -> bool {
+    has_resource_focus(value)
+        && workspace_ids.is_none_or(|ids| {
+            value
+                .get("workspace")
+                .and_then(Value::as_str)
+                .is_none_or(|workspace| ids.contains(workspace))
+        })
+}
+
+fn daemon_workspace_ids(daemon: Option<&Value>) -> Option<HashSet<String>> {
+    let workspaces = daemon?.get("workspaces")?.as_array()?;
+    Some(
+        workspaces
+            .iter()
+            .filter_map(|workspace| workspace.get("id").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<String>>) -> Value {
+    let Some(Value::Array(windows)) = topology.and_then(|value| value.get("windows")) else {
+        return json!([]);
+    };
+    let Some(workspace_ids) = workspace_ids else { return Value::Array(windows.clone()) };
+    Value::Array(
+        windows
+            .iter()
+            .filter_map(|window| {
+                let Some(workspaces) = window.get("workspaces").and_then(Value::as_array) else {
+                    return Some(window.clone());
+                };
+                let selected = workspaces
+                    .iter()
+                    .filter(|workspace| {
+                        workspace
+                            .as_str()
+                            .or_else(|| workspace.get("id").and_then(Value::as_str))
+                            .is_some_and(|id| workspace_ids.contains(id))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if selected.is_empty() {
+                    return None;
+                }
+                let mut window = window.clone();
+                window["workspaces"] = Value::Array(selected);
+                if let Some(workspace) = window.get("workspace").cloned() {
+                    let workspace_id =
+                        workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
+                    if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
+                        window["workspace"] = window["workspaces"][0].clone();
+                    }
+                }
+                Some(window)
+            })
+            .collect(),
+    )
+}
+
+fn merge_app_tabs(
+    tabs: &mut Value,
+    topology: Option<&Value>,
+    workspace_ids: Option<&HashSet<String>>,
+) {
+    let Some(Value::Array(app_tabs)) = topology.map(|value| collect_app_tabs(value, workspace_ids))
+    else {
+        return;
+    };
     let Some(daemon_tabs) = tabs.as_array_mut() else {
         *tabs = Value::Array(app_tabs);
         return;
@@ -375,14 +491,36 @@ fn merge_app_tabs(tabs: &mut Value, topology: Option<&Value>) {
     }
 }
 
-fn collect_app_tabs(topology: &Value) -> Value {
-    fn visit(value: &Value, out: &mut Vec<Value>, ids: &mut HashSet<String>) {
+fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -> Value {
+    fn visit(
+        value: &Value,
+        out: &mut Vec<Value>,
+        ids: &mut HashSet<String>,
+        workspace_ids: Option<&HashSet<String>>,
+        workspace_context: Option<&str>,
+    ) {
         match value {
             Value::Object(object) => {
+                let workspace_context = object
+                    .get("workspace_id")
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        object.get("id").and_then(Value::as_str).filter(|id| id.starts_with("ws_"))
+                    })
+                    .or(workspace_context);
                 for (key, child) in object {
-                    if key == "tabs" {
+                    if matches!(key.as_str(), "tabs" | "pageTabs" | "page_tabs") {
                         if let Value::Array(tabs) = child {
                             for tab in tabs {
+                                if !is_app_page_tab(tab)
+                                    || !tab_belongs_to_workspace(
+                                        tab,
+                                        workspace_ids,
+                                        workspace_context,
+                                    )
+                                {
+                                    continue;
+                                }
                                 if let Some(id) = tab.get("id").and_then(Value::as_str)
                                     && ids.insert(id.to_owned())
                                 {
@@ -391,17 +529,37 @@ fn collect_app_tabs(topology: &Value) -> Value {
                             }
                         }
                     }
-                    visit(child, out, ids);
+                    visit(child, out, ids, workspace_ids, workspace_context);
                 }
             }
-            Value::Array(values) => values.iter().for_each(|value| visit(value, out, ids)),
+            Value::Array(values) => values
+                .iter()
+                .for_each(|value| visit(value, out, ids, workspace_ids, workspace_context)),
             _ => {}
         }
     }
 
     let mut tabs = Vec::new();
-    visit(topology, &mut tabs, &mut HashSet::new());
+    visit(topology, &mut tabs, &mut HashSet::new(), workspace_ids, None);
     Value::Array(tabs)
+}
+
+fn is_app_page_tab(tab: &Value) -> bool {
+    ["kind", "content_kind", "type"].iter().any(|field| {
+        matches!(
+            tab.get(*field).and_then(Value::as_str),
+            Some("page" | "local-page" | "internal-page")
+        )
+    }) || tab.get("id").and_then(Value::as_str).is_some_and(|id| id.starts_with("local-page:"))
+}
+
+fn tab_belongs_to_workspace(
+    tab: &Value,
+    workspace_ids: Option<&HashSet<String>>,
+    workspace_context: Option<&str>,
+) -> bool {
+    let tab_workspace = tab.get("workspace_id").and_then(Value::as_str).or(workspace_context);
+    workspace_ids.is_none_or(|ids| tab_workspace.is_none_or(|id| ids.contains(id)))
 }
 
 /// Page whole objects, never silently truncate relationship arrays inside an
@@ -452,10 +610,14 @@ pub(super) fn snapshot_error(snapshot: &Value) -> Option<Value> {
         })
 }
 
-fn selection(topology: Option<&Value>, daemon: Option<&Value>) -> Value {
+fn selection(
+    topology: Option<&Value>,
+    daemon: Option<&Value>,
+    workspace_ids: Option<&HashSet<String>>,
+) -> Value {
     let focus = topology
         .and_then(|value| value.get("focus"))
-        .filter(|value| has_resource_focus(value))
+        .filter(|value| focus_in_scope(value, workspace_ids))
         .or_else(|| daemon.and_then(|value| value.get("focus")));
     json!({
         "workspace": focus.and_then(|value| value.get("workspace")).cloned().unwrap_or(Value::Null),
@@ -502,12 +664,23 @@ mod tests {
     #[test]
     fn snapshot_merges_nested_app_page_tabs_without_duplicates() {
         let value = compose_snapshot(
-            Ok(json!({"tabs":[{"id":"tab_a"}]})),
+            Ok(json!({
+                "workspaces": [{"id":"ws_a"}],
+                "tabs":[{"id":"tab_a"}]
+            })),
             Ok(json!({
                 "topology": {
                     "windows": [{
                         "workspaces": [{
-                            "tabs": [{"id":"page_settings","kind":"page"},{"id":"tab_a"}]
+                            "id":"ws_a",
+                            "tabs": [
+                                {"id":"page_settings","kind":"page"},
+                                {"id":"tab_a","kind":"terminal"},
+                                {"id":"tab_browser","kind":"browser"}
+                            ]
+                        }, {
+                            "id":"ws_other",
+                            "tabs": [{"id":"page_other","kind":"page"}]
                         }]
                     }]
                 }
@@ -516,6 +689,8 @@ mod tests {
         let tabs = value["tabs"].as_array().unwrap();
         assert_eq!(tabs.iter().filter(|tab| tab["id"] == "tab_a").count(), 1);
         assert_eq!(tabs.iter().filter(|tab| tab["id"] == "page_settings").count(), 1);
+        assert!(!tabs.iter().any(|tab| tab["id"] == "tab_browser"));
+        assert!(!tabs.iter().any(|tab| tab["id"] == "page_other"));
     }
 
     #[test]
@@ -572,6 +747,19 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_falls_back_when_app_focus_is_outside_selected_session() {
+        let value = compose_snapshot(
+            Ok(json!({
+                "workspaces": [{"id":"ws_selected"}],
+                "focus": {"workspace":"ws_selected","tab":"tab_selected"}
+            })),
+            Ok(json!({"topology":{"focus":{"workspace":"ws_remote","tab":"tab_remote"}}})),
+        );
+        assert_eq!(value["focus"]["workspace"], "ws_selected");
+        assert_eq!(value["selection"]["tab"], "tab_selected");
+    }
+
+    #[test]
     fn aliases_scope_current_targets_before_resource_actions() {
         let AgentCommand::Resource { args, .. } =
             command(&["terminal".into(), "split".into(), "right".into()]).unwrap()
@@ -611,6 +799,25 @@ mod tests {
                 "focus"
             ]
         );
+    }
+
+    #[test]
+    fn aliases_route_qualified_targets_to_their_session() {
+        let mut global = GlobalArgs::default();
+        let mut args = vec!["tab".into(), "select".into(), "build-box:tab_1a2b".into()];
+        normalize_qualified_targets(&mut global, &mut args).unwrap();
+        assert_eq!(global.session.as_deref(), Some("build-box"));
+        assert_eq!(args[2], "tab_1a2b");
+
+        let mut args = vec![
+            "terminal".into(),
+            "split".into(),
+            "right".into(),
+            "--surface".into(),
+            "build-box:pane_1a2b".into(),
+        ];
+        normalize_qualified_targets(&mut global, &mut args).unwrap();
+        assert_eq!(args[4], "pane_1a2b");
     }
 
     #[test]
