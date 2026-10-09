@@ -92,3 +92,33 @@ test("compare cells follow environment changes without requiring replay", async 
   expect(new URL(frame().src).searchParams.get("locale")).toBe("ja");
   expect(container.querySelector<HTMLAnchorElement>(".gallery-compare-cell a")?.href).toContain("locale=ja");
 });
+
+test("changing controls cancels a replay waiting on the old frame", async () => {
+  const render = async () =>
+    act(async () => {
+      root.render(
+        <CompareView
+          entry={entry}
+          experiment={experiment}
+          variant="one"
+          env={env}
+          compare={DEFAULT_COMPARE}
+          room={{ width: 1000, height: 700 }}
+          onCompare={() => {}}
+        />,
+      );
+    });
+  await render();
+  await settle();
+  const status = () => container.querySelector<HTMLElement>(".gallery-controls .gallery-note")?.textContent;
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>(".gallery-compare-primary")!.click();
+  });
+  await settle();
+  expect(status()).toBe("waiting for cells");
+
+  env = { ...env, locale: env.locale === "fr" ? "ja" : "fr" };
+  await render();
+  await settle();
+  expect(status()).toContain("at the start");
+});

@@ -35,6 +35,7 @@ type Cell = { iframe: HTMLIFrameElement; ready: boolean };
 function createCompareRun() {
   const cells = new Map<string, Cell>();
   const waiters = new Set<(arm: string, event: CompareFrameEvent) => void>();
+  const cancellations = new Set<() => void>();
   const stats = new Map<string, StepStats>();
   let status = "idle";
   let version = 0;
@@ -59,22 +60,42 @@ function createCompareRun() {
     new Promise<void>((resolve, reject) => {
       const pending = new Set(arms.filter((arm) => !already(arm)));
       if (!pending.size) return resolve();
+      let settled = false;
+      let cancel = () => {};
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        waiters.delete(waiter);
+        cancellations.delete(cancel);
+      };
       const waiter = (arm: string, event: CompareFrameEvent) => {
         if (event.event === "error") {
-          waiters.delete(waiter);
+          cleanup();
           reject(new Error(`${arm}: ${event.message}`));
         } else if (match(event)) {
           pending.delete(arm);
           if (!pending.size) {
-            waiters.delete(waiter);
+            cleanup();
             resolve();
           }
         }
       };
+      cancel = () => {
+        cleanup();
+        reject(new Error("compare run stopped"));
+      };
+      cancellations.add(cancel);
       waiters.add(waiter);
     });
   const hold = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   let token = 0;
+  const invalidate = () => {
+    token += 1;
+    for (const cancel of cancellations) cancel();
+    status = "idle";
+    stats.clear();
+    changed();
+  };
   return {
     subscribe(listener: () => void) {
       if (!listeners.size) addEventListener("message", receive);
@@ -91,7 +112,11 @@ function createCompareRun() {
     frame(arm: string, iframe: HTMLIFrameElement) {
       cells.set(arm, { iframe, ready: false });
       return () => {
-        if (cells.get(arm)?.iframe === iframe) cells.delete(arm);
+        if (cells.get(arm)?.iframe !== iframe) return;
+        cells.delete(arm);
+        // A control change replaces the iframe. Cancel any replay waiting on the old source so
+        // its status and latency samples cannot leak into the new preview.
+        invalidate();
       };
     },
     /** Every cell's frame reloaded: they report ready again. */
@@ -100,9 +125,7 @@ function createCompareRun() {
       stats.clear();
     },
     stop() {
-      token += 1;
-      status = "idle";
-      changed();
+      invalidate();
     },
     /** Runs steps `from` to `to - 1` in every listed cell, in lockstep. Returns false when stopped. */
     async run(arms: string[], from: number, to: number, speed: () => number, onStep: (done: number) => void) {
@@ -132,6 +155,7 @@ function createCompareRun() {
         }
         return mine === token;
       } catch (error) {
+        if (mine !== token) return false;
         status = `error: ${error instanceof Error ? error.message : String(error)}`;
         changed();
         return false;
