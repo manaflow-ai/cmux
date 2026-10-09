@@ -528,7 +528,9 @@ fn cursor_s_agent_launcher_counts_when_it_resolves_into_cursor_agent() {
     let _ = std::fs::remove_file(&link);
     std::os::unix::fs::symlink(&install, &link).unwrap();
     let link_text = link.to_string_lossy().into_owned();
-    let found = discover_harnesses_from(None, &move |bin: &str| (bin == "agent").then(|| link_text.clone()));
+    let found = discover_harnesses_from(None, &move |bin: &str| {
+        (bin == "agent").then(|| link_text.clone())
+    });
     assert_eq!(found["cursor"].argv, vec![link.to_string_lossy().into_owned(), "acp".into()]);
     let _ = std::fs::remove_dir_all(&dir);
 }
