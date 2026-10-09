@@ -50,7 +50,7 @@ impl SessionCleanup {
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
         let captured = self.captured.lock().unwrap().clone();
-        captured.map_or(true, |captured| captured.wait_for_exit(timeout))
+        captured.is_none_or(|captured| captured.wait_for_exit(timeout))
     }
 }
 
