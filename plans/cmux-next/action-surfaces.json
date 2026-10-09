@@ -23155,6 +23155,33 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-workspace-tabs-toggle",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.workspaceTabs.toggle",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Tabs Under Workspaces",
+      "title_key" : "action.sidebar.workspaceTabs.toggle",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar reset",
       "context_menu" : "offered",
@@ -28325,6 +28352,50 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
+              "id" : "sidebar.workspaceTabs.toggle",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 1
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.layout.reset",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "options",
+          "kind" : "folder",
+          "order" : 6,
+          "title" : "Options",
+          "title_key" : "menu.folder.options",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
               "id" : "workspaceGroup.collapseAll",
               "kind" : "action",
               "order" : 0,
@@ -28352,14 +28423,14 @@
           ],
           "folder" : "group",
           "kind" : "folder",
-          "order" : 6,
+          "order" : 8,
           "title" : "Group",
           "title_key" : "menu.folder.group",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 9
         },
         {
           "children" : [
@@ -28405,20 +28476,20 @@
           ],
           "folder" : "move",
           "kind" : "folder",
-          "order" : 8,
+          "order" : 10,
           "title" : "Move",
           "title_key" : "menu.folder.move",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 9
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.projects.hide",
           "kind" : "action",
-          "order" : 10,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28431,7 +28502,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.sections.showHidden",
           "kind" : "action",
-          "order" : 11,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28442,13 +28513,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 12
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSidebar",
           "kind" : "action",
-          "order" : 13,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -28461,27 +28532,10 @@
           "enabled_when" : "can_perform",
           "id" : "appStore.show",
           "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "apps",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 15
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "sidebar.layout.reset",
-          "kind" : "action",
           "order" : 16,
           "visible_when" : {
             "debug_only" : false,
-            "feature" : null,
+            "feature" : "apps",
             "requires" : [
 
             ]
@@ -31470,6 +31524,23 @@
               "id" : "disconnectWorkspace",
               "kind" : "action",
               "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 16
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.workspaceTabs.toggle",
+              "kind" : "action",
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
