@@ -57,6 +57,7 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        groupFlow.wireEditor()
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = chatsMount.makeSections(services: services)

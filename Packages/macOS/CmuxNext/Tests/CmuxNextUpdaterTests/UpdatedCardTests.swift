@@ -69,6 +69,24 @@ import Testing
         #expect(!updated.showsUpdatedCard)
     }
 
+    /// Chief 2026-10-08: nightly builds update several times a day, so only
+    /// stable and RC version changes show the card. The What's New item
+    /// keeps its own rule (notes the user has not seen).
+    @Test func onlyStableAndRCUpdatesShowTheCard() async {
+        let nightly = WhatsNewFixtures.defaults()
+        _ = await center("0.66.0-nightly.10", nightly, sources: [])
+        #expect(!(await center("0.66.0-nightly.11", nightly, sources: [])).showsUpdatedCard, "nightly to nightly")
+        let toNightly = WhatsNewFixtures.defaults()
+        _ = await center("0.65.0", toNightly, sources: [])
+        #expect(!(await center("0.66.0-nightly.3", toNightly, sources: [])).showsUpdatedCard, "stable to nightly")
+        let rc = WhatsNewFixtures.defaults()
+        _ = await center("0.65.0", rc, sources: [])
+        #expect((await center("0.66.0-rc.1", rc, sources: [])).showsUpdatedCard, "an RC shows the card")
+        let stable = WhatsNewFixtures.defaults()
+        _ = await center("0.66.0-nightly.12", stable, sources: [])
+        #expect((await center("0.66.0", stable, sources: [])).showsUpdatedCard, "nightly to stable shows the card")
+    }
+
     /// DEV/NIGHTLY proof (`debug.updater {action: "updated", previous}`):
     /// a fake previous version shows the card on this launch.
     @Test func aFakePreviousVersionShowsTheCard() async {

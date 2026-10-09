@@ -97,6 +97,36 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The folder popover's field (ComposerContext.tsx LocationPicker `allowPath`): a menu row you type
+   in, on the menu's own fill. No native text-field box and no system focus ring; the caret and a
+   hairline under the field show where typing goes. */
+.acpmux-location-menu .acpmux-location-search {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 240px;
+  height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.acpmux-location-menu .acpmux-location-search::placeholder { color: var(--agent-muted); }
+.acpmux-location-menu .acpmux-location-search:focus,
+.acpmux-location-menu .acpmux-location-search:focus-visible { outline: none; box-shadow: none; }
+.acpmux-location-menu .ui-combobox-list:not([hidden]) {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-location-menu .ui-combobox-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 
 .acpmux-composer-bar {
@@ -159,8 +189,134 @@
    the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
+  overflow: visible;
+  --acpmux-composer-radius: 18px;
+  border-radius: var(--acpmux-composer-radius);
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+}
+/* Unified composer surface: context is part of the input card, so project, machine, and
+   branch read as one scope line instead of a second floating tray. */
+.acpmux-composer-context {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid var(--acpmux-composer-edge);
+  border-radius: 0 0 18px 18px;
+  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  box-shadow: none;
+}
+.acpmux-composer-context > .acpmux-location-leading {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0;
+  gap: 2px;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker,
+.acpmux-composer-context > .acpmux-location-picker {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-composer-context > .acpmux-location-picker:last-child {
+  margin-left: auto;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker {
+  position: relative;
+  margin-left: 3px;
+  padding-left: 4px;
+}
+.acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 1px;
+  height: 10px;
+  background: var(--acpmux-composer-edge);
+}
+.acpmux-location-button,
+.acpmux-location-readonly {
+  max-width: 190px;
+  border-radius: 7px;
+}
+.acpmux-composer-context .acpmux-location-label {
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
+  .acpmux-location-button,
+  .acpmux-location-readonly { max-width: 145px; padding-inline: 4px; }
+  .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker { padding-left: 2px; }
+}
+
+/* The top row is a compact control rail. Keep the selected value visible so the
+   model, effort, and access choices can be scanned without opening a menu. */
+.acpmux-composer-bar .acpmux-chips {
+  gap: 2px;
+}
+.acpmux-composer-bar .acpmux-mode-text {
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-composer-bar .acpmux-access-trigger {
+  width: auto;
+  max-width: 180px;
+  gap: 5px;
+  padding-inline: 8px;
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button {
+  height: 30px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+}
+.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
+  color: var(--acpmux-warning);
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
+  color: var(--agent-text);
+}
+.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button:hover,
+.acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button[aria-expanded="true"] {
+  color: var(--acpmux-warning);
+}
+.acpmux-composer-bar .acpmux-model-name,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-access .acpmux-picker-button {
+  font-size: 14px;
+}
+.acpmux-composer-bar .acpmux-effort,
+.acpmux-composer-bar .acpmux-access {
+  display: inline-flex;
+  align-items: center;
+}
+.acpmux-composer-bar .acpmux-effort::before,
+.acpmux-composer-bar .acpmux-access::before {
+  content: "";
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--acpmux-composer-edge);
+}
+@media (max-width: 480px) {
+  .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
+  .acpmux-composer-bar .acpmux-mode-text { display: none; }
 }

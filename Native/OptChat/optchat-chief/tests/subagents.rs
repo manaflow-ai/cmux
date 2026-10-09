@@ -725,12 +725,15 @@ fn the_close_setting_closes_a_finished_subagents_workspace() {
     );
 }
 
-/// A Claude spawn of many subagents: the first starts alone and warms the
-/// cache of the shared view; the rest start once its response began, each
-/// first message marked at the view's end with the turns' TTL (1 hour by
-/// default), and Claude Code told the same TTL.
+/// A Claude spawn of many subagents takes no mark of ours: Claude Code
+/// marks its two system blocks and the last two messages of every later
+/// request in a session (each tool step), and the API takes at most 4
+/// marks, so a mark of ours would fail the subagent's second request
+/// (measured on Claude Code 2.1.287, 2026-10-08). Claude Code's own marks
+/// cache the subagent's session step by step; with no shared mark there is
+/// nothing to warm, so all start at once.
 #[test]
-fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
+fn a_claude_spawn_starts_its_subagents_without_a_mark_of_ours() {
     let mut s = setup();
     s.h.agents.inner.lock().unwrap().system_prompts = true;
     for k in 0..12 {
@@ -748,54 +751,25 @@ fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
         .collect();
     assert_eq!(subs.len(), 3);
     for k in &subs {
-        let marks: Vec<&Value> = agents.prompts[*k]
-            .iter()
-            .filter_map(|b| b.get("cache_control"))
-            .collect();
-        assert_eq!(
-            marks,
-            vec![&json!({"type": "ephemeral", "ttl": "1h"})],
-            "one 1h mark on the shared view: {:?}",
+        assert!(
+            agents.prompts[*k]
+                .iter()
+                .all(|b| b.get("cache_control").is_none()),
+            "no mark of ours in a subagent's first message: {:?}",
             agents.prompts[*k]
         );
     }
-    // The same view blocks up to the mark in every first message.
-    let upto = |k: usize| {
-        let p = &agents.prompts[k];
-        let m = p
-            .iter()
-            .position(|b| b.get("cache_control").is_some())
-            .unwrap();
-        p[..=m].to_vec()
-    };
-    assert_eq!(upto(subs[0]), upto(subs[1]));
-    assert_eq!(upto(subs[0]), upto(subs[2]));
-    let sub_specs: Vec<_> = agents
-        .specs
-        .iter()
-        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
-        .collect();
-    assert_eq!(sub_specs.len(), 3, "acpmux took every session");
     drop(agents);
-    // Claude Code marks with the same TTL: the subagent directory's project
-    // settings say so (as the turns' session directory does); acpmux takes
-    // no TTL variable in a session's env.
-    let settings: Value = serde_json::from_str(
-        &std::fs::read_to_string(s.h.dir.path().join("subagent/.claude/settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(settings["promptCacheTtl"], "1h", "{settings}");
     let events = trace_events(&s.traces);
-    let warm = events
-        .iter()
-        .find(|e| e["ev"] == "spawn.warm")
-        .expect("the trace says the shared view was warmed");
-    assert_eq!(warm["first"], "a1");
-    assert_eq!(warm["started"], true, "{warm}");
+    assert!(
+        events.iter().all(|e| e["ev"] != "spawn.warm"),
+        "nothing to warm without a shared mark"
+    );
 }
 
+/// With no shared mark, no subagent waits for the first one to speak.
 #[test]
-fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
+fn no_subagent_waits_for_a_silent_first_one() {
     let mut s = setup_with(|sp| sp.with_warm_wait(std::time::Duration::from_millis(300)));
     s.h.agents.inner.lock().unwrap().system_prompts = true;
     for k in 0..12 {
@@ -806,15 +780,10 @@ fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
     s.h.agents.hold(true);
     let began = std::time::Instant::now();
     spawn(&mut s, &["silent", "two"]).unwrap();
-    assert!(began.elapsed() >= std::time::Duration::from_millis(300));
+    assert!(began.elapsed() < std::time::Duration::from_millis(300));
     s.h.agents.hold(false);
     s.h.agents.release();
-    assert_eq!(sub_names(&s).len(), 2, "the second still starts");
-    let warm = trace_events(&s.traces)
-        .into_iter()
-        .find(|e| e["ev"] == "spawn.warm")
-        .unwrap();
-    assert_eq!(warm["started"], false, "{warm}");
+    assert_eq!(sub_names(&s).len(), 2, "the second starts at once");
 }
 
 /// A spawn in a directory of the user's gets no mark: the TTL Claude Code
