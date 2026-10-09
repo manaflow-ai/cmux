@@ -8,21 +8,14 @@ pub(super) fn targeted_browser_effect_projection(
     browser_id: &BrowserPublicId,
     returns_browser: bool,
 ) -> anyhow::Result<ResourceEffectProjection> {
-    let topology = registry.resource_topology_snapshot()?;
-    let mut browser = topology
-        .browsers
-        .iter()
-        .find(|candidate| &candidate.public_id == browser_id)
-        .cloned()
+    // Only this browser's rows: a full topology read made every browser
+    // metadata commit O(session) under the registry lock.
+    let mut browser = registry
+        .live_browser(browser_id)?
         .ok_or_else(|| anyhow::anyhow!("browser has no durable metadata"))?;
-    let mut matching_tabs = topology
-        .tabs
-        .iter()
-        .filter(|tab| tab.content_id == ContentPublicId::Browser(browser_id.clone()));
-    let mut tab = matching_tabs
-        .next()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
+    let mut matching_tabs = registry.resource_tabs_of_content(browser_id.as_str())?.into_iter();
+    let mut tab =
+        matching_tabs.next().ok_or_else(|| anyhow::anyhow!("browser has no durable tab"))?;
     anyhow::ensure!(matching_tabs.next().is_none(), "browser has multiple durable tabs");
     let content_id = ContentPublicId::Browser(browser_id.clone());
     let surface_id = state
