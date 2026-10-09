@@ -50,12 +50,21 @@ impl Brain {
     /// Hints the pool with the next turn session's harness profile (as the
     /// harness gate admits it), preset and directory. A failure only costs
     /// the next turn a cold start, so it is logged and nothing else.
-    pub(super) fn prewarm_next_turn(&self) {
+    pub(super) fn prewarm_next_turn(&mut self) {
         if !matches!(self.settings.engine, Engine::Acpmux) || !self.agents_up {
             return;
         }
         let (engine, _) = self.next_engine();
         let (cached, plain) = self.session_presets(self.family_of(&engine.harness));
+        if cached.is_some() {
+            // The pooled Claude Code reads promptCacheTtl when it starts:
+            // the next turn's TTL, so its own marks match ours.
+            let ttl = self.turn_cache_ttl();
+            match crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl) {
+                Ok(()) => self.prewarm_ttl = Some(ttl),
+                Err(e) => (self.log)(&format!("updating the session's promptCacheTtl: {e}")),
+            }
+        }
         let preset = cached.or(plain);
         let hinted =
             crate::harness_gate::admit_live(&*self.agents, &engine.harness).and_then(|admitted| {

@@ -296,6 +296,7 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_SUBAGENT_HARNESS` | the Chief's harness | section 9: the subagents' harness |
 | `OPTCHAT_SUBAGENT_MODEL` | harness default | the subagents' model |
 | `OPTCHAT_SUBAGENT_WORKSPACES` | on | `0`: no cmux workspace per subagent |
+| `OPTCHAT_CACHE_TTL` | the Chief setting `cache.ttl`, else `1h` on the Claude Code path and `5m` on the native engine | `5m` or `1h`: the TTL of every cache mark of a turn (see Cache marks and TTL) |
 | `OPTCHAT_TRACE_FULL` | off | `1`: whole texts and tool arguments in the trace (debugging only) |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 | `OPTCHAT_BACKUP_REMOTE` | `optchat/settings.json` `backup.remote`, else on with `gh auth` except tagged dev homes | `on`/`off`: push the text export to `manaflow-ai/chief-memory-<home id>` after each turn (see State and storage) |
@@ -571,7 +572,7 @@ acpmux):
 
 | harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
 | --- | --- | --- | --- | --- |
-| Claude family (claude, claude-sr) | turn preset `systemPrompt` = system text + view up to 50k; prompt = rest of the view, ONE `cache_control` marker on the piece ending at the last mark, then the new messages; no CLAUDE.md | slot preset `systemPrompt` = compactor system text + context up to 50k; rest of the context with one marker; then the step | Claude Code's own breakpoints (system prompt, last messages) plus ours; the replaced system prompt drops Claude Code's date and cwd lines | turns: 2nd turn read 64,893 / wrote 11,085 (85% read); nodes: 2nd node read 37,671 / wrote 10,442 (78%), $0.121 then $0.035 |
+| Claude family (claude, claude-sr) | turn preset `systemPrompt` = the constant system text; prompt = the view in 4-line blocks with ONE `cache_control` mark (`optchat_core::mark_piece`, 1 hour by default), then the new messages; no CLAUDE.md | slot preset `systemPrompt` = the same system text; the context in 4-line blocks with one 5-minute mark; then the step | Claude Code's own breakpoints (its system blocks, the request end) plus ours, all of one TTL | 2026-10-08, capture proxy: a warm turn reads everything up to our mark; see Cache marks and TTL |
 | codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | upstream key (thread id): 2nd turn read 12,032 of 56,632 (21%), 2nd node 12,032 of 48,653 (25%). Fork with the Chief's keys (2026-10-04, see Codex): 2nd turn read 56,064 of ~56,630 (99%) in 6 of 8 runs; 2nd node 44,800 of 45,662 (98%) in 3 of 5 |
 | any other acpmux harness | as codex | as codex | whatever the harness does with a byte-stable prefix | not measured |
 
@@ -602,6 +603,44 @@ send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
 later turns skip it. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
+
+**Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
+sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its
+tools, a marked system block of its own, our system prompt (marked), our
+user blocks, then a mid-conversation system message (cwd, model, date,
+deferred tools, agent types, skills) with its own mark at the request end.
+That message comes after the view, so it is written again each turn (about
+1,800 tokens through `sr`, whose shared configuration lists the user's
+skills, with Task and Agent denied as turns do) but never moves the prefix. Two consecutive turns send
+the same bytes up to the earlier turn's mark, and the later turn reads
+through it. Two rules keep that true:
+
+- Our mark sits on the last whole 4-line block of the view, but never more
+  than 16 blocks (`MARK_REACH`) past the last turn's mark: the API looks back
+  only 20 blocks from a mark, so a turn that added more than 80 view lines (a
+  long tool run) would otherwise write the whole view again. Such a turn
+  writes the new lines once and the next turns catch up.
+- Every mark of one request has one TTL, since the API refuses a 1h mark
+  after a 5m one. On the Claude Code path our mark is 1 hour by default
+  (a human reply 5 to 60 minutes later still reads the view), and each turn
+  writes `promptCacheTtl` into the session directory's Claude Code project
+  settings so Claude Code's own marks match. `OPTCHAT_CACHE_TTL` (`5m` or
+  `1h`) at host start, else the Chief setting `cache.ttl`
+  (`optchat-chief settings set cache.ttl 5m`, from the next turn), picks
+  another TTL. The native engine (a direct API call) defaults to 5 minutes
+  and reads the same two at host start. A route that refuses the 1-hour TTL
+  reruns the turn at 5 minutes, and later turns stay at 5 minutes until the
+  host restarts or `cache.ttl` is set again (`turn.ttl_refused` trace event).
+  Compactor sessions pin `promptCacheTtl` to 5m, the TTL of their own mark;
+  1h and 5m entries are one cache (measured), so a node still reads what a
+  turn wrote.
+
+`turn.start` records the marked piece and the TTL (`layout.mark`,
+`layout.ttl`) and the inspector lays the prompt out from them.
+`optchat-core/tests/cache_replay_long.rs` replays 10,000 messages (batch
+merges, 9 tree levels, human gaps, long tool runs, resumes) against a model
+of the API's cache: warm turns read at least 95% of their prefix in every
+50-turn window with 1-hour marks.
 
 **Codex.** Its request is `instructions`, the tool list, the permission and
 environment messages (cwd, shell, date), AGENTS.md, then our blocks, so
