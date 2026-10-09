@@ -108,12 +108,10 @@ fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
         ["palette", "open"] => {
             Ok(AgentCommand::App { action: "palette.open".into(), args: Vec::new() })
         }
-        ["dialog", "list"] | ["dialog", "list", "--all"] => {
-            Ok(AgentCommand::App {
-                action: "dialog.list".into(),
-                args: words[2..].iter().map(ToString::to_string).collect(),
-            })
-        }
+        ["dialog", "list"] | ["dialog", "list", "--all"] => Ok(AgentCommand::App {
+            action: "dialog.list".into(),
+            args: words[2..].iter().map(ToString::to_string).collect(),
+        }),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
             args: std::iter::once((*request_id).to_owned())
