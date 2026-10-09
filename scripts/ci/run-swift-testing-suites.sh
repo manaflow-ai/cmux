@@ -68,19 +68,23 @@ case "$(cd "$package_path" && pwd -P)" in
   */Packages/macOS/CmuxNext)
     (cd "$script_dir/../.." && "${CMUX_ENSURE_WEB_BUNDLES:-scripts/ci/ensure-web-bundles.sh}")
     # The live-daemon suites find this tree's hosted cmux-tui through
-    # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s), once in every
-    # suite process. Resolve it, and fetch a missing build, once for the run;
-    # the tests read CMUX_NEXT_TUI_TREE_PATH. They never wait for an
-    # unpublished tree (as in RealBinary).
+    # `pin-cmux-tui.sh path` (about 60 git processes, 7-10 s) and fetch a
+    # missing build (20-50 s for an unpublished tree), once in every suite
+    # process. Resolve and fetch once for the run, in the background while
+    # the suites are listed; the tests read CMUX_NEXT_TUI_TREE_PATH and
+    # never fetch again. They never wait for an unpublished tree.
     if [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ]; then
-      tree_path="$(cd "$script_dir/../.." && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" \
-        bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || tree_path=""
-      if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
-        (cd "$script_dir/../.." && CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}" \
-          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2) \
-          || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
-      fi
-      [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+      (
+        cd "$script_dir/../.." || exit 0
+        export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
+          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
+            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        fi
+        printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
+      ) &
+      tree_path_job=$!
     fi
     ;;
 esac
@@ -95,6 +99,11 @@ python3 "$script_dir/require_swift_test_execution.py" \
 if [ -n "$(find "$package_path/Sources" -name '*.xcstrings' -print -quit 2>/dev/null)" ]; then
   compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
   (cd "$package_path" && "$compile_catalogs")
+fi
+if [ -n "${tree_path_job:-}" ]; then
+  wait "$tree_path_job" || true
+  tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
+  [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
 fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
