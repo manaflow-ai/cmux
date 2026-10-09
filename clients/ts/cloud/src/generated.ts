@@ -1127,6 +1127,7 @@ export type UserTeam = {
   readonly display_name: string
   readonly kind: "personal" | "stack"
   readonly role: "owner" | "admin" | "member"
+  readonly sso_required: boolean
 }
 
 /** A WireGuard public key, standard base64 of 32 bytes. */
@@ -3054,7 +3055,7 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
-  /** List the teams the caller may act in with x-cmux-team: the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out. */
+  /** List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out. */
   readonly "user.teams.list": {
     readonly params: Readonly<Record<string, never>>
     readonly result: {

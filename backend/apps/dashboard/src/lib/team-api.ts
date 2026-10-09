@@ -13,6 +13,6 @@ export const useTeamApi = () => {
   return useMemo(() => scopedApi(team, { read, mutate, exportTeamFiles }), [team])
 }
 
-/** The user.teams.list answer the header loaded, and a reload (after a page saw auth.forbidden). */
+/** The user.teams.list answer the header loaded, and a reload (after a page saw team.not_member). */
 export const TeamsContext = createContext<{ readonly list: TeamsList | undefined; readonly reload: () => void }>({ list: undefined, reload: () => {} })
 export const useTeams = () => useContext(TeamsContext)

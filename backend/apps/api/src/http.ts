@@ -373,7 +373,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     )
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
-        const principal = toPrincipal(yield* CurrentPrincipal)
+        const shape = yield* CurrentPrincipal, principal = toPrincipal(shape)
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
@@ -418,7 +418,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
-            if (payload.op === "user.teams.list") return listUserTeams(env, reader) // the Worker asks each TeamDO (team-select.ts)
+            if (payload.op === "user.teams.list") return listUserTeams(env, shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)
             return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
           },
@@ -462,7 +462,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
         if (!token || !token.user || !token.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
         const named = { ...token, user: token.user, team: token.team }, header = (yield* HttpServerRequest.HttpServerRequest).headers[TEAM_HEADER]
         const selected = yield* Effect.promise(() => selectTeam(env, named, header))
-        if (!selected.ok) return yield* selected.code === "auth.forbidden" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
+        if (!selected.ok) return yield* selected.code !== "owner.unreachable" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
         const authed = selected.principal
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.

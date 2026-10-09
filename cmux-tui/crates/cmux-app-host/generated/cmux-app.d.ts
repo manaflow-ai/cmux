@@ -346,7 +346,7 @@ declare namespace Cmux {
   type UsageSummary = { owner: Cmux.TeamId | null; month: string; meters: Array<Cmux.UsageMeterLine>; total_usd: unknown; cap_usd: unknown; ceiling_usd: unknown; team_cap_usd: unknown | null; stopped: Cmux.UsageStopReason | null }
   type UserId = string
   type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
-  type UserTeam = { id: Cmux.TeamId; display_name: string; kind: "personal" | "stack"; role: "owner" | "admin" | "member" }
+  type UserTeam = { id: Cmux.TeamId; display_name: string; kind: "personal" | "stack"; role: "owner" | "admin" | "member"; sso_required: boolean }
   type ViewAttachmentOutcome = "applied" | "passive" | "superseded"
   type ViewAttachmentStreamOpened = { stream_id: string /* stream_… */; attachment_lease: string }
   type ViewerReleaseResult = { outcome: Cmux.ViewAttachmentOutcome }

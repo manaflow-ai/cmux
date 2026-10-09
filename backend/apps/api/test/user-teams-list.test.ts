@@ -65,11 +65,29 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
   it("flags a confirmed team whose SSO this session lacks (sso_required), instead of hiding it", async () => {
     const t = await mirroredTeam("Sso Co")
     await fireAlarm(teamStub(t.team))
-    // Enabling sso.enforce needs a live OIDC connection; the team's rules are stubbed in its TeamDO.
+    // Enabling sso.enforce needs a live OIDC connection; this team's rules are stubbed on the TeamDO class
+    // (RPC dispatches through the prototype) for this test only.
     await inDO(teamStub(t.team), async (instance) => {
-      instance.signInRules = async () => ({ sso_required: true, minimum_version: null, allowed_classes: [] })
+      const proto = Object.getPrototypeOf(instance)
+      proto.realSignInRules = proto.signInRules
+      proto.signInRules = function (this: unknown, entity: string, ...rest: Array<unknown>) {
+        return entity === t.team ? Promise.resolve({ sso_required: true, minimum_version: null, allowed_classes: [] }) : proto.realSignInRules.call(this, entity, ...rest)
+      }
     })
     clearSignInRules()
+    try {
+      await ssoChecks(t)
+    } finally {
+      await inDO(teamStub(t.team), async (instance) => {
+        const proto = Object.getPrototypeOf(instance)
+        proto.signInRules = proto.realSignInRules
+        delete proto.realSignInRules
+      })
+      clearSignInRules()
+    }
+  })
+
+  const ssoChecks = async (t: Awaited<ReturnType<typeof mirroredTeam>>) => {
     const r = await listTeams(t.token)
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     const teams = r.body.value.teams as Array<{ id: string; sso_required: boolean }>
@@ -78,7 +96,7 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     // The server refuses the same team for this session with the SSO code.
     const refused = await call(t.token, "/v1/read", { op: "team_vm.status", params: {} }, t.team)
     expect(refused.body?.code ?? refused.body?.error?.code).toBe("auth.sso_required")
-  })
+  }
 
   it("answers team.not_member only for the team selection; a role refusal inside the team stays auth.forbidden", async () => {
     const t = await mirroredTeam("Roles Co")
