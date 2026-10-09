@@ -20,6 +20,7 @@ cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
+cmux-tui-image-paste.workspace = true
 cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true

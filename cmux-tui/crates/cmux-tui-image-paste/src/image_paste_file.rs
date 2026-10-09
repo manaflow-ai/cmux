@@ -373,5 +373,4 @@ fn rename_noreplace(_parent: i32, _source: &CStr, _target: &CStr) -> std::io::Re
 }
 
 #[cfg(test)]
-#[path = "image_paste_file_tests.rs"]
 mod tests;

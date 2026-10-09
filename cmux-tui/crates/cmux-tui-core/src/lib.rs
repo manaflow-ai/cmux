@@ -26,16 +26,9 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+/// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
-mod image_paste;
-#[cfg(unix)]
-mod image_paste_file;
-#[cfg(unix)]
-mod image_paste_ownership;
-#[cfg(unix)]
-mod image_paste_recovery;
-#[cfg(unix)]
-mod image_paste_storage;
+use cmux_tui_image_paste::image_paste;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

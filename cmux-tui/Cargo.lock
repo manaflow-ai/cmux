@@ -1486,6 +1486,7 @@ dependencies = [
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-image-paste",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "flate2",
@@ -1510,6 +1511,18 @@ dependencies = [
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-image-paste"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
