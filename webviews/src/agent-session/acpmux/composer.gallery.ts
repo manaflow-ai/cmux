@@ -183,13 +183,15 @@ export default agentPaneEntry({
       },
     },
     "model-menu-starred": {
-      note: "Play: open the model picker and star Sonnet; it moves to a Starred section on top, and every model stays listed.",
+      note: "Play: open the model picker and star Sonnet; it sinks to the bottom, nearest the chip, with a filled star. No section headers.",
       snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-menu"));
         await ctx.click({ selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-models .acpmux-mp-section"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('.acpmux-mp-models .acpmux-mp-favorite[aria-pressed="true"]'),
+        );
       },
     },
     "model-switching": {
