@@ -216,6 +216,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
+    // harnesses (the Chief lists the ones it uses); unset, every harness.
+    hub.set_probe_only(Hub::probe_only_from_env(
+        std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
+    ));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
