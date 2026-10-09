@@ -144,4 +144,19 @@ struct PaneContentParkingTests {
         #expect(driven.window === window, "the pane takes it back")
         #expect(!driven.isHidden)
     }
+
+    /// VoiceOver and the keyboard follow the shown tab after a same-pane
+    /// switch: the parked browser is not in the accessibility tree.
+    @Test func accessibilityListsOnlyTheShownBrowser() {
+        let (pane, window) = pane()
+        defer { window.close() }
+        let (first, _) = browser()
+        let (second, _) = browser()
+        pane.show(first)
+        pane.show(second)
+        let children = NSAccessibility.unignoredChildren(from: pane.contentHost.accessibilityChildren() ?? []).compactMap { $0 as? NSView }
+        #expect(!children.contains { $0 === first || $0.isDescendant(of: first) }, "the parked browser is not listed")
+        #expect(!first.isAccessibilityElement() || first.isHiddenOrHasHiddenAncestor)
+        #expect(window.firstResponder.map { !($0 is NSView) || !($0 as! NSView).isDescendant(of: first) } ?? true)
+    }
 }

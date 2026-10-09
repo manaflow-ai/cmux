@@ -7,7 +7,8 @@
 //! list would go stale. The check asks the kernel instead (Linux): the
 //! listening sockets on the port (`/proc/net/tcp`, `/proc/net/tcp6`), the
 //! processes that hold them (`/proc/<pid>/fd`), and their executables
-//! (`/proc/<pid>/exe`). A port held by a cmux executable is refused; a port
+//! (`/proc/<pid>/exe`); on macOS `lsof` and `proc_pidpath`. A port held by
+//! a cmux executable is refused; a port
 //! whose holder cannot be read is refused too (fail closed); a port nobody
 //! listens on is allowed (the dial fails by itself).
 
@@ -65,10 +66,70 @@ fn service_refusal(port: u16) -> Option<String> {
     None
 }
 
-#[cfg(not(target_os = "linux"))]
+/// macOS: the listeners on the port come from `lsof` (always installed),
+/// each holder's executable from `proc_pidpath`. A port nobody listens on is
+/// allowed; a holder whose executable cannot be read, or an `lsof` that
+/// cannot run, refuses the port (fail closed). Before, every loopback port
+/// was refused on macOS, so the isolated scope reached no dev server there.
+#[cfg(target_os = "macos")]
 fn service_refusal(port: u16) -> Option<String> {
-    // Isolated scope runs on Linux machines; elsewhere the holder cannot be
-    // read, so the port is refused (fail closed).
+    let unreadable = || Some(format!("loopback port {port} cannot be checked: lsof failed"));
+    let Ok(output) = std::process::Command::new("/usr/sbin/lsof")
+        .args(["-nPw", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
+        .output()
+    else {
+        return unreadable();
+    };
+    let pids: Vec<i32> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('p')?.parse().ok())
+        .collect();
+    // lsof exits 1 with no listener lines when nothing listens on the port;
+    // any other exit without them means it could not look.
+    if pids.is_empty() {
+        let nobody = matches!(output.status.code(), Some(0 | 1));
+        return if nobody { None } else { unreadable() };
+    }
+    for pid in pids {
+        let Some(path) = executable_path(pid) else {
+            return Some(format!(
+                "the process that listens on loopback port {port} cannot be identified"
+            ));
+        };
+        let name = path.rsplit('/').next().unwrap_or(&path);
+        if is_service_name(name) || is_macos_service_name(name) {
+            return Some(format!("loopback port {port} is the cmux service {name}"));
+        }
+    }
+    None
+}
+
+/// macOS executable names of cmux and Chrome (app bundles name them with
+/// spaces): `cmux DEV <tag>`, `Google Chrome`, `Chromium`, and their helpers.
+#[cfg(target_os = "macos")]
+fn is_macos_service_name(name: &str) -> bool {
+    name == "cmux"
+        || name.starts_with("cmux ")
+        || name.starts_with("Google Chrome")
+        || name.starts_with("Chromium")
+}
+
+#[cfg(target_os = "macos")]
+fn executable_path(pid: i32) -> Option<String> {
+    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let size = buffer.len() as u32;
+    // SAFETY: the buffer is writable for its whole length, which is passed.
+    let written = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
+    if written <= 0 {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    String::from_utf8(buffer).ok()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn service_refusal(port: u16) -> Option<String> {
+    // The holder cannot be read here, so the port is refused (fail closed).
     Some(format!("loopback port {port} cannot be checked on this system"))
 }
 
