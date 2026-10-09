@@ -875,3 +875,58 @@ fn permanent_flag_is_stored_only_when_set() {
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.permanent, "a record written before the flag reads as not permanent");
 }
+
+// Agent chat dock (role `agent_chat`): the dock holds one pane for every
+// client. A split or an edge drop into it is refused with
+// `dock-column-agent-chat`; a plain dock still splits.
+
+fn column_panes(wire: &Wire, index: usize) -> usize {
+    wire.mux.with_state(|state| {
+        state.workspaces[0].screens[0].layout_columns[index].root.pane_ids_vec().len()
+    })
+}
+
+fn refused_chat_dock(response: &Value) {
+    assert_eq!(response["ok"], false, "{response}");
+    assert!(response.to_string().contains("dock-column-agent-chat"), "{response}");
+}
+
+impl Wire {
+    fn set_chat_dock(&mut self, pane: PaneId) {
+        self.ok(json!({
+            "cmd": "set-column-dock", "pane": pane, "dock": true, "edge": "left", "role": "agent_chat",
+        }));
+    }
+}
+
+#[test]
+fn agent_chat_dock_refuses_a_split() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.set_chat_dock(panes[0]);
+    for dir in ["down", "right"] {
+        refused_chat_dock(&wire.send(json!({"cmd": "split", "pane": panes[0], "dir": dir})));
+    }
+    assert_eq!(column_panes(&wire, 0), 1, "the chat dock keeps one pane");
+}
+
+#[test]
+fn agent_chat_dock_refuses_an_edge_drop() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    let extra = wire.mux.new_tab(Some(panes[1]), None, Some((38, 22))).unwrap();
+    wire.set_chat_dock(panes[0]);
+    refused_chat_dock(&wire.send(json!({
+        "cmd": "move-tab-to-split",
+        "surface": extra.id,
+        "pane": panes[0],
+        "edge": "bottom",
+    })));
+    assert_eq!(column_panes(&wire, 0), 1, "the chat dock keeps one pane");
+}
+
+#[test]
+fn plain_dock_still_splits() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.set_dock(panes[0], "left", "docked");
+    wire.ok(json!({"cmd": "split", "pane": panes[0], "dir": "down"}));
+    assert_eq!(column_panes(&wire, 0), 2);
+}
