@@ -168,6 +168,7 @@ fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
@@ -1021,11 +1022,17 @@ fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
     let mut s = setup();
     s.h.say("user_local", "hello");
     s.h.settle();
-    call(&mut s, |sp| sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))).unwrap();
+    call(&mut s, |sp| {
+        sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))
+    })
+    .unwrap();
     spawn(&mut s, &["two"]).unwrap();
     let specs = s.h.agents.inner.lock().unwrap().specs.clone();
     let turn = specs[0].effort.clone();
-    let subs: Vec<_> = specs.iter().filter(|sp| sp.name.starts_with("optchat-sub-h0me-")).collect();
+    let subs: Vec<_> = specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
     assert_eq!(subs[0].effort.as_deref(), Some("high"));
     assert_eq!(subs[1].effort, turn, "as hard as the turn");
 }

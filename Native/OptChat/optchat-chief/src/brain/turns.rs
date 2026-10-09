@@ -834,6 +834,7 @@ impl Brain {
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
             model: engine.model.clone(),
+            effort: engine.effort.clone(),
             other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
         })
     }
