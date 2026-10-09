@@ -61,6 +61,11 @@ actor HostSocketLease: ControlPlaneSession {
         try await socket.client().sendSignal(signal)
     }
 
+    func sendTyping(on: Bool) async throws {
+        guard !released else { throw ControlPlaneError.stopped }
+        try await socket.client().sendTyping(on: on)
+    }
+
     func setPresence(active: Bool, client: String) async throws {
         guard !released else { throw ControlPlaneError.stopped }
         try await socket.client().setPresence(active: active, client: client)

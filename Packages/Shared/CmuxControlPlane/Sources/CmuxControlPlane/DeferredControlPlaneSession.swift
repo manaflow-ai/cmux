@@ -24,6 +24,8 @@ public final class DeferredControlPlaneSession: ControlPlaneSession {
 
     public func sendSignal(_ signal: SignalFrame) async throws { try await resolved.value.sendSignal(signal) }
 
+    public func sendTyping(on: Bool) async throws { try await resolved.value.sendTyping(on: on) }
+
     public func setPresence(active: Bool, client: String) async throws {
         try await resolved.value.setPresence(active: active, client: client)
     }

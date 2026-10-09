@@ -17,6 +17,13 @@ final class FakeServerSocket: Sendable {
         try MobileFrame(decoding: Data(try await toServer.pop().utf8))
     }
 
+    /// The next text frame exactly as sent. Protocol extensions such as
+    /// conversation typing intentionally are not in the durable MobileFrame
+    /// catalog, so tests inspect their canonical JSON directly.
+    func nextRaw() async throws -> String {
+        try await toServer.pop()
+    }
+
     /// The next frame of type `t`, skipping others.
     func next(_ type: MobileFrameType) async throws -> MobileFrame {
         while true {

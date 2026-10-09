@@ -214,6 +214,23 @@ import Testing
         await client.stop()
     }
 
+    @Test func typingUsesAnEphemeralRawFrameAndDoesNotEnterTheWireCatalog() async throws {
+        let transport = FakeControlPlaneTransport()
+        let client = makeClient(transport)
+        await client.start()
+        var sockets = transport.sockets.makeAsyncIterator()
+        let server = try #require(await sockets.next())
+        _ = try await server.acceptHello()
+        await connected(client)
+
+        try await client.sendTyping(on: true)
+        let raw = try await server.nextRaw()
+        let value = try JSONDecoder().decode(JSONValue.self, from: Data(raw.utf8))
+        #expect(value["t"]?.stringValue == "typing")
+        #expect(value["on"]?.boolValue == true)
+        await client.stop()
+    }
+
     @Test func nothingQueuesWhileDisconnectedAndRevocationIsTerminal() async throws {
         let transport = FakeControlPlaneTransport()
         let client = makeClient(transport)

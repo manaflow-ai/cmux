@@ -19,6 +19,12 @@ public protocol ControlPlaneSession: Sendable {
     func submit(_ op: OpFrame) async throws -> OpOutcome
     func read(_ op: String, params: JSONValue, stream: String?) async throws -> ReadResultFrame
     func sendSignal(_ signal: SignalFrame) async throws
+    /// Sends the current user's ephemeral typing state on a conversation socket.
+    ///
+    /// Typing is deliberately not an operation: it is neither persisted nor
+    /// replayed after reconnect. Implementations must send the raw
+    /// `{"t":"typing","on":...}` frame on the currently connected socket.
+    func sendTyping(on: Bool) async throws
     func setPresence(active: Bool, client: String) async throws
     func resendPending() async
 }

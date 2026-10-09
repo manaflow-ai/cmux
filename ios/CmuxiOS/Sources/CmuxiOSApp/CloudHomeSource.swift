@@ -126,7 +126,23 @@ final actor CloudHomeSource: HomeSource {
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if case .setTyping(let conversation, let on) = intent.op {
             // Typing is ephemeral and intentionally omitted from the ledger.
-            _ = conversation; _ = on
+            // The conversation socket is already the owner-scoped transport,
+            // so this sends the raw {t: "typing", on} frame directly rather
+            // than manufacturing a durable operation.
+            await ensureConversationSubscription(conversation)
+            guard let session = conversationClients[conversation] else {
+                throw HomeRejection.ownerUnreachable
+            }
+            do {
+                try await session.sendTyping(on: on)
+            } catch is ControlPlaneError {
+                // A typing update has no retry semantics. Treat a socket that
+                // is still connecting, full, or stopped as an unavailable
+                // owner so the UI can drop this update and try the next one.
+                throw HomeRejection.ownerUnreachable
+            } catch {
+                throw HomeRejection.ownerUnreachable
+            }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
         if case .startConversation(let contacts, let firstMessage) = intent.op {
@@ -136,7 +152,17 @@ final actor CloudHomeSource: HomeSource {
         if case .sendMessage = intent.op { mapped.params["client_msg_id"] = .string(intent.key.rawValue) }
         let (value, revision) = try await commit(mapped, key: intent.key.rawValue)
         let conversation = value["conversation"]?["id"]?.stringValue ?? value["conversation"]?.stringValue
-        let invite = value["invite"].flatMap(decodeInvite)
+        // `HomeOp.invite` is represented by the cloud `dm.open` operation.  An
+        // address peer is invited as part of that operation and the Worker
+        // returns only `{invite: {ok: true}}`, rather than echoing the raw
+        // address.  Keep the typed contact from the intent when constructing
+        // the Home receipt.
+        let invite: InviteReceipt?
+        if case .invite(let contact) = intent.op {
+            invite = inviteReceipt(for: contact, value: value["invite"])
+        } else {
+            invite = value["invite"].flatMap(decodeInvite)
+        }
         return HomeOpResult(rev: revision, replayed: false, conversation: conversation.map { ConversationID($0) }, invite: invite)
     }
 
@@ -342,12 +368,33 @@ private extension CloudHomeSource {
             guard contacts.count == 1, let contact = contacts.first else { throw HomeRejection.invalid("one contact at a time") }
             return MappedOp(op: "dm.open", params: ["peer": wireContact(contact)])
         case .createChief(let name): return MappedOp(op: "chief.create", params: ["display_name": .string(name)])
-        case .invite, .answerQuestion: throw HomeRejection.invalid("operation is not available on this cloud source")
+        // Home's top-level Invite action opens the deterministic DM for the
+        // address.  The Worker performs the corresponding `invite.create`
+        // as part of `dm.open` and returns its status in `value.invite`.
+        case .invite(let contact): return MappedOp(op: "dm.open", params: ["peer": wireContact(contact)])
+        case .answerQuestion(let message, let conversation, let partIndex, let answer):
+            return MappedOp(op: "question.answer", params: [
+                "conversation": .string(conversation.rawValue),
+                "message_id": .string(message.rawValue),
+                "part_index": .int(Int64(partIndex)),
+                "answer": wireAnswer(answer),
+            ])
         case .setTyping: fatalError("handled above")
         }
     }
     func wireContact(_ contact: ContactAddress) -> JSONValue { switch contact { case .email(let value): .object(["email": .string(value)]); case .phone(let value): .object(["phone": .string(value)]) } }
     func wireReaction(_ reaction: Reaction.Kind) -> JSONValue { switch reaction { case .tapback(let value): .object(["tapback": .string(value.rawValue)]); case .emoji(let value): .object(["emoji": .string(value)]) } }
+    /// The conversation owner only accepts the selections portion of an
+    /// answer.  It stamps the respondent and timestamp itself, so those fields
+    /// are intentionally never sent by the mobile client.
+    func wireAnswer(_ answer: AgentQuestionAnswer) -> JSONValue {
+        let selections = answer.selections.reduce(into: [String: JSONValue]()) { result, item in
+            var selection: [String: JSONValue] = ["option_ids": .array(item.value.optionIDs.map(JSONValue.string))]
+            if let other = item.value.other { selection["other"] = .string(other) }
+            result[item.key] = .object(selection)
+        }
+        return .object(["selections": .object(selections)])
+    }
     func wireParts(_ parts: [MessagePart]) throws -> JSONValue {
         .array(try parts.map { part in
             switch part {

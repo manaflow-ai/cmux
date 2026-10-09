@@ -122,6 +122,16 @@ public actor ControlPlaneClient {
         guard trySend(.signal(out)) else { throw ControlPlaneError.busy }
     }
 
+    /// Sends an ephemeral typing frame directly to the current socket. This
+    /// intentionally does not enter the operation ledger or the reconnect
+    /// outbox: a typing state that outlives a disconnected socket would leave
+    /// stale indicators on the other participants.
+    public func sendTyping(on: Bool) throws {
+        guard connection != nil, negotiated != nil else { throw ControlPlaneError.notConnected }
+        let frame = JSONValue.object(["t": .string("typing"), "on": .bool(on)])
+        guard trySendRaw(frame) else { throw ControlPlaneError.busy }
+    }
+
     /// Sends every undecided op again with its key (for example when `host:` reports the Mac back
     /// online after an `owner.unreachable` whose outcome was unknown). The owner dedupes.
     public func resendPending() {
@@ -339,6 +349,19 @@ public actor ControlPlaneClient {
     @discardableResult
     private func trySend(_ frame: MobileFrame) -> Bool {
         guard let outbox, let text = try? Self.text(frame) else { return true }
+        if case .dropped = outbox.yield(text) { return false }
+        return true
+    }
+
+    /// Queues a protocol extension frame that is intentionally not part of
+    /// `MobileFrame` (typing is scoped to ConversationDO and never reaches the
+    /// durable control-plane ledger). The caller has already checked the
+    /// negotiated session; this keeps encoding and bounded backpressure the
+    /// same as regular frames.
+    @discardableResult
+    private func trySendRaw(_ value: JSONValue) -> Bool {
+        guard let outbox, let data = try? value.canonicalData() else { return true }
+        let text = String(decoding: data, as: UTF8.self)
         if case .dropped = outbox.yield(text) { return false }
         return true
     }
