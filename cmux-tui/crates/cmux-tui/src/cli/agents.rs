@@ -29,7 +29,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 }
 
 fn run(global: GlobalArgs, args: &[String]) -> i32 {
-    if args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+    if is_help_request(args) {
         println!("{HELP}");
         return 0;
     }
@@ -48,6 +48,10 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             2,
         ),
     }
+}
+
+fn is_help_request(args: &[String]) -> bool {
+    args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
 
 enum AgentCommand {
@@ -369,5 +373,16 @@ mod tests {
         };
         assert_eq!(action, "surface.split");
         assert_eq!(args, vec!["pane", "pane_a", "split", "--right"]);
+    }
+
+    #[test]
+    fn help_flags_inside_payloads_are_not_command_help() {
+        assert!(!is_help_request(&[
+            "dialog".into(),
+            "answer".into(),
+            "request_a".into(),
+            "--selection".into(),
+            "-h".into(),
+        ]));
     }
 }
