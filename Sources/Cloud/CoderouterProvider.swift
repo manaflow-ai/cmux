@@ -43,16 +43,18 @@ struct CoderouterProvider: Hashable {
     }
 }
 
-/// The destination chosen for a CodeRouter account setup command.
-enum CoderouterAccountLaunchRoute: Equatable {
-    case focusedTerminal
-    case dedicatedTerminal
+/// The local terminal launch used by a New Account row. Account setup is
+/// interactive, so it always owns a fresh focused terminal instead of writing
+/// into whichever terminal happens to be selected (which may be an agent TUI).
+struct CoderouterAccountTerminalLaunch: Equatable {
+    let command: [String]
+    let name: String
+    let focus: Bool
 
-    /// Preserve the current sidebar behavior until the agent-safe route is
-    /// fixed: a focused terminal receives the command, otherwise cmux creates
-    /// a new terminal.
-    static func route(hasFocusedTerminal: Bool) -> Self {
-        hasFocusedTerminal ? .focusedTerminal : .dedicatedTerminal
+    init(provider: CoderouterProvider) {
+        command = ["sh", "-lc", provider.addCommand]
+        name = "CodeRouter"
+        focus = true
     }
 }
 
