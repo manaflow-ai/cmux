@@ -26,6 +26,13 @@ public import AppKit
 
     private var shows: Bool { view != nil && pane?.model.newTab != nil }
 
+    /// The pane closes while it is a New Tab page: the page discards a chat a chip pick started
+    /// behind it, never sent (cx-e2aa). A pane that became a chat keeps its chat.
+    public func discardUnsentChat() {
+        guard let pane, pane.model.newTab != nil else { return }
+        pane.evaluateScript("window.dispatchEvent(new Event('acpmux-newtab-close'))")
+    }
+
     /// Where the page draws: under the bar while it shows, else the whole pane.
     func contentFrame(in bounds: NSRect) -> NSRect {
         guard shows, let pane else { return bounds }

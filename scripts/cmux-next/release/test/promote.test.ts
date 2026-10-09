@@ -1,9 +1,9 @@
 /** promote-lib.ts with a fake image provider: smoke is the only provider call, and it is recorded. */
 import { describe, expect, it } from "bun:test"
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ledgerClones, promote, readSmokeOutcome, readVar, type SmokeOutcome } from "../promote-lib.ts"
+import { ledgerClones, promote, readSmokeOutcome, readVar, setVar, type SmokeOutcome } from "../promote-lib.ts"
 import { readReceipts } from "../receipts.ts"
 import { REAL } from "./helpers.ts"
 
@@ -14,10 +14,16 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
   const root = mkdtempSync(join(tmpdir(), "rails-promote-"))
   mkdirSync(join(root, "images/cmux-vm/channels"), { recursive: true })
   mkdirSync(join(root, "backend/apps/api"), { recursive: true })
+  // Hermetic: the real files as they were when hostrun5 and teamvm3 served (later promotions change the real ones).
   const dev = JSON.parse(readFileSync(REAL("images/cmux-vm/channels/dev.json"), "utf8"))
+  dev.history = dev.history.filter((h: { snapshot_id: string }) => h.snapshot_id === PASSED).map(({ promotion_smokes: _, ...h }: Record<string, unknown>) => h)
+  if (typeof dev.previous !== "string") dev.previous = typeof dev.previous_notes === "string" ? dev.previous_notes : "prose notes"
+  for (const key of ["team_vm", "previous_notes", "var", "promoted_at", "promoted_by", "promotion"]) delete dev[key]
+  Object.assign(dev, { snapshot: "cmuxnp-dev-vmimg-hostrun5", snapshot_id: PASSED })
   dev.history.push(...extraHistory)
   writeFileSync(join(root, "images/cmux-vm/channels/dev.json"), JSON.stringify(dev, null, 2))
-  cpSync(REAL(WRANGLER), join(root, WRANGLER))
+  const wrangler = setVar(setVar(readFileSync(REAL(WRANGLER), "utf8"), "development", "CLOUD_FREESTYLE_SNAPSHOT", "cmuxnp-dev-vmimg-hostrun5"), "development", "TEAM_VM_SNAPSHOT", "cmuxnp-dev-vmimg-teamvm3")
+  writeFileSync(join(root, WRANGLER), wrangler)
   const receipts = mkdtempSync(join(tmpdir(), "rails-promote-receipts-"))
   const smokes: Array<[string, string]> = []
   const resolved: Record<string, string> = { "cmuxnp-dev-vmimg-hostrun5": PASSED, "cmuxnp-dev-vmimg-hostrun6": "sh-0000000000000000000000000000hr06", "cmuxnp-stg-vmimg-hostrun8": "sh-000000000000000000000000000stg08", "cmuxnp-prod-vmimg-hostrun8": "sh-00000000000000000000000000prod08", "cmuxnp-dev-vmimg-teamvm4": "sh-0000000000000000000000000000tv04", "cmuxnp-dev-vmimg-teamvm3": "sh-teamvm3" }
@@ -121,7 +127,9 @@ describe("promote and roll back", () => {
     expect(dev.snapshot_id).toBe(hostrun6.snapshot_id)
     expect(dev.previous).toEqual({ snapshot: "cmuxnp-dev-vmimg-hostrun5", snapshot_id: PASSED })
     expect(typeof dev.previous_notes).toBe("string") // the old prose is kept
-    expect(dev.history.length).toBe(2) // history untouched
+    expect(dev.history.length).toBe(2) // no entry added or removed
+    // The fresh-clone smoke is recorded on the promoted entry (the top-level write must not drop it).
+    expect(dev.history.find((h: { snapshot_id: string }) => h.snapshot_id === hostrun6.snapshot_id).promotion_smokes).toEqual([expect.objectContaining({ channel: "dev", snapshot_id: hostrun6.snapshot_id, result: "PASSED", clones: ["vm-a", "vm-b"] })])
     const receipt = readReceipts(t.receipts).at(-1)!
     expect(receipt.what).toContain("cmuxnp-dev-vmimg-hostrun5 -> cmuxnp-dev-vmimg-hostrun6")
     expect(receipt.before).toEqual([`cmuxnp-dev-vmimg-hostrun5 ${PASSED}`])
