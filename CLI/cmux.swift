@@ -18734,15 +18734,17 @@ struct CMUXCLI {
                     setParams["httpOnly"] = true
                 }
                 let positional = parsed.positionals
-                if setParams["name"] == nil, positional.count >= 1 {
-                    setParams["name"] = positional[0]
+                var positionalIndex = 0
+                if setParams["name"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["name"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
-                if setParams["value"] == nil, positional.count >= 2 {
-                    setParams["value"] = positional[1]
+                if setParams["value"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["value"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
-                let usedPositionals = (nameOpt == nil ? 1 : 0) + (valueOpt == nil ? 1 : 0)
                 try rejectBrowserCommandExtras(
-                    positional.dropFirst(usedPositionals),
+                    positional.dropFirst(positionalIndex),
                     commandName: commandName
                 )
                 guard setParams["name"] != nil, setParams["value"] != nil else {

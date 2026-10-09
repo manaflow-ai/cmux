@@ -24,6 +24,15 @@ struct BrowserCommandArgumentParserTests {
         #expect(joined.positionals == ["button"])
     }
 
+    @Test("Preserves a positional fallback after a named option")
+    func preservesMixedCookieSetValue() throws {
+        let parser = BrowserCommandArgumentParser(valueOptions: ["--name"])
+
+        let result = try parser.parse(["--name", "session", "id-token"])
+
+        #expect(result.positionals == ["id-token"])
+    }
+
     @Test("Treats arguments after the terminator as positionals")
     func honorsTerminator() throws {
         let parser = BrowserCommandArgumentParser(allowedFlags: ["--snapshot-after"])
