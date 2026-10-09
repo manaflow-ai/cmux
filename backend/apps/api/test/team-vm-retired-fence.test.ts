@@ -51,6 +51,21 @@ describe("a retired team VM stays paused on inbound traffic (cx-009a)", { timeou
     expect(await fakeState(t.team, t.first.vm)).toBe("paused")
   })
 
+  it("a retired VM paused before the fence existed gets fenced on the next alarm and then stays paused", async () => {
+    const t = await rebuilt()
+    // Stand for a row a pre-fence TeamVmDO paused: paused, no fence flag, and no budget spent at the provider.
+    await inDO(vmStub(t.team), async (instance) => {
+      const engine = instance.boundEngine
+      const retired = engine.currentState.retired.map(({ fenced: _f, ...r }: any) => ({ ...r, state: "paused" }))
+      engine.state = { ...engine.currentState, retired }
+      instance.sqlStore.exec(`DELETE FROM fake_fence WHERE id = ?`, t.first.vm)
+    })
+    await vmStub(t.team).fakeAlarm(10 * 60_000)
+    expect((await t.status()).retired).toEqual([expect.objectContaining({ vm: t.first.vm, state: "paused" })])
+    await inbound(t.team, t.first.vm)
+    expect(await fakeState(t.team, t.first.vm)).toBe("paused")
+  })
+
   it("the fence is only on the retired VM: the team's new VM still wakes on traffic after an idle pause", async () => {
     const t = await rebuilt()
     const s = await t.status()
