@@ -62,20 +62,16 @@
    "MessagesLabHome": 20
   },
   "index_subscript": {
-   "CMUXMobileCore": 12,
    "CmuxIrohTransport": 22,
    "CmuxIrxTransport": 15,
    "CmuxNextControl": 19,
-   "CmuxNextDaemon": 41,
-   "CmuxNextMobile": 1
+   "CmuxNextDaemon": 41
   },
   "int_conversion": {
-   "CMUXMobileCore": 17,
    "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 10,
    "CmuxNextControl": 5,
-   "CmuxNextDaemon": 4,
-   "CmuxNextMobile": 1
+   "CmuxNextDaemon": 4
   },
   "render_font": {
    "CmuxHomeRender": 4,

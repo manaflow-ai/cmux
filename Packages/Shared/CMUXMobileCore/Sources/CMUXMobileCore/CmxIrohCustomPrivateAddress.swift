@@ -98,7 +98,7 @@ public struct CmxIrohCustomPrivateAddress: Codable, Equatable, Hashable, Sendabl
         guard rawValue.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else {
             return nil
         }
-        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &address, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else {
             return nil
         }
@@ -110,7 +110,7 @@ public struct CmxIrohCustomPrivateAddress: Codable, Equatable, Hashable, Sendabl
         guard rawValue.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else {
             return nil
         }
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil else {
             return nil
         }

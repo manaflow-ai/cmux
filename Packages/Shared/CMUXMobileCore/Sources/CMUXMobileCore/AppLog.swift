@@ -128,7 +128,7 @@ public actor AppLog {
         else {
             return nil
         }
-        return Int64(stamp)
+        return Int64(stamp, radix: 10)
     }
 
     private static func archiveURLs(for fileURL: URL) -> [URL] {
@@ -1436,7 +1436,8 @@ public actor AppLog {
         var checksum = checksum
         for byte in data {
             // The table index is the low byte, 0...255, of a 256-entry table.
-            checksum = (checksum >> 8) ^ crc32Table[Int(UInt8(truncatingIfNeeded: checksum) ^ byte)]
+            // The low byte indexes a 256-entry table, so the lookup always finds an entry.
+            checksum = (checksum >> 8) ^ (crc32Table[checked: Int(clamping: UInt8(truncatingIfNeeded: checksum) ^ byte)] ?? 0)
         }
         return checksum
     }
