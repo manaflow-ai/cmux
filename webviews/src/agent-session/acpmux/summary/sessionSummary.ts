@@ -12,12 +12,14 @@ export type SummaryPullRequest = { url: string; repo: string; number: number; ti
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
+export type SummaryPlan = { id: string; text: string; state?: string };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
   subagents: SummarySubagent[];
   sources: SummarySource[];
+  plans?: SummaryPlan[];
 };
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
@@ -128,6 +130,14 @@ function sources(all: readonly Tool[]): SummarySource[] {
   return [...seen.values()];
 }
 
+function plans(rows: readonly AcpmuxRow[]): SummaryPlan[] {
+  return rows
+    .filter((row) => row.kind === "plan")
+    .map((row) => ({ id: row.id, text: (row.text ?? "").trim() }))
+    .filter((plan) => plan.text.length > 0)
+    .slice(-50);
+}
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {
@@ -136,6 +146,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
     sources: sources(all),
+    plans: plans(rows),
   };
 }
 

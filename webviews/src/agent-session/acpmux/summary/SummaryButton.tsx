@@ -5,8 +5,10 @@ import type { AcpmuxRow } from "../model";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
+import { PinnedSummary } from "./PinnedSummary";
 import { SummaryPopover } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
+import type { SummarySectionInput } from "./summaryModel";
 import { registerPicker } from "../pickerOpeners";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
@@ -17,13 +19,30 @@ export function SummaryButton({
   rows,
   onOpenOutput,
   onOpenImage,
+  cwd,
+  projectName,
+  sections,
+  onOpenChanges,
 }: {
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  cwd?: string;
+  projectName?: string;
+  sections?: readonly SummarySectionInput[];
+  onOpenChanges?: () => void;
 }) {
   const t = useT();
+  const modern = cwd !== undefined || sections !== undefined;
   const [open, setOpen] = useState(false);
+  const [wide, setWide] = useState(modern);
+  const [pinned, setPinned] = useState(() => {
+    try {
+      return globalThis.window?.localStorage.getItem("agentPane.summary.pinned") !== "false";
+    } catch {
+      return true;
+    }
+  });
   const [gallery, setGallery] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   // The gallery opens from the popover, which is gone when it closes: focus returns to the button.
@@ -38,7 +57,33 @@ export function SummaryButton({
     refocus.current = true;
     setGallery(false);
   };
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const summary = useMemo(() => sessionSummary(rows), [rows]);
+  useEffect(() => {
+    if (!modern) return;
+    const stage = button.current?.closest(".acpmux-stage");
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const measured = entry?.contentRect.width;
+      if (typeof measured === "number" && measured > 0) setWide(measured >= 900);
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [modern]);
+  const showPinned = pinned && wide;
+  useEffect(() => {
+    if (showPinned) setOpen(true);
+    else if (!wide) setOpen(false);
+  }, [showPinned, wide]);
+  const togglePin = () => {
+    const next = !pinned;
+    setPinned(next);
+    setOpen(next);
+    try {
+      globalThis.window?.localStorage.setItem("agentPane.summary.pinned", String(next));
+    } catch {
+      /* storage is unavailable in opaque test documents */
+    }
+  };
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   useEffect(() => {
     if (!open) return;
@@ -64,11 +109,11 @@ export function SummaryButton({
         title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => (wide ? togglePin() : setOpen((current) => !current))}
       >
         <Icon name="view.list" size={15} />
       </button>
-      {summary ? (
+      {!modern && open && (
         <Popover
           open={open}
           onOpenChange={setOpen}
@@ -80,10 +125,6 @@ export function SummaryButton({
           <SummaryPopover
             summary={summary}
             galleryCount={galleryCount}
-            onOpenGallery={() => {
-              setOpen(false);
-              setGallery(true);
-            }}
             onFollow={() => setOpen(false)}
             onOpenOutput={
               onOpenOutput &&
@@ -92,9 +133,43 @@ export function SummaryButton({
                 onOpenOutput(path);
               })
             }
+            onOpenGallery={() => {
+              setOpen(false);
+              setGallery(true);
+            }}
           />
         </Popover>
-      ) : null}
+      )}
+      {showPinned && (
+        <PinnedSummary
+          summary={summary}
+          sections={sections}
+          cwd={cwd}
+          projectName={projectName}
+          mode="pinned"
+          onClose={() => {
+            togglePin();
+            button.current?.focus();
+          }}
+          onOpenChanges={onOpenChanges}
+          onTogglePin={togglePin}
+        />
+      )}
+      {modern && !showPinned && open && (
+        <PinnedSummary
+          summary={summary}
+          sections={sections}
+          cwd={cwd}
+          projectName={projectName}
+          mode="popover"
+          onClose={() => {
+            setOpen(false);
+            button.current?.focus();
+          }}
+          onOpenChanges={onOpenChanges}
+          onTogglePin={togglePin}
+        />
+      )}
       {gallery && (
         <GalleryDialog
           rows={rows}

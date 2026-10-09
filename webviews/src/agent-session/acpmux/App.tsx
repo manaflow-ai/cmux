@@ -2654,6 +2654,9 @@ function AcpmuxPane() {
                           rows={snapshot.rows}
                           onOpenOutput={quick ? undefined : openOutput}
                           onOpenImage={quick ? undefined : openImage}
+                          cwd={localCwd}
+                          projectName={projectName(snapshot.summary?.cwd)}
+                          onOpenChanges={toggleLastChanges}
                         />
                       }
                       menu={chatMenu}
@@ -2663,6 +2666,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                <div className="acpmux-summary-slot" aria-live="polite" />
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
