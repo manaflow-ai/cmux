@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Reglas de red al límite",
       "message": "Tu política de red se guardó, pero no se aplicó: cmux Cloud alcanzó su capacidad de reglas de red.",
-      "action": "Se avisó al equipo de cmux. Vuelve a guardar la política más tarde para aplicarla. Hasta entonces, el acceso de red de esta máquina puede no coincidir con la política guardada."
+      "action": "Se avisó al equipo de cmux. Elimina los dominios que esta máquina ya no necesita o contacta con soporte. Hasta entonces, el acceso de red de esta máquina puede no coincidir con la política guardada."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "La política de red se guardó, pero no se aplicó. Vuelve a guardarla para reintentar."
     },
     "unsupported": {
       "title": "Operación de Cloud VM no disponible",

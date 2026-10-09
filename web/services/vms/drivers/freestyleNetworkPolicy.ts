@@ -134,7 +134,24 @@ export type NetworkReconcileResult = {
  * message identifies it.
  */
 export function isFreestyleTlsRuleLimit(err: unknown): boolean {
-  return err instanceof FreestyleApiError && err.status === 409 && /TLS rule limit/i.test(err.message);
+  if (err instanceof FreestyleTlsRuleLimitRestoreError) return true;
+  return err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT" && /TLS rule limit/i.test(err.message);
+}
+
+/**
+ * The account cap refused a domain swap even after this VM's retired rules
+ * were freed. The retired rules were then recreated best-effort; `restored`
+ * and `unrestored` say how that went, and `cause` is Freestyle's refusal.
+ */
+export class FreestyleTlsRuleLimitRestoreError extends Error {
+  constructor(
+    readonly restored: number,
+    readonly unrestored: readonly string[],
+    readonly cause: unknown,
+  ) {
+    super(`TLS rule limit reached; ${restored} retired rule(s) restored, ${unrestored.length} not restored`);
+    this.name = "FreestyleTlsRuleLimitRestoreError";
+  }
 }
 
 /**
@@ -146,7 +163,10 @@ export function isFreestyleTlsRuleLimit(err: unknown): boolean {
  * because the account is full and this change also retires steering rules,
  * those retirements go first and the reconcile runs again. The machine is
  * briefly limited to the domains both policies allow, which never exceeds the
- * user's intent, and a swap at the cap converges instead of failing.
+ * user's intent, and a swap at the cap converges instead of failing. When the
+ * retry is refused too, the retired rules are recreated best-effort so the
+ * machine does not lose access the user never removed, and the capacity
+ * error is returned with the restore outcome.
  */
 export async function reconcileFreestyleEgress(
   fs: Freestyle,
@@ -158,16 +178,34 @@ export async function reconcileFreestyleEgress(
     return await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: true });
   } catch (err) {
     if (!(err instanceof TlsLimitWithSurplus)) throw err;
-    const retried = await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: false });
-    return { ...retried, tlsDeleted: retried.tlsDeleted + err.deleted };
+    try {
+      const retried = await reconcileOnce(fs, vmId, plan, env, { freeTlsAtLimit: false });
+      return { ...retried, tlsDeleted: retried.tlsDeleted + err.retiredDomains.length };
+    } catch (retryErr) {
+      if (!isFreestyleTlsRuleLimit(retryErr)) throw retryErr;
+      throw await restoreRetiredTlsRules(fs, vmId, err.retiredDomains, retryErr);
+    }
   }
 }
 
-/** Internal signal: the cap refused a grant after this reconcile freed `deleted` surplus TLS rules. */
+/** Internal signal: the cap refused a grant after this reconcile freed its retired TLS rules. */
 class TlsLimitWithSurplus extends Error {
-  constructor(readonly deleted: number) {
+  constructor(readonly retiredDomains: readonly string[]) {
     super("TLS rule limit reached; surplus rules freed");
   }
+}
+
+/** Recreate this VM's retired steering rules best-effort and describe the outcome. */
+async function restoreRetiredTlsRules(
+  fs: Freestyle,
+  vmId: string,
+  domains: readonly string[],
+  cause: unknown,
+): Promise<FreestyleTlsRuleLimitRestoreError> {
+  const results = await Promise.allSettled(domains.map((domain) =>
+    fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })));
+  const unrestored = domains.filter((_, index) => results[index]?.status === "rejected");
+  return new FreestyleTlsRuleLimitRestoreError(domains.length - unrestored.length, unrestored, cause);
 }
 
 async function reconcileOnce(
@@ -211,7 +249,7 @@ async function reconcileOnce(
   } catch (err) {
     if (!options.freeTlsAtLimit || tlsToDelete.length === 0 || !isFreestyleTlsRuleLimit(err)) throw err;
     await inBatches(tlsToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))));
-    throw new TlsLimitWithSurplus(tlsToDelete.length);
+    throw new TlsLimitWithSurplus(tlsToDelete.map((rule) => rule.domain));
   }
   await inBatches([
     ...firewallToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.firewall.rules.delete(rule.id))),

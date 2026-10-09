@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Osiągnięto limit reguł sieciowych",
       "message": "Twoja polityka sieciowa została zapisana, ale nie została zastosowana: cmux Cloud osiągnął limit reguł sieciowych.",
-      "action": "Zespół cmux został powiadomiony. Zapisz politykę ponownie później, aby ją zastosować. Do tego czasu dostęp sieciowy tej maszyny może nie odpowiadać zapisanej polityce."
+      "action": "Zespół cmux został powiadomiony. Usuń domeny, których ta maszyna już nie potrzebuje, lub skontaktuj się z pomocą techniczną. Do tego czasu dostęp sieciowy tej maszyny może nie odpowiadać zapisanej polityce."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Polityka sieciowa została zapisana, ale nie została zastosowana. Zapisz ją ponownie, aby spróbować jeszcze raz."
     },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",

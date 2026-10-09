@@ -186,7 +186,11 @@ async function checkTlsRuleCapacity(
   try {
     usage = await (read ?? readFreestyleTlsRuleUsage)(env);
   } catch (error) {
-    reportError(error, { subsystem: "cloud_vm_alerts", code: "tls_rule_usage_unreadable" });
+    reportError(
+      error,
+      { subsystem: "cloud_vm_alerts", code: "tls_rule_usage_unreadable" },
+      { fingerprint: ["cmux-vm-alerts", "tls_rule_usage_unreadable"] },
+    );
     usage = null;
   }
   if (!usage) return { alerts: [], summary: null };

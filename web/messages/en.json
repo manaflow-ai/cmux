@@ -174,7 +174,10 @@
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
-      "action": "The cmux team has been alerted. Save the policy again later to apply it. Until then, this machine's network access may not match the saved policy."
+      "action": "The cmux team has been alerted. Remove domains this machine no longer needs, or contact support. Until then, this machine's network access may not match the saved policy."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "The network policy is saved but was not applied. Save it again to retry."
     },
     "unsupported": {
       "title": "Cloud VM operation unavailable",

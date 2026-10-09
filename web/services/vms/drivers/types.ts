@@ -709,6 +709,16 @@ export class ProviderTlsRuleLimitError extends ProviderError {
   }
 }
 
+/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
+export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderTlsRuleLimitError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
 /** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
 export class ProviderArtifactUnavailableError extends ProviderError {
   constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {

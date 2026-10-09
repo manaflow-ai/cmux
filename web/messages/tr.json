@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
       "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",
-      "action": "cmux ekibi bilgilendirildi. Uygulamak için politikayı daha sonra yeniden kaydedin. O zamana kadar bu makinenin ağ erişimi kaydedilen politikayla eşleşmeyebilir."
+      "action": "cmux ekibi bilgilendirildi. Bu makinenin artık ihtiyaç duymadığı alan adlarını kaldırın veya destek ekibiyle iletişime geçin. O zamana kadar bu makinenin ağ erişimi kaydedilen politikayla eşleşmeyebilir."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Ağ politikası kaydedildi ancak uygulanmadı. Yeniden denemek için tekrar kaydedin."
     },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",

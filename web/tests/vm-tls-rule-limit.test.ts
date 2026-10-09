@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { FreestyleApiError, type Freestyle } from "freestyle";
 
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
-import { reconcileFreestyleEgress } from "../services/vms/drivers/freestyleNetworkPolicy";
+import { FreestyleTlsRuleLimitRestoreError, reconcileFreestyleEgress } from "../services/vms/drivers/freestyleNetworkPolicy";
+import { ProviderError, ProviderTlsRuleLimitError } from "../services/vms/drivers/types";
 import { CMUX_REQUIRED_DOMAINS, compileNetworkPolicy, parseNetworkPolicy } from "../services/vms/networkPolicy";
 import { VmProviderOperationError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
@@ -25,10 +26,18 @@ type TlsRule = { id: string; domain: string; protocol: string; source: Record<st
  * A Freestyle account whose TLS rule store is shared with `otherRules` rules
  * this VM does not own, and refuses a create once `cap` rules exist.
  */
-function accountAtCap(owned: string[], otherRules: number, cap: number) {
-  const tls: TlsRule[] = owned.map((domain, index) => ({
-    id: `tls-${index}`, domain, protocol: "http", source: { vmId }, destination: { public: true },
-  }));
+function accountAtCap(
+  owned: string[],
+  otherRules: number,
+  cap: number,
+  options: { readonly refuse?: (domain: string) => boolean; readonly foreign?: TlsRule[] } = {},
+) {
+  const tls: TlsRule[] = [
+    ...owned.map((domain, index) => ({
+      id: `tls-${index}`, domain, protocol: "http", source: { vmId }, destination: { public: true },
+    })),
+    ...(options.foreign ?? []),
+  ];
   const log: string[] = [];
   let next = 0;
   const client = {
@@ -43,7 +52,7 @@ function accountAtCap(owned: string[], otherRules: number, cap: number) {
       rules: {
         list: async () => ({ rules: tls, totalCount: tls.length }),
         create: async (rule: { domain: string; source: Record<string, unknown>; destination: Record<string, unknown> }) => {
-          if (tls.length + otherRules >= cap) {
+          if (tls.length + otherRules >= cap || options.refuse?.(rule.domain)) {
             log.push(`tls! ${rule.domain}`);
             throw tlsRuleLimit();
           }
@@ -98,6 +107,60 @@ describe("the account-wide Freestyle TLS rule cap", () => {
     const payload = await response!.json() as Record<string, unknown>;
     expect(payload).toMatchObject({ error: "vm_network_rule_capacity", retryable: false, phase: "network" });
     expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable|TLS rule limit reached/i);
+  });
+
+  test("a swap refused even after freeing its retired rules recreates them and returns the capacity error", async () => {
+    const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
+    const fake = accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com" });
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+    const err = await failure(() => reconcileFreestyleEgress(fake.client, vmId, plan, ENV));
+
+    expect(err).toBeInstanceOf(FreestyleTlsRuleLimitRestoreError);
+    expect((err as FreestyleTlsRuleLimitRestoreError).restored).toBe(1);
+    expect((err as FreestyleTlsRuleLimitRestoreError).unrestored).toEqual([]);
+    expect(fake.tls.map((rule) => rule.domain).sort()).toEqual([...owned].sort());
+    expect(fake.log).toContain("tls+ old.example.com");
+
+    const provider = new FreestyleProvider({ client: () => accountAtCap(owned, 2000 - owned.length, 2000, { refuse: (domain) => domain === "new.example.com" }).client });
+    expect(await failure(() => provider.applyNetworkPolicy(vmId, plan))).toBeInstanceOf(ProviderTlsRuleLimitError);
+  });
+
+  test("freeing rules at the cap never deletes another VM's rules", async () => {
+    const foreign: TlsRule = { id: "tls-foreign", domain: "old.example.com", protocol: "http", source: { vmId: "vm-2" }, destination: { public: true } };
+    const owned = [...CMUX_REQUIRED_DOMAINS, "old.example.com"];
+    const fake = accountAtCap(owned, 2000 - owned.length - 1, 2000, { foreign: [foreign] });
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+    await reconcileFreestyleEgress(fake.client, vmId, plan, ENV);
+
+    expect(fake.tls.find((rule) => rule.id === "tls-foreign")).toBeDefined();
+    expect(fake.log).not.toContain("tls- tls-foreign");
+    expect(fake.tls.filter((rule) => rule.source.vmId === vmId).map((rule) => rule.domain)).toContain("new.example.com");
+  });
+
+  test("another 409 CONFLICT stays a provider error, not a capacity refusal", async () => {
+    const client = {
+      firewall: { rules: { list: async () => ({ rules: [], totalCount: 0 }), create: async () => undefined, delete: async () => undefined } },
+      tls: {
+        rules: {
+          list: async () => ({ rules: [], totalCount: 0 }),
+          create: async () => { throw new FreestyleApiError(409, { code: "CONFLICT", message: "conflict: domain already claimed" }); },
+          delete: async () => undefined,
+        },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const plan = compileNetworkPolicy(parseNetworkPolicy({ mode: "allowlist", domains: ["new.example.com"] }));
+    const cause = await failure(() => provider.applyNetworkPolicy(vmId, plan));
+    expect(cause).toBeInstanceOf(ProviderError);
+    expect(cause).not.toBeInstanceOf(ProviderTlsRuleLimitError);
+
+    const sameTextOtherCode = new FreestyleApiError(409, { code: "RATE_LIMITED", message: "TLS rule limit reached (2000)" });
+    const otherClient = {
+      ...client,
+      tls: { rules: { ...(client as unknown as { tls: { rules: object } }).tls.rules, create: async () => { throw sameTextOtherCode; } } },
+    } as unknown as Freestyle;
+    const other = await failure(() => new FreestyleProvider({ client: () => otherClient }).applyNetworkPolicy(vmId, plan));
+    expect(other).not.toBeInstanceOf(ProviderTlsRuleLimitError);
   });
 
   test("the operator alert is a warning near the cap and critical at it", () => {

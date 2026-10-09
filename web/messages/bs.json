@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
-      "action": "Tim cmux je obaviješten. Kasnije ponovo sačuvajte politiku da biste je primijenili. Do tada mrežni pristup ove mašine možda neće odgovarati sačuvanoj politici."
+      "action": "Tim cmux je obaviješten. Uklonite domene koje ova mašina više ne treba ili kontaktirajte podršku. Do tada mrežni pristup ove mašine možda neće odgovarati sačuvanoj politici."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Mrežna politika je sačuvana, ali nije primijenjena. Sačuvajte je ponovo da pokušate opet."
     },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",

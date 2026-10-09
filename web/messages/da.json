@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Netværksregler har nået kapaciteten",
       "message": "Din netværkspolitik er gemt, men blev ikke anvendt: cmux Cloud har nået sin kapacitet for netværksregler.",
-      "action": "cmux-teamet er blevet underrettet. Gem politikken igen senere for at anvende den. Indtil da svarer maskinens netværksadgang muligvis ikke til den gemte politik."
+      "action": "cmux-teamet er blevet underrettet. Fjern domæner, som maskinen ikke længere har brug for, eller kontakt support. Indtil da svarer maskinens netværksadgang muligvis ikke til den gemte politik."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Netværkspolitikken er gemt, men blev ikke anvendt. Gem den igen for at prøve igen."
     },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",

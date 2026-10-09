@@ -130,6 +130,23 @@ export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequi
   };
 }
 
+/** Localized copy for a stored network policy apply failure code. */
+export async function vmNetworkPolicyStatusMessage(
+  code: "network_rule_capacity" | "apply_failed",
+  locale: Locale,
+): Promise<string> {
+  if (code === "network_rule_capacity") {
+    const copy = await vmNetworkRuleCapacityCopy(locale);
+    return `${copy.message} ${copy.action}`;
+  }
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.networkPolicyStatus",
+  }) as unknown as (key: string) => string;
+  return translator("applyFailed");
+}
+
 /** Localized, user-safe guidance when guest Cloud VM setup does not complete. */
 export type VmGuestInstallCopy = VmRequiresProCopy & { readonly reason: string };
 export async function vmGuestInstallCopy(locale: Locale): Promise<VmGuestInstallCopy> {

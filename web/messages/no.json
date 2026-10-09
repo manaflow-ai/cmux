@@ -33,7 +33,10 @@
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
       "message": "Nettverkspolicyen din er lagret, men ble ikke brukt: cmux Cloud har nådd kapasiteten for nettverksregler.",
-      "action": "cmux-teamet er varslet. Lagre policyen på nytt senere for å bruke den. Inntil da samsvarer kanskje ikke maskinens nettverkstilgang med den lagrede policyen."
+      "action": "cmux-teamet er varslet. Fjern domener maskinen ikke lenger trenger, eller kontakt brukerstøtte. Inntil da samsvarer kanskje ikke maskinens nettverkstilgang med den lagrede policyen."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "Nettverkspolicyen er lagret, men ble ikke brukt. Lagre den på nytt for å prøve igjen."
     },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",

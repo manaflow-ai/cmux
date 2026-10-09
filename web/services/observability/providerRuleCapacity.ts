@@ -10,6 +10,8 @@ import type { AlertInput } from "./alerts";
 export const DEFAULT_FREESTYLE_TLS_RULE_LIMIT = 2000;
 export const TLS_RULE_CAPACITY_ALERT_KEY = "provider-tls-rule-capacity";
 const WARNING_FRACTION = 0.85;
+/** The capacity read runs inside the alert cron; a slow provider must not stall the other checks. */
+const TLS_RULE_USAGE_TIMEOUT_MS = 10_000;
 
 export type TlsRuleUsage = {
   readonly provider: string;
@@ -52,6 +54,6 @@ export async function readFreestyleTlsRuleUsage(env: Record<string, string | und
     || Boolean(env.FREESTYLE_STACK_ACCESS_TOKEN?.trim() && env.FREESTYLE_TEAM_ID?.trim());
   if (!hasKey) return null;
   const { freestyleClient } = await import("../vms/drivers/freestyle");
-  const page = await freestyleClient().tls.rules.list({ limit: 1 });
+  const page = await freestyleClient(TLS_RULE_USAGE_TIMEOUT_MS).tls.rules.list({ limit: 1 });
   return { provider: "freestyle", count: page.totalCount, limit: freestyleTlsRuleLimit(env) };
 }
