@@ -757,6 +757,7 @@ export function Composer({
             type="file"
             multiple
             hidden
+            aria-label={t(COMPOSER_LABELS.attach)}
             onChange={(event) => {
               const files = [...(event.currentTarget.files ?? [])];
               // Cleared, choosing the same file again still fires change.
