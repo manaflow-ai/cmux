@@ -709,6 +709,19 @@ fn a_plain_tabs_list_is_the_sessions_own_tabs_and_all_lists_both_engines() {
     drop(app);
 }
 
+/// A tab the session kept (`tab.keep`) stays in its own `tabs.list()`: the
+/// session's end no longer closes it, but the session still drives it.
+/// Before, keeping dropped it from the list (tabs.keep-deliverable).
+#[test]
+fn a_kept_tab_stays_in_the_sessions_own_list() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "webkit")]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({})).unwrap();
+    session.call("tab.keep", &json!({"targetId": "new"})).unwrap();
+    let rows = session.call("tabs.list", &json!({})).unwrap();
+    assert!(rows.as_array().unwrap().iter().any(|r| r["targetId"] == "new"), "{rows}");
+}
+
 /// A WebKit session drives a Chromium tab it claimed: the call goes to that
 /// tab's engine (the CDP relay), never refused. Before: "tab c1 is a cef tab;
 /// this session runs on webkit".
