@@ -37,6 +37,11 @@ extension TerminalController {
     /// Resolves an agent hook's live target without doing process inspection
     /// inside the main-actor hop. The final ownership traversal remains on
     /// MainActor because workspace and Dock registries are UI state.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func socketAgentResolveDeliveryTargetResponseAsync(
         _ request: ControlRequest
     ) async throws -> String {
@@ -52,8 +57,12 @@ extension TerminalController {
             } else {
                 resolution = .corroborated
             }
-            precomputedEvidence = resolution.map {
-                agentDeliveryProcessEvidence(pid: pid, resolution: $0)
+            if let resolution {
+                precomputedEvidence = await runSocketWorkerBlockingBody {
+                    agentDeliveryProcessEvidence(pid: pid, resolution: resolution)
+                }
+            } else {
+                precomputedEvidence = nil
             }
         } else if foundationParams["pid"] != nil {
             // Keep invalid PID/resolution handling and the default
@@ -63,6 +72,19 @@ extension TerminalController {
             precomputedEvidence = nil
         }
 
+        return try await socketAgentResolveDeliveryTargetResponseAsync(
+            request,
+            precomputedProcessEvidence: precomputedEvidence
+        )
+    }
+
+    /// Completes the async delivery-target dispatch after process evidence has
+    /// been collected. Keeping the evidence as an explicit value makes the
+    /// MainActor handoff auditable and preserves stale-PID rejection.
+    nonisolated func socketAgentResolveDeliveryTargetResponseAsync(
+        _ request: ControlRequest,
+        precomputedProcessEvidence: AgentDeliveryProcessEvidence?
+    ) async throws -> String {
         let response = try await v2MainAsync {
             // Keep this specialized worker path in lockstep with the normal
             // main-lane dispatch preamble. The process probes are already
@@ -72,17 +94,17 @@ extension TerminalController {
                 params: request.params.mapValues(\.foundationObject),
                 precomputedProcessEvidence: precomputedEvidence
             )
-            return Self.v2Encoder.response(
+            let response = Self.v2Encoder.response(
                 id: request.id,
                 Self.controlCallResult(fromLegacy: result)
             )
-        }
-        Task { @MainActor [weak self] in
-            self?.scheduleSocketReadSnapshotRefresh()
+            self.scheduleSocketReadSnapshotRefresh()
+            return response
         }
         return response
     }
 
+    /// Accepts only a finite, positive integer PID from a socket payload.
     private nonisolated static func strictPositivePID(_ value: Any) -> pid_t? {
         guard let number = value as? NSNumber,
               CFGetTypeID(number) != CFBooleanGetTypeID(),
