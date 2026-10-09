@@ -404,14 +404,54 @@ public struct BrowserReplFileSandbox: Sendable {
         let inode: UInt64
     }
 
-    /// The REPL `fs.rename`s, as the directories each changed an entry
-    /// of; read and changed under ``pathChangeLock``. Only the latest
-    /// ``maximumEntries`` are kept: a pinned load older than those is
-    /// judged as if one of them touched its path.
+    /// The REPL `fs.rename`s, counted, with the latest one that changed an
+    /// entry of each directory; read and changed under ``pathChangeLock``.
+    /// The log is shared by every session, so it is kept per directory:
+    /// renames in one session's directories, however many, say nothing
+    /// about another's. It names at most ``maximumDirectories``; the
+    /// directories renamed least recently are folded into
+    /// ``droppedBuckets`` (the latest rename of any dropped directory that
+    /// hashes to a bucket), so a dropped directory reads as renamed no
+    /// earlier than it was, and possibly later (fail closed).
     private final class RenameLog: @unchecked Sendable {
-        static let maximumEntries = 1024
+        static let maximumDirectories = 1024
+        static let bucketCount = 4096
         var count: UInt64 = 0
-        var entries: [(count: UInt64, directories: [DirectoryIdentity])] = []
+        var latest: [DirectoryIdentity: UInt64] = [:]
+        var droppedBuckets = [UInt64](repeating: 0, count: bucketCount)
+        /// The latest rename between directories that could not be named:
+        /// it counts as a change to every directory.
+        var unnamed: UInt64 = 0
+
+        func note(_ directories: [DirectoryIdentity]?) {
+            count &+= 1
+            guard let directories else {
+                unnamed = count
+                return
+            }
+            for directory in directories { latest[directory] = count }
+            guard latest.count > Self.maximumDirectories else { return }
+            let dropped = latest.sorted { $0.value < $1.value }.prefix(latest.count - Self.maximumDirectories / 2)
+            for (directory, renamed) in dropped {
+                let bucket = Self.bucket(of: directory)
+                droppedBuckets[bucket] = max(droppedBuckets[bucket], renamed)
+                latest[directory] = nil
+            }
+        }
+
+        /// Whether a rename after `since` changed an entry of one of
+        /// `directories` (or of a directory it could not name).
+        func renamed(after since: UInt64, in directories: Set<DirectoryIdentity>) -> Bool {
+            guard count != since else { return false }
+            if unnamed > since { return true }
+            return directories.contains { directory in
+                max(latest[directory] ?? 0, droppedBuckets[Self.bucket(of: directory)]) > since
+            }
+        }
+
+        private static func bucket(of directory: DirectoryIdentity) -> Int {
+            Int(UInt(bitPattern: directory.hashValue) % UInt(bucketCount))
+        }
     }
 
     private static let renames = RenameLog()
@@ -425,22 +465,14 @@ public struct BrowserReplFileSandbox: Sendable {
             guard fstat(fd, &info) == 0 else { return nil }
             return DirectoryIdentity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
         }
-        renames.count &+= 1
-        renames.entries.append((renames.count, identities.count == directories.count ? identities : []))
-        if renames.entries.count > RenameLog.maximumEntries {
-            renames.entries.removeFirst(renames.entries.count - RenameLog.maximumEntries)
-        }
+        renames.note(identities.count == directories.count ? identities : nil)
     }
 
     /// Whether a REPL `fs.rename` since `count` changed an entry of one of
-    /// `directories` (or of a directory it could not name, or one dropped
-    /// from the log). Call under ``pathChangeLock``.
+    /// `directories` (or of a directory it could not name). Call under
+    /// ``pathChangeLock``.
     private static func renamedSince(_ count: UInt64, in directories: Set<DirectoryIdentity>) -> Bool {
-        guard renames.count != count else { return false }
-        guard let oldest = renames.entries.first?.count, oldest <= count &+ 1 else { return true }
-        return renames.entries.contains { entry in
-            entry.count > count && (entry.directories.isEmpty || entry.directories.contains(where: directories.contains))
-        }
+        renames.renamed(after: count, in: directories)
     }
 
     /// The identities of `root` and the directories below it on the way to

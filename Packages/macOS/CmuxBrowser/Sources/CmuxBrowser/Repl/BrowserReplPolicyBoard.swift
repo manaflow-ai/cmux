@@ -113,17 +113,17 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
         return try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, in: webView, load)
     }
 
-    /// Checks and pins a main-frame navigation of `webView` to the file
-    /// `url` that the governing session `sessionID` allows, as the browser
-    /// decides it, whoever started it (a history item, a reload, a restored
-    /// page, a link): its response commits only while the file is still
-    /// where the check found it
-    /// (``BrowserReplPinnedFileLoads/pinNavigation(to:roots:in:)``).
+    /// Checks and pins a navigation of a frame of `webView` (the main frame
+    /// when `isMainFrame`) to the file `url` that the governing session
+    /// `sessionID` allows, as the browser decides it, whoever started it (a
+    /// history item, a reload, a restored page, a link, a child frame): its
+    /// response commits only while the file is still where the check found
+    /// it (``BrowserReplPinnedFileLoads/pinNavigation(to:isMainFrame:roots:in:)``).
     /// - Throws: `blocked` as ``withPinnedFileAccess(_:sessionID:in:_:)``.
     @MainActor
-    public func pinNavigation(to url: URL, sessionID: String, in webView: WKWebView) throws {
+    public func pinNavigation(to url: URL, isMainFrame: Bool, sessionID: String, in webView: WKWebView) throws {
         let roots = lock.withLock { pinnedFileRoots[sessionID] ?? [] }
-        try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, roots: roots, in: webView)
+        try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, isMainFrame: isMainFrame, roots: roots, in: webView)
     }
 
     /// The check and grant of ``withPinnedFileAccess(_:sessionID:in:_:)``,

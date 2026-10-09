@@ -389,7 +389,7 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
     }
 
     /// Pins a frame's file navigation as the app's navigation delegate
-    /// does (``BrowserReplPinnedFileLoads/pinNavigation(to:roots:in:)``).
+    /// does (``BrowserReplPinnedFileLoads/pinNavigation(to:isMainFrame:roots:in:)``).
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -401,7 +401,7 @@ final class FileLoadWaiter: NSObject, WKNavigationDelegate {
             return
         }
         do {
-            try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, roots: roots, in: webView)
+            try BrowserReplPinnedFileLoads.shared.pinNavigation(to: url, isMainFrame: frame.isMainFrame, roots: roots, in: webView)
             decisionHandler(.allow)
             if !frame.isMainFrame {
                 childFrame = frame

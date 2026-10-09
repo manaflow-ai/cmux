@@ -761,7 +761,7 @@ native (`BrowserReplBoundary` in the session, and the driver):
   (WebKit 21624) it does not, and its processes may read the user's
   temporary and cache directories, so a link swapped in after the check
   could lead the load there (measured on both). So the tab's navigation
-  delegate admits the load's main-frame response (by then the browser
+  delegate admits the load's response (by then the browser
   holds the file open) only when no REPL `fs.rename` since the check
   changed an entry of a directory on the file's path (a rename and back
   counts too) and the path is still link-free inside the same root;
@@ -773,11 +773,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   tab for a file inside an attached session's directories; a refused one
   loads nothing, and such a file is never restored from WebKit's saved
   session state, whose replay would grant the directory it recorded. Every
-  main-frame navigation of a governed tab to such a file, also one WebKit
-  replays itself (back/forward, a reload of a history item), is checked
-  again when WebKit decides it, before it opens the file, and pinned the
-  same way: a refused one is cancelled and reported as `navigation.blocked`,
-  and a governed file response no such check pinned is cancelled. A file
+  navigation of a governed tab to such a file, in any frame (a child
+  frame's too), also one WebKit replays itself (back/forward, a reload of
+  a history item or of a frame), is checked again when WebKit decides it,
+  before it opens the file, and pinned the same way: a refused one is
+  cancelled and reported as `navigation.blocked`, and a governed file
+  response of any frame that no such check pinned is cancelled. The REPL
+  `fs.rename`s are noted per directory, so renames in other directories,
+  however many, never refuse a load. A `file:` subresource (an image, a
+  script, a style sheet, media) gets no such check: WebKit asks the
+  delegate about none of them, so on macOS 26 a link swapped in below a
+  root after the content rules matched its URL can lead one outside the
+  directories (the rules still block every one outside them by URL, and
+  all of them while a protected file may lie inside). A file
   navigation in a workspace whose browser waits for a remote proxy is
   refused rather than started later outside that check. In a tab the
   session created, and its popups, the same rule holds for what the page

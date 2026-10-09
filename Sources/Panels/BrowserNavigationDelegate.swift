@@ -396,16 +396,21 @@ import WebKit
             return
         }
 
-        // A main-frame load of a file a browser REPL session governs, also
-        // one WebKit starts itself (back/forward, a reload, a restored
-        // page, a link), is checked now, before the browser opens the file,
-        // and its response commits only while the file is still where this
-        // check found it (BrowserReplPinnedFileLoads).
-        if navigationAction.targetFrame?.isMainFrame == true,
+        // A load of a file a browser REPL session governs, in any frame,
+        // also one WebKit starts itself (back/forward, a reload, a restored
+        // page, a link, a child frame), is checked now, before the browser
+        // opens the file, and its response commits only while the file is
+        // still where this check found it (BrowserReplPinnedFileLoads).
+        if let targetFrame = navigationAction.targetFrame,
            let url = navigationAction.request.url,
            url.isFileURL,
            let owner,
-           !BrowserReplNavigationGuard.shared.pinsFileNavigation(panelID: owner.id, url: url, in: webView) {
+           !BrowserReplNavigationGuard.shared.pinsFileNavigation(
+               panelID: owner.id,
+               url: url,
+               isMainFrame: targetFrame.isMainFrame,
+               in: webView
+           ) {
             decisionHandler(.cancel)
             return
         }
@@ -1000,7 +1005,8 @@ import WebKit
         // is still where the session's check found it: before macOS 27,
         // WebKit follows a link swapped in after the check into the user's
         // temporary and cache directories (BrowserReplPinnedFileLoads). A
-        // governed file response no check pinned is refused.
+        // governed file response of any frame that no check pinned is
+        // refused.
         if !BrowserReplPinnedFileLoads.shared.admitsResponse(
             navigationResponse.response,
             isForMainFrame: navigationResponse.isForMainFrame,
