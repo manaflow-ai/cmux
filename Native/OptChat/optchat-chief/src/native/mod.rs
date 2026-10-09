@@ -28,6 +28,8 @@ mod shell;
 mod sse;
 
 pub use api::{CallError, ChatModel, HttpModel};
+
+use crate::prompt::CacheTtl;
 pub use shell::Shell;
 pub use sse::Assembler;
 pub use sse::read_until;
@@ -80,6 +82,8 @@ pub struct Native {
     model: Arc<dyn ChatModel>,
     retry: Duration,
     trace: crate::trace::Trace,
+    /// The TTL of every cache mark (5 minutes unless set).
+    cache_ttl: CacheTtl,
 }
 
 impl Native {
@@ -89,7 +93,15 @@ impl Native {
             model,
             retry,
             trace: crate::trace::Trace::off(),
+            cache_ttl: CacheTtl::FiveMinutes,
         }
+    }
+
+    /// Every cache mark of its requests with this TTL (`OPTCHAT_CACHE_TTL`
+    /// or the Chief's `cache.ttl` at host start; default 5 minutes).
+    pub fn with_cache_ttl(mut self, ttl: CacheTtl) -> Native {
+        self.cache_ttl = ttl;
+        self
     }
 
     /// Traces every model request and tool call of each turn.
@@ -132,6 +144,11 @@ impl Native {
     /// new messages, as `turn_blocks` cut them. The system prompt and the
     /// request's end carry the other two.
     pub fn first_message(blocks: &[Value]) -> Value {
+        Native::first_message_with(blocks, CacheTtl::FiveMinutes)
+    }
+
+    /// `first_message` with marks of `ttl`.
+    pub fn first_message_with(blocks: &[Value], ttl: CacheTtl) -> Value {
         // The view's last piece is the one that closes it.
         let last_view = blocks
             .iter()
@@ -145,7 +162,7 @@ impl Native {
                 }
                 let mut block = block.clone();
                 if last_view.is_some_and(|v| v > 0 && i + 1 == v) {
-                    block["cache_control"] = json!({"type": "ephemeral"});
+                    block["cache_control"] = ttl.cache_control();
                 }
                 block
             })
@@ -161,11 +178,11 @@ impl Native {
             "stream": true,
             // Marked: compactions send the same system prompt and tools, so
             // they read them from this entry (spec 4).
-            "system": [{"type": "text", "text": self.config.system, "cache_control": {"type": "ephemeral"}}],
+            "system": [{"type": "text", "text": self.config.system, "cache_control": self.cache_ttl.cache_control()}],
             "tools": Native::tools(),
             "messages": messages,
             // The end of each request: the next step reads it (section 8).
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": self.cache_ttl.cache_control(),
         });
         if let Some(effort) = &self.config.effort {
             body["output_config"] = json!({"effort": effort});
@@ -241,7 +258,7 @@ impl Native {
                 log(&format!("logging a {} entry failed: {e}", kind.as_str()));
             }
         };
-        let mut messages = vec![Native::first_message(&start.blocks)];
+        let mut messages = vec![Native::first_message_with(&start.blocks, self.cache_ttl)];
         let mut reply: Option<String> = None;
         let mut first_usage = None;
         let mut totals = Usage::default();

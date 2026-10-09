@@ -74,9 +74,6 @@
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
    "CmuxNextApp": 33,
-   "CmuxNextApps": 9,
-   "CmuxNextBrowser": 21,
-   "CmuxNextBrowserAutomation": 2,
    "CmuxNextDesign": 15,
    "CmuxNextHome": 1,
    "CmuxNextOnboarding": 1,
@@ -84,9 +81,7 @@
    "CmuxNextRemoteView": 1,
    "CmuxNextSidebar": 3,
    "CmuxNextTabs": 5,
-   "CmuxNextTasks": 3,
-   "CmuxNextTerminal": 16,
-   "CmuxNextWakeups": 1
+   "CmuxNextTasks": 3
   },
   "dynamic_dispatch": {
    "CmuxNextAgentActivity": 2,
@@ -101,13 +96,6 @@
    "MessagesLabHome": 20
   },
   "force_unwrap": {
-   "CMUXMobileCore": 1,
-   "CmuxAgentCursor": 1,
-   "CmuxIrohTransport": 4,
-   "CmuxIrxTransport": 3,
-   "CmuxMobileRPC": 5,
-   "CmuxMobileSSH": 4,
-   "CmuxMobileShellModel": 3,
    "CmuxNextActions": 9,
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 2,
@@ -132,9 +120,6 @@
    "CmuxNextSidebar": 8,
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
-   "CmuxTerminalSizing": 9,
-   "CmuxTheme": 2,
-   "CmuxUpdater": 3,
    "MessagesLabHome": 62,
    "MessagesLabSidebar": 18
   },

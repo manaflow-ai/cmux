@@ -40,6 +40,8 @@ final class SidebarBridge {
     private var snapshotRecorder = SidebarSnapshotRecorder()
     /// Organization intents waiting for the home session's personal state.
     let organizationQueue = SidebarOrganizationQueue()
+    /// Group name editors waiting for their group, and groups made empty (cx-rcby).
+    let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
@@ -188,6 +190,7 @@ final class SidebarBridge {
         if model.layout != layout { model.layout = layout }
         showRows(sections)
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
+        groupFlow.openPendingEditor()
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
     }

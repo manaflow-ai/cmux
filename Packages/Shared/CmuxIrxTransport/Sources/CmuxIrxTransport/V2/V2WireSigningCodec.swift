@@ -103,8 +103,8 @@ public struct V2WireSigningCodec: Sendable {
         }
         if let array = value as? [Any] { return "[" + (try array.map(canonical)).joined(separator: ",") + "]" }
         if let object = value as? [String: Any] {
-            let keys = object.keys.sorted { $0.utf16.lexicographicallyPrecedes($1.utf16) }
-            return "{" + (try keys.map { try quoted($0) + ":" + canonical(object[$0]!) }).joined(separator: ",") + "}"
+            let fields = object.sorted { $0.key.utf16.lexicographicallyPrecedes($1.key.utf16) }
+            return "{" + (try fields.map { try quoted($0.key) + ":" + canonical($0.value) }).joined(separator: ",") + "}"
         }
         throw V2ControlFailure.invalidWireData
     }
