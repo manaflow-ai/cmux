@@ -57,6 +57,16 @@ export type PlayChecks = {
   anchorMovePx?: { value: number; reason: string };
   longFrameFailMs?: { value: number; reason: string };
   layoutShiftMax?: { value: number; reason: string };
+  /** `false` turns the popup layer check off for an entry (with its reason). */
+  popupLayer?: { value: boolean; reason: string };
+};
+
+/** One open popup as the stage measured it (playRunner.ts). */
+export type PopupMeasure = {
+  label: string;
+  rect: Rect;
+  hits: { point: string; covered: boolean; by?: string }[];
+  clippedBy: string[];
 };
 
 /** The interactions whose action-to-settled latency is useful in a gallery report. */
@@ -85,10 +95,17 @@ export type StepReport = {
   frameSource: "long-animation-frame" | "raf";
   status: "pass" | "warn" | "fail";
   problems: string[];
+  /** Popup layer problems (judgePopups); absent where the stage measured none. */
+  popupProblems?: string[];
 };
 export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: StepReport[]; error?: string };
 
 // ---- Pure rules (unit tested) ----
+
+/** The problems of the open popups after a step (stub until the rule lands). */
+export function judgePopups(_popups: PopupMeasure[], _viewport: { width: number; height: number }): string[] {
+  return [];
+}
 
 export function rectDelta(before: Rect | null, after: Rect | null): number {
   if (!before || !after) return before === after ? 0 : Number.POSITIVE_INFINITY;
