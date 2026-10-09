@@ -160,7 +160,7 @@ impl NamedJob {
 }
 
 /// Our token user's SID as a string (S-1-5-21-...).
-fn current_user_sid_string() -> io::Result<String> {
+pub(super) fn current_user_sid_string() -> io::Result<String> {
     with_current_user_sid(|sid| {
         let mut text: *mut u16 = ptr::null_mut();
         // SAFETY: a valid SID; the string is freed below.

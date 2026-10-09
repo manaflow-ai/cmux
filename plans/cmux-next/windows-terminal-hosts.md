@@ -51,7 +51,7 @@ records and adoption flow. Only the system layer differs.
 
 | Piece | Unix | Windows |
 | --- | --- | --- |
-| Spawn | `pre_exec(setsid)`, pipes | `CreateProcessW`: `CREATE_NO_WINDOW`, `CREATE_NEW_PROCESS_GROUP`, `CREATE_BREAKAWAY_FROM_JOB` (see Risks), `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` = only the two bootstrap pipe ends (the handle-isolation analog of `isolate_terminal_host_process_fds`) |
+| Spawn | `pre_exec(setsid)`, pipes | `CreateProcessW`: `CREATE_NO_WINDOW`, `CREATE_NEW_PROCESS_GROUP`, `CREATE_BREAKAWAY_FROM_JOB` (see Risks), `bInheritHandles` FALSE; the bootstrap streams are two named pipes (random 128-bit name, first instance, one instance, local only, owner-only DACL) that the host opens by name, accepted only from the host's pid. No handle is ever inheritable for the host (std `Command` spawns elsewhere in the daemon inherit every inheritable handle, so a handle list with inheritable pipes would leak them) |
 | PTY | openpty | ConPTY in the host (`cmux_pty` already has it), child started by the host |
 | Endpoint | 0600 Unix socket in `/tmp/cmux-th-<uid>` | `cmux::local_socket::listen` at `%TEMP%\cmux-th-<USERNAME>\<terminal_hex>.sock`: owner-only protected directory, socket file owner = our token user (measured at Medium and High integrity) |
 | Daemon -> host check | listener uid | `connect_same_user` (socket file owner SID = ours) |

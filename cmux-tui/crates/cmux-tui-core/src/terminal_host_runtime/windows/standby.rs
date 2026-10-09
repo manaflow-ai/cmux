@@ -3,10 +3,22 @@
 //! `StandbyTerminalHost::spawn`). The host leaves the daemon's Job Object
 //! (`CREATE_BREAKAWAY_FROM_JOB`) so a job that kills its processes on close
 //! (Task Scheduler, some terminals and IDEs) does not end the terminal with
-//! the daemon. It inherits only its two bootstrap pipe ends and NUL for
-//! stderr (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`, the analog of
-//! `isolate_terminal_host_process_fds`), has no console window and is the
-//! root of its own process group.
+//! the daemon. It has no console window and is the root of its own process
+//! group.
+//!
+//! Handles: the host inherits no handle (`bInheritHandles` FALSE), and the
+//! daemon never makes a handle inheritable for it. Its two bootstrap
+//! streams are named pipes the daemon creates before the spawn:
+//! `\\.\pipe\cmux-th-boot-<128 random bits>.in` (daemon to host) and `.out`
+//! (host to daemon), first instance only (`FILE_FLAG_FIRST_PIPE_INSTANCE`,
+//! one instance, so nobody can create the name before or beside us), local
+//! clients only, and a protected DACL that gives only our token user access.
+//! The host opens both by name (the base name is its last argument;
+//! [`open_bootstrap_pipes`]). The daemon accepts each connection only when
+//! `GetNamedPipeClientProcessId` is the host's pid. An inheritable handle
+//! would reach every other process the daemon starts while it exists (std's
+//! `Command` inherits every inheritable handle of the process), so pipes
+//! made inheritable for a `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` are not used.
 //!
 //! When the daemon's job does not allow breakaway, `CreateProcessW` fails
 //! with `ERROR_ACCESS_DENIED`: [`HostSpawnError::BreakawayDenied`]. The
@@ -16,28 +28,45 @@
 //! restart.
 
 use std::ffi::OsStr;
-use std::fs::OpenOptions;
-use std::io::{self, PipeReader, PipeWriter};
+use std::fs::{File, OpenOptions};
+use std::io;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation, WAIT_OBJECT_0,
-    WAIT_TIMEOUT,
+    ERROR_ACCESS_DENIED, ERROR_PIPE_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+    LocalFree, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
+use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
+use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND, PIPE_ACCESS_OUTBOUND,
 };
 use windows_sys::Win32::System::JobObjects::{
     IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
     JOBOBJECT_BASIC_LIMIT_INFORMATION, JobObjectBasicLimitInformation, QueryInformationJobObject,
 };
-use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateProcessW,
-    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW,
-    TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+use windows_sys::Win32::System::Pipes::{
+    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, PIPE_READMODE_BYTE,
+    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
 };
+use windows_sys::Win32::System::Threading::{
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateEventW,
+    CreateProcessW, GetCurrentProcess, PROCESS_INFORMATION, STARTUPINFOW, SetEvent,
+    TerminateProcess, WaitForMultipleObjects, WaitForSingleObject,
+};
+
+const SDDL_REVISION_1: u32 = 1;
+/// winnt.h SECURITY_IDENTIFICATION << 16 (the SQOS level of `CreateFile`):
+/// the pipe's server can identify the host, not impersonate it.
+const SECURITY_IDENTIFICATION: u32 = 1 << 16;
+/// How long a host has to open its bootstrap pipes.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const PIPE_BUFFER: u32 = 64 * 1024;
 
 /// Why a host process did not start.
 #[derive(Debug)]
@@ -112,10 +141,10 @@ pub fn breakaway_allowed() -> io::Result<bool> {
 pub struct HostProcess {
     process: OwnedHandle,
     pid: u32,
-    /// The host's stdin (bootstrap requests).
-    pub stdin: Option<PipeWriter>,
-    /// The host's stdout (bootstrap replies).
-    pub stdout: Option<PipeReader>,
+    /// The daemon's end of the host's input (bootstrap requests).
+    pub stdin: Option<File>,
+    /// The daemon's end of the host's output (bootstrap replies).
+    pub stdout: Option<File>,
     detached: bool,
 }
 
@@ -131,7 +160,7 @@ impl HostProcess {
     }
 
     /// Wait up to `timeout` for the process to exit; true when it did.
-    pub fn wait_timeout(&self, timeout: std::time::Duration) -> bool {
+    pub fn wait_timeout(&self, timeout: Duration) -> bool {
         let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
         // SAFETY: the process handle this value owns.
         unsafe {
@@ -149,7 +178,7 @@ impl HostProcess {
 
 impl Drop for HostProcess {
     fn drop(&mut self) {
-        // Close the pipes first: a host waiting on its bootstrap stdin exits.
+        // Close the pipes first: a host waiting on its bootstrap input exits.
         self.stdin.take();
         self.stdout.take();
         if self.detached || !self.is_alive() {
@@ -157,14 +186,15 @@ impl Drop for HostProcess {
         }
         // SAFETY: the exact process this value started and still owns.
         unsafe { TerminateProcess(self.process.as_raw_handle() as HANDLE, 1) };
-        self.wait_timeout(std::time::Duration::from_secs(5));
+        self.wait_timeout(Duration::from_secs(5));
     }
 }
 
-/// Start `exe args...` as a terminal-host process: no window, its own
-/// process group, outside the daemon's job, inheriting only its pipes.
+/// Start `exe args... <pipe base name>` as a terminal-host process: no
+/// window, its own process group, outside the daemon's job, no inherited
+/// handle. Returns once the host has opened both bootstrap pipes.
 pub fn spawn_host_process(exe: &Path, args: &[&str]) -> Result<HostProcess, HostSpawnError> {
-    spawn_host_process_with(exe, args, Breakaway::Required)
+    spawn_host_process_with(exe, args, Breakaway::Required, |_| {})
 }
 
 /// Whether the host must leave the daemon's job.
@@ -179,67 +209,195 @@ pub enum Breakaway {
     Stay,
 }
 
+/// The host's side: open the bootstrap pipes named by `base` (the host's
+/// last argument). Returns (input from the daemon, output to the daemon).
+/// Identification-level SQOS: whoever serves the name cannot act as the
+/// host's user.
+pub fn open_bootstrap_pipes(base: &str) -> io::Result<(File, File)> {
+    if !valid_base_name(base) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a bootstrap pipe name"));
+    }
+    let input = OpenOptions::new()
+        .read(true)
+        .security_qos_flags(SECURITY_IDENTIFICATION)
+        .open(format!("{base}.in"))?;
+    let output = OpenOptions::new()
+        .write(true)
+        .security_qos_flags(SECURITY_IDENTIFICATION)
+        .open(format!("{base}.out"))?;
+    Ok((input, output))
+}
+
+const PIPE_PREFIX: &str = r"\\.\pipe\cmux-th-boot-";
+
+fn valid_base_name(base: &str) -> bool {
+    base.strip_prefix(PIPE_PREFIX)
+        .is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+fn random_base_name() -> io::Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| io::Error::other("no OS randomness"))?;
+    Ok(format!("{PIPE_PREFIX}{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+}
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(Some(0)).collect()
+}
+
+/// One bootstrap pipe's server end: first instance, one instance, byte
+/// mode, blocking, local clients only, only our token user may open it.
+/// Not inheritable.
+fn create_server(name: &str, access: u32) -> io::Result<OwnedHandle> {
+    let sid = super::jobs::current_user_sid_string()?;
+    let sddl = wide(&format!("O:{sid}D:P(A;;GA;;;{sid})"));
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: a NUL-terminated SDDL string; the descriptor is freed below.
+    if unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor,
+        bInheritHandle: 0,
+    };
+    let wname = wide(name);
+    // SAFETY: valid name and attributes for the call.
+    let handle = unsafe {
+        CreateNamedPipeW(
+            wname.as_ptr(),
+            access | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            PIPE_BUFFER,
+            PIPE_BUFFER,
+            0,
+            &attributes,
+        )
+    };
+    let error = io::Error::last_os_error();
+    // SAFETY: the descriptor the conversion allocated.
+    unsafe { LocalFree(descriptor as _) };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(error);
+    }
+    // SAFETY: a new handle this function owns.
+    Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
+}
+
+/// Wait for a client on `server` and accept it only when it is `pid`.
+fn accept_from(server: &OwnedHandle, pid: u32) -> io::Result<()> {
+    // SAFETY: a blocking pipe server handle; no OVERLAPPED.
+    if unsafe { ConnectNamedPipe(server.as_raw_handle() as HANDLE, ptr::null_mut()) } == 0 {
+        // SAFETY: reads this thread's last error.
+        let error = unsafe { GetLastError() };
+        if error != ERROR_PIPE_CONNECTED {
+            return Err(io::Error::from_raw_os_error(error as i32));
+        }
+    }
+    let mut client = 0u32;
+    // SAFETY: a connected pipe server handle and an out pointer.
+    if unsafe { GetNamedPipeClientProcessId(server.as_raw_handle() as HANDLE, &mut client) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if client != pid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("bootstrap pipe opened by pid {client}, not the host {pid}"),
+        ));
+    }
+    Ok(())
+}
+
+/// Runs `connect` (which blocks in `ConnectNamedPipe`) and unblocks it when
+/// the host ends or [`CONNECT_TIMEOUT`] passes without both connections:
+/// this thread then opens each still-waiting pipe itself, which the pid
+/// check refuses.
+fn with_connect_watchdog<R>(
+    process: HANDLE,
+    names: [String; 2],
+    connect: impl FnOnce() -> R,
+) -> io::Result<R> {
+    // SAFETY: an unnamed manual-reset event, closed by OwnedHandle.
+    let done = unsafe { CreateEventW(ptr::null(), 1, 0, ptr::null()) };
+    if done.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a new handle owned here.
+    let done = unsafe { OwnedHandle::from_raw_handle(done) };
+    let (process_raw, done_raw) = (process as usize, done.as_raw_handle() as usize);
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let handles = [process_raw as HANDLE, done_raw as HANDLE];
+            let millis = CONNECT_TIMEOUT.as_millis() as u32;
+            // SAFETY: both handles outlive this scope.
+            let woke = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, millis) };
+            if woke == WAIT_OBJECT_0 + 1 {
+                return;
+            }
+            // The host ended or is too slow: release the waiting connects.
+            // A pipe that is already connected refuses this (busy).
+            // `.in` is outbound from us (the client reads), `.out` inbound.
+            let _ = OpenOptions::new().read(true).open(&names[0]);
+            let _ = OpenOptions::new().write(true).open(&names[1]);
+        });
+        let result = connect();
+        // SAFETY: the event owned above.
+        unsafe { SetEvent(done.as_raw_handle() as HANDLE) };
+        Ok(result)
+    })
+}
+
 fn spawn_host_process_with(
     exe: &Path,
     args: &[&str],
     breakaway: Breakaway,
+    before_spawn: impl FnOnce(&str),
 ) -> Result<HostProcess, HostSpawnError> {
-    let (child_stdin, stdin) = io::pipe()?;
-    let (stdout, child_stdout) = io::pipe()?;
-    let child_stderr = OpenOptions::new().write(true).open("NUL")?;
-    let inherited: [HANDLE; 3] = [
-        child_stdin.as_raw_handle() as HANDLE,
-        child_stdout.as_raw_handle() as HANDLE,
-        child_stderr.as_raw_handle() as HANDLE,
-    ];
-    // The handle list needs inheritable handles. std's own spawns hold
-    // their inheritable pipes only while they spawn; ours are inheritable
-    // only until CreateProcessW returns and the child ends drop below.
-    for handle in inherited {
-        // SAFETY: handles this function owns.
-        if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) } == 0 {
-            return Err(io::Error::last_os_error().into());
-        }
-    }
-    let attributes = AttributeList::with_handles(&inherited)?;
+    let base = random_base_name()?;
+    let (in_name, out_name) = (format!("{base}.in"), format!("{base}.out"));
+    let to_host = create_server(&in_name, PIPE_ACCESS_OUTBOUND)?;
+    let from_host = create_server(&out_name, PIPE_ACCESS_INBOUND)?;
+    before_spawn(&base);
 
-    // SAFETY: a zeroed plain-data struct; the fields used are set below.
-    let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
-    startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
-    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    startup.StartupInfo.hStdInput = inherited[0];
-    startup.StartupInfo.hStdOutput = inherited[1];
-    startup.StartupInfo.hStdError = inherited[2];
-    startup.lpAttributeList = attributes.as_ptr();
-
-    let mut command_line = command_line(exe.as_os_str(), args);
+    let mut all_args: Vec<&str> = args.to_vec();
+    all_args.push(&base);
+    let mut command_line = command_line(exe.as_os_str(), &all_args);
     let application: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: a zeroed plain-data struct; no std handles are passed.
+    let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    startup.cb = size_of::<STARTUPINFOW>() as u32;
     // SAFETY: a zeroed plain-data out struct.
     let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    let flags = CREATE_NO_WINDOW
+        | CREATE_NEW_PROCESS_GROUP
+        | if breakaway == Breakaway::Required { CREATE_BREAKAWAY_FROM_JOB } else { 0 };
     // SAFETY: NUL-terminated application name and a mutable command line;
-    // the attribute list outlives the call; inherited handles are the three
-    // in the list (bInheritHandles must be TRUE for the list to apply).
+    // bInheritHandles FALSE: the host gets no handle of ours.
     let created = unsafe {
         CreateProcessW(
             application.as_ptr(),
             command_line.as_mut_ptr(),
             ptr::null(),
             ptr::null(),
-            1,
-            CREATE_NO_WINDOW
-                | CREATE_NEW_PROCESS_GROUP
-                | EXTENDED_STARTUPINFO_PRESENT
-                | if breakaway == Breakaway::Required { CREATE_BREAKAWAY_FROM_JOB } else { 0 },
+            0,
+            flags,
             ptr::null(),
             ptr::null(),
-            &startup.StartupInfo,
+            &startup,
             &mut info,
         )
     };
-    let error = (created == 0).then(io::Error::last_os_error);
-    drop(attributes);
-    drop((child_stdin, child_stdout, child_stderr));
-    if let Some(error) = error {
+    if created == 0 {
+        let error = io::Error::last_os_error();
         if error.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) && in_job().unwrap_or(false) {
             return Err(HostSpawnError::BreakawayDenied);
         }
@@ -250,75 +408,18 @@ fn spawn_host_process_with(
         (OwnedHandle::from_raw_handle(info.hProcess), OwnedHandle::from_raw_handle(info.hThread))
     };
     drop(thread);
-    Ok(HostProcess {
-        process,
-        pid: info.dwProcessId,
-        stdin: Some(stdin),
-        stdout: Some(stdout),
-        detached: false,
-    })
-}
-
-/// A `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` attribute list. The handle array
-/// is copied into the value, so it lives as long as the list.
-struct AttributeList {
-    buffer: Vec<u64>,
-    _handles: Box<[HANDLE]>,
-}
-
-impl AttributeList {
-    fn with_handles(handles: &[HANDLE]) -> io::Result<Self> {
-        let mut size = 0usize;
-        // SAFETY: the documented size query (fails with
-        // ERROR_INSUFFICIENT_BUFFER and sets `size`).
-        unsafe { InitializeProcThreadAttributeList(ptr::null_mut(), 1, 0, &mut size) };
-        if size == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let mut list = Self {
-            buffer: vec![0u64; size.div_ceil(8)],
-            _handles: handles.to_vec().into_boxed_slice(),
-        };
-        // SAFETY: a buffer of at least `size` bytes, 8-aligned.
-        if unsafe { InitializeProcThreadAttributeList(list.as_ptr(), 1, 0, &mut size) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: an initialized list; the handle array is owned by `list`
-        // and does not move (boxed).
-        let updated = unsafe {
-            UpdateProcThreadAttribute(
-                list.as_ptr(),
-                0,
-                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-                list._handles.as_ptr().cast(),
-                size_of_val(&*list._handles),
-                ptr::null_mut(),
-                ptr::null(),
-            )
-        };
-        if updated == 0 {
-            let error = io::Error::last_os_error();
-            // SAFETY: initialized above; deleted once (an empty buffer
-            // tells Drop not to delete it again).
-            unsafe { DeleteProcThreadAttributeList(list.as_ptr()) };
-            list.buffer.clear();
-            return Err(error);
-        }
-        Ok(list)
-    }
-
-    fn as_ptr(&self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
-        self.buffer.as_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST
-    }
-}
-
-impl Drop for AttributeList {
-    fn drop(&mut self) {
-        if !self.buffer.is_empty() {
-            // SAFETY: an initialized list, deleted once.
-            unsafe { DeleteProcThreadAttributeList(self.as_ptr()) };
-        }
-    }
+    let mut host =
+        HostProcess { process, pid: info.dwProcessId, stdin: None, stdout: None, detached: false };
+    let pid = host.pid;
+    let connected =
+        with_connect_watchdog(host.process.as_raw_handle() as HANDLE, [in_name, out_name], || {
+            accept_from(&to_host, pid).and_then(|()| accept_from(&from_host, pid))
+        })?;
+    // On error `host` drops here and ends the exact process it started.
+    connected?;
+    host.stdin = Some(File::from(to_host));
+    host.stdout = Some(File::from(from_host));
+    Ok(host)
 }
 
 /// `"exe" arg...` with each argument quoted by the MSVC rules.
@@ -363,123 +464,5 @@ fn quote_arg(arg: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::{Read, Write};
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    fn system32(exe: &str) -> PathBuf {
-        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        PathBuf::from(root).join("System32").join(exe)
-    }
-
-    #[test]
-    fn arguments_are_quoted_by_the_msvc_rules() {
-        assert_eq!(quote_arg("--bootstrap-stdio"), "--bootstrap-stdio");
-        assert_eq!(quote_arg(""), "\"\"");
-        assert_eq!(quote_arg("a b"), "\"a b\"");
-        assert_eq!(quote_arg(r#"say "hi""#), r#""say \"hi\"""#);
-        assert_eq!(quote_arg(r"C:\dir with space\"), r#""C:\dir with space\\""#);
-    }
-
-    /// `sort.exe` as a stand-in host. The hosted Windows runner runs tests
-    /// in a job that forbids breakaway (run 37935857605): there the spawn
-    /// must say BreakawayDenied, and the rest of the test runs the host in
-    /// the runner's job.
-    fn stand_in_host() -> HostProcess {
-        let sort = system32("sort.exe");
-        if breakaway_allowed().unwrap() {
-            return spawn_host_process(&sort, &[]).unwrap();
-        }
-        match spawn_host_process(&sort, &[]) {
-            Err(HostSpawnError::BreakawayDenied) => {}
-            other => panic!("expected BreakawayDenied in a job without breakaway: {other:?}"),
-        }
-        spawn_host_process_with(&sort, &[], Breakaway::Stay).unwrap()
-    }
-
-    /// A host gets its bootstrap pipes: `sort` reads stdin to EOF and
-    /// writes the sorted lines to stdout, like a host answers its daemon.
-    #[test]
-    fn a_host_process_gets_its_bootstrap_pipes() {
-        let mut host = stand_in_host();
-        host.stdin.take().unwrap().write_all(b"b\r\na\r\n").unwrap();
-        let mut output = String::new();
-        host.stdout.take().unwrap().read_to_string(&mut output).unwrap();
-        assert_eq!(output.lines().collect::<Vec<_>>(), ["a", "b"]);
-        assert!(host.wait_timeout(Duration::from_secs(10)), "sort exits after EOF");
-        assert!(!host.is_alive());
-    }
-
-    #[test]
-    fn dropping_an_unused_host_ends_that_process() {
-        // `sort` waits on stdin; the drop closes it and ends the process.
-        let host = stand_in_host();
-        let pid = host.pid();
-        assert!(host.is_alive());
-        drop(host);
-        let exists = std::process::Command::new(system32("tasklist.exe"))
-            .args(["/fi", &format!("PID eq {pid}"), "/nh"])
-            .output()
-            .unwrap();
-        assert!(
-            !String::from_utf8_lossy(&exists.stdout).contains(&pid.to_string()),
-            "host {pid} still runs"
-        );
-    }
-
-    const HELPER_ENV: &str = "CMUX_TEST_STANDBY_BREAKAWAY_HELPER";
-
-    /// In a job without breakaway the spawn says so instead of starting a
-    /// host that would die with the daemon's job. Runs in a child test
-    /// process, which puts itself in such a job (the test runner stays out).
-    #[test]
-    fn a_job_without_breakaway_denies_the_host() {
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "terminal_host_runtime::windows::standby::tests::helper_in_a_job_without_breakaway",
-                "--ignored",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .env(HELPER_ENV, "1")
-            .output()
-            .unwrap();
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(output.status.success(), "{text}");
-        assert!(text.contains("1 passed"), "the helper did not run: {text}");
-    }
-
-    #[test]
-    #[ignore = "run by a_job_without_breakaway_denies_the_host in its own process"]
-    fn helper_in_a_job_without_breakaway() {
-        if std::env::var_os(HELPER_ENV).is_none() {
-            return;
-        }
-        use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW};
-        // SAFETY: an unnamed job with default limits (no BREAKAWAY_OK); this
-        // helper process puts itself in it and never closes it.
-        unsafe {
-            let job = CreateJobObjectW(ptr::null(), ptr::null());
-            assert!(!job.is_null(), "{}", io::Error::last_os_error());
-            assert_ne!(
-                AssignProcessToJobObject(job, GetCurrentProcess()),
-                0,
-                "{}",
-                io::Error::last_os_error()
-            );
-        }
-        assert!(in_job().unwrap());
-        assert!(!breakaway_allowed().unwrap());
-        match spawn_host_process(&system32("sort.exe"), &[]) {
-            Err(HostSpawnError::BreakawayDenied) => {}
-            other => panic!("expected BreakawayDenied, got {other:?}"),
-        }
-    }
-}
+#[path = "standby_tests.rs"]
+mod tests;
