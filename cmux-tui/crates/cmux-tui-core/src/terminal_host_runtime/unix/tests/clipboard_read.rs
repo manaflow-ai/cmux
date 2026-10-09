@@ -2,10 +2,10 @@
 //! record gate, the owner handshake, and the host's deny-by-default read
 //! lifecycle on a live parser with an injected clock.
 
-use super::super::clipboard_read::{
+use super::*;
+use crate::terminal_host_runtime::shared::clipboard_read::{
     ClipboardClock, ClipboardReadState, decode_clipboard_read_request, encode_clipboard_read_reply,
 };
-use super::*;
 use ghostty_vt::{ClipboardLocation, ClipboardReadRequest};
 use std::sync::MutexGuard;
 

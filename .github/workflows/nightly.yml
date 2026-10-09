@@ -91,6 +91,11 @@ on:
         required: false
         default: false
         type: boolean
+      nightly_next_continue_only:
+        description: nightly-next only. Build nothing and submit nothing to Apple. Continue the newest earlier nightly-next build whose notarization Apple has since Accepted, and publish it through the normal guarded publication.
+        required: false
+        default: false
+        type: boolean
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
@@ -132,7 +137,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -185,6 +190,8 @@ jobs:
       notary_test: ${{ steps.decide.outputs.notary_test }}
       notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
+      # nightly-next continuation only: no own build, no Apple submission.
+      continue_only: ${{ steps.decide.outputs.continue_only }}
       # Which browser-import code this build carries (cx-f58x). `full`,
       # `no-passwords`, `no-browser-data`, or `no-<part>` for a bisect build.
       import_variant: ${{ steps.decide.outputs.import_variant }}
@@ -255,6 +262,7 @@ jobs:
           NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
           NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
           NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
+          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -431,7 +439,14 @@ jobs:
               }
             }
 
-            const alreadyPublished = !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;
+            // A nightly-next continuation run builds nothing of its own; it
+            // only publishes an earlier build Apple has since accepted.
+            const continueOnly = isNextRef && context.eventName === 'workflow_dispatch' && process.env.CONTINUE_ONLY === 'true';
+            if (process.env.CONTINUE_ONLY === 'true' && !continueOnly) {
+              core.setFailed('nightly_next_continue_only runs only on nightly-next');
+            }
+            core.setOutput('continue_only', continueOnly ? 'true' : 'false');
+            const alreadyPublished = !continueOnly && !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;
             let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);
             // The six-hour schedule only warms caches downstream, and keeps
             // its eligibility outputs as they are so that routing still works.
@@ -594,6 +609,9 @@ jobs:
               importPart !== 'none',
               process.env.NOTARY_PROBE === 'true',
             ].filter(Boolean).length;
+            if (continueOnly && selectors > 0) {
+              core.setFailed('nightly_next_continue_only cannot be combined with a notary test input');
+            }
             if (selectors > 1) {
               core.setFailed('choose one notary test input per run (password, browser data, import part, or production probe)');
             }
@@ -1224,7 +1242,7 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
@@ -1343,7 +1361,7 @@ jobs:
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
     # Owned minis first. Attempt 1 of a push or schedule run on main takes one
     # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
     # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
@@ -1967,7 +1985,7 @@ jobs:
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.
