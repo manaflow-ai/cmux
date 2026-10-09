@@ -19,7 +19,13 @@ import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labe
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { UNCOMMITTED_BASE_REF } from "./toolbar-model";
-import { type ViewedFileState, persistViewedChange, toggleViewedItem, viewedScopeFor, viewedStateOfItem } from "./viewed-files";
+import {
+  type ViewedFileState,
+  persistViewedChange,
+  toggleViewedItem,
+  viewedScopeFor,
+  viewedStateOfItem,
+} from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
 import { saveViewerPrefs } from "./viewer-prefs";
 import { useDiffWrites } from "./diff-writes";
@@ -37,7 +43,15 @@ import {
   scrollTargetForItem,
   visibleItemId,
 } from "./diff-viewer/item-navigation";
-import { type ActiveDiffSession, type AdoptedDiffSession, closeDiffSession, diffSourceRepoRoot, isStatusOnlyPayload, pendingSessionID, validDiffSource } from "./diff-viewer/session";
+import {
+  type ActiveDiffSession,
+  type AdoptedDiffSession,
+  closeDiffSession,
+  diffSourceRepoRoot,
+  isStatusOnlyPayload,
+  pendingSessionID,
+  validDiffSource,
+} from "./diff-viewer/session";
 import { type DiffViewerLayout, initialAppState, itemCollapsedFileKey, reducer } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./diff-viewer/FilesSidebar";
@@ -46,9 +60,21 @@ import { DiffPill, Toolbar } from "./diff-viewer/Toolbar";
 import { WorkerRenderOptionsSync } from "./diff-viewer/WorkerRenderOptionsSync";
 import { useSyncedRef } from "./diff-viewer/useSyncedRef";
 import { useViewedFilesBootstrap, useViewerPrefsBootstrap } from "./diff-viewer/bootstrap";
-import { closeFileSearch, useFileSearchDismiss, useNativeViewerNavigation, useOptionsDismiss, usePageDataAttributes } from "./diff-viewer/page-effects";
+import {
+  closeFileSearch,
+  useFileSearchDismiss,
+  useNativeViewerNavigation,
+  useOptionsDismiss,
+  usePageDataAttributes,
+} from "./diff-viewer/page-effects";
 import { useDiffComments } from "./diff-viewer/useDiffComments";
-import { useDeferredHydration, useDiffLanguageChanges, useDiffTransport, usePendingReplacement, useRenderDiff } from "./diff-viewer/useRenderDiff";
+import {
+  useDeferredHydration,
+  useDiffLanguageChanges,
+  useDiffTransport,
+  usePendingReplacement,
+  useRenderDiff,
+} from "./diff-viewer/useRenderDiff";
 
 type ConfigProps = {
   config: DiffViewerConfig;

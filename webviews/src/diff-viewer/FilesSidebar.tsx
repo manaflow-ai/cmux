@@ -10,7 +10,13 @@ import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
 import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "../file-tree-refresh";
-import { createTextMeasure, diffStatSpriteSheet, fileTreeStatsDecoration, type FileTreeStatsDecoration, type MeasureText } from "../file-tree-stats";
+import {
+  createTextMeasure,
+  diffStatSpriteSheet,
+  fileTreeStatsDecoration,
+  type FileTreeStatsDecoration,
+  type MeasureText,
+} from "../file-tree-stats";
 import { Icon } from "../icons";
 import { fileTreeUnsafeCSS } from "../pierre-options";
 import { type ViewedFileState } from "../viewed-files";

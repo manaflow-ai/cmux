@@ -5,12 +5,27 @@ import { type DiffItem } from "../diff-stream";
 import { Icon, type IconName } from "../icons";
 import { type DiffViewerOptions } from "../pierre-options";
 import { FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "../DiffToolbar";
-import { diffLineTotals, NO_HOST_CAPABILITIES, overflowMenuItems, sourceMenuModel, toolbarPillButtons, type OverflowMenuItemId, type PillButtonId, type SourceTarget } from "../toolbar-model";
+import {
+  diffLineTotals,
+  NO_HOST_CAPABILITIES,
+  overflowMenuItems,
+  sourceMenuModel,
+  toolbarPillButtons,
+  type OverflowMenuItemId,
+  type PillButtonId,
+  type SourceTarget,
+} from "../toolbar-model";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { DiffViewerConfig } from "../types";
 import { type DiffTransport } from "../diff/transport";
 import type { DiffSource } from "../diff/generated/protocol";
-import { type SelectSessionSource, diffSourceRepoRoot, repoSelectionWithActiveSource, sourceSelectionWithActiveRepo, validDiffSource } from "./session";
+import {
+  type SelectSessionSource,
+  diffSourceRepoRoot,
+  repoSelectionWithActiveSource,
+  sourceSelectionWithActiveRepo,
+  validDiffSource,
+} from "./session";
 import { type AppAction, type AppState, type DiffViewerLayout } from "./state";
 
 export function Toolbar({

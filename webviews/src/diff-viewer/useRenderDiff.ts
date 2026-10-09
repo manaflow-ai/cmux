@@ -14,7 +14,13 @@ import { createDiffTransport, DiffTransportError, type DiffTransport } from "../
 import type { DiffSource, DiffTransportConfig, SessionOpened } from "../diff/generated/protocol";
 import { diffLanguages } from "../diff-languages/registry";
 import { resolveDiffItemLanguage } from "./item-languages";
-import { type ActiveDiffSession, type AdoptedDiffSession, closeDiffSession, diffSessionRequest, isStatusOnlyPayload } from "./session";
+import {
+  type ActiveDiffSession,
+  type AdoptedDiffSession,
+  closeDiffSession,
+  diffSessionRequest,
+  isStatusOnlyPayload,
+} from "./session";
 import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
 
