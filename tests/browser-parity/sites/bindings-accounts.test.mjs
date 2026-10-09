@@ -57,6 +57,31 @@ test("gmail.send reply: the thread page's account is checked right before Send",
   }
 });
 
+// r37 whole#2: the drafted content reaches Gmail only after the account is
+// read again in the commit path. A new message's recipients, subject and
+// body never load in a compose window, and a reply's text is never typed,
+// when another session switched the account while the page loaded (Gmail
+// would keep them as a draft of the other account).
+test("gmail.send: no drafted content reaches a page whose account switched before the commit's account check", async () => {
+  try {
+    await s.run('var gcN = await sites.gmail.send({ to: "bob@example.com", subject: "Private subject", body: "Private body." })');
+    await s.run('var gcR = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Private reply." })');
+    const requests = env.state.requests.length;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    assert.match(await s.error("sites.gmail.send(gcN.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    const loaded = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private|view=cm/.test(u));
+    assert.deepEqual(loaded, [], "a compose window with the drafted content loaded in the switched account");
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const typed = env.state.gmailTyped.length;
+    assert.match(await s.error("sites.gmail.send(gcR.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.deepEqual(env.state.gmailTyped.slice(typed), [], "the reply was typed into the switched account's composer");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
 // r10 whole#5: page labels are page text. A Gmail or Calendar page whose
 // title and Google Account button name the drafted account, while Google's
 // account list says the drafted index is now another account, sends and

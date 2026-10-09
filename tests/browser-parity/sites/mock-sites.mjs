@@ -79,7 +79,7 @@ export function createState() {
   // query match the RegExp `path` to the same path on mirror.example, which
   // serves `host`'s pages and requests signed in (an off-site copy of the
   // site, as a redirect could reach); mirrorRequests records what it got.
-  return { tabRedirect: null, mirrorRequests: [], gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  return { tabRedirect: null, mirrorRequests: [], gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null, gmailTyped: [], gmailDecoyClicks: [], gmailTrailingBody: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +235,12 @@ const EXTRA = __GMAIL_EXTRA__;
 const SUFFIX = __COMPOSER_SUFFIX__;
 const SIGNATURE = __GMAIL_SIGNATURE__;
 const TAMPER = __GMAIL_COMPOSE_TAMPER__;
+// gmailTrailingBody: a sender's message body (HTML) Gmail shows below the
+// thread's own controls; its elements are the sender's, never Gmail's.
+const TRAILING = __GMAIL_TRAILING__;
+// Records synchronously what reaches the page (text typed into a reply
+// composer, a click on a sender's decoy), before the input or click returns.
+const record = (what, text) => { const x = new XMLHttpRequest(); x.open("POST", base + "__mock/" + what, false); x.send(text); };
 // gmailReplyRecipients: who Gmail's Reply and Reply all address (a
 // sender's Reply-To or the thread's Cc decide it): { reply, replyAll }
 // rows ({ to, cc, bcc } arrays), and rows: false for a reply composer
@@ -275,7 +281,9 @@ function thread(app, key) {
       msg("1", ["Bob", "bob@example.com"], ["Ada", "ada@example.com"], "Mon, Sep 28, 2026, 9:00 AM", t.body || "<p>Hi Ada,</p><p>The <b>numbers</b> are attached. See <a href='https://example.com/r'>the report</a>.</p>", true, expanded) +
       msg("2", ["Ada", "ada@example.com"], ["Bob", "bob@example.com"], "Mon, Sep 28, 2026, 10:00 AM", "<p>Thanks Bob!</p>", false, true) +
       EXTRA.map((m) => msg(m.id, m.from, m.to, "Tue, Sep 29, 2026, 8:00 AM", m.body, false, true)).join("") +
-      '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div id="replybox"></div></div>';
+      '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div id="replybox"></div>' +
+      (TRAILING ? '<div class="adn" data-message-id="#msg-f:9" data-legacy-message-id="9"><div class="a3s" id="trailing">' + TRAILING + '</div></div>' : '') + '</div>';
+    for (const decoy of app.querySelectorAll("#trailing [role]")) decoy.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); record("decoy", decoy.getAttribute("aria-label") || decoy.getAttribute("role")); });
     const expand = app.querySelector('[aria-label="Expand all"]');
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
     const reply = (all) => {
@@ -284,6 +292,7 @@ function thread(app, key) {
       app.querySelector("#replybox").innerHTML = '<div role="dialog">' + rows + '<div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
       if (REPLY.rows) tamperRows(app.querySelector("#replybox"));
       const replyBox = app.querySelector('#replybox [role="textbox"]');
+      replyBox.addEventListener("input", () => record("typed", replyBox.innerText));
       if (SUFFIX) replyBox.addEventListener("input", () => { if (!replyBox.dataset.tampered) { replyBox.dataset.tampered = "1"; replyBox.append(SUFFIX); } });
       const held = (field) => [...app.querySelectorAll('#replybox [data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
       app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send(REPLY.rows ? { threadId: t.id, to: held("to"), cc: held("cc"), bcc: held("bcc"), body: replyBox.innerText } : { threadId: t.id, to: (to.to || []).join(",") || null, cc: (to.cc || []).join(",") || null, bcc: (to.bcc || []).join(",") || null, body: replyBox.innerText }));
@@ -330,6 +339,14 @@ render();
 
 function gmail(req, url, body, state) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+  if (/\/__mock\/typed$/.test(url.pathname)) {
+    state.gmailTyped.push(String(body));
+    return { json: { ok: true } };
+  }
+  if (/\/__mock\/decoy$/.test(url.pathname)) {
+    state.gmailDecoyClicks.push(String(body));
+    return { json: { ok: true } };
+  }
   if (/\/__mock\/send$/.test(url.pathname)) {
     state.gmailSent.push(JSON.parse(body));
     return { json: { ok: true } };
@@ -338,7 +355,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)), `Inbox - ${pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]))[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)).replace("__GMAIL_TRAILING__", JSON.stringify(state.gmailTrailingBody || null)), `Inbox - ${pageAccountRow(state, googleAccountAt(state, url.pathname.split("/")[3]))[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
