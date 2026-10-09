@@ -225,6 +225,24 @@ test("text matching open tabs lists only the tabs and a web search; Enter still 
   await act(async () => root.unmount());
 });
 
+// Round-1 design A: rows show where the query matched, with a quiet tint (never an accent), and a
+// long page address keeps its host and its end visible, with the full address as the tooltip.
+test("rows mark the typed words and compact long page addresses", async () => {
+  const url = "https://github.com/manaflow-ai/cmux/pull/18729/files?diff=split&w=1";
+  const { container, root, type } = await mount({
+    omnibar: { ...tabsOmnibar, history: [{ url, title: "Release PR files" }] },
+  });
+  await type("release");
+  const marks = [...container.querySelectorAll(".nt-row-title mark")].map((mark) => mark.textContent);
+  expect(marks.length).toBeGreaterThan(0);
+  expect(marks.every((text) => text?.toLowerCase() === "release")).toBe(true);
+  const detail = [...container.querySelectorAll<HTMLElement>(".nt-row-detail")].find((node) => node.title === url);
+  expect(detail).toBeDefined();
+  expect(detail!.textContent).toContain("github.com/");
+  expect(detail!.textContent).toContain("…");
+  await act(async () => root.unmount());
+});
+
 test("Ctrl-N and Ctrl-P move through the rows as Down and Up do", async () => {
   const { container, root, type, key, calls } = await mount({ omnibar: tabsOmnibar });
   await type("release");
