@@ -50,6 +50,23 @@ describe("the agent pane's context menu target", () => {
     expect(messageMenuTarget(snapshot({ connection: "disconnected" }), "a1")?.forkSeq).toBeUndefined();
   });
 
+  test("only the latest completed turn forks: acpmux forks a chat at its end, not through an earlier turn", () => {
+    const ended = snapshot({
+      rows: [
+        row("p1", "user", { text: "one" }),
+        row("a1", "assistant", { text: "First." }),
+        row("s1", "turnSummary", { seq: 41 }),
+        row("p2", "user", { text: "two" }),
+        row("a2", "assistant", { text: "Second." }),
+        row("s2", "turnSummary", { seq: 57 }),
+      ],
+    });
+    expect(messageMenuTarget(ended, "a1")?.forkSeq).toBeUndefined();
+    expect(messageMenuTarget(ended, "p1")?.forkSeq).toBeUndefined();
+    expect(messageMenuTarget(ended, "a2")?.forkSeq).toBe(57);
+    expect(messageMenuTarget(ended, "p2")?.forkSeq).toBe(57);
+  });
+
   test("a folded copy is its message; other rows are not messages", () => {
     expect(messageMenuTarget(snapshot(), "a1:fold")?.markdown).toBe("Fixed in `main.rs`:\n\n- one\n- two");
     expect(messageMenuTarget(snapshot(), "s1")).toBeUndefined();
