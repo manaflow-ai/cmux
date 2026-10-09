@@ -932,7 +932,7 @@ fn start(
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        Some(Arc::new(app))
+        Some(Arc::new(app.with_home(home)))
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {
