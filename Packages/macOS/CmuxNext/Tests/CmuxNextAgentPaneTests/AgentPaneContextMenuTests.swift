@@ -87,6 +87,42 @@ import WebKit
         #expect(log.done == ["retry: p9", "edit: deploy"])
     }
 
+    // MARK: Selected text
+
+    private func rebuiltOnSelection(_ selection: String) -> (NSMenu, Log) {
+        let menu = Self.webKitMenu()
+        let log = Log()
+        AgentPaneContextMenu.rebuild(menu, target: Self.reply, selection: selection, devTools: false, actions: .init(
+            copy: { log.done.append("copy: \($0)") }, fork: { log.done.append("fork: \($0)") },
+            edit: { log.done.append("edit: \($0)") }, search: { log.done.append("search: \($0)") }))
+        return (menu, log)
+    }
+
+    /// The contract's selection menu: Copy, Quote in Reply, Ask About This, Search the Web and
+    /// WebKit's Look Up (macOS adds Services last). The message's own rows stay out.
+    @Test func selectedTextGetsTheSelectionMenu() {
+        let (menu, _) = rebuiltOnSelection("Fixed")
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis,
+                                      "-", AgentPaneMenuStrings.searchTheWeb, "WKMenuItemIdentifierLookUp"])
+    }
+
+    @Test func quoteAndAskPutTheSelectionInTheComposerAndSearchSearchesIt() throws {
+        let (menu, log) = rebuiltOnSelection("line one\nline two")
+        for title in [AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis, AgentPaneMenuStrings.searchTheWeb] {
+            Self.choose(try #require(menu.items.first { $0.title == title }))
+        }
+        #expect(log.done == ["edit: > line one\n> line two\n\n",
+                             "edit: > line one\n> line two\n\n\(AgentPaneMenuStrings.askAboutThisPrompt)",
+                             "search: line one\nline two"])
+    }
+
+    @Test func thePageReportCarriesTheSelection() {
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "Fixed", "text": "Fixed it"]) == "Fixed")
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "  \n "]) == nil, "blank is no selection")
+        #expect(AgentPaneContextMenu.selection(report: ["text": "Fixed it"]) == nil)
+        #expect(AgentPaneContextMenu.selection(report: NSNull()) == nil)
+    }
+
     @Test func aMessageWithOneLinkOpensIt() throws {
         let link = try #require(URL(string: "https://cmux.dev/docs"))
         let (menu, log) = rebuiltLogging(target: AgentPaneMessageTarget(text: "docs", markdown: "[docs](https://cmux.dev/docs)", links: [link]))
