@@ -403,7 +403,14 @@ submit button or input of that form with `action: "click"`, or one of the
 fields with `action: "press_enter"`), checked before the sheet opens
 (`locator_invalid` with `field_id: "submit"`, no sheet) and again right
 before the press (`submission_failed`); the agent cannot have cmux press
-another control in the user's name. The REPL receives only a status:
+another control in the user's name. The form must also submit to the
+page's own origin in the same tab: the effective action (the control's
+`formaction`, else the form's `action`, else the page URL) and target
+(`formtarget`, the form's `target`, `<base target>`), read through the
+DOM's own getters in the agent world; for `press_enter` the form and every
+submit control of it qualify. Otherwise the result is `locator_invalid`
+with reason `unsafe_destination` before the sheet, or `submission_failed`
+when the page changed it while the sheet was up. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
 `page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
 or `submission_failed`. The fill script is read from the signed app bundle,
