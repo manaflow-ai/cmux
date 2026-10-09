@@ -391,6 +391,10 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
+        if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
+            with open(os.environ["FAKE_CWD_LOG"], "a") as log:
+                log.write(json.dumps({"process": os.getcwd(), "session": params.get("cwd")}) + "\n")
         if m == "authenticate":
             # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
             if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):

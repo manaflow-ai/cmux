@@ -43,7 +43,9 @@ jq -n \
   --arg upstream "$CMUX_VM_UPSTREAM_API_KEY" \
   --arg project "$CMUX_VM_STACK_PROJECT_ID" \
   --arg server "$CMUX_VM_STACK_SECRET_SERVER_KEY" \
-  '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}' > "$secrets"
+  --arg service_keys "${CMUX_VM_SERVICE_KEYS:-}" \
+  '{UPSTREAM_API_KEY: $upstream, STACK_PROJECT_ID: $project, STACK_SECRET_SERVER_KEY: $server}
+   + (if $service_keys == "" then {} else {CMUX_VM_SERVICE_KEYS: $service_keys} end)' > "$secrets"
 
 # Until the secrets land the Worker answers 503 "not configured" (src/index.ts).
 bunx wrangler deploy --config wrangler.generated.json --env "$TARGET"

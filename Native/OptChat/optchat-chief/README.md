@@ -1108,7 +1108,11 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   written for 5 minutes, so later calls on it go at once.
 - **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
-  `compactor-model` pick another). An account without the model builds
+  `compactor-model` pick another), on a Claude route whatever the turns run
+  on: a Claude turn harness's own (claude-sr stays claude-sr), else
+  `claude` (the configured CodeRouter route, else the user's own login).
+  Only `OPTCHAT_COMPACTOR_HARNESS` or engine.json's `compactor-harness`
+  picks another harness; the turns' harness (a codex Chief) never does. An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have
   separate cache entries, so compactions read only each other's.
 - **Width.** JOBS and AHEAD are 64 (spec: 8): 64 calls of about 1 s stay
