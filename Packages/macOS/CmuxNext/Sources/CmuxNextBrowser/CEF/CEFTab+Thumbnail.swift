@@ -9,14 +9,16 @@ public import CoreGraphics
 /// pixels takes about a quarter of that and is plenty for a thumbnail that
 /// `TabPreviewFitting` scales down anyway. A clip with a scale is slower
 /// still: Chromium lays the page out again for it.
-nonisolated enum CEFThumbnail {
-    static var params: [String: Any] { ["format": "jpeg", "quality": 70, "optimizeForSpeed": true] }
-}
+enum CEFThumbnail {
+    nonisolated static var params: [String: Any] { ["format": "jpeg", "quality": 70, "optimizeForSpeed": true] }
+    /// `snapshot()`: full-fidelity PNG.
+    nonisolated static var png: [String: Any] { ["format": "png"] }
 
-extension CEFTab {
-    public func thumbnail() async throws -> CGImage {
-        guard let browserID, !isClosed else { throw BrowserTabError.snapshotUnavailable }
-        let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot", params: CEFThumbnail.params)
+    /// One `Page.captureScreenshot` of `tab` (here, not in CEFTab, which is
+    /// at its type-size limit).
+    @MainActor static func capture(_ tab: CEFTab, _ params: [String: Any]) async throws -> CGImage {
+        guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.snapshotUnavailable }
+        let json = try await tab.runtime.devTools(browserID, method: "Page.captureScreenshot", params: params)
         return try CEFDevToolsResult.screenshot(json)
     }
 }
