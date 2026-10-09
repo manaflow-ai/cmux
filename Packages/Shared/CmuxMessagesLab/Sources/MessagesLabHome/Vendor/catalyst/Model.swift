@@ -54,10 +54,29 @@ struct Message: Codable, Equatable {
     /// Deleted on this device (Delete… in the menu): no row is drawn. A tombstone, so
     /// paged indices stay valid.
     var deletedAt: String? = nil
+    /// How the host wants the text parts shown (shared/MARKDOWN.md, Opt-in). nil or `.plain`:
+    /// plain text, always (the default: a user's message with `*` or `|` stays as typed).
+    /// `.markdown`: the host marks it (an agent's reply), and the markdown engine renders it.
+    var format: MessageFormat? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 
     var date: Date { Instant.parse(sentAt) }
+}
+
+extension Message {
+    /// Whether the host marked this message as markdown (`format == .markdown`).
+    var isMarkdown: Bool { format == .markdown }
+}
+
+/// The text format of a message: plain unless the host says markdown. An unknown value in
+/// stored JSON reads as plain (a newer host's format never breaks decoding).
+enum MessageFormat: String, Codable, Equatable {
+    case plain, markdown
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = MessageFormat(rawValue: raw) ?? .plain
+    }
 }
 
 enum DeliveryStatus: Codable, Equatable {

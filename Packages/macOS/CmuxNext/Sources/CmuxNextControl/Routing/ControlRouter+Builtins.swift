@@ -99,7 +99,7 @@ extension ControlRouter {
             "build": .string(identity.build),
             "bundle_id": identity.bundleID.map(JSONValue.string) ?? .null,
             "tag": identity.tag.map(JSONValue.string) ?? .null,
-            "pid": JSONValue(Int(identity.processID)),
+            "pid": JSONValue(Int(clamping: identity.processID)),
             "app_bundle_path": identity.appBundlePath.map(JSONValue.string) ?? .null,
             "app_cli_path": identity.appCLIPath.map(JSONValue.string) ?? .null,
             "socket_path": transport.socketPath.map(JSONValue.string) ?? .null,

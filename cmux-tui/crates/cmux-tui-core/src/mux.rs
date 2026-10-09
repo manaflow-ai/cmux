@@ -38,8 +38,17 @@ use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_undo_commit;
+mod notification_level;
+pub use notification_level::NotificationLevel;
 mod personal;
 mod presentation;
+mod provider_authority;
+pub(crate) use provider_authority::ProviderWorkspaceState;
+pub use provider_authority::{
+    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError,
+};
+use provider_authority::{constant_time_eq, validate_mux_generation};
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
@@ -57,6 +66,8 @@ pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
+mod time;
+pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
@@ -65,6 +76,8 @@ mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;
+mod terminal_lifecycle_commit;
+use terminal_lifecycle_commit::commit_terminal_lifecycle;
 mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -115,14 +128,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroize;
 
 use crate::Actor;
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
@@ -224,8 +236,6 @@ const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
-const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
@@ -431,118 +441,6 @@ fn workspace_resource_upsert(
             "focused":focused,
         },
     })
-}
-
-/// An opaque per-mux credential provisioned by the external machine
-/// provider. Debug output is deliberately redacted.
-#[derive(PartialEq, Eq)]
-pub struct ProviderWorkspaceAuthority(Box<str>);
-
-impl ProviderWorkspaceAuthority {
-    pub fn new(value: impl Into<String>) -> anyhow::Result<Self> {
-        let mut value = value.into();
-        if !(PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES..=PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES)
-            .contains(&value.len())
-            || value.bytes().any(|byte| byte.is_ascii_control())
-        {
-            value.zeroize();
-            anyhow::bail!(
-                "provider workspace authority must be 32 to 512 bytes without control characters"
-            );
-        }
-        Ok(Self(value.into_boxed_str()))
-    }
-
-    pub(crate) fn expose(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
-/// Public, non-secret state exposed by the provider management socket.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderWorkspaceAuthorityStatus {
-    pub managed: bool,
-    pub mux_generation: Option<String>,
-    pub authority_generation: u64,
-    pub authority_installed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderWorkspaceAuthorityUpdateError {
-    Unmanaged,
-    MuxGenerationMismatch,
-    ExpectedGenerationMismatch,
-    GenerationConflict,
-    InvalidGeneration,
-}
-
-impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Unmanaged => "workspace lifecycle is not provider-managed",
-            Self::MuxGenerationMismatch => "mux generation does not match the running process",
-            Self::ExpectedGenerationMismatch => "authority generation changed concurrently",
-            Self::GenerationConflict => {
-                "authority generation already contains a different credential"
-            }
-            Self::InvalidGeneration => "authority generation must advance by exactly one",
-        })
-    }
-}
-
-impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
-
-#[derive(Default)]
-pub(crate) struct ProviderWorkspaceState {
-    managed: bool,
-    mux_generation: Option<Box<str>>,
-    authority_generation: u64,
-    authority: Option<ProviderWorkspaceAuthority>,
-}
-
-impl ProviderWorkspaceState {
-    fn status(&self) -> ProviderWorkspaceAuthorityStatus {
-        ProviderWorkspaceAuthorityStatus {
-            managed: self.managed,
-            mux_generation: self.mux_generation.as_deref().map(str::to_owned),
-            authority_generation: self.authority_generation,
-            authority_installed: self.authority.is_some(),
-        }
-    }
-}
-
-impl fmt::Debug for ProviderWorkspaceAuthority {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("ProviderWorkspaceAuthority([redacted])")
-    }
-}
-
-impl Drop for ProviderWorkspaceAuthority {
-    fn drop(&mut self) {
-        // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
-        // place before its allocation is released.
-        self.0.zeroize();
-    }
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    let length = left.len().max(right.len());
-    for index in 0..length {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
-        );
-    }
-    difference == 0
-}
-
-fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        anyhow::bail!("mux generation must be 32 lowercase hexadecimal characters");
-    }
-    Ok(())
 }
 
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
@@ -803,23 +701,6 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotificationLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl NotificationLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationLevel::Info => "info",
-            NotificationLevel::Warning => "warning",
-            NotificationLevel::Error => "error",
-        }
-    }
 }
 
 /// Who posted a notification (`notification-source-v1`). Frontends apply
@@ -5263,6 +5144,7 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            projection.restates_all,
         )?;
         state.resource_revision = commit.revision;
         drop(state);
@@ -5283,7 +5165,7 @@ impl Mux {
             idempotency_key,
             operation,
             fingerprint,
-            |registry, state| self.resource_effect_projection_locked(registry, state, result),
+            |registry, state| self.created_view_projection_locked(registry, state, result),
         )
     }
 
@@ -13946,12 +13828,12 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
         Ok(TerminalPlacementResult {
             placement: Some(placement),
             terminal_id: identity.terminal_id,
             terminal_incarnation: Some(identity.incarnation),
-            terminal_revision: snapshot.revision,
+            terminal_revision,
             replayed: false,
             created_path: Some(created_path),
             created_surface: Some(surface.id),
@@ -16458,7 +16340,7 @@ impl Mux {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-                let current_revision = registry.terminal_snapshot()?.revision;
+                let current_revision = registry.terminal_revision()?;
                 let changed = replay.result["changed"].as_bool().unwrap_or(true);
                 #[cfg(test)]
                 if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
@@ -17067,51 +16949,6 @@ fn commit_terminal_transition(
     Ok(commit.revision)
 }
 
-/// Advance only renderer lifecycle fields from the latest durable row. This
-/// deliberately re-reads under the registry writer mutex and uses the
-/// terminal revision as a CAS: a GUI move committed while a host launch or
-/// adoption was in flight can never be overwritten by a stale row clone.
-fn commit_terminal_lifecycle(
-    registry: &mut WorkspaceRegistry,
-    event_kind: &str,
-    operation: &str,
-    terminal_id: &str,
-    lifecycle: TerminalLifecycle,
-    incarnation: Option<&str>,
-    exit: Option<Value>,
-) -> anyhow::Result<(RegistryTerminal, u64)> {
-    let snapshot = registry.terminal_snapshot()?;
-    let mut terminal = registry
-        .terminal_record(terminal_id)?
-        .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-    terminal.lifecycle = lifecycle;
-    if let Some(incarnation) = incarnation {
-        terminal.incarnation = Some(incarnation.to_string());
-    }
-    terminal.exit = exit;
-    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
-    Ok((terminal, commit.revision))
-}
-
 #[cfg(test)]
 fn commit_terminal_workspace(
     registry: &mut WorkspaceRegistry,
@@ -17548,13 +17385,6 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         })
         .cloned()
         .collect()
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn sidebar_retry_delay(failures: u32) -> Duration {
