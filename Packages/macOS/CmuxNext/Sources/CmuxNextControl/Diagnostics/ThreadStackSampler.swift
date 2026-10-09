@@ -15,7 +15,7 @@ final class ThreadStackSampler: @unchecked Sendable {
     // The target reads it (``copy(count:)``) only after a sample was
     // published for its current stall, and the next sample waits for that
     // stall to end, so the two never overlap.
-    private let buffer: UnsafeMutablePointer<UInt>
+    private var buffer: UnsafeMutableBufferPointer<UInt>
 
     init(thread: thread_act_t, maxFrames: Int = 64) {
         self.thread = thread
@@ -46,7 +46,7 @@ final class ThreadStackSampler: @unchecked Sendable {
 
     /// The first `count` addresses of the last sample.
     func copy(count: Int) -> [UInt] {
-        (0..<min(max(count, 0), maxFrames)).map { buffer[$0] }
+        Array(buffer.prefix(max(count, 0)))
     }
 
     /// Caller has suspended the thread. No allocation in here.
@@ -79,10 +79,10 @@ final class ThreadStackSampler: @unchecked Sendable {
         fp = UInt(clamping: state.__rbp)
         #endif
         var frames = 0
-        buffer[frames] = Self.strip(pc)
+        buffer.modify(checked: frames) { $0 = Self.strip(pc) }
         frames += 1
         if lr != 0, frames < maxFrames {
-            buffer[frames] = Self.strip(lr)
+            buffer.modify(checked: frames) { $0 = Self.strip(lr) }
             frames += 1
         }
         var pair: (UInt, UInt) = (0, 0)
@@ -95,7 +95,7 @@ final class ThreadStackSampler: @unchecked Sendable {
             guard read == KERN_SUCCESS else { break }
             let (next, returnAddress) = pair
             guard returnAddress != 0 else { break }
-            buffer[frames] = Self.strip(returnAddress)
+            buffer.modify(checked: frames) { $0 = Self.strip(returnAddress) }
             frames += 1
             // Frames grow toward higher addresses; anything else is a loop or garbage.
             guard next > fp else { break }
