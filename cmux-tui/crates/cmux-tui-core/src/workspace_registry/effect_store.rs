@@ -988,6 +988,10 @@ impl WorkspaceRegistry {
     /// the effect. A transaction failure leaves that receipt executing, so a
     /// restart converts it to `indeterminate` and never repeats the effect
     /// under the same key.
+    /// Commit a projected patch and its effect receipt. Public `deltas` that
+    /// the journal already states are dropped first; `restates_all` says
+    /// they restate every live resource, so they may seed the public fold.
+    #[allow(clippy::too_many_arguments)]
     pub fn commit_resource_effect_patch(
         &mut self,
         idempotency_key: &str,
@@ -996,6 +1000,7 @@ impl WorkspaceRegistry {
         patch: &ResourcePatch,
         result: &Value,
         deltas: &Value,
+        restates_all: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
@@ -1012,6 +1017,7 @@ impl WorkspaceRegistry {
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
+        let deltas = &self.prune_stated_topology_deltas(deltas)?;
         let tx = self.connection.transaction()?;
         let commit = commit_resource_effect_patch_in_transaction(
             &tx,
@@ -1028,6 +1034,12 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         self.resource_projection_stats.committed(CommitSpans { total: started.elapsed(), ..spans });
+        self.record_public_fold(
+            commit.revision.saturating_sub(1),
+            commit.revision,
+            deltas,
+            restates_all,
+        );
         Ok(commit)
     }
 

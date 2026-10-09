@@ -672,6 +672,7 @@ fn targeted_browser_effect_projection(
         },
         changes: upsert_change("browser", browser_id.as_str(), value.clone()),
         result: if returns_browser { value } else { json!({}) },
+        restates_all: false,
     })
 }
 

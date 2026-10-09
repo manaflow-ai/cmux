@@ -11,7 +11,7 @@
 use anyhow::Context;
 use serde_json::Value;
 
-use crate::workspace_registry::{RegistryScreen, ResourceChange};
+use crate::workspace_registry::{RegistryPane, RegistryScreen, RegistryTab};
 
 struct DeferredScreen {
     slot: usize,
@@ -37,29 +37,16 @@ impl PublishedScreens {
         public.push(("screen", id, Value::Null));
     }
 
-    /// Fill every reserved screen upsert from the pane and tab rows in
-    /// `changes`, the rows this projection commits.
+    /// Fill every reserved screen upsert from the pane and tab rows this
+    /// projection walked (the rows it commits, or holds unchanged).
     pub(super) fn publish(
         self,
         public: &mut [(&'static str, String, Value)],
-        changes: &[ResourceChange],
+        panes: &[RegistryPane],
+        tabs: &[RegistryTab],
     ) -> anyhow::Result<()> {
-        let panes = changes
-            .iter()
-            .filter_map(|change| match change {
-                ResourceChange::UpsertPane(pane) => Some(pane.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let tabs = changes
-            .iter()
-            .filter_map(|change| match change {
-                ResourceChange::UpsertTab(tab) => Some(tab.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let tabs_by_pane = crate::resource_screen::tabs_by_pane(&tabs);
-        let panes_by_id = crate::resource_screen::panes_by_id(&panes);
+        let tabs_by_pane = crate::resource_screen::tabs_by_pane(tabs);
+        let panes_by_id = crate::resource_screen::panes_by_id(panes);
         for screen in self.deferred {
             let entry = public.get_mut(screen.slot).context("reserved screen upsert is missing")?;
             entry.2 = crate::resource_screen::screen_value(
