@@ -31,6 +31,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
+    let help_requested =
+        command_args[1..].iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"));
+    if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
+        return Some(print_usage(
+            &global,
+            "--all-sessions is not supported for the composite agents surface; choose one session",
+        ));
+    }
     if let Err(error) = normalize_qualified_targets(&mut global, &mut command_args[1..]) {
         return Some(print_usage(&global, &error.0));
     }
@@ -267,11 +275,7 @@ fn run_app(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
             Ok(result) => result,
             Err(error) => return wire::print_local_error(&error, global.output, 3),
         };
-    let value = if action == "dialog.list" {
-        json!({"schema_version": 1, "action": action, "result": result})
-    } else {
-        receipt(global, action, result)
-    };
+    let value = receipt(global, action, result);
     wire::print_local_success(&value, global.output)
 }
 
@@ -410,7 +414,7 @@ fn focus_in_scope(value: &Value, workspace_ids: Option<&HashSet<String>>) -> boo
             value
                 .get("workspace")
                 .and_then(Value::as_str)
-                .is_none_or(|workspace| ids.contains(workspace))
+                .is_some_and(|workspace| ids.contains(workspace))
         })
 }
 
@@ -559,7 +563,7 @@ fn tab_belongs_to_workspace(
     workspace_context: Option<&str>,
 ) -> bool {
     let tab_workspace = tab.get("workspace_id").and_then(Value::as_str).or(workspace_context);
-    workspace_ids.is_none_or(|ids| tab_workspace.is_none_or(|id| ids.contains(id)))
+    workspace_ids.is_none_or(|ids| tab_workspace.is_some_and(|id| ids.contains(id)))
 }
 
 /// Page whole objects, never silently truncate relationship arrays inside an
@@ -757,6 +761,51 @@ mod tests {
         );
         assert_eq!(value["focus"]["workspace"], "ws_selected");
         assert_eq!(value["selection"]["tab"], "tab_selected");
+    }
+
+    #[test]
+    fn snapshot_falls_back_when_app_focus_has_no_selected_workspace() {
+        let value = compose_snapshot(
+            Ok(json!({
+                "workspaces": [{"id":"ws_selected"}],
+                "focus": {"workspace":"ws_selected","pane":"pane_selected"}
+            })),
+            Ok(json!({
+                "topology": {"focus": {"workspace":null,"pane":"pane_remote"}}
+            })),
+        );
+        assert_eq!(value["focus"]["workspace"], "ws_selected");
+        assert_eq!(value["focus"]["pane"], "pane_selected");
+    }
+
+    #[test]
+    fn snapshot_excludes_orphan_app_page_tabs_when_daemon_has_workspaces() {
+        let value = compose_snapshot(
+            Ok(json!({"workspaces": [{"id":"ws_selected"}]})),
+            Ok(json!({
+                "topology": {
+                    "tabs": [{"id":"page_orphan","kind":"page"}],
+                    "windows": [{"workspaces": [{
+                        "id":"ws_selected",
+                        "tabs": [{"id":"page_selected","kind":"page"}]
+                    }]}]
+                }
+            })),
+        );
+        let tabs = value["tabs"].as_array().unwrap();
+        assert!(tabs.iter().any(|tab| tab["id"] == "page_selected"));
+        assert!(!tabs.iter().any(|tab| tab["id"] == "page_orphan"));
+    }
+
+    #[test]
+    fn snapshot_retains_orphan_app_page_tabs_when_daemon_is_unavailable() {
+        let value = compose_snapshot(
+            Err(json!({"code":"transport.unavailable"})),
+            Ok(json!({
+                "topology": {"tabs": [{"id":"page_orphan","kind":"page"}]}
+            })),
+        );
+        assert!(value["tabs"].as_array().unwrap().iter().any(|tab| tab["id"] == "page_orphan"));
     }
 
     #[test]
