@@ -302,7 +302,9 @@ impl Brain {
             self.phase = Phase::Idle;
             return None;
         }
-        if self.chat.status().unbuilt > 0 {
+        // The same check as settle's: an imported line still being built
+        // (or a stuck one) does not hold the turn.
+        if !self.chat.turn_ready() {
             self.phase = Phase::Idle;
             self.maybe_start_turn();
             return None;

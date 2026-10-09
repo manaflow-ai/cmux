@@ -83,7 +83,7 @@ nonisolated enum PaletteUsageWire {
             .filter { $0.lastPathComponent.hasPrefix("com.cmuxterm.app") && $0.pathExtension == "plist" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .compactMap { file in
-                // concurrency-allow: called from the detached first-import task; this legacy read never runs on the main actor.
+                // concurrency-allow: nonisolated; its one caller runs it in Task.detached for legacy plist reads.
                 guard let data = try? Data(contentsOf: file),
                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                       let stored = plist[key] as? Data,

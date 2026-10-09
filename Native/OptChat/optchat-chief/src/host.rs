@@ -836,7 +836,7 @@ fn start(
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.
-            let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
+            let slots = Slots::new(crate::compactor::compactor_sessions());
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let shared_ttl = shared_ttl.clone();
             let build = |model: Option<&str>| {

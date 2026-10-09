@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
+import os
 
 /// One layout leaf: the pane's tab strip on top (or at the bottom,
 /// `tabs.barPosition`, R109) and the selected tab's content beside it.
@@ -196,6 +197,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     func show(_ view: NSView?, overBackdrop: Bool = false) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent) else { return previous }
+        tabSwitchMark("show")
+        defer { tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
@@ -316,4 +319,12 @@ final class PaneContentView: NSView, PaneContentChrome {
 // the strip, hit before this view, answers for its own empty space.
 extension PaneContentView: TitlebarPressDeciding {
     func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
+}
+
+/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
+/// them up with the page's own clock. Debug level: nothing is written unless
+/// a `log stream --level debug` reads category "tab-switch".
+private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+private func tabSwitchMark(_ name: String) {
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
