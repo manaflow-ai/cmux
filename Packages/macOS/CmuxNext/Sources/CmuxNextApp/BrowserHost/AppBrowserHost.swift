@@ -180,7 +180,6 @@ final class AppProviderCredentials: ProviderCredentialsSource {
         if case DaemonError.command(_, _, let code?, _, _) = error { return code }
         return String(describing: type(of: error))
     }
-
 }
 
 extension AppBrowserHost {
