@@ -16,6 +16,8 @@ export type WorkspaceTab = {
 /** `browserProfile` is the workspace's own default, over its space's. */
 export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string; browserProfile?: string };
 export type Stack = { workspaces: Workspace[]; activeId: string };
+export type TabFocus = { workspaceId: string; tabId: string };
+export type CloseTabResult = { stack: Stack; closed: boolean; focus?: TabFocus };
 
 export const agent = (sessionId: string, title: string): WorkspaceTab => ({
   id: `agent-${sessionId}`,
@@ -109,6 +111,57 @@ export function selectTab(stack: Stack, workspaceId: string, tabId?: string): St
     workspaces: stack.workspaces.map((workspace) =>
       workspace.id === workspaceId && tabId ? { ...workspace, activeTabId: tabId } : workspace,
     ),
+  };
+}
+
+/**
+ * Close one tab and return the focus successor when the focused tab was removed.
+ *
+ * The successor follows the desktop tab rule: take the tab to the right, otherwise
+ * the one to the left. Closing an inactive tab never changes focus. A workspace is
+ * removed when its last tab closes; the next workspace below it, otherwise the one
+ * above it, then receives focus when the removed workspace was active.
+ */
+export function closeTab(stack: Stack, workspaceId: string, tabId: string): CloseTabResult {
+  const workspaceIndex = stack.workspaces.findIndex((candidate) => candidate.id === workspaceId);
+  if (workspaceIndex < 0) return { stack, closed: false };
+
+  const workspace = stack.workspaces[workspaceIndex]!;
+  const tabIndex = workspace.tabs.findIndex((candidate) => candidate.id === tabId);
+  if (tabIndex < 0) return { stack, closed: false };
+
+  const workspaceIsActive = stack.activeId === workspaceId;
+  const tabIsActive = workspace.activeTabId === tabId;
+  if (workspace.tabs.length > 1) {
+    const tabs = workspace.tabs.filter((candidate) => candidate.id !== tabId);
+    const successor = tabs[tabIndex] ?? tabs[tabIndex - 1]!;
+    const nextWorkspace = {
+      ...workspace,
+      tabs,
+      activeTabId: tabIsActive ? successor.id : workspace.activeTabId,
+    };
+    return {
+      closed: true,
+      stack: {
+        ...stack,
+        workspaces: stack.workspaces.map((candidate) => (candidate.id === workspaceId ? nextWorkspace : candidate)),
+      },
+      ...(workspaceIsActive && tabIsActive ? { focus: { workspaceId, tabId: successor.id } } : {}),
+    };
+  }
+
+  // Keep one workspace available for the new-workspace surface. The last tab in
+  // the last workspace is therefore not closable from this prototype.
+  if (stack.workspaces.length === 1) return { stack, closed: false };
+
+  const workspaces = stack.workspaces.filter((candidate) => candidate.id !== workspaceId);
+  if (!workspaceIsActive) return { closed: true, stack: { ...stack, workspaces } };
+
+  const successor = workspaces[workspaceIndex] ?? workspaces[workspaceIndex - 1];
+  return {
+    closed: true,
+    stack: { activeId: successor?.id ?? "", workspaces },
+    ...(successor ? { focus: { workspaceId: successor.id, tabId: successor.activeTabId } } : {}),
   };
 }
 
