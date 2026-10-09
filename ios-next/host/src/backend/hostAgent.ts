@@ -7,6 +7,10 @@ import type { Logger } from "../util.ts";
 import { ApiClient, ApiError, IceCache } from "./api.ts";
 import { SignalingClient, type SignalFrame } from "./signaling.ts";
 
+function describePair(pair: ReturnType<WebRtcPeer["selectedPair"]>): string {
+  return pair ? `${pair.local}/${pair.transport} ${pair.localAddress} -> ${pair.remote} ${pair.remoteAddress}` : "no selected pair";
+}
+
 /** How long a revoked phone session family stays refused. */
 export const REVOKED_FAMILY_TTL_MS = 20 * 60_000;
 
@@ -163,9 +167,9 @@ export class HostAgent {
         entry.peer = peer;
         peer.link.on("state", (state) => {
           if (state === "open") {
-            const pair = peer.selectedPair();
-            log(`[${sessionId}] link open${peer.relayOnly ? " [relay only]" : ""} ${pair ? `${pair.local}/${pair.transport} -> ${pair.remote} (${pair.remoteAddress})` : ""}`);
+            log(`[${sessionId}] link open${peer.relayOnly ? " [relay only]" : ""} ${describePair(peer.selectedPair())} (initial)`);
             this.opts.core.attach(peer.link);
+            this.watchPath(sessionId, entry, peer);
           } else if (state === "closed") {
             if (this.peers.get(sessionId) === entry) this.dropPeer(sessionId, true);
           }
@@ -229,6 +233,28 @@ export class HostAgent {
       e.remotePeerId = f.from;
     }
     return e;
+  }
+
+  /**
+   * The pair reported when the channels open can still change: the phone
+   * (controlling) may nominate another pair afterwards, e.g. its relay
+   * candidate. Re-read the selected pair and log every change so the host log
+   * matches the path that actually carries data.
+   */
+  private watchPath(sessionId: string, entry: PeerEntry, peer: WebRtcPeer): void {
+    let last = describePair(peer.selectedPair());
+    let checks = 0;
+    const tick = () => {
+      if (entry.closed || peer.link.state !== "open") return;
+      const now = describePair(peer.selectedPair());
+      if (now !== last) {
+        this.opts.log(`[${sessionId}] path changed: ${last} => ${now}`);
+        last = now;
+      }
+      checks++;
+      setTimeout(tick, checks < 10 ? 2_000 : 30_000).unref();
+    };
+    setTimeout(tick, 2_000).unref();
   }
 
   private isRevoked(family: string): boolean {

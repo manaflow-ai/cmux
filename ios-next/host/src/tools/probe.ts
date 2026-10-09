@@ -22,6 +22,8 @@ async function main(): Promise<void> {
       pings: { type: "string", default: "50" },
       timeout: { type: "string", default: "45" },
       duration: { type: "string", default: "0" },
+      agent: { type: "string" },
+      "agent-prompt": { type: "string" },
     },
   });
   const token = process.env.CMUX_NEXT_TOKEN;
@@ -110,6 +112,33 @@ async function main(): Promise<void> {
 
   const { conversations } = await client.request("conv.list");
   report.conversations = conversations.length;
+
+  // Optional agent turn: --agent codex --agent-prompt "..." prints the tool rows
+  // (title, status, output) so tool output mapping can be checked end to end.
+  if (values.agent) {
+    const items = new Map<string, any>();
+    let sessionId = "";
+    const ended = new Promise<void>((resolve) => {
+      client.peer.on("event", (topic, p) => {
+        if (topic !== "agent.item" || (sessionId && p.sessionId !== sessionId)) return;
+        items.set(p.item.id, p.item);
+        if (p.item.kind === "permission" && !p.item.resolved) {
+          const allow = p.item.options.find((o: any) => o.kind === "allow_once") ?? p.item.options[0];
+          if (allow) void client.request("agent.permission", { sessionId: p.sessionId, itemId: p.item.id, optionId: allow.id });
+        }
+        if (p.item.kind === "turnEnd") resolve();
+      });
+    });
+    const { session } = await client.request("agent.create", { harness: values.agent, prompt: values["agent-prompt"] ?? "Run `echo probe-tool-check` in the shell." }, 60_000);
+    sessionId = session.id;
+    await Promise.race([ended, new Promise((_, rej) => setTimeout(() => rej(new Error("agent turn timeout")), 240_000))]);
+    const tools = [...items.values()].filter((i) => i.kind === "tool").map((i) => ({ title: i.title, status: i.status, input: i.input, output: i.output }));
+    const reply = [...items.values()].filter((i) => i.kind === "assistant").map((i) => i.text).join("\n");
+    report.agent = { sessionId, tools, reply };
+    log(`agent tools: ${JSON.stringify(tools, null, 2)}`);
+    log(`agent reply: ${reply}`);
+    await client.request("agent.close", { sessionId });
+  }
 
   const n = Number(values.pings);
   const rtts: number[] = [];
