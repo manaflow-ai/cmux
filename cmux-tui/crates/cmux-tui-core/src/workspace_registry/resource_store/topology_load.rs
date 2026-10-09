@@ -3,6 +3,86 @@
 
 use super::*;
 
+impl WorkspaceRegistry {
+    /// The stored subtrees of `workspaces` only; see
+    /// [`load_resource_topology_scoped`].
+    pub(crate) fn resource_topology_scoped(
+        &self,
+        workspaces: &[WorkspacePublicId],
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        load_resource_topology_scoped(
+            &self.connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            workspaces,
+        )
+    }
+
+    /// One terminal's durable record unless it is tombstoned, as
+    /// [`Self::terminal_snapshot`] lists it.
+    pub(crate) fn live_terminal_record(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<RegistryTerminal>> {
+        Ok(self
+            .terminal_record(terminal_id)?
+            .filter(|terminal| terminal.lifecycle != TerminalLifecycle::Tombstoned))
+    }
+
+    /// The host of every active stored terminal row that a live tab of
+    /// `panes` shows, keyed by terminal public id.
+    pub(crate) fn active_terminal_hosts_of_panes(
+        &self,
+        panes: &[PanePublicId],
+    ) -> anyhow::Result<HashMap<TerminalPublicId, String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT rt.public_id, rt.terminal_id
+             FROM resource_tabs t
+             JOIN resource_terminals rt ON rt.public_id = t.content_id
+             WHERE t.pane_id = ?1 AND t.deleted_revision IS NULL
+               AND rt.deleted_revision IS NULL AND rt.lifecycle = 'active'",
+        )?;
+        let mut hosts = HashMap::new();
+        for pane in panes {
+            let rows = statement.query_map([pane.as_str()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (terminal, host) = row?;
+                hosts.insert(TerminalPublicId::parse(terminal)?, host);
+            }
+        }
+        Ok(hosts)
+    }
+
+    /// The live tab rows that show `content_id`, in no particular order.
+    pub(crate) fn resource_tabs_of_content(
+        &self,
+        content_id: &str,
+    ) -> anyhow::Result<Vec<RegistryTab>> {
+        load_tabs(&self.connection, " AND t.content_id = ?1", &[&content_id])
+    }
+
+    /// Whether a live `resource` row ("screen", "pane" or "tab") has this
+    /// public id.
+    pub(crate) fn resource_is_live(&self, resource: &str, public_id: &str) -> anyhow::Result<bool> {
+        let table = match resource {
+            "screen" => "resource_screens",
+            "pane" => "resource_panes",
+            "tab" => "resource_tabs",
+            _ => anyhow::bail!("no stored liveness for resource {resource:?}"),
+        };
+        Ok(self
+            .connection
+            .prepare(&format!(
+                "SELECT 1 FROM {table} WHERE public_id = ?1 AND deleted_revision IS NULL"
+            ))?
+            .query_row([public_id], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+}
+
 /// Load the live resource topology from `connection`. The registry's
 /// snapshot and the startup repair (which runs inside the open transaction,
 /// before this open's generation exists) share it.

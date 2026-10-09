@@ -101,3 +101,28 @@ fn scoped_creates_match_the_full_projection_under_mixed_creates() {
     let value: Value = serde_json::to_value(mux.resource_projection_stats()).unwrap();
     assert!(value["scoped_projections"].as_u64().unwrap_or(0) >= 6, "{value}");
 }
+
+#[test]
+fn scoped_creates_without_the_crosscheck_leave_nothing_for_a_full_projection() {
+    use crate::workspace_registry::resource_store::prune_unchanged_resource_changes;
+    super::scoped_projection::without_crosscheck(|| {
+        let mux = Mux::new_for_test("scoped-projection-release", SurfaceOptions::default());
+        for name in ["a", "b", "c"] {
+            mux.new_workspace(Some(name.into()), Some((80, 24))).unwrap();
+        }
+        let ids = ["a", "b", "c"].map(|name| workspace(&mux, name).0);
+        for round in 0..3 {
+            for id in &ids[round % 2..] {
+                mux.create_terminal_in_workspace(*id, None, None, None, Some((80, 24))).unwrap();
+            }
+        }
+        assert!(stat(&mux, "scoped_projections") >= 6, "creates ran scoped");
+        assert_eq!(stat(&mux, "crosschecks"), 0, "the cross-check was off");
+        // The reference projection of the live tree finds every row stored.
+        let full = mux.resource_effect_projection().unwrap();
+        let registry = mux.workspace_registry.lock().unwrap();
+        let transaction = registry.connection.unchecked_transaction().unwrap();
+        let written = prune_unchanged_resource_changes(&transaction, &full.patch).unwrap();
+        assert!(written.changes.is_empty(), "scoped creates left rows behind: {written:?}");
+    });
+}
