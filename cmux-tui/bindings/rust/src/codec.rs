@@ -687,9 +687,13 @@ mod tests {
         let path = Path::new("/tmp/cmux-peer-uid-test.sock");
         assert!(require_peer_uid(&client, me, path).is_ok());
         let other = me.wrapping_add(1);
-        let error = require_peer_uid(&client, other, path).expect_err("another user's server");
-        let text = error.to_string();
-        assert!(text.contains("another user") && text.contains(&other.to_string()), "{text}");
+        match require_peer_uid(&client, other, path) {
+            Err(CmuxError::ConnectionIo { message, kind }) => {
+                assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+                assert!(message.contains("another user") && message.contains(&other.to_string()));
+            }
+            result => panic!("another user's server must be refused: {result:?}"),
+        }
     }
 
     /// The deadline connect checks the server's user: a listener of this
@@ -698,7 +702,7 @@ mod tests {
     fn connect_checks_the_servers_user() {
         let root = crate::test_roots::TempRoot::new();
         let path = root.path().join("s.sock");
-        let _listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let _listener = UnixListener::bind(&path).unwrap();
         assert!(connect_unix_with_timeout(&path, Duration::from_secs(1)).is_ok());
     }
 
