@@ -2,16 +2,36 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextHistory
 import Foundation
 
-/// Where Open Chat puts the chat: the focused pane (the palette), or a new
-/// pane split to its right (the sidebar's All chats, Lawrence 2026-10-09).
-enum ChatOpenPlacement: Sendable, Equatable {
-    case currentPane
-    case splitRight
+/// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
+/// NEW WORKSPACE and focus moves there; a chat a tab already resumes shows that tab instead of a
+/// duplicate. Pure, so the decision is tested without windows.
+enum ChatOpenRoute: Equatable {
+    /// The tab (`TabModel.id`) that already resumes this chat.
+    case reveal(tab: String)
+    /// A new workspace named `name`: its first tab is the adopted agent chat (`seed`), or a
+    /// terminal that runs `command` (the harness's resume argv, shell-quoted) with `env`.
+    case newWorkspace(name: String?, cwd: String?, seed: AgentPaneSeed?, command: String?, env: [String: String])
+    case readOnly(path: String)
+    case needsFolder(reason: String)
+
+    static func route(_ plan: AcpmuxChatOpenPlan, title: String?, openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
+        switch plan.action {
+        case .needsFolder(let reason): .needsFolder(reason: reason)
+        case .readOnly(let path): .readOnly(path: path)
+        case .adopt(let adopt, let cwd, _):
+            openTab(adopt).map { .reveal(tab: $0) }
+                ?? .newWorkspace(name: title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+        case .terminal(let argv, let env, let cwd):
+            .newWorkspace(name: title, cwd: cwd, seed: nil, command: argv.map(AgentResume.shellQuoted).joined(separator: " "), env: env)
+        }
+    }
 }
 
-/// The one user-initiated Open Chat path shared by sidebar and palette.
+/// The one user-initiated Open Chat path shared by the sidebar's All chats, the palette and the
+/// New Tab cards.
 @MainActor
 final class ChatsOpenCoordinator {
     private weak var services: AppServices?
@@ -27,70 +47,52 @@ final class ChatsOpenCoordinator {
         }
     }
 
-    func open(_ key: String, placement: ChatOpenPlacement = .currentPane) {
+    func open(_ key: String) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
                 guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment, placement: placement)
+                await dispatch(plan, key: key, environment: environment)
             } catch {
                 services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         }
     }
 
-    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment,
-                          placement: ChatOpenPlacement) async {
+    private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment) async {
         guard let services else { return }
-        switch plan.action {
+        let title = services.chatsFeed?.chats.first { $0.id == key }?.title
+        switch ChatOpenRoute.route(plan, title: title, openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
-            // The chat opens in its pane and says why it has no folder, with Choose Folder there
-            // (cx-nn3e.1), never a bare Open panel.
-            guard let pane = services.windows.active?.focusedPane else { return }
-            let seed = AgentPaneSeedSource(AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)))
-            if placement == .splitRight, splitFits(pane) {
-                openAgentTabToTheRight(of: pane, seed: seed)
-            } else {
-                pane.openAgentTab(seed: seed, linked: true)
-            }
-        case .adopt(let adopt, let cwd, _):
-            guard let pane = services.windows.active?.focusedPane else { return }
-            let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, adopt: adopt))
-            // The chat already open in a tab shows that tab, wherever it is.
-            if placement == .splitRight, services.agentTabs.tab(resuming: adopt) == nil, splitFits(pane) {
-                openAgentTabToTheRight(of: pane, seed: seed)
-            } else {
-                pane.openAgentTab(seed: seed, linked: true)
-            }
-        case .terminal(let argv, let env, let cwd):
-            guard let pane = services.windows.active?.focusedPane,
-                  let workspace = services.workspaceKey(of: pane.pane),
-                  let connection = pane.daemon.connection else { return }
-            let split = placement == .splitRight && splitFits(pane)
-            let handle = pane.pane.handle
-            let content = pane.workspace
-            let intent = split ? content?.beginFocusIntent() : nil
-            services.registry.track(Task {
-                do {
-                    // `split` takes no argv: the chat's terminal is created, then moved into a split to the right.
-                    let created = try await connection.createTerminal(in: workspace, cwd: cwd, argv: argv, env: env)
-                    guard let surface = created.surface else { return nil }
-                    if split {
-                        let moved = try await connection.moveTabToSplit(surface, pane: handle, edge: .right)
-                        content?.expectFocus(on: moved.surface ?? surface, generation: intent)
-                    } else {
-                        pane.selectWhenReported(surface: surface)
-                    }
-                    return nil
-                } catch {
-                    return ActionWorkFailure("open chat", error)
-                }
-            })
+            // The chat opens (in its new workspace) and says why it has no folder, with Choose
+            // Folder there (cx-nn3e.1), never a bare Open panel.
+            createWorkspace(WorkspaceSpawn(name: title), seed: AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason)))
+        case .reveal(let tab):
+            _ = services.revealTab(tab)
+        case .newWorkspace(let name, let cwd, let seed, let command, let env):
+            createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed)
         case .readOnly(let path):
             guard let pane = services.windows.active?.focusedPane else { return }
             _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false)
         }
+    }
+
+    /// A new workspace in the active window whose first tab is `seed`'s chat (or `spawn`'s
+    /// command); it shows there and takes focus.
+    private func createWorkspace(_ spawn: WorkspaceSpawn, seed: AgentPaneSeed?) {
+        guard let services else { return }
+        var spawn = spawn
+        spawn.firstChat = seed
+        let windowID = services.windows.active?.state.id
+        services.registry.track(Task { @MainActor in
+            do {
+                _ = try await services.windows.createWorkspace(spawn, into: windowID)
+                return nil
+            } catch {
+                return ActionWorkFailure("open chat", error)
+            }
+        })
     }
 
     /// Choose Folder… in the pane of a chat whose folder is missing: acpmux's `chat_open` again
@@ -104,48 +106,11 @@ final class ChatsOpenCoordinator {
             case .adopt(let adopt, let cwd, _): return .adopt(adopt, cwd: cwd ?? folder)
             case .needsFolder(let reason): return .needsFolder(reason)
             case .terminal, .readOnly:
-                await dispatch(plan, key: key, environment: environment, placement: .currentPane)
+                await dispatch(plan, key: key, environment: environment)
                 return .opened
             }
         } catch {
             return .needsFolder(error.localizedDescription)
         }
-    }
-}
-
-extension ChatsOpenCoordinator {
-    /// Whether the focused pane has room for a split to its right; without
-    /// room the chat opens as a tab in that pane (never a refusal).
-    private func splitFits(_ pane: PaneController) -> Bool {
-        guard let services else { return false }
-        if case .split = services.splitRoom(for: pane.pane, edge: .right) { return true }
-        return false
-    }
-
-    /// A new agent tab on the chat in `pane`, moved into a new pane split to
-    /// its right once the store created it (the browser's new-split path).
-    private func openAgentTabToTheRight(of pane: PaneController, seed: AgentPaneSeedSource) {
-        guard let services else { return }
-        let pending: AgentTabPending
-        do {
-            pending = try services.agentTabs.open(in: pane.pane.handle, of: pane.daemon, seed: seed, linked: true)
-        } catch {
-            services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
-            return
-        }
-        // Not selected here: the tab moves to its own pane at once, so the current pane never flashes it.
-        let context = AppActionContext(services: services)
-        let model = pane.pane
-        services.registry.track(Task {
-            do {
-                let created = try await pending.value()
-                // Focus follows the chat into its new pane (a user click).
-                pane.workspace?.focus.followMovedTab(created.key, from: pane.paneKey)
-                PanePlacementRouting.moveToSplit(context, created.surface, of: model, direction: .right)
-                return nil
-            } catch {
-                return ActionWorkFailure("open chat", error)
-            }
-        })
     }
 }
