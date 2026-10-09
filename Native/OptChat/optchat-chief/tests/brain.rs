@@ -233,7 +233,14 @@ fn a_host_stopped_mid_turn_resumes_the_turn_and_answers_the_message_once() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 1, "one resume turn runs");
-    assert_eq!(prompts[0].last().unwrap()["text"], RESUMED);
+    // The resume turn carries the cut message's full text after the note
+    // (the reference client re-queues it); the log keeps it once.
+    let block = prompts[0].last().unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(block.starts_with(RESUMED), "{block}");
+    assert!(block.contains("hello"), "{block}");
     let log = h.log();
     assert_eq!(
         log.iter().filter(|(_, t)| t == "hello").count(),
@@ -254,6 +261,49 @@ fn a_host_stopped_mid_turn_resumes_the_turn_and_answers_the_message_once() {
     h.connect();
     h.settle();
     assert!(h.agents.inner.lock().unwrap().prompts.is_empty());
+    assert_eq!(h.owner.lock().unwrap().sends().len(), 1);
+}
+
+/// restart3 (2026-10-09): a newer message that arrives with the restart
+/// joins the resume turn. The cut message's full text goes in the turn's
+/// new messages before the newer one, so the reply answers both, the cut
+/// one first (the reference client's re-queued messages); neither is logged
+/// twice.
+#[test]
+fn a_resume_turn_with_a_newer_message_carries_the_cut_message_first() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "run the long task");
+    h.step();
+    h.agents.wait_prompts(1);
+    let mut h = stop_mid_turn(h, false);
+    // The newer message arrives while the host restarts.
+    {
+        let mut o = h.owner.lock().unwrap();
+        let seq = o.messages.len() as u64 + 1;
+        o.messages.push(message(seq, "user_local", "Are you back?"));
+    }
+    h.connect();
+    h.settle();
+    let prompts = h.agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(prompts.len(), 1, "one turn answers both");
+    let block = prompts[0].last().unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let cut = block.find("run the long task").expect(&block);
+    let newer = block.find("Are you back?").expect(&block);
+    let note = block.find(RESUMED).expect(&block);
+    assert!(note < cut && cut < newer, "{block}");
+    let log = h.log();
+    for text in ["run the long task", "Are you back?", RESUMED] {
+        assert_eq!(
+            log.iter().filter(|(_, t)| t == text).count(),
+            1,
+            "{text}: {log:?}"
+        );
+    }
     assert_eq!(h.owner.lock().unwrap().sends().len(), 1);
 }
 
