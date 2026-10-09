@@ -42,6 +42,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -98,6 +108,8 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -125,8 +137,6 @@ on:
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
@@ -142,6 +152,16 @@ on:
       - scripts/cmux-next/build-app-ffi.sh
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
+      - scripts/ci/cmux-tui-darwin-builder
+      - scripts/ci/macho_weaken.py
+      - scripts/ci/macos-cross.sh
+      - scripts/ci/macos-stubs/**
+      - scripts/ci/macos_stubs.py
+      # cmux-tui tree-key inputs: the crates embed these files.
+      - backend/packages/home-core/conformance/**
+      - mux/packages/brain/conformance/**
+      - skills/cmux-browser/**
+      - skills/cmux-cua/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -198,6 +218,8 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      # The bundled CLI shims DaemonBundledCLIEnvironmentTests reads.
+      - Resources/bin/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -695,6 +717,7 @@ jobs:
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
+          bash scripts/cmux-next/tests/tree-key-embeds.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
@@ -715,6 +738,8 @@ jobs:
           bash scripts/cmux-next/tests/cef-license.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
           bash scripts/cmux-next/tests/cef-build-flags.test.sh
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+          bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
           bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
           bash scripts/cef/tests/test-embedder-step.test.sh
 

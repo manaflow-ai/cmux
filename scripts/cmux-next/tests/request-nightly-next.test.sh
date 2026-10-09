@@ -29,7 +29,13 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
+mkdir -p "$src/.github/workflows"
+# A real nightly.yml is large and names the gate early: a reader that stops at
+# the first match must not turn that into a failure (feat-cmux-next push run
+# 37818675501 refused 551654ba57bc, whose nightly.yml has the gate).
+{ echo "env: {NIGHTLY_NEXT_NOTARY_PAUSED: x}"; for i in $(seq 1 20000); do echo "# filler line $i of a large workflow"; done; } > "$src/.github/workflows/nightly.yml"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
@@ -145,11 +151,70 @@ request --tree-ready "$head"
 ! dispatched "$app" && ! dispatched "$head" || fail "a commit without a green Release compile must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "Release compile" <<<"$out" || fail "the skip must name the Release compile:" "$out"
 
+# A commit with the same tree that does not descend from the published one
+# (an older line of history) is never requested: only commits from the tree's
+# publisher onward are candidates, so the job reads a short window.
+git_q -C "$src" checkout -q -b aside "$head^"
+echo two > "$src/cmux-tui/a"; echo aside > "$src/Aside.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree, other line"
+aside=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$aside")" == "$(key "$head")" ]] || fail "fixture: the aside commit must share the tree"
+git_q -C "$src" checkout -q --detach "$head"
+runs 15 "$aside" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 15 completed success; jobs 11 completed success
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$aside" \
+  || fail "a same-tree commit that does not descend from the publisher must not be requested:" "$out" "$(cat "$TMP/gh.log")"
+
 # A run on another branch never counts.
 runs 12 "$app" other 11 "$head" other
 jobs 12 completed success; jobs 11 completed success
 request --tree-ready "$head"
 ! dispatched "$app" && ! dispatched "$head" || fail "a Release compile on another branch must not count"
+
+# A commit whose nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate would
+# notarize while the pause is on: never promoted, from either side.
+git_q -C "$src" checkout -q -b nogate "$head"
+echo "env: {}" > "$src/.github/workflows/nightly.yml"; git_q -C "$src" add -A; git_q -C "$src" commit -m "workflow without the gate"
+nogate=$(git -C "$src" rev-parse HEAD)
+request --sha "$nogate" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$nogate" || fail "a commit without the notary gate must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "NIGHTLY_NEXT_NOTARY_PAUSED" <<<"$out" || fail "the refusal must name the gate:" "$out"
+runs 14 "$nogate" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 14 completed success; jobs 11 completed success
+git_q -C "$src" checkout -q --detach "$head"
+request --tree-ready "$head"
+[[ "$status" == 0 ]] && dispatched "$head" && ! dispatched "$nogate" \
+  || fail "--tree-ready must pass over a newer commit without the gate for the gated publisher:" "$out" "$(cat "$TMP/gh.log")"
+
+# The --tree-ready search must finish inside its job: it reads one page of push
+# runs and fetches the branch's recent history in one call. Run 37779960297's
+# request job paginated every cmux-next push run, then fetched up to 30 commits
+# one at a time, and hit the timeout, so nothing was promoted after 12:46Z on
+# 2026-10-08.
+runs 13 "$other" feat-cmux-next 12 "$app" feat-cmux-next 11 "$head" feat-cmux-next
+jobs 13 completed success; jobs 12 completed success; jobs 11 completed success
+request --tree-ready "$head"
+runs_call=$(grep 'actions/workflows/cmux-next.yml/runs' "$TMP/gh.log" || true)
+[[ -n "$runs_call" && "$runs_call" != *--paginate* ]] || fail "the push runs must be read as one page:" "${runs_call:-no runs call}"
+git -C "$src" config uploadpack.allowAnySHA1InWant true
+git -C "$src" update-ref refs/heads/feat-cmux-next "$other"
+shallow="$TMP/shallow"
+git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
+real_git=$(command -v git)
+mkdir -p "$TMP/gitbin"
+cat > "$TMP/gitbin/git" <<STUB
+#!/usr/bin/env bash
+for arg in "\$@"; do [[ "\$arg" == fetch ]] && { printf '%s\n' "\$*" >> "$TMP/git.log"; break; }; done
+exec "$real_git" "\$@"
+STUB
+chmod +x "$TMP/gitbin/git"
+: > "$TMP/git.log"; : > "$TMP/gh.log"
+status=0
+out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" \
+  bash scripts/cmux-next/request-nightly-next.sh --repo o/r --tree-ready "$head" 2>&1) || status=$?
+[[ "$status" == 0 ]] && dispatched "$app" || fail "a shallow checkout must still promote the newest green commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+fetches=$(grep -c . "$TMP/git.log" || true)
+[[ "$fetches" -le 1 ]] || fail "the missing commits must be fetched in one call, got $fetches:" "$(cat "$TMP/git.log")"
 
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green

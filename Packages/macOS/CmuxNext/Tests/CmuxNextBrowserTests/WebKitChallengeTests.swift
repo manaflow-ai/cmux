@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
@@ -18,6 +19,11 @@ struct WebKitChallengeTests {
         #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: digest, failures: 2, trusted: false, excepted: false) == D.askCredentials)
         #expect(WebKitTab.decide(method: basic, failures: 5, trusted: false, excepted: false) == D.cancel, "stop asking after 5 failures")
+        // WebKit's proposed credential (system stores the user did not pick for
+        // this tab) never answers on its own; only cmux's remembered login does.
+        #expect(WebKitTab.decide(method: basic, failures: 0, trusted: false, excepted: false, proposed: true) == D.askCredentials)
+        #expect(WebKitTab.decide(method: basic, failures: 1, trusted: false, excepted: false, proposed: true) == D.askCredentials)
+        #expect(WebKitTab.decide(method: trust, failures: 0, trusted: false, excepted: false, proposed: true) == D.defaultHandling)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: true, excepted: false) == D.defaultHandling)
         #expect(WebKitTab.decide(method: trust, failures: 0, trusted: false, excepted: false) == D.defaultHandling,
                 "WebKit fails the load with the certificate error, which shows the interstitial")
@@ -60,10 +66,132 @@ struct WebKitChallengeTests {
         view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted, message: "untrusted",
                                    failingURL: URL(string: "https://self-signed.test/")))
         #expect(view.isCertificateInterstitial)
+        view.detailsButton.performClick(nil)
         view.proceedButton.performClick(nil)
         view.backButton.performClick(nil)
         #expect(proceeded && wentBack)
         view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "no host"))
         #expect(!view.isCertificateInterstitial)
+    }
+}
+
+/// cx-d0d.21: the sign-in sheet remembers nothing unless "Remember password"
+/// is checked; the certificate interstitial makes Back to Safety the default
+/// and keeps Proceed behind Show Details.
+@MainActor
+@Suite(.serialized)
+struct BrowserChallengeUITests {
+    static func answer(remember: Bool?) -> CmuxDialogAnswer {
+        var values: [String: CmuxDialogValue] = ["user": .text("ada"), "password": .text("s3cret")]
+        if let remember { values["remember"] = .bool(remember) }
+        return CmuxDialogAnswer(button: "sign-in", role: .default, values: values)
+    }
+
+    @Test func theSignInSheetOffersRememberUncheckedAndRemembersNothingByDefault() throws {
+        let spec = BrowserHTTPAuth.spec(host: "intranet.test", realm: "Staff", isSecure: true, failedBefore: false, user: nil)
+        let remember = spec.fields.first { $0.id == "remember" }
+        guard case .check(_, let title, let on)? = remember else {
+            Issue.record("no Remember check box")
+            return
+        }
+        #expect(!on, "unchecked by default")
+        #expect(!title.isEmpty)
+        let once = try #require(BrowserHTTPAuth.credential(for: Self.answer(remember: false)))
+        #expect(once.persistence == .forSession, "WebKit never keeps it past the session")
+        #expect(!BrowserHTTPAuth.remembers(Self.answer(remember: false)))
+        #expect(BrowserHTTPAuth.remembers(Self.answer(remember: true)))
+        #expect(!BrowserHTTPAuth.remembers(Self.answer(remember: nil)))
+    }
+
+    @Test func theRememberChoiceReachesTheResponse() throws {
+        let response = BrowserPromptDialogs.response(to: Self.answer(remember: true), for: .credentials(host: "h", realm: nil))
+        #expect(response == .credentials(user: "ada", password: "s3cret", remember: true))
+        #expect(try #require(BrowserHTTPAuth.urlCredential(for: response)).user == "ada")
+        let plain = BrowserPromptDialogs.response(to: Self.answer(remember: nil), for: .credentials(host: "h", realm: nil))
+        #expect(plain == .credentials(user: "ada", password: "s3cret", remember: false))
+        #expect(BrowserHTTPAuth.urlCredential(for: .cancel) == nil)
+    }
+
+    static let key = BrowserHTTPCredentialKey(profile: "p1", scheme: "http", host: "intranet.test", port: 8080, realm: "Staff",
+                                              method: NSURLAuthenticationMethodHTTPBasic)
+
+    @Test func aCheckedRememberIsUsedNextTimeAndAnUncheckedOneForgetsIt() {
+        let store = InMemoryHTTPCredentialStore()
+        let memory = BrowserHTTPSignInMemory(store: store, offTheRecord: false)
+        #expect(memory.remembered(Self.key, failures: 0) == nil, "nothing is remembered by default")
+        memory.record(.credentials(user: "ada", password: "pw", remember: false), for: Self.key, failures: 0)
+        #expect(memory.remembered(Self.key, failures: 0) == nil)
+        memory.record(.credentials(user: "ada", password: "pw", remember: true), for: Self.key, failures: 0)
+        #expect(memory.remembered(Self.key, failures: 0) == BrowserHTTPRememberedLogin(user: "ada", password: "pw"))
+        #expect(memory.remembered(Self.key, failures: 1) == nil, "after a failure the user is asked again")
+        // Another profile, realm or port shares nothing.
+        var other = Self.key
+        other.profile = "p2"
+        #expect(memory.remembered(other, failures: 0) == nil)
+        other = Self.key
+        other.port = 8081
+        #expect(memory.remembered(other, failures: 0) == nil)
+        // Signing in again without Remember forgets the saved login.
+        memory.record(.credentials(user: "ada", password: "new", remember: false), for: Self.key, failures: 0)
+        #expect(memory.remembered(Self.key, failures: 0) == nil)
+        // Cancel keeps a saved login on a first ask, and forgets it after it failed.
+        memory.record(.credentials(user: "ada", password: "pw", remember: true), for: Self.key, failures: 0)
+        memory.record(.cancel, for: Self.key, failures: 0)
+        #expect(memory.remembered(Self.key, failures: 0) != nil)
+        memory.record(.cancel, for: Self.key, failures: 1)
+        #expect(memory.remembered(Self.key, failures: 0) == nil, "a wrong saved password is not sent again")
+    }
+
+    @Test func anIncognitoProfileNeverRemembers() {
+        let store = InMemoryHTTPCredentialStore()
+        store.save(BrowserHTTPRememberedLogin(user: "ada", password: "pw"), for: Self.key)
+        let incognito = BrowserHTTPSignInMemory(store: store, offTheRecord: true)
+        #expect(incognito.remembered(Self.key, failures: 0) == nil, "an incognito tab does not read saved logins")
+        var other = Self.key
+        other.realm = "Other"
+        incognito.record(.credentials(user: "bob", password: "x", remember: true), for: other, failures: 0)
+        #expect(store.login(for: other) == nil, "an incognito tab does not save")
+    }
+
+    @Test func theInterstitialMakesBackToSafetyTheDefaultAndHidesProceedBehindDetails() throws {
+        let view = LoadErrorView()
+        var proceeded = false, wentBack = 0
+        view.onProceed = { proceeded = true }
+        view.onBack = { wentBack += 1 }
+        let error = BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted,
+                                     message: "The certificate for this server is invalid.",
+                                     failingURL: URL(string: "https://self-signed.test/"))
+        view.show(error)
+        #expect(view.backButton.title == Strings.certificateBackToSafety)
+        #expect(!view.backButton.isHidden)
+        #expect(view.proceedButton.isHidden, "Proceed waits behind Show Details")
+        #expect(view.detailsLabel.isHidden)
+        #expect(!view.detailsButton.isHidden)
+        #expect(view.detailsButton.title == Strings.certificateShowDetails)
+        // Return on the interstitial goes back to safety; it never proceeds.
+        let returnKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: 0, context: nil, characters: "\r",
+                                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        #expect(view.acceptsFirstResponder)
+        let commandReturn = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                                                          windowNumber: 0, context: nil, characters: "\r",
+                                                          charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        view.keyDown(with: commandReturn)
+        #expect(wentBack == 0, "Cmd-Return is not Back to Safety")
+        view.keyDown(with: returnKey)
+        #expect(wentBack == 1 && !proceeded)
+        view.detailsButton.performClick(nil)
+        #expect(!view.proceedButton.isHidden)
+        #expect(!view.detailsLabel.isHidden)
+        #expect(view.detailsLabel.stringValue.contains("self-signed.test"))
+        #expect(view.detailsButton.title == Strings.certificateHideDetails)
+        view.proceedButton.performClick(nil)
+        #expect(proceeded)
+        // A new warning starts with the details closed again.
+        view.show(error)
+        #expect(view.proceedButton.isHidden && view.detailsLabel.isHidden)
+        // Another load error shows neither.
+        view.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "no host"))
+        #expect(view.detailsButton.isHidden && view.proceedButton.isHidden)
     }
 }

@@ -10,7 +10,7 @@ extension AppControl {
     func registerInputMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("debug.desync") { [weak services] call in
-                guard let monitor = services?.inputMonitor else { return .value(.null) }
+                guard let monitor = services?.input.monitor else { return .value(.null) }
                 return .value(Self.desync(call.params, monitor: monitor))
             },
             .mainActor("debug.journal") { call in .value(Self.journal(call.params)) },
@@ -18,7 +18,7 @@ extension AppControl {
                 let source = call.params["source"]?.stringValue ?? "journal"
                 let entries: [InputJournalEntry]
                 if source == "report" {
-                    guard let report = services?.inputMonitor.reports.last else { return .value(["error": "no desync report"]) }
+                    guard let report = services?.input.monitor.reports.last else { return .value(["error": "no desync report"]) }
                     entries = report.journal
                 } else {
                     entries = InputJournal.shared.entries()

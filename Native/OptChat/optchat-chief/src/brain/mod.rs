@@ -71,7 +71,8 @@ pub enum Input {
     },
     TurnEnded {
         key: String,
-        outcome: TurnOutcome,
+        /// Boxed: the outcome and its stats are the largest input.
+        outcome: Box<TurnOutcome>,
     },
     /// Something the user must hear once (the compactor cannot build a
     /// node): posted in the Chief conversation, with `key` as its
@@ -537,7 +538,7 @@ impl Brain {
                 let blocks = self.boundary(&key);
                 let _ = reply.send(blocks);
             }
-            Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
+            Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::SpawnRegister { tasks, reply } => {
                 let plan = self.register_spawn(&tasks);

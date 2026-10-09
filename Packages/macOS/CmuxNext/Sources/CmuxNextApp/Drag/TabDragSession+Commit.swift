@@ -35,7 +35,7 @@ extension TabDragSession {
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
-                self?.services.inputMonitor.noteChange()
+                self?.services.input.monitor.noteChange()
                 // The view change of a landed user drop, after the echo.
                 if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
             }
@@ -191,7 +191,8 @@ extension TabDragSession {
 
     func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?, select: Bool = true) {
         services.windows.claim(workspaceID: key.rawValue, in: state, select: select)
-        if let slot { services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot) }
+        // No gap (a drop that names no slot): the `workspaces.newPlacement` slot.
+        services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot)
     }
 
     /// The view change after a landed drop (`DropRevealPolicy`): drags are

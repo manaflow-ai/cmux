@@ -39,7 +39,7 @@ enum WorkspaceGroupHandlers {
             try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            guard context.usesPersonalGroups else { throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapabilities.shared.profiles)) }
+            guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
@@ -85,6 +85,7 @@ enum WorkspaceGroupHandlers {
             // (Close All Workspaces in Group is the verb that closes them).
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
+        registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
         // A pinned (saved) group stays when its workspaces close.
@@ -97,25 +98,25 @@ enum WorkspaceGroupHandlers {
             // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu)
             // the shared icon picker opens and its pick takes the same path.
             let group = try context.group(invocation)
-            let sidebar = try context.sidebar()
-            let id = sidebarID(group)
+            let history = IconHistory.workspaceGroup(context), id = group.id.rawValue
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
-                return sidebar.handle(.setGroupIcon(id, icon))
+                return try history.change(id, from: group.icon, to: icon, origin: invocation.origin)
             }
             guard let anchor = context.services.iconPicker.anchor(group: group.id.rawValue) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
             }
-            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(group.id.rawValue)", at: anchor) { [weak sidebar] result in
+            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(id)", at: anchor) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): sidebar?.handle(.setGroupIcon(id, icon))
-                case .clear: sidebar?.handle(.setGroupIcon(id, nil))
+                case .set(let icon) where WorkspaceIconValue.isValid(icon): try? history.change(id, from: group.icon, to: icon, origin: .user)
+                case .clear: try? history.change(id, from: group.icon, to: nil, origin: .user)
                 case .set, .cancel: break
                 }
             }
         })
         registry.bind("workspaceGroup.clearIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
-            try edit(invocation, context) { .setGroupIcon($0, nil) }
+            let group = try context.group(invocation)
+            try IconHistory.workspaceGroup(context).change(group.id.rawValue, from: group.icon, to: nil, origin: invocation.origin)
         })
         registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
@@ -131,6 +132,8 @@ enum WorkspaceGroupHandlers {
         Task {
             var spawn = WorkspaceSpawn()
             spawn.opensNewTabPage = newTabPage
+            // Placed into the group below, not at the new-workspace slot.
+            spawn.placesBySetting = false
             guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {

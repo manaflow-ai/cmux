@@ -58,7 +58,11 @@ final class TopHomePageView: NSView {
 
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
-        list.onSelect = { [weak self] id in self?.show(id) }
+        // Opening a conversation from the list reads it, so a Mark as Unread ends there.
+        list.onSelect = { [weak self] id in
+            sidebar.setMarkedUnread(false, id)
+            self?.show(id)
+        }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
         list.onSetPinned = { [weak self] on, id in
             sidebar.setPinned(on, id)
@@ -70,13 +74,15 @@ final class TopHomePageView: NSView {
         }
         let home = services.home
         let registry = services.registry
-        // Mark as Read: the read cursor moves to the newest message.
+        // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
-            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return }
+            sidebar.setMarkedUnread(false, id)
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.unread > 0 else { return }
             let store = home.homeStore
             // task-owner: one op; ends with the owner's answer
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
+        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
         // Archive Chief on a Chief's row (the same action as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
@@ -107,7 +113,9 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _) in Observations({ (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins) }) {
+            for await (all, archived, _, _, _) in Observations({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())

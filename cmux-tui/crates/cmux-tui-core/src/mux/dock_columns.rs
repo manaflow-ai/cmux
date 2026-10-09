@@ -230,8 +230,9 @@ impl Mux {
     /// edge, or clear its flag with `None`. `transaction` is the requesting
     /// `(client, transaction)` pair; changes with the same pair coalesce into
     /// one layout-undo entry, like viewport resizes.
-    pub fn set_column_dock(
+    pub fn set_column_dock_as(
         self: &Arc<Self>,
+        actor: &Actor,
         pane: PaneId,
         dock: Option<ColumnDock>,
         transaction: Option<(u64, u64)>,
@@ -279,7 +280,7 @@ impl Mux {
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-column-dock"),
+                &WorkspaceMutation::local("cmux-tui-column-dock", actor.clone()),
                 COLUMN_DOCK_OPERATION,
                 &fingerprint,
                 None,

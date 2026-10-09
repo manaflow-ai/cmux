@@ -111,6 +111,7 @@ enum DebugOnboarding {
                      "kinds": .array(profile.importableKinds.map { .string($0.rawValue) })])
         })
         result["kinds"] = .array(model.importer.kinds.map(\.rawValue).sorted().map(JSONValue.string))
+        result["merge_target"] = model.importer.mergeTarget.map(JSONValue.string) ?? .null
         if case .finished(let summary) = model.importer.phase {
             let counts = summary.counts
             result["counts"] = .object(["bookmarks": JSONValue(counts.bookmarks), "history": JSONValue(counts.history),

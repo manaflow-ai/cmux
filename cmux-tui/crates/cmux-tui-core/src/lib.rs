@@ -72,6 +72,8 @@ mod surface;
 mod terminal_backend;
 mod terminal_end;
 #[cfg(unix)]
+mod terminal_loss_cause;
+#[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
 pub mod terminal_respawn_text;
@@ -79,8 +81,12 @@ pub mod terminal_respawn_text;
 mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+mod host_exe;
 pub mod layout;
 pub mod platform;
+#[cfg(unix)]
+mod process_identity;
 pub mod process_resources;
 pub mod server;
 pub mod terminal_host;
@@ -88,13 +94,19 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
     stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+/// The owner raises its open-file soft limit at start; terminal hosts and
+/// PTY children get the original back (`cmux_pty::open_files`).
+#[cfg(unix)]
+pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
+pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
 pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
@@ -158,7 +170,6 @@ pub use workspace_registry::{
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
-pub use cmux_tui_cdp::BrowserMode;
 pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;

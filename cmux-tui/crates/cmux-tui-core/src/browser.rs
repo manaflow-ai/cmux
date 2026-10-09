@@ -1,11 +1,13 @@
 use std::collections::{HashMap, VecDeque};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome, FrameEpoch,
+    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, FrameEpoch,
     TargetCreated, resolve_browser_ws_url,
 };
 
@@ -581,7 +583,6 @@ impl ActivePointerPress {
 
 pub struct BrowserRuntime {
     client: CdpClient,
-    chrome: Option<Chrome>,
     source: BrowserSource,
     endpoint: String,
     bearer_token: Option<String>,
@@ -726,6 +727,10 @@ pub struct BrowserSurface {
     navigation_hold: Mutex<navigation_hold::NavigationHold>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
+    /// Navigation commit waits that ran out their deadline: a test observes
+    /// that a path never waited for an epoch, without timing it.
+    #[cfg(test)]
+    navigation_commit_wait_timeouts: AtomicUsize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -769,8 +774,8 @@ const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(100);
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
-        let (web_socket_url, chrome, source) = runtime_endpoint(opts)?;
-        Self::connect_to_endpoint(&web_socket_url, chrome, source)
+        let (web_socket_url, source) = runtime_endpoint(opts)?;
+        Self::connect_to_endpoint(&web_socket_url, source)
     }
 
     pub(crate) fn connect_provider(
@@ -779,7 +784,6 @@ impl BrowserRuntime {
     ) -> anyhow::Result<Arc<Self>> {
         Self::connect_to_endpoint_with_bearer(
             endpoint,
-            None,
             BrowserSource::Provider,
             authentication.bearer_token(),
         )
@@ -787,15 +791,13 @@ impl BrowserRuntime {
 
     fn connect_to_endpoint(
         web_socket_url: &str,
-        chrome: Option<Chrome>,
         source: BrowserSource,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_to_endpoint_with_bearer(web_socket_url, chrome, source, None)
+        Self::connect_to_endpoint_with_bearer(web_socket_url, source, None)
     }
 
     fn connect_to_endpoint_with_bearer(
         web_socket_url: &str,
-        chrome: Option<Chrome>,
         source: BrowserSource,
         bearer_token: Option<&str>,
     ) -> anyhow::Result<Arc<Self>> {
@@ -808,7 +810,6 @@ impl BrowserRuntime {
         };
         let runtime = Arc::new(BrowserRuntime {
             client,
-            chrome,
             source,
             endpoint: web_socket_url.to_string(),
             bearer_token: bearer_token.map(str::to_string),
@@ -964,9 +965,6 @@ impl BrowserRuntime {
     pub fn shutdown(&self) {
         close_browser_runtime(self, "browser runtime shut down".to_string());
         let _ = self.client.flush_outbound(Duration::from_secs(1));
-        if let Some(chrome) = &self.chrome {
-            chrome.kill();
-        }
     }
 }
 
@@ -1088,6 +1086,8 @@ pub(crate) fn new_surface_with_resource_identity(
         navigation_hold: Mutex::default(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
+        #[cfg(test)]
+        navigation_commit_wait_timeouts: AtomicUsize::new(0),
     }));
     start_browser_worker(
         surface.clone(),
@@ -1141,16 +1141,14 @@ fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
     (width, height)
 }
 
-fn runtime_endpoint(
-    opts: &SurfaceOptions,
-) -> anyhow::Result<(String, Option<Chrome>, BrowserSource)> {
+fn runtime_endpoint(opts: &SurfaceOptions) -> anyhow::Result<(String, BrowserSource)> {
     if let Ok(url) = std::env::var("CMUX_MUX_CDP_URL")
         && !url.trim().is_empty()
     {
-        return Ok((resolve_browser_ws_url(&url)?, None, BrowserSource::External));
+        return Ok((resolve_browser_ws_url(&url)?, BrowserSource::External));
     }
     if let Some(url) = opts.cdp_url.as_deref().filter(|url| !url.trim().is_empty()) {
-        return Ok((resolve_browser_ws_url(url)?, None, BrowserSource::External));
+        return Ok((resolve_browser_ws_url(url)?, BrowserSource::External));
     }
     anyhow::bail!(
         "no cmux-browser provider is attached; launch cmux-browser or set CMUX_MUX_CDP_URL for an explicit development endpoint"
@@ -3935,7 +3933,13 @@ impl BrowserSurface {
         // Command acknowledgment does not mean the document committed. The
         // ingress navigation event owns this barrier and may arrive after the
         // short synchronous wait on a slow page.
-        let _ = self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
+        let committed =
+            self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
+        #[cfg(test)]
+        if !committed {
+            self.navigation_commit_wait_timeouts.fetch_add(1, Ordering::AcqRel);
+        }
+        let _ = committed;
     }
 
     fn finish_navigation_command<T>(
@@ -5407,6 +5411,9 @@ mod tests {
     use tungstenite::{Message, accept};
 
     const BROWSER_TEST_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+    /// Real time that only ends a failing run: a passing run never waits
+    /// for it, so a slow thread under full-suite load is not a failure.
+    const BROWSER_TEST_SAFETY_BOUND: Duration = Duration::from_secs(30);
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -5443,7 +5450,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5492,7 +5498,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5520,7 +5525,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5572,7 +5576,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5589,11 +5592,14 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
             write_ws_json(&mut ws, json!({"id": discover["id"], "result": {}}));
+            // The short timeout only paces the stop check below. Set before
+            // the handshake, it failed the handshake whenever the client
+            // took longer than 50 ms to connect under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(50))).unwrap();
 
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -5639,7 +5645,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -5693,7 +5698,6 @@ mod tests {
             .unwrap();
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Provider,
         )
         .unwrap();
@@ -5888,7 +5892,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Launched,
         )
         .unwrap();
@@ -5988,7 +5991,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::Launched,
         )
         .unwrap();
@@ -6042,7 +6044,6 @@ mod tests {
             done_tx
                 .send(super::BrowserRuntime::connect_to_endpoint(
                     &format!("ws://{addr}/devtools/browser/fake"),
-                    None,
                     BrowserSource::External,
                 ))
                 .unwrap();
@@ -6063,7 +6064,6 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let (flood_tx, flood_rx) = mpsc::channel();
         let (sent_tx, sent_rx) = mpsc::channel();
-        let (reply_tx, reply_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::Builder::new()
             .name("browser-surface-backpressure-fake-cdp".into())
@@ -6091,11 +6091,15 @@ mod tests {
                     );
                 }
                 sent_tx.send(()).unwrap();
-                reply_rx.recv().unwrap();
+                // The reply follows the whole flood on the socket, so the
+                // client reads it only if the stalled route did not block
+                // the shared reader.
+                let version = read_ws_json(&mut ws);
+                assert_eq!(version["method"], "Browser.getVersion");
                 write_ws_json(
                     &mut ws,
                     json!({
-                        "id": 2,
+                        "id": version["id"],
                         "result": {"userAgent": "Mozilla/5.0 Chrome/136.0 Safari/537.36"}
                     }),
                 );
@@ -6105,23 +6109,21 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
         let _stalled_route = runtime.register("target-stalled", "session-stalled");
         flood_tx.send(()).unwrap();
-        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        thread::sleep(Duration::from_millis(50));
+        sent_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
 
         let client = runtime.client.clone();
         let (version_tx, version_rx) = mpsc::channel();
         let version_call = thread::spawn(move || {
             version_tx.send(client.browser_version()).unwrap();
         });
-        thread::sleep(Duration::from_millis(20));
-        reply_tx.send(()).unwrap();
-        let version = version_rx.recv_timeout(Duration::from_millis(200));
+        // A blocked reader never delivers the reply, so this bound only ends
+        // a failing run; a passing one does not depend on timing.
+        let version = version_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
         stop_tx.send(()).unwrap();
         runtime.shutdown();
         server.join().unwrap();
@@ -6300,7 +6302,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6342,7 +6343,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6385,7 +6385,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6474,7 +6473,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -6540,7 +6538,6 @@ mod tests {
 
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -7002,23 +6999,11 @@ mod tests {
             cdp_url: Some("ws://127.0.0.1:9/devtools/browser/explicit".to_string()),
             ..opts.clone()
         };
-        let (url, chrome, source) = runtime_endpoint(&explicit_opts).unwrap();
+        let (url, source) = runtime_endpoint(&explicit_opts).unwrap();
         assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/explicit");
-        assert!(chrome.is_none());
         assert_eq!(source, BrowserSource::External);
 
-        let error = runtime_endpoint(&opts).err().expect("provider-less runtime must fail");
-        assert!(error.to_string().contains("no cmux-browser provider is attached"));
-
-        let discover_opts = SurfaceOptions {
-            browser_discover: true,
-            browser_discover_ports: vec![9],
-            chrome_binary: Some("/definitely/missing/chrome".to_string()),
-            ..opts
-        };
-        let error = runtime_endpoint(&discover_opts)
-            .err()
-            .expect("legacy discovery options must not launch or discover Chrome");
+        let error = runtime_endpoint(&opts).expect_err("provider-less runtime must fail");
         assert!(error.to_string().contains("no cmux-browser provider is attached"));
     }
 
@@ -7694,7 +7679,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -8720,8 +8704,10 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut ws = accept(stream).unwrap();
+            // Paces the stop check only; set after the handshake, which may
+            // take longer than 20 ms under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut capture_attempts = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -8804,7 +8790,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -8876,8 +8861,10 @@ mod tests {
         let (stop_tx, stop_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut ws = accept(stream).unwrap();
+            // Paces the stop check only; set after the handshake, which may
+            // take longer than 20 ms under load.
+            ws.get_mut().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
             let mut capture_attempts = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
@@ -8944,7 +8931,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9106,7 +9092,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9510,7 +9495,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -9609,7 +9593,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10177,7 +10160,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10225,7 +10207,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10255,7 +10236,6 @@ mod tests {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let (post_navigate_delay_tx, post_navigate_delay_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             let mut ws = accept(stream).unwrap();
@@ -10268,7 +10248,6 @@ mod tests {
                 &mut ws,
                 json!({"id": navigate["id"], "result": {"frameId": "main-frame"}}),
             );
-            let navigate_response_at = Instant::now();
             for expected in [
                 "Page.getFrameTree",
                 "Page.stopScreencast",
@@ -10280,9 +10259,6 @@ mod tests {
                 "Page.getFrameTree",
             ] {
                 let request = read_ws_json(&mut ws);
-                if expected == "Page.getFrameTree" {
-                    post_navigate_delay_tx.send(navigate_response_at.elapsed()).unwrap();
-                }
                 assert_eq!(request["method"], expected);
                 let result = match expected {
                     "Page.getFrameTree" => json!({
@@ -10306,7 +10282,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10321,8 +10296,6 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         let result = browser.navigate_blocking("https://example.test#same-document");
-        let post_navigate_delay =
-            post_navigate_delay_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let state = browser.state.lock().unwrap();
         let pending_frame_epoch = state.pending_frame_epoch;
         let pending_navigation_epoch = state.pending_navigation_epoch;
@@ -10342,9 +10315,10 @@ mod tests {
             Some(2),
             "the unchanged document must regain authority through freshly captured pixels"
         );
-        assert!(
-            post_navigate_delay < super::NAVIGATION_COMMIT_WAIT / 2,
-            "loaderless same-document navigation waited {post_navigate_delay:?} for an epoch that cannot advance"
+        assert_eq!(
+            browser.navigation_commit_wait_timeouts.load(Ordering::Acquire),
+            0,
+            "loaderless same-document navigation waited out an epoch that cannot advance"
         );
     }
 
@@ -10473,7 +10447,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10533,7 +10506,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10598,7 +10570,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10714,7 +10685,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10816,7 +10786,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -10902,7 +10871,6 @@ mod tests {
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
-            None,
             BrowserSource::External,
         )
         .unwrap();
@@ -11024,7 +10992,7 @@ mod tests {
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
         assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
-        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        started.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
             assert!(browser.enqueue_test_command(BrowserCommand::Activate));
         }
@@ -11063,7 +11031,7 @@ mod tests {
         let (entered, started) = mpsc::channel();
         let (release_worker, held) = mpsc::channel();
         assert!(browser.enqueue_test_command(BrowserCommand::Hold { entered, release: held }));
-        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        started.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
         for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
             assert!(browser.enqueue_test_command(BrowserCommand::Activate));
         }
@@ -11080,7 +11048,9 @@ mod tests {
             );
             settled_tx.send(result).unwrap();
         });
-        let settled_while_full = settled_rx.recv_timeout(Duration::from_millis(20)).is_ok();
+        // The worker is still held, so the queue stays full: a producer that
+        // blocked on it would never settle, and the bound only ends that run.
+        let settled_while_full = settled_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND);
         assert_eq!(
             browser.command_order.lock().unwrap().retained_releases.len(),
             1,
@@ -11088,18 +11058,18 @@ mod tests {
         );
 
         release_worker.send(()).unwrap();
-        if !settled_while_full {
+        if settled_while_full.is_err() {
             settled_rx
-                .recv_timeout(Duration::from_secs(1))
+                .recv_timeout(BROWSER_TEST_SAFETY_BOUND)
                 .expect("release enqueue should settle after the worker drains")
                 .unwrap();
         }
         enqueue.join().unwrap();
         browser.kill();
-        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
+        done.recv_timeout(BROWSER_TEST_SAFETY_BOUND).expect("browser worker exited after release");
 
         assert!(
-            settled_while_full,
+            settled_while_full.is_ok(),
             "retaining a release must not block the shared browser input producer"
         );
     }

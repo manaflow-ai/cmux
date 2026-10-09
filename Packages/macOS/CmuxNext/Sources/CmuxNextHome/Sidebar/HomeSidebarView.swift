@@ -17,8 +17,10 @@ public final class HomeSidebarView: NSView {
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there); call `update` before returning so the tiles land smoothly.
     public var onPlacePinned: (ConversationID, Int) -> Void = { _, _ in }
-    /// Mark as Read (the menu offers it only while the conversation has unread messages).
+    /// Mark as Read (the menu offers it while the conversation is unread or marked unread).
     public var onMarkRead: (ConversationID) -> Void = { _ in }
+    /// Mark as Unread (the menu offers it while the conversation is read).
+    public var onMarkUnread: (ConversationID) -> Void = { _ in }
     /// The host's context-menu items for a conversation (Archive Chief on a Chief).
     public var menuItems: (ConversationID) -> [NSMenuItem] = { _ in [] }
     /// Teammates matching a query that have no DM yet (the list's extra search section).
@@ -57,7 +59,9 @@ public final class HomeSidebarView: NSView {
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
-        list.onSetRead = { [weak self] read, id in if read { self?.onMarkRead(ConversationID(id)) } }
+        list.onSetRead = { [weak self] read, id in
+            if read { self?.onMarkRead(ConversationID(id)) } else { self?.onMarkUnread(ConversationID(id)) }
+        }
         list.menuItems = { [weak self] id in self?.menuItems(ConversationID(id)) ?? [] }
         list.searchSection = { [weak self] query in
             guard let self else { return nil }

@@ -93,13 +93,25 @@ pub(super) fn new_pane_right(
     let width = params.width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
     let size = optional_surface_size(params.cols, params.rows);
     if let Some(url) = params.content.browser_url("new-pane-right")? {
-        let surface =
-            mux.split_browser_pane(params.pane, SplitDir::Right, Some(width), url, size)?;
+        let surface = mux.split_browser_pane_as(
+            &origin_gate::connection_actor(mux, client),
+            params.pane,
+            SplitDir::Right,
+            Some(width),
+            url,
+            size,
+        )?;
         return Ok(json!({ "surface": surface.id }));
     }
     let keep = params.content.keep;
     let spawn = params.content.spawn(mux, client)?;
-    let surface = mux.new_pane_right_with_options(params.pane, width, spawn, size)?;
+    let surface = mux.new_pane_right_with_options_as(
+        &origin_gate::connection_actor(mux, client),
+        params.pane,
+        width,
+        spawn,
+        size,
+    )?;
     placed_terminal_result(mux, &surface, keep)
 }
 
@@ -107,12 +119,25 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
     let dir = parse_split_dir(&params.dir)?;
     let size = optional_surface_size(params.cols, params.rows);
     if let Some(url) = params.content.browser_url("split")? {
-        let surface = mux.split_browser_pane(params.pane, dir, None, url, size)?;
+        let surface = mux.split_browser_pane_as(
+            &origin_gate::connection_actor(mux, client),
+            params.pane,
+            dir,
+            None,
+            url,
+            size,
+        )?;
         return Ok(json!({ "surface": surface.id }));
     }
     let keep = params.content.keep;
     let spawn = params.content.spawn(mux, client)?;
-    let surface = mux.split_with_options(params.pane, dir, spawn, size)?;
+    let surface = mux.split_with_options_as(
+        &origin_gate::connection_actor(mux, client),
+        params.pane,
+        dir,
+        spawn,
+        size,
+    )?;
     placed_terminal_result(mux, &surface, keep)
 }
 

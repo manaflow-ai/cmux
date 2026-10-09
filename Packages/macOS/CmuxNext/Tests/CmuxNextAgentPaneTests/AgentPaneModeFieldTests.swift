@@ -157,14 +157,10 @@ import Testing
         #expect(sheets.asked == ["effort = high"])
     }
 
-    /// A non-mode option shows the option text; a mode keeps the mode text.
+    /// An option that is not free shows its id and value.
     @Test func aNonModeOptionShowsTheOptionText() {
         let option = AgentPaneView.confirmationSpec(.option(id: "fast", value: "true"))
-        let mode = AgentPaneView.confirmationSpec(.mode("bypassPermissions"))
         #expect(option.lines == [String(format: AgentPaneView.confirmOptionMessage, "fast", "true")])
-        #expect(mode.lines == [String(format: AgentPaneView.confirmModeMessage, "bypassPermissions")])
-        #expect(option.lines != mode.lines)
         #expect(option.lines.first?.contains("fast") == true && option.lines.first?.contains("true") == true)
-        #expect(option.lines.first?.contains("bypassPermissions") == false)
     }
 }
