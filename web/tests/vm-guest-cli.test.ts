@@ -203,6 +203,9 @@ esac
     expect(japanese.status).toBe(2);
     expect(japanese.stderr).toContain("共有 CodeRouter");
     expect(japanese.stderr).toContain("codex login --device-auth");
+    const claude = await runShim(["agent", "login", "cl"]);
+    expect(claude.status).toBe(2);
+    expect(claude.stderr).toContain("claude");
     const hermes = await runShim(["agent", "login", "hermes-agent"]);
     expect(hermes.status).toBe(2);
     expect(hermes.stderr).toContain("hermes login");

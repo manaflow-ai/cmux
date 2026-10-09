@@ -1,5 +1,5 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
@@ -52,7 +52,7 @@ describe("Cloud agent login regressions", () => {
     expect(result.stdout).not.toContain("REAL");
     expect(result.stderr).toContain("shared CodeRouter account");
   }));
-  test.each(["cx", "oc", "p", "h"])("shell shorthand %s reaches onboarding", (agent) => fixture(async (_home, run) => {
+  test.each(["cx", "oc", "p", "h", "cl"])("shell shorthand %s reaches onboarding", (agent) => fixture(async (_home, run) => {
     const result = await run(agent);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("shared CodeRouter account");
@@ -68,6 +68,24 @@ describe("Cloud agent login regressions", () => {
     expect(result.stdout).toContain("REAL");
     expect(result.stdout).not.toContain("edge.example");
     expect(result.stdout).not.toContain("cmux-vm-edge-placeholder");
+  }));
+  test("a failed native login does not leave a persistent native marker", () => fixture(async (home, run) => {
+    writeFileSync(join(home, "bin/claude"), "#!/bin/sh\nexit 17\n", { mode: 0o755 });
+    const result = await run("claude auth login", route);
+    expect(result.status).toBe(17);
+    expect(existsSync(join(home, ".config/cmux/agent-auth/claude.native"))).toBe(false);
+    writeFileSync(join(home, "bin/codex"), "#!/bin/sh\nexit 19\n", { mode: 0o755 });
+    const codex = await run("codex login", { ...route, DISPLAY: ":1" });
+    expect(codex.status).toBe(19);
+    expect(existsSync(join(home, ".config/cmux/agent-auth/codex.native"))).toBe(false);
+  }));
+  test("cx setup and doctor remain owned by an existing image CLI", () => fixture(async (_home, run) => {
+    writeFileSync(join(_home, "bin/cx"), "#!/bin/sh\nprintf 'SUBROUTER %s\\n' \"$1\"\n", { mode: 0o755 });
+    for (const command of ["setup", "doctor"]) {
+      const result = await run(`cx ${command}`);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`SUBROUTER ${command}`);
+    }
   }));
   test("Desktop Codex login opens on the VM without a cmux terminal id", () => fixture(async (_home, run) => {
     const result = await run("codex login", { DISPLAY: ":1" });
@@ -86,6 +104,7 @@ describe("Cloud agent login regressions", () => {
     expect(login.stdout).toContain("REAL --device-auth");
     expect(login.stdout).not.toContain("edge.example");
     mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex/config.toml"), 'model_provider = "cmux"\n');
     writeFileSync(join(home, ".codex/auth.json"), '{"tokens":{"access_token":"test-token"}}');
     const launch = await run("codex exec hello", route);
     expect(launch.status).toBe(0);
@@ -97,6 +116,14 @@ describe("Cloud agent login regressions", () => {
     const afterLogout = await run("codex exec hello", route);
     expect(afterLogout.status).toBe(1);
     expect(afterLogout.stderr).toContain("shared CodeRouter account");
+  }));
+  test("cmux agent entrypoint applies native routing cleanup", () => fixture(async (home, run) => {
+    const login = await run("cmux agent login codex --device-auth", route);
+    expect(login.status).toBe(0);
+    const launch = await run("cmux agent codex exec hello", route);
+    expect(launch.status).toBe(0);
+    expect(launch.stdout).not.toContain("edge.example");
+    expect(launch.stdout).not.toContain("cmux-vm-edge-placeholder");
   }));
   test.each(["404", "503", "000"])("unknown CodeRouter status %s preserves existing routes", (status) => fixture(async (_home, run) => {
     const result = await run("codex exec hello", { ...route, HTTP_STATUS: status });
@@ -117,5 +144,24 @@ describe("Cloud agent login regressions", () => {
     const result = await run("codex");
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("shared CodeRouter account");
+  }));
+  test("native OpenCode and Pi choices remove generated CodeRouter files", () => fixture(async (home, run) => {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true });
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ provider: { go: { options: { baseURL: "https://old.example/api/coderouter/opencode/proxy/go", apiKey: "{env:OPENAI_API_KEY}" } } } }));
+    mkdirSync(join(home, ".pi/agent"), { recursive: true });
+    writeFileSync(join(home, ".pi/agent/models.json"), JSON.stringify({ providers: { "openai-codex": { name: "cmux", baseUrl: "https://edge.example/v1", apiKey: "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature" } } }));
+    const opencode = await run("cmux agent login opencode --native", route);
+    expect(opencode.status).toBe(0);
+    expect(existsSync(join(home, ".config/opencode/opencode.json"))).toBe(false);
+    const pi = await run("cmux agent login pi --native", route);
+    expect(pi.status).toBe(0);
+    expect(readFileSync(join(home, ".pi/agent/models.json"), "utf8")).not.toContain("openai-codex");
+  }));
+  test("native OpenCode removes a legacy generated file without a sidecar", () => fixture(async (home, run) => {
+    mkdirSync(join(home, ".config/opencode"), { recursive: true });
+    writeFileSync(join(home, ".config/opencode/opencode.json"), JSON.stringify({ provider: { go: { options: { baseURL: "https://old.example/api/coderouter/opencode/proxy/go", apiKey: "{env:OPENAI_API_KEY}" } } } }));
+    const result = await run("cmux agent login opencode --native", route);
+    expect(result.status).toBe(0);
+    expect(existsSync(join(home, ".config/opencode/opencode.json"))).toBe(false);
   }));
 });

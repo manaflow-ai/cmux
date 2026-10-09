@@ -210,6 +210,7 @@ with (state / "opencode-config.lock").open("a") as lock:
     # deciding to retry or launch. Existing user configuration always wins.
     if config.exists() or config.is_symlink():
         sys.exit(0)
+    created = False
     try:
         age = time.time() - float(failure.read_text())
         if 0 <= age < 60:
@@ -239,10 +240,17 @@ with (state / "opencode-config.lock").open("a") as lock:
                 # Atomic write-if-absent, never replace a user edit made while
                 # the request was in flight, including an existing symlink.
                 os.link(temporary, config)
+                created = True
             except FileExistsError:
                 pass
         finally:
             os.unlink(temporary)
+        if created:
+            marker = config.with_name("opencode.json.cmux-managed")
+            try:
+                marker.write_text(hashlib.sha256(config.read_bytes()).hexdigest() + "\n")
+            except OSError:
+                pass
         failure.unlink(missing_ok=True)
     except (OSError, ValueError, subprocess.SubprocessError):
         if config.exists() or config.is_symlink():
@@ -268,6 +276,48 @@ cmux_agent_select_native() {
 
 cmux_agent_clear_native() {
   rm -f "$HOME/.config/cmux/agent-auth/$1.native"
+}
+
+cmux_agent_clear_generated_opencode_config() {
+  python3 - "${HOME:-}/.config/opencode/opencode.json" "${HOME:-}/.config/opencode/opencode.json.cmux-managed" <<'CMUX_OPENCODE_NATIVE'
+import hashlib, json, pathlib, sys
+config = pathlib.Path(sys.argv[1])
+marker = pathlib.Path(sys.argv[2])
+remove = False
+try:
+    expected = marker.read_text().strip()
+    actual = hashlib.sha256(config.read_bytes()).hexdigest()
+    remove = bool(expected and expected == actual)
+except (OSError, ValueError):
+    pass
+if not remove and not marker.exists():
+    try:
+        document = json.loads(config.read_text())
+        def generated_provider(value):
+            if isinstance(value, dict):
+                options = value.get("options")
+                if (isinstance(options, dict)
+                    and options.get("apiKey") == "{env:OPENAI_API_KEY}"
+                    and isinstance(options.get("baseURL"), str)
+                    and "/api/coderouter/opencode/proxy/" in options["baseURL"]):
+                    return True
+                return any(generated_provider(nested) for nested in value.values())
+            if isinstance(value, list):
+                return any(generated_provider(nested) for nested in value)
+            return False
+        remove = generated_provider(document.get("provider")) if isinstance(document, dict) else False
+    except (OSError, ValueError, TypeError):
+        pass
+if remove:
+    try:
+        config.unlink()
+    except OSError:
+        pass
+try:
+    marker.unlink()
+except OSError:
+    pass
+CMUX_OPENCODE_NATIVE
 }
 
 cmux_agent_auth_file() {
@@ -349,7 +399,10 @@ cmux_agent_coderouter_ready() {
 }
 
 cmux_agent_login_invocation() {
-  case "${1-}:${2-}" in login:status) return 1 ;; login:*|setup-token:*|auth:login|auth:signin) return 0 ;; esac
+  case "${1-}:${2-}:${3-}" in
+    login:status:*|login:--help:*|login:-h:*|auth:status:*|auth:--help:*|auth:-h:*|setup-token:--help:*|setup-token:-h:*|auth:signin:--help|auth:signin:-h) return 1 ;;
+    login:*|setup-token:*|auth:login:*|auth:signin:*) return 0 ;;
+  esac
   return 1
 }
 
@@ -381,11 +434,12 @@ cmux_agent_login_guide() {
 cmux_agent_auth_preflight() {
   cmux_agent_name="$1"; shift
   cmux_agent_mode=shared
+  cmux_agent_native_login_pending=0
   cmux_agent_browser=""
   cmux_agent_connect_hint=""
   # Management/help commands must remain available without a provider account.
   case "${1-}:${2-}" in
-    login:status|auth:status|auth:logout)
+    login:status|login:--help|login:-h|auth:status|auth:--help|auth:-h|setup-token:--help|setup-token:-h|auth:logout)
       if cmux_agent_native_mode "$cmux_agent_name" || cmux_agent_native_auth_ready "$cmux_agent_name"; then cmux_agent_mode=native; fi
       return 0
       ;;
@@ -413,12 +467,10 @@ cmux_agent_auth_preflight() {
         fi
       fi
     fi
-    # Codex's API-key and device-auth options establish their own credentials;
-    # only browser login (or the other agents' native login commands) needs a
-    # persistent mode marker to override the generated CodeRouter settings.
-    if [ "$cmux_agent_name" != codex ] || [ "$cmux_agent_browser" = vm ]; then
-      cmux_agent_select_native "$cmux_agent_name" || return 1
-    fi
+    # Keep the native choice ephemeral until the command succeeds. A cancelled
+    # or failed login must leave the shared CodeRouter route available. The
+    # runner persists the marker after a successful mutating login below.
+    cmux_agent_native_login_pending=1
     cmux_agent_mode=native
     return 0
   fi
@@ -428,12 +480,28 @@ cmux_agent_auth_preflight() {
   cmux_agent_login_guide "$cmux_agent_name"
 }
 
+# The guest cmux shim preflights once before dispatching an agent. Reuse that
+# result so a transient second account probe cannot reject an already accepted
+# launch (and so direct wrappers retain their normal preflight behavior).
+cmux_agent_prepare() {
+  cmux_agent_prepare_name="$1"; shift
+  if [ "${CMUX_AGENT_PREFLIGHT_AGENT-}" = "$cmux_agent_prepare_name" ]; then
+    cmux_agent_mode="${CMUX_AGENT_PREFLIGHT_MODE:-shared}"
+    unset CMUX_AGENT_PREFLIGHT_AGENT CMUX_AGENT_PREFLIGHT_MODE
+    return 0
+  fi
+  cmux_agent_auth_preflight "$cmux_agent_prepare_name" "$@"
+}
+
 cmux_agent_run() (
   cmux_agent_name_for_run="$1"
   case "$cmux_agent_name_for_run" in */cmux-opencode-real) cmux_agent_name_for_run=opencode ;; esac
   if [ "${cmux_agent_mode-}" = native ]; then
     # Scope changes to the child, preserving the user's shell and unrelated
     # provider overrides. Native login must not send the edge placeholder.
+    if [ "$1" = opencode ]; then
+      cmux_agent_clear_generated_opencode_config
+    fi
     if [ -n "${CMUX_CODEROUTER_URL-}" ]; then
       [ "${OPENAI_BASE_URL-}" != "${CMUX_CODEROUTER_URL%/}/v1" ] || unset OPENAI_BASE_URL
       [ "${ANTHROPIC_BASE_URL-}" != "${CMUX_CODEROUTER_URL%/}" ] || unset ANTHROPIC_BASE_URL
@@ -471,14 +539,32 @@ CMUX_PI_NATIVE
   cmux_agent_logout=0
   for cmux_agent_arg in "$@"; do [ "$cmux_agent_arg" = logout ] && cmux_agent_logout=1; done
   cmux_agent_run_rc=0
-  command "$@" || cmux_agent_run_rc=$?
+  if [ -n "${CMUX_AGENT_TIMEOUT-}" ] && command -v timeout >/dev/null 2>&1; then
+    timeout -k 5 "$CMUX_AGENT_TIMEOUT" "$@" || cmux_agent_run_rc=$?
+  else
+    command "$@" || cmux_agent_run_rc=$?
+  fi
+  if [ "$cmux_agent_run_rc" -eq 0 ] && [ "${cmux_agent_native_login_pending-}" = 1 ]; then
+    cmux_agent_select_native "$cmux_agent_name_for_run"
+  fi
   if [ "$cmux_agent_logout" -eq 1 ] && [ "${cmux_agent_mode-}" = native ]; then cmux_agent_clear_native "$cmux_agent_name_for_run"; fi
   return "$cmux_agent_run_rc"
 )
 
 # Bare shorthand commands share the same wrappers. `cc` stays the system C
 # compiler; the ambiguous spelling is accepted by `cmux agent login cc`.
-cx() { codex "$@"; }
+# Some images already ship `cx` for the Subrouter CLI. Preserve its setup and
+# doctor verbs while keeping the shorthand for ordinary Codex invocations.
+if command -v cx >/dev/null 2>&1; then
+  cx() {
+    case "${1-}" in
+      setup|doctor) command cx "$@" ;;
+      *) codex "$@" ;;
+    esac
+  }
+else
+  cx() { codex "$@"; }
+fi
 oc() { opencode "$@"; }
 p() { pi "$@"; }
 h() { hermes "$@"; }
@@ -487,13 +573,13 @@ cl() { claude "$@"; }
 # Shell and executable OpenCode launchers use the same preflight. The marker
 # avoids a second discovery request in the installed executable wrapper.
 opencode() (
-  cmux_agent_auth_preflight opencode "$@" || return $?
+  cmux_agent_prepare opencode "$@" || return $?
   if [ "$cmux_agent_mode" != native ] && ! cmux_agent_login_invocation "$@"; then cmux_ensure_opencode_config || return $?; fi
   CMUX_OPENCODE_PREFLIGHT="$cmux_agent_mode" cmux_agent_run opencode "$@"
 )
-claude() ( cmux_agent_auth_preflight claude "$@" && cmux_agent_run claude "$@" )
-pi() ( cmux_agent_auth_preflight pi "$@" && cmux_agent_run pi "$@" )
-hermes() ( cmux_agent_auth_preflight hermes "$@" && cmux_agent_run hermes "$@" )
+claude() ( cmux_agent_prepare claude "$@" && cmux_agent_run claude "$@" )
+pi() ( cmux_agent_prepare pi "$@" && cmux_agent_run pi "$@" )
+hermes() ( cmux_agent_prepare hermes "$@" && cmux_agent_run hermes "$@" )
 
 # claude folder-trust gate: claude's trust check short-circuits on
 # CLAUDE_CODE_SANDBOXED (the escape its own self-hosted runner provisioning
@@ -529,7 +615,7 @@ export DISABLE_AUTOUPDATER=1
 # Paths a TOML string cannot carry raw (quote, backslash, unprintable) are
 # skipped; codex then prompts, which beats failing its config parse.
 codex() (
-  cmux_agent_auth_preflight codex "$@" || return $?
+  cmux_agent_prepare codex "$@" || return $?
   local sub main d entries
   sub=$(git rev-parse --show-toplevel 2>/dev/null) || sub=$PWD
   main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || main=""

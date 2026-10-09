@@ -154,6 +154,9 @@ load_agent_config() {
 # The image's agent-config.sh replaces this with the auth-aware preflight. The
 # no-op keeps the guest CLI useful on older images and in bootstrap tests.
 cmux_agent_auth_preflight() { return 0; }
+cmux_agent_run() { command "\$@"; }
+cmux_agent_clear_generated_opencode_config() { :; }
+cmux_agent_prepare() { cmux_agent_auth_preflight "\$@"; }
 
 cmux_curl() {
   command -v curl >/dev/null 2>&1 || return 127
@@ -752,17 +755,30 @@ guest_coderouter_models() {
 # Run the agent in this terminal; with --timeout, under timeout(1) (exit 1 and
 # a message when the cap is hit, the agent's own code otherwise).
 agent_exec() {
+  # The agent-config wrappers carry native-mode environment cleanup, trust
+  # injection, and generated-provider cleanup. Use them when available; the
+  # fallback above keeps older images' guest CLI contract unchanged.
+  [ "\${1:-}" = "\$cmux_agent" ] && shift
   if [ -n "\${cmux_ag_timeout:-}" ]; then
-    cmux_ag_bin="\$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
-    if [ -n "\$cmux_ag_bin" ]; then
-      "\$cmux_ag_bin" -k 5 "\$cmux_ag_timeout" "\$@" && return 0
-      cmux_ag_rc=\$?
-      [ "\$cmux_ag_rc" -ne 124 ] || die "agent \$cmux_agent timed out after \${cmux_ag_timeout}s" 1
-      exit "\$cmux_ag_rc"
-    fi
-    warn "no timeout(1) on this machine; running \$cmux_agent without a cap"
+    CMUX_AGENT_TIMEOUT="\$cmux_ag_timeout"
+    export CMUX_AGENT_TIMEOUT
+  else
+    unset CMUX_AGENT_TIMEOUT
   fi
-  exec "\$@"
+  CMUX_AGENT_PREFLIGHT_AGENT="\$cmux_agent"
+  CMUX_AGENT_PREFLIGHT_MODE="\${cmux_agent_mode:-shared}"
+  export CMUX_AGENT_PREFLIGHT_AGENT CMUX_AGENT_PREFLIGHT_MODE
+  cmux_agent_exec_rc=0
+  case "\$cmux_agent" in
+    codex) codex "\$@" || cmux_agent_exec_rc=\$? ;;
+    claude) claude "\$@" || cmux_agent_exec_rc=\$? ;;
+    opencode) opencode "\$@" || cmux_agent_exec_rc=\$? ;;
+    pi) pi "\$@" || cmux_agent_exec_rc=\$? ;;
+    hermes) hermes "\$@" || cmux_agent_exec_rc=\$? ;;
+    *) command "\$cmux_agent" "\$@" || cmux_agent_exec_rc=\$? ;;
+  esac
+  [ "\$cmux_agent_exec_rc" -ne 124 ] || die "agent \$cmux_agent timed out after \${cmux_ag_timeout}s" 1
+  return "\$cmux_agent_exec_rc"
 }
 
 guest_coderouter_agent() {
@@ -797,6 +813,7 @@ guest_coderouter_agent() {
   # one-shot form, while flags/subcommands are passed through byte-for-byte.
   if [ "\$#" -eq 0 ]; then
     agent_exec "\$cmux_agent"
+    return "\$?"
   fi
   if [ "\$1" = "--" ]; then
     shift
@@ -810,11 +827,13 @@ guest_coderouter_agent() {
       hermes) set -- hermes "\$cmux_prompt" ;;
     esac
     agent_exec "\$@"
+    return "\$?"
   fi
   cmux_first="\$1"
   case "\$cmux_first" in
     -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
       agent_exec "\$cmux_agent" "\$@"
+      return "\$?"
       ;;
     *)
       cmux_prompt="\$*"
@@ -826,6 +845,7 @@ guest_coderouter_agent() {
         hermes) set -- hermes "\$cmux_prompt" ;;
       esac
       agent_exec "\$@"
+      return "\$?"
       ;;
   esac
 }
@@ -873,19 +893,21 @@ guest_agent_native_env() {
 }
 
 guest_agent_native_login() (
-  guest_agent_native_mark "\$1"
+  [ "\$1" = opencode ] && cmux_agent_clear_generated_opencode_config
   guest_agent_native_env
+  cmux_agent_mode=native
+  cmux_agent_native_login_pending=1
   case "\$1" in
     codex)
-      if [ "\$2" = --device-auth ]; then command codex login --device-auth
-      elif [ -n "\${DISPLAY-}\${WAYLAND_DISPLAY-}" ]; then CMUX_BROWSER_TARGET=vm command codex login
-      else command codex login --device-auth
+      if [ "\$2" = --device-auth ]; then cmux_agent_run codex login --device-auth
+      elif [ -n "\${DISPLAY-}\${WAYLAND_DISPLAY-}" ]; then CMUX_BROWSER_TARGET=vm cmux_agent_run codex login
+      else cmux_agent_run codex login --device-auth
       fi
       ;;
-    claude) command claude ;;
-    opencode) command opencode auth login ;;
-    pi) command pi ;;
-    hermes) command hermes login ;;
+    claude) cmux_agent_run claude ;;
+    opencode) CMUX_OPENCODE_PREFLIGHT=native cmux_agent_run opencode auth login ;;
+    pi) cmux_agent_run pi ;;
+    hermes) cmux_agent_run hermes login ;;
   esac
 )
 
@@ -894,12 +916,14 @@ guest_agent_login() {
   [ -n "\$cmux_login_agent" ] || { cmux_message agentLoginUsage >&2; return 2; }
   case "\$cmux_login_agent" in
     cc|claude-code) cmux_login_agent=claude ;;
+    cl) cmux_login_agent=claude ;;
     cx|codex-cli) cmux_login_agent=codex ;;
     oc|open-code) cmux_login_agent=opencode ;;
     p|pi-agent) cmux_login_agent=pi ;;
     h|hermes-agent) cmux_login_agent=hermes ;;
   esac
   case "\$cmux_login_agent" in claude|codex|opencode|pi|hermes) ;; *) cmux_message agentLoginUsage >&2; return 2 ;; esac
+  load_agent_config
   shift
   cmux_login_native=0
   cmux_login_device=0

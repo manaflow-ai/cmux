@@ -19,8 +19,14 @@ fi
 if [ "\${CMUX_BROWSER_TARGET:-}" = vm ]; then
   # Codex's loopback OAuth callback belongs to this VM. Never fall back to
   # opening it on the Mac when the VM browser/display is unavailable.
-  if [ -n "\${DISPLAY:-}\${WAYLAND_DISPLAY:-}" ] && [ -x /usr/bin/google-chrome ]; then
-    exec /usr/bin/google-chrome --no-sandbox --new-window "$url"
+  if [ -n "\${DISPLAY:-}\${WAYLAND_DISPLAY:-}" ]; then
+    cmux_browser_binary=""
+    for cmux_candidate in /usr/bin/google-chrome-stable /usr/bin/google-chrome; do
+      if [ -x "$cmux_candidate" ]; then cmux_browser_binary="$cmux_candidate"; break; fi
+    done
+    if [ -n "$cmux_browser_binary" ]; then
+      exec "$cmux_browser_binary" --no-sandbox --new-window "$url"
+    fi
   fi
   cmux_message openURLFallback "$url"
   exit 1

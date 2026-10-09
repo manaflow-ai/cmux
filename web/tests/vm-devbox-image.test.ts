@@ -1144,6 +1144,7 @@ printf '200'
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
       const written = readFileSync(configPath, "utf8");
+      expect(existsSync(`${configPath}.cmux-managed`)).toBe(true);
       // A route token the endpoint inlined is swapped for a runtime env
       // reference (as is the placeholder itself), so no token lands on disk.
       expect(JSON.parse(written)).toEqual({
