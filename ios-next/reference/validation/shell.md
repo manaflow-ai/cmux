@@ -88,6 +88,26 @@ bottom accessory and minimized tab bar, light/dark).
 | Agents list over the real link | pass: list loads (no sessions on that host: empty state) |
 | Force relay (TURN) toggle | FAIL: link opens relay->relay with `policy:"relay"` (host log `link open [relay only] relay/UDP -> relay`), hello succeeds, then the phone's ICE goes `disconnected` and the link closes after 18-50 s ("Lost the connection to your Mac."), then reconnects in a loop. Seen from both simulators. Non-forced relay (local relay, remote srflx) stays up. Needs a transport/host look at relay<->relay consent through Cloudflare TURN. |
 
+## Status bar hook and HEAD smoke run
+
+The app now launches through a UIKit scene delegate (`CmuxNextSceneDelegate`)
+whose root `ShellHostingController` overrides `preferredStatusBarStyle`. Roots
+call `.cnStatusBarStyle(_:)` (CNShellChrome); both shells collect it with
+`.onCNStatusBarStyleChange` (hidden roots are suppressed; the drawer reports
+default while the sidebar is open). CNBrowserUI publishes
+`CNStatusBarStyle(over: frame.topColor)` for the visible page.
+
+| Check | Expected | Result |
+| --- | --- | --- |
+| Dark appearance, real host, example.com (light page) | black clock | black clock (`smoke-and-statusbar.png`, last tile) |
+| Mock cmux.dev page (purple header) | white clock | white clock |
+| Start page | follows appearance | follows appearance |
+| Clean build of HEAD `d0284962d2f` (git archive), Drawer and Tabs | succeed | both succeed |
+| `CMUX_NEXT_DEV_SCREEN` conversations, agents, terminal, browser, settings, signin, onboarding, drawer, tabs | each renders | all render (`smoke-and-statusbar.png`) |
+
+Note: installs made before the UIKit lifecycle restore a SwiftUI scene session
+and show a black window; `remote-ios.sh` now uninstalls once per slot.
+
 ## Known gaps
 
 - Forced relay is unstable (above). Phone side implements PROTOCOL §5:
