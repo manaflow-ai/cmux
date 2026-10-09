@@ -23,6 +23,8 @@ impl Inner {
     /// to a tab the person opened) sends no lifecycle events for that load:
     /// its state comes from `document.readyState`, once, when the tab has no
     /// lifecycle state yet. Later documents report their events as usual.
+    /// Only for relays: a tab the driver created reports its own events, and
+    /// a seeded blank start page would end a pending navigation's wait.
     pub(super) fn seed_load_state(&self, target_id: &str, session_id: &str) {
         let ready = self.conn.call(
             Some(session_id),
