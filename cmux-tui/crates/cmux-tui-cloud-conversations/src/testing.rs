@@ -13,7 +13,7 @@ use super::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct Posted {
+pub struct Posted {
     pub url: String,
     pub bearer: String,
     pub client_version: Option<String>,
@@ -21,34 +21,34 @@ pub(crate) struct Posted {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Connected {
+pub struct Connected {
     pub url: String,
     pub bearer: String,
 }
 
 /// One scripted upstream connection.
 #[derive(Clone, Default)]
-pub(crate) struct ScriptedWire {
+pub struct ScriptedWire {
     pub incoming: Arc<Mutex<VecDeque<WireRecv>>>,
     pub sent: Arc<Mutex<Vec<String>>>,
 }
 
 impl ScriptedWire {
-    pub(crate) fn push_text(&self, text: impl Into<String>) {
+    pub fn push_text(&self, text: impl Into<String>) {
         self.incoming
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push_back(WireRecv::Text(text.into()));
     }
 
-    pub(crate) fn push_close(&self, code: Option<u16>) {
+    pub fn push_close(&self, code: Option<u16>) {
         self.incoming
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push_back(WireRecv::Closed { code });
     }
 
-    pub(crate) fn sent(&self) -> Vec<String> {
+    pub fn sent(&self) -> Vec<String> {
         self.sent.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
@@ -70,7 +70,7 @@ impl CloudWire for ScriptedWire {
 }
 
 #[derive(Default)]
-pub(crate) struct FakeBackend {
+pub struct FakeBackend {
     pub replies: Mutex<HashMap<String, VecDeque<Result<HttpReply, TransportError>>>>,
     pub posted: Mutex<Vec<Posted>>,
     pub wires: Mutex<VecDeque<Result<ScriptedWire, ConnectError>>>,
@@ -78,7 +78,7 @@ pub(crate) struct FakeBackend {
 }
 
 impl FakeBackend {
-    pub(crate) fn reply(&self, path: &str, status: u16, body: Value) {
+    pub fn reply(&self, path: &str, status: u16, body: Value) {
         self.replies
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -87,7 +87,7 @@ impl FakeBackend {
             .push_back(Ok(HttpReply { status, body }));
     }
 
-    pub(crate) fn fail(&self, path: &str, detail: &str) {
+    pub fn fail(&self, path: &str, detail: &str) {
         self.replies
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -96,21 +96,21 @@ impl FakeBackend {
             .push_back(Err(TransportError(detail.to_string())));
     }
 
-    pub(crate) fn wire(&self) -> ScriptedWire {
+    pub fn wire(&self) -> ScriptedWire {
         let wire = ScriptedWire::default();
         self.wires.lock().unwrap_or_else(PoisonError::into_inner).push_back(Ok(wire.clone()));
         wire
     }
 
-    pub(crate) fn refuse(&self, error: ConnectError) {
+    pub fn refuse(&self, error: ConnectError) {
         self.wires.lock().unwrap_or_else(PoisonError::into_inner).push_back(Err(error));
     }
 
-    pub(crate) fn posted(&self) -> Vec<Posted> {
+    pub fn posted(&self) -> Vec<Posted> {
         self.posted.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
-    pub(crate) fn connected(&self) -> Vec<Connected> {
+    pub fn connected(&self) -> Vec<Connected> {
         self.connected.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
@@ -158,21 +158,21 @@ impl CloudBackend for FakeBackend {
 
 /// Collects emitted events.
 #[derive(Clone, Default)]
-pub(crate) struct Events(pub Arc<Mutex<Vec<CloudEvent>>>);
+pub struct Events(pub Arc<Mutex<Vec<CloudEvent>>>);
 
 impl Events {
-    pub(crate) fn sink(&self) -> super::EventSink {
+    pub fn sink(&self) -> super::EventSink {
         let events = self.0.clone();
         Arc::new(move |event| events.lock().unwrap_or_else(PoisonError::into_inner).push(event))
     }
 
-    pub(crate) fn take(&self) -> Vec<CloudEvent> {
+    pub fn take(&self) -> Vec<CloudEvent> {
         std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
     /// Waits (test-only polling) until `predicate` holds for the events seen
     /// so far, and returns them.
-    pub(crate) fn wait_for(&self, predicate: impl Fn(&[CloudEvent]) -> bool) -> Vec<CloudEvent> {
+    pub fn wait_for(&self, predicate: impl Fn(&[CloudEvent]) -> bool) -> Vec<CloudEvent> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let seen = self.0.lock().unwrap_or_else(PoisonError::into_inner).clone();
@@ -186,7 +186,7 @@ impl Events {
 }
 
 /// Waits (test-only polling) until `condition` holds.
-pub(crate) fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+pub fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
