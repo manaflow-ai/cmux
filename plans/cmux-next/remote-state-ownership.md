@@ -284,6 +284,50 @@ Plan:
 5. Tests: T1, T2, T7 (section 4). Tokens: none for 2 and 4 except the CmuxNext Package.swift if a
    test target changes; step 1 under WINDOW-LITE rules; the FFI route is a later slice.
 
+### 3.1b S1 implementation notes (daemon client-minted ids, spare host for split)
+
+Code facts (tip 2026-10-09, cmux-tui-core): the pane public id is minted at execution time in
+`effect_add_pane` (`mux/resource_topology/effect_execution.rs:780`, `PanePublicId::random()`), so
+a recovered effect mints a different id; `State::insert_pane` checks collisions only with a
+`debug_assert`. The tab and `term_` ids are minted inside the surface spawn
+(`TabResourceIdentity::terminal(None)`, `surface.rs:2131`, `surface/prelaunch.rs:28`) and the
+`term_` id is baked into the host env (`CMUX_TUI_TERMINAL_ID`). Every `split`/`new-pane` gets a
+fresh mutation UUID (`WorkspaceMutation::local`), so a retry with the same `terminal_id` fails
+with `terminal_id_exists` instead of replaying. The generic receipts for these exact ops already
+exist (`resource_creation_receipts`, `lookup_resource_creation`, `create-surface-with-receipt`),
+without `env`/`terminal_id`/`shell_args`. The spare host is adopted only by `new-tab`
+(`PrelaunchRequest::of`, `server/terminal_create.rs:72`; `commit_creation` rewrites `terminal_id`
+only for NewTab; prelaunch sizes to the whole pane, wrong for a split).
+
+Plan:
+1. Params `pane_id` and `tab_id` (client-minted) on `split`, `new-pane`, `new-pane-right`, under
+   capability `split-client-keys-v1`. Mint pane, tab and terminal ids in the effect intent (next
+   to `terminal_reservation`, as the browser split already does for its tab), so recovery replays
+   the same ids.
+2. Idempotency: the creation receipt keyed by the client-minted pane id with a request
+   fingerprint: the same request replays `{surface, replayed:true}`, a different request with the
+   same id is `idempotency.conflict`, an id that exists or is tombstoned in `resource_identities`
+   is refused. `insert_pane` gets a release-mode collision check.
+3. Namespace (A2): see open question Q1 below; until it is decided, S1 enforces global uniqueness
+   (live and tombstoned) plus the fingerprint.
+4. Spare host for split and new-pane: accept them in `PrelaunchRequest::of` (not `kind:"browser"`),
+   rewrite their `terminal_id` in `commit_creation`, size the prelaunch from the request's
+   `cols`/`rows` (the app sends the post-split size), and thread the client-minted tab id into the
+   prelaunch so the host env carries the final `term_`/tab ids.
+5. Spec: `commands.md` split/new-pane/new-pane-right and the capability list; `sdk-schema.json`;
+   bindings regenerated (`bindings/codegen/generate.py --write`). Tests beside
+   `server/split_respawn_tests.rs`, `server/shell_args_tests.rs`, `mux/tests/terminal_views.rs`,
+   and `tests/terminal_host_recovery/standby_host.rs` (a split adopts the spare).
+
+Q1 (security, chief): a per-client namespace needs a verified client identity on the connection.
+Verified today: the local app (`verified_app` + `install_id`, `server/origin_gate.rs`) and `cmux link`
+peers (`Peer{id:"link:<install>"}`). Not verified: connections through the SSH remote-sidecar,
+which opens a plain same-uid Unix connection per stream and does not forward the device id it
+authenticated (`cmux-remote/src/services.rs:813`), so every remote device is `local_user` with the
+sidecar's pid. Options: (a) the sidecar stamps the authenticated device id on each mux connection
+(LINK + CORE change) and the namespace tag is derived from it; (b) global uniqueness + fingerprint
+only, and the namespace rule applies only to verified connections.
+
 ### 3.2 Terminal attach channel
 
 One long-lived attach channel per daemon connection (multiplexed attaches on the control link, or a
