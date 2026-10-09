@@ -26,6 +26,14 @@ fn script() -> Script {
     Box::new(|turn, blocks| {
         let last = blocks.last().and_then(|b| b["text"].as_str()).unwrap_or("");
         if let Some(task) = last.strip_prefix("Your task:\n\n") {
+            if task == "silent" {
+                // Its response never starts streaming.
+                return vec![
+                    json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-sub:x", "text": last}}),
+                    json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                    json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+                ];
+            }
             if task == "fail me" {
                 // The harness fails the prompt and records no turn.
                 return Vec::new();
@@ -121,6 +129,10 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(|sp| sp)
+}
+
+fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
     let mut h = Harness::new(script());
     let traces = h.dir.path().join("traces");
     let trace = Trace::open(&traces, false).unwrap();
@@ -147,7 +159,7 @@ fn setup() -> Setup {
     )
     .with_trace(trace)
     .with_workspaces(Some(workspaces.clone() as Arc<dyn Workspaces>));
-    let spawner = Arc::new(spawner);
+    let spawner = Arc::new(f(spawner));
     // Subagents queued over the cap start when one finishes.
     h.brain.set_sub_starter(Some(spawner.queue_starter()));
     Setup {
@@ -711,4 +723,87 @@ fn the_close_setting_closes_a_finished_subagents_workspace() {
         s.workspaces.renamed.lock().unwrap().is_empty(),
         "closed, not renamed"
     );
+}
+
+/// A Claude spawn of many subagents: the first starts alone and warms the
+/// cache of the shared view; the rest start once its response began, each
+/// first message marked at the view's end with the turns' TTL (1 hour by
+/// default), and Claude Code told the same TTL.
+#[test]
+fn a_claude_spawn_warms_the_shared_view_once_then_starts_the_rest_marked() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let agents = s.h.agents.inner.lock().unwrap();
+    let subs: Vec<usize> = agents
+        .prompt_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.starts_with("optchat-sub:"))
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(subs.len(), 3);
+    for k in &subs {
+        let marks: Vec<&Value> = agents.prompts[*k]
+            .iter()
+            .filter_map(|b| b.get("cache_control"))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![&json!({"type": "ephemeral", "ttl": "1h"})],
+            "one 1h mark on the shared view: {:?}",
+            agents.prompts[*k]
+        );
+    }
+    // The same view blocks up to the mark in every first message.
+    let upto = |k: usize| {
+        let p = &agents.prompts[k];
+        let m = p.iter().position(|b| b.get("cache_control").is_some()).unwrap();
+        p[..=m].to_vec()
+    };
+    assert_eq!(upto(subs[0]), upto(subs[1]));
+    assert_eq!(upto(subs[0]), upto(subs[2]));
+    let sub_specs: Vec<_> = agents
+        .specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    for spec in &sub_specs {
+        assert_eq!(
+            spec.env.get("CLAUDE_CODE_PROMPT_CACHE_TTL").map(String::as_str),
+            Some("1h"),
+            "Claude Code marks with the same TTL"
+        );
+    }
+    drop(agents);
+    let events = trace_events(&s.traces);
+    let warm = events
+        .iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .expect("the trace says the shared view was warmed");
+    assert_eq!(warm["first"], "a1");
+    assert_eq!(warm["started"], true, "{warm}");
+}
+
+#[test]
+fn the_rest_start_after_the_warm_wait_when_the_first_never_speaks() {
+    let mut s = setup_with(|sp| sp.with_warm_wait(std::time::Duration::from_millis(300)));
+    s.h.agents.inner.lock().unwrap().system_prompts = true;
+    for k in 0..12 {
+        s.h.say("user_local", &format!("line {k}"));
+        s.h.settle();
+    }
+    let began = std::time::Instant::now();
+    spawn(&mut s, &["silent", "two"]).unwrap();
+    assert!(began.elapsed() >= std::time::Duration::from_millis(300));
+    assert_eq!(sub_names(&s).len(), 2, "the second still starts");
+    let warm = trace_events(&s.traces)
+        .into_iter()
+        .find(|e| e["ev"] == "spawn.warm")
+        .unwrap();
+    assert_eq!(warm["started"], false, "{warm}");
 }
