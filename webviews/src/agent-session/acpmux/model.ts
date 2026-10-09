@@ -146,7 +146,7 @@ export type AcpmuxSnapshot = {
       name?: string;
       category?: string;
       currentValue?: string;
-      options: { value: string; name?: string }[];
+      options: { value: string; name?: string; description?: string }[];
     }[];
   };
   connection: string;

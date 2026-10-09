@@ -299,6 +299,38 @@ describe("buildPickerCatalog", () => {
     expect(live.harnesses[1]?.models[0]?.efforts).toEqual(["low", "medium"]);
   });
 
+  // Lawrence 2026-10-09: Codex's Ultra survives, live levels never claim more than the model
+  // supports, and fast mode reads from the `fast-mode` option both adapters use.
+  test("live options keep Ultra, narrow to the model's levels, and read fast-mode", () => {
+    const live = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: ACPMUX,
+      session: {
+        harness: "claude-sr",
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "high",
+            options: ["low", "medium", "high", "xhigh", "max", "ultra", "ultracode"].map((value) => ({ value })),
+          },
+          {
+            id: "fast-mode",
+            category: "model_config",
+            currentValue: "off",
+            options: [{ value: "off" }, { value: "on" }],
+          },
+        ] as never,
+      },
+    });
+    // claude-opus-5-5 lists low..max: the live list may not add Ultra to it.
+    expect(live.harnesses[0]?.models[0]?.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    // A model with no levels of its own takes the live list, Ultra included.
+    expect(live.harnesses[0]?.models.some((model) => model.efforts.includes("ultra"))).toBe(true);
+    expect(live.harnesses[0]?.models[0]?.fast).toBe(true);
+  });
+
   test("the user layer wins over declared metadata and the catalog, and hides harnesses with their profiles", () => {
     const user = {
       harnesses: {
