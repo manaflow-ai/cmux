@@ -833,7 +833,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     // One per slot: the active ones and the spares for warm sessions.
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares(),
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
@@ -861,7 +861,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
     assert_eq!(
         codex.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares()
     );
     assert!(
         codex
@@ -976,7 +976,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares()
     );
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
@@ -999,7 +999,7 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     }
     assert_eq!(
         homes.len(),
-        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::compactor_spares(),
         "one CODEX_HOME per slot"
     );
 }

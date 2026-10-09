@@ -885,7 +885,7 @@ fn start(
             let main = build(compactor_model.as_deref())
                 .with_alternate_harness(alternate)
                 .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                .with_warm(crate::compactor::compactor_spares())
+                .with_warm(crate::compactor::WARM_SESSIONS)
                 .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
