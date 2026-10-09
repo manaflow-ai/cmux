@@ -271,8 +271,8 @@ pub(crate) struct TerminalNotification {
     /// as Ghostty's kitty parser does.
     pub title: String,
     pub body: String,
-    /// `Info` for OSC 9, 777 and 99; an OSC 7501 record that waits on the
-    /// user is a `Warning`, one that failed an `Error`.
+    /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
+    /// that waits on the user is a `Warning`, one that failed an `Error`.
     pub level: crate::NotificationLevel,
 }
 
@@ -292,10 +292,10 @@ impl TerminalNotification {
 
     /// The notification an OSC 7501 record asks for.
     pub(crate) fn from_program_status(alert: crate::program_status::ProgramStatusAlert) -> Self {
-        let level = if alert.state == ghostty_vt::ProgramStatusState::Error {
-            crate::NotificationLevel::Error
-        } else {
-            crate::NotificationLevel::Warning
+        let level = match alert.state {
+            ghostty_vt::ProgramStatusState::Error => crate::NotificationLevel::Error,
+            ghostty_vt::ProgramStatusState::Done => crate::NotificationLevel::Info,
+            _ => crate::NotificationLevel::Warning,
         };
         Self {
             title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
