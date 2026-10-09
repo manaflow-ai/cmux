@@ -29,6 +29,16 @@ const GUARDED_IN_HOME: &[&str] = &[
 /// Guarded locations outside the home folder: other and network volumes.
 const GUARDED_ROOTS: &[&str] = &["/Volumes", "/Network", "/net"];
 
+/// Where a model probe starts its agent (it opens a session in that folder):
+/// `<acpmux home>/probe`, created on first use. Never the home folder or `/`.
+pub fn probe_dir() -> PathBuf {
+    let dir = crate::config::home().join("probe");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(dir = %dir.display(), error = %e, "the model probe folder could not be made");
+    }
+    dir
+}
+
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
 /// The folder is checked as spelled and with its symlinks resolved.
 pub fn unasked_refusal(cwd: &Path) -> Option<String> {

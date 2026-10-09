@@ -88,7 +88,8 @@ impl Hub {
         // The CLIs need the login environment (PATH, API keys).
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // LAUNCH-NO-TCC-PROMPTS: never the home folder (protected_folders.rs).
+        let cwd = crate::protected_folders::probe_dir();
         let started = std::time::Instant::now();
         let listed =
             crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)

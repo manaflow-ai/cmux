@@ -753,7 +753,8 @@ impl Hub {
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // LAUNCH-NO-TCC-PROMPTS: never the home folder (protected_folders.rs).
+        let cwd = crate::protected_folders::probe_dir();
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
