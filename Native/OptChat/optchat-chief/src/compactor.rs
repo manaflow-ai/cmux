@@ -561,7 +561,12 @@ impl AcpmuxCompactor {
     fn admit(&self, node: NodeId) -> Result<crate::harness_gate::Admitted, ModelError> {
         crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
             self.say(&format!("compactor node {}: {reason}", node.name()));
-            crate::harness_gate::trace_refusal(&self.trace, "compactor", &self.spec.harness, &reason);
+            crate::harness_gate::trace_refusal(
+                &self.trace,
+                "compactor",
+                &self.spec.harness,
+                &reason,
+            );
             ModelError::new(crate::harness_gate::refusal(&reason))
         })
     }
@@ -721,9 +726,7 @@ impl AcpmuxCompactor {
                     // The first streamed output: the response started.
                     if !begun
                         && self.port.events(session, before).is_ok_and(|events| {
-                            events
-                                .iter()
-                                .any(|e| crate::acpmux::is_output(&e.kind))
+                            events.iter().any(|e| crate::acpmux::is_output(&e.kind))
                         })
                     {
                         begun = true;

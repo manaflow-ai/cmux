@@ -13,6 +13,7 @@ use std::time::Duration;
 use common::*;
 use optchat_chief::acpmux::Family;
 use optchat_chief::brain::Input;
+use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_chief::compactor::{
     AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots,
     cached_prompt, compact_route, compactor_presets, compactor_settings, compactor_spec,
@@ -20,7 +21,6 @@ use optchat_chief::compactor::{
     slot_preset, strip_preamble,
 };
 use optchat_chief::paths::Paths;
-use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_host::{
     CompactModel, CompactRequest, Config, DEFAULT_BASE_URL, Kind, NodeId, OptChat, PROBE_NODE,
     SUBROUTER_KEY, SystemClock, probe, run_node,
@@ -161,7 +161,10 @@ fn the_size_loop_continues_in_the_same_session() {
     assert_eq!(inner.prompts.len(), 2);
     let retry = texts(&inner.prompts[1]);
     assert_eq!(retry.len(), 1, "a retry sends only the size message");
-    assert!(retry[0].starts_with("Too long: your line is 700 bytes"), "{retry:?}");
+    assert!(
+        retry[0].starts_with("Too long: your line is 700 bytes"),
+        "{retry:?}"
+    );
     assert_eq!(inner.ended, vec!["s1"]);
     assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1]);
 }
@@ -887,7 +890,11 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
         ..spec(dir.path())
     };
     // Two nodes at once, so they hold two slots.
-    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)));
+    let compactor = Arc::new(AcpmuxCompactor::new(
+        agents.clone(),
+        spec,
+        Slots::new(COMPACTOR_SESSIONS),
+    ));
     agents.hold(true);
     let r = |i: u64| CompactRequest {
         context: chat_of(1_100),
@@ -940,9 +947,10 @@ fn a_codex_node_logs_its_cached_tokens() {
         model: None,
         ..spec(dir.path())
     };
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)).with_log(
-        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
-    );
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
     run_node(&compactor, &request(4)).unwrap();
     let lines = lines.lock().unwrap();
     let line = lines
@@ -1246,7 +1254,10 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
             model: None,
             ..spec(dir.path())
         };
-        probe(&AcpmuxCompactor::new(agents, spec, Slots::new(COMPACTOR_SESSIONS)), "SYS")
+        probe(
+            &AcpmuxCompactor::new(agents, spec, Slots::new(COMPACTOR_SESSIONS)),
+            "SYS",
+        )
     };
     let builtin = json!([{"name": "compact", "description": "Summarize"}, {"name": "status"}]);
     assert_eq!(with(builtin), Ok("user: ping".into()));
@@ -1296,9 +1307,17 @@ fn a_compactor_without_its_model_falls_back_to_the_turn_model_once() {
     };
     let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS))
         .with_model_fallback(Some("claude-opus-5-5".into()))
-        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
-    assert_eq!(run_node(&compactor, &request(1)).unwrap(), "user: pasted a deploy log");
-    assert_eq!(run_node(&compactor, &request(2)).unwrap(), "user: pasted a deploy log");
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(
+        run_node(&compactor, &request(1)).unwrap(),
+        "user: pasted a deploy log"
+    );
+    assert_eq!(
+        run_node(&compactor, &request(2)).unwrap(),
+        "user: pasted a deploy log"
+    );
     let models: Vec<Option<String>> = agents
         .inner
         .lock()
@@ -1344,16 +1363,32 @@ fn the_next_node_prompts_at_the_writers_first_streamed_output() {
     )
     .unwrap();
     // Two long messages on an empty chat: both nodes mark the same prefix.
-    chat.append(Kind::User, &"deploy step; ".repeat(100)).unwrap();
-    chat.append(Kind::User, &"build step; ".repeat(100)).unwrap();
+    chat.append(Kind::User, &"deploy step; ".repeat(100))
+        .unwrap();
+    chat.append(Kind::User, &"build step; ".repeat(100))
+        .unwrap();
     agents.wait_prompts(1);
     // The writer's harness streams its first chunk: acpmux says Changed.
-    let writer = agents.inner.lock().unwrap().signals.values().next().cloned().unwrap();
-    writer.send(optchat_chief::acpmux::TurnSignal::Changed).unwrap();
+    let writer = agents
+        .inner
+        .lock()
+        .unwrap()
+        .signals
+        .values()
+        .next()
+        .cloned()
+        .unwrap();
+    writer
+        .send(optchat_chief::acpmux::TurnSignal::Changed)
+        .unwrap();
     agents.wait_prompts(2);
     agents.release();
     agents.release();
-    assert!(chat.settle(None, Some(WAIT)), "{:?}", chat.status().failures);
+    assert!(
+        chat.settle(None, Some(WAIT)),
+        "{:?}",
+        chat.status().failures
+    );
 }
 
 /// hq-6d gap 3b: a node does not wait for a Claude Code process to start.

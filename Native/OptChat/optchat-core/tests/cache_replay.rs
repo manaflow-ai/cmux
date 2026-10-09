@@ -201,7 +201,8 @@ fn a_3000_message_chat_reads_98_percent_of_turns_and_96_of_compactions_from_the_
             now += rng.range(3, 20) as f64;
             let call = format!("tool: shell {{\"cmd\": \"step {s} of {}\"}}", memory.len());
             let result = "r".repeat(rng.range(200, 6_000) as usize);
-            let before: usize = system.len() + view.len() + tail.iter().map(String::len).sum::<usize>();
+            let before: usize =
+                system.len() + view.len() + tail.iter().map(String::len).sum::<usize>();
             tail.push(call.clone());
             tail.push(result.clone());
             let t: Vec<&str> = tail.iter().map(String::as_str).collect();
@@ -232,7 +233,11 @@ fn a_3000_message_chat_reads_98_percent_of_turns_and_96_of_compactions_from_the_
         compactions.prefix
     );
     assert!(turns.pct() >= 98.0, "turns read {:.2}%", turns.pct());
-    assert!(compactions.pct() >= 96.0, "compactions read {:.2}%", compactions.pct());
+    assert!(
+        compactions.pct() >= 96.0,
+        "compactions read {:.2}%",
+        compactions.pct()
+    );
 }
 
 /// Seconds from a compaction call's send to its response start (its cache

@@ -52,7 +52,11 @@ fn nodes_are_built_in_spec_order() {
     for (node, context, done_before) in calls.iter() {
         // No call ever sees a placeholder (spec 4); its view ends at the node.
         assert!(!context.contains("not summarized yet"), "{node:?}");
-        let upto = if node.l == 0 { node.start() } else { node.end() };
+        let upto = if node.l == 0 {
+            node.start()
+        } else {
+            node.end()
+        };
         for line in context.lines().filter(|l| l.contains('|')) {
             let (id, n) = line.split('|').next().unwrap().split_once('+').unwrap();
             let end: u64 = id.parse::<u64>().unwrap() + n.parse::<u64>().unwrap();
@@ -64,7 +68,10 @@ fn nodes_are_built_in_spec_order() {
             let unbuilt = (0..node.i)
                 .filter(|j| !done_before.contains(&NodeId::new(0, *j)))
                 .count();
-            assert!(unbuilt < optchat_core::AHEAD, "{node:?} started with {unbuilt} unbuilt before it");
+            assert!(
+                unbuilt < optchat_core::AHEAD,
+                "{node:?} started with {unbuilt} unbuilt before it"
+            );
         } else {
             let a = NodeId::new(node.l - 1, 2 * node.i);
             let b = NodeId::new(node.l - 1, 2 * node.i + 1);

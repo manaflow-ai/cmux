@@ -113,10 +113,16 @@ impl Flight {
     /// Waits while another call writes `key`. True: this call writes it (the
     /// caller then calls `started` or `leave`); false: it is cached.
     fn enter(&self, key: u64) -> bool {
-        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut st = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if st.writing.contains(&key) {
-                st = self.done.wait(st).unwrap_or_else(std::sync::PoisonError::into_inner);
+                st = self
+                    .done
+                    .wait(st)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 continue;
             }
             let now = Instant::now();
@@ -134,11 +140,15 @@ impl Flight {
 
     /// The writer's response started: its entry exists, every waiting call goes.
     fn started(&self, key: u64) {
-        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut st = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         st.writing.remove(&key);
         let now = Instant::now();
         if st.written.len() >= FLIGHT_KEEP {
-            st.written.retain(|_, at| now.duration_since(*at) <= FLIGHT_TTL);
+            st.written
+                .retain(|_, at| now.duration_since(*at) <= FLIGHT_TTL);
         }
         st.written.insert(key, now);
         drop(st);

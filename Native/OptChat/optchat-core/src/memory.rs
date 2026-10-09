@@ -263,7 +263,12 @@ impl Memory {
     }
 
     /// A saved view's parts and size, if they tile `[0, t)` and fit the store.
-    fn restore(&mut self, parts: &[NodeId], t: u64, store: &dyn Store) -> Option<(Vec<NodeId>, usize)> {
+    fn restore(
+        &mut self,
+        parts: &[NodeId],
+        t: u64,
+        store: &dyn Store,
+    ) -> Option<(Vec<NodeId>, usize)> {
         let mut at = 0u64;
         let mut size = 0;
         for part in parts {

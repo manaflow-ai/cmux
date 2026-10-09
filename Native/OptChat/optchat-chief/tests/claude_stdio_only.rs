@@ -11,10 +11,10 @@ use std::time::Duration;
 use cmux_chief::policy::harness::is_route;
 use common::*;
 use optchat_chief::acpmux::Family;
+use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_chief::compactor::{AcpmuxCompactor, CompactorSpec, Slots};
 use optchat_chief::harness_gate::{admit, admit_profile};
 use optchat_chief::trace::Trace;
-use optchat_chief::compactor::COMPACTOR_SESSIONS;
 use optchat_host::{CompactModel, CompactRequest, NodeId};
 use serde_json::{Value, json};
 
