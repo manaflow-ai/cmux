@@ -109,7 +109,13 @@ jobs:
           IDS: ${{ steps.touched.outputs.ids }}
         run: |
           set -euo pipefail
-          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$RUNNER_TEMP/head.json"
+          manifest="$RUNNER_TEMP/head.json"
+          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$manifest"
+          # A few entries intentionally map narrow and normal to the same pixels. Keep one
+          # rendered state for those entries so the matrix remains valid without losing a
+          # visually distinct width anywhere else.
+          jq 'unique_by(.id)' "$manifest" > "$manifest.tmp"
+          mv "$manifest.tmp" "$manifest"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
 
       # The merge-base renders with its own gallery code: a change to the gallery shows as a change.
@@ -129,7 +135,10 @@ jobs:
             exit 0
           fi
           bun install --frozen-lockfile
-          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$RUNNER_TEMP/base.json" &&
+          manifest="$RUNNER_TEMP/base.json"
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --widths "$GALLERY_WIDTHS" --frame component --out "$manifest" &&
+            jq 'unique_by(.id)' "$manifest" > "$manifest.tmp" &&
+            mv "$manifest.tmp" "$manifest" &&
             CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
             echo "[]" > "$RUNNER_TEMP/base.json"
             rm -rf "$RUNNER_TEMP/gallery-base"
