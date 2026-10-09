@@ -249,6 +249,7 @@ public actor CloudWireGuardHub {
             }
         }
         let preparationID = UUID()
+        self.preparationID = preparationID
         preparationScope = expectedTeamScope
         preparationTask = Task { [weak self] in
             _ = try? await self?.prewarm(
