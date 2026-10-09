@@ -164,6 +164,26 @@ impl Drop for HostProcess {
 /// Start `exe args...` as a terminal-host process: no window, its own
 /// process group, outside the daemon's job, inheriting only its pipes.
 pub fn spawn_host_process(exe: &Path, args: &[&str]) -> Result<HostProcess, HostSpawnError> {
+    spawn_host_process_with(exe, args, Breakaway::Required)
+}
+
+/// Whether the host must leave the daemon's job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Breakaway {
+    /// `CREATE_BREAKAWAY_FROM_JOB`; a job that forbids it gives
+    /// [`HostSpawnError::BreakawayDenied`].
+    Required,
+    /// Stay in the daemon's job (tests on a runner whose job forbids
+    /// breakaway).
+    #[cfg_attr(not(test), allow(dead_code))]
+    Stay,
+}
+
+fn spawn_host_process_with(
+    exe: &Path,
+    args: &[&str],
+    breakaway: Breakaway,
+) -> Result<HostProcess, HostSpawnError> {
     let (child_stdin, stdin) = io::pipe()?;
     let (stdout, child_stdout) = io::pipe()?;
     let child_stderr = OpenOptions::new().write(true).open("NUL")?;
@@ -208,8 +228,8 @@ pub fn spawn_host_process(exe: &Path, args: &[&str]) -> Result<HostProcess, Host
             1,
             CREATE_NO_WINDOW
                 | CREATE_NEW_PROCESS_GROUP
-                | CREATE_BREAKAWAY_FROM_JOB
-                | EXTENDED_STARTUPINFO_PRESENT,
+                | EXTENDED_STARTUPINFO_PRESENT
+                | if breakaway == Breakaway::Required { CREATE_BREAKAWAY_FROM_JOB } else { 0 },
             ptr::null(),
             ptr::null(),
             &startup.StartupInfo,
@@ -363,14 +383,27 @@ mod tests {
         assert_eq!(quote_arg(r"C:\dir with space\"), r#""C:\dir with space\\""#);
     }
 
+    /// `sort.exe` as a stand-in host. The hosted Windows runner runs tests
+    /// in a job that forbids breakaway (run 37935857605): there the spawn
+    /// must say BreakawayDenied, and the rest of the test runs the host in
+    /// the runner's job.
+    fn stand_in_host() -> HostProcess {
+        let sort = system32("sort.exe");
+        if breakaway_allowed().unwrap() {
+            return spawn_host_process(&sort, &[]).unwrap();
+        }
+        match spawn_host_process(&sort, &[]) {
+            Err(HostSpawnError::BreakawayDenied) => {}
+            other => panic!("expected BreakawayDenied in a job without breakaway: {other:?}"),
+        }
+        spawn_host_process_with(&sort, &[], Breakaway::Stay).unwrap()
+    }
+
     /// A host gets its bootstrap pipes: `sort` reads stdin to EOF and
     /// writes the sorted lines to stdout, like a host answers its daemon.
-    /// Also fails (with BreakawayDenied) when the test runner itself is in a
-    /// job without breakaway, which would block every host on that runner.
     #[test]
     fn a_host_process_gets_its_bootstrap_pipes() {
-        let mut host = spawn_host_process(&system32("sort.exe"), &[])
-            .unwrap_or_else(|error| panic!("{error} (in a job: {:?})", in_job()));
+        let mut host = stand_in_host();
         host.stdin.take().unwrap().write_all(b"b\r\na\r\n").unwrap();
         let mut output = String::new();
         host.stdout.take().unwrap().read_to_string(&mut output).unwrap();
@@ -382,7 +415,7 @@ mod tests {
     #[test]
     fn dropping_an_unused_host_ends_that_process() {
         // `sort` waits on stdin; the drop closes it and ends the process.
-        let host = spawn_host_process(&system32("sort.exe"), &[]).unwrap();
+        let host = stand_in_host();
         let pid = host.pid();
         assert!(host.is_alive());
         drop(host);
