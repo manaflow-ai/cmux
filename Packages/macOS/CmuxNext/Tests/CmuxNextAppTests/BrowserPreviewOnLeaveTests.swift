@@ -50,6 +50,21 @@ import Testing
         #expect(page.snapshotCount == 1, "the hover starts no capture")
     }
 
+    /// The leave capture is a thumbnail, which an engine may take more
+    /// cheaply than a full snapshot (CEF: a fast JPEG instead of a PNG that
+    /// Chromium encodes on the main thread, browser perf report R3).
+    @Test func theLeaveCaptureAsksForAThumbnail() async throws {
+        let cache = makeCache()
+        let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration())
+        cache.install(page, for: "tab")
+        let pane = Pane()
+        cache.present("tab", by: pane, presence: .visible)
+        cache.withdraw("tab", by: pane)
+        try await eventually { cache.pageThumbnails.image(for: "tab") != nil }
+        #expect(page.thumbnailCount == 1, "the switch away takes a thumbnail")
+        #expect(page.snapshotCount == 1, "and no second, full capture")
+    }
+
     @Test func aNeverCapturedTabShowsThePlaceholder() async {
         let cache = TabContentCache(daemon: DaemonService())
         let page = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())

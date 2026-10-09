@@ -44,6 +44,16 @@ pub trait Orchestrator: Send + Sync {
     /// answers their ids, each one's workspace (or why it has none) and the
     /// directory they run in.
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String>;
+    /// `spawn` at `effort` (None: as hard as the calling turn).
+    fn spawn_with_effort(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+    ) -> Result<String, String> {
+        let _ = effort;
+        self.spawn(tasks, cwd)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
     /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
@@ -106,6 +116,9 @@ pub fn agent_id(id: &str) -> bool {
     id.trim().starts_with(|c: char| c.is_ascii_alphabetic())
 }
 
+/// The efforts `spawn` takes (acpmux maps them onto the harness's own).
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {
@@ -126,6 +139,8 @@ pub enum Call {
         /// The subagents' working directory on the Chief's host (`~` is
         /// its home); None is the default subagent directory.
         cwd: Option<String>,
+        /// How hard they think; None: as hard as the calling turn.
+        effort: Option<String>,
     },
     Tell {
         id: String,
@@ -181,7 +196,21 @@ impl Call {
                     .map(str::trim)
                     .filter(|d| !d.is_empty())
                     .map(str::to_owned);
-                Ok(Call::Spawn { tasks, cwd })
+                let effort = args
+                    .get("effort")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned);
+                if let Some(e) = effort.as_deref()
+                    && !EFFORTS.contains(&e)
+                {
+                    return Err(format!(
+                        "spawn: no effort {e}; one of {}",
+                        EFFORTS.join(", ")
+                    ));
+                }
+                Ok(Call::Spawn { tasks, cwd, effort })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -217,11 +246,16 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks, cwd: None } => json!({"tool": "spawn", "tasks": tasks}),
-            Call::Spawn {
-                tasks,
-                cwd: Some(cwd),
-            } => json!({"tool": "spawn", "tasks": tasks, "cwd": cwd}),
+            Call::Spawn { tasks, cwd, effort } => {
+                let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(cwd) = cwd {
+                    v["cwd"] = json!(cwd);
+                }
+                if let Some(effort) = effort {
+                    v["effort"] = json!(effort);
+                }
+                v
+            }
             Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
         }
     }
@@ -246,6 +280,8 @@ pub enum ControlRequest {
     Engine(crate::brain::EngineRequest),
     /// chief.stop: answers `{"stopped": bool}`.
     Stop,
+    /// chief.stop {name}: stops that one subagent.
+    StopSubagent(String),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -339,7 +375,10 @@ fn connection(conn: UnixStream, served: &Served) {
                 if tool == "engine" || tool == "stop" {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
-                        ("stop", _) => Some(ControlRequest::Stop),
+                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
+                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
+                            None => ControlRequest::Stop,
+                        }),
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
                         }
@@ -401,8 +440,8 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Spawn { .. } | Call::Tell { .. }) if subagent => {
                         Err("subagents have no spawn or tell".to_owned())
                     }
-                    Ok(Call::Spawn { tasks, cwd }) => match &served.orchestrator {
-                        Some(o) => o.spawn(tasks, cwd),
+                    Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
+                        Some(o) => o.spawn_with_effort(tasks, cwd, effort),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     Ok(Call::Tell { id, message }) => match &served.orchestrator {

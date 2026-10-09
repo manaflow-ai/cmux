@@ -143,6 +143,29 @@ export type AccountsState = {
 /** One Accounts gesture; `secret` only for the paste form's save and send. */
 export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string };
 
+/** One acpmux harness of Settings > Agents > Harnesses (`cmux.settings.harnesses.state`). */
+export type HarnessRow = {
+  id: string;
+  /** A profile file's display name; null names it by id. */
+  name: string | null;
+  kind: "acp" | "claude-stdio" | "terminal" | string;
+  /** managed, user-file, cmux-json (profile files), registry, path or config. */
+  source: string;
+  /** Why it cannot start, as acpmux says it (its own text). */
+  problem: string | null;
+};
+
+/** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
+export type HarnessesState = {
+  loading: boolean;
+  /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
+  problem: "unavailable" | "unreachable" | null;
+  harnesses: HarnessRow[];
+};
+
+/** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`. */
+export type HarnessesRun = { action: "refresh" | "signIn" | "check" | "registry"; id?: string };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -161,6 +184,10 @@ export type SettingsOps = {
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
   "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  /** Native: acpmux's harnesses (Settings > Agents). */
+  "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
+  /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
+  "cmux.settings.harnesses.run": [HarnessesRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -192,6 +219,8 @@ export type SettingsStreams = {
   "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
   /** The Accounts part changed (the event carries the new state). */
   "cmux.settings.accounts.changed": AccountsState;
+  /** The Harnesses part changed (the event carries the new state). */
+  "cmux.settings.harnesses.changed": HarnessesState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */

@@ -97,7 +97,10 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+/* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
+.acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
 
 .acpmux-composer-bar {
   min-height: 52px;
@@ -293,4 +296,11 @@
 @media (max-width: 480px) {
   .acpmux-composer-bar .acpmux-access-trigger { max-width: 112px; }
   .acpmux-composer-bar .acpmux-mode-text { display: none; }
+}
+/* Start Agent's panel (Composer contextFirst, cx-hkat): the row heads the card, so its hairline
+   and rounded corners move to the top. */
+.acpmux-composer-box[data-context-first] > .acpmux-composer-context {
+  border-top: 0;
+  border-bottom: 1px solid var(--acpmux-composer-edge);
+  border-radius: 18px 18px 0 0;
 }

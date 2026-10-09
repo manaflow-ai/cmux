@@ -53,7 +53,7 @@ struct MDPalette {
         let p = make(outgoing: outgoing)
         cacheLock.lock()
         if cache.count > 8 { cache.removeAll() }
-        cache[k] = p
+        cache.updateValue(p, forKey: k) // cmux: dictionary write
         cacheLock.unlock()
         return p
     }
@@ -103,7 +103,7 @@ enum MarkdownDraw {
         ctx.translateBy(x: body.minX, y: body.minY)
         if case let .region(r) = mode {
             // A region alone, in content coordinates (overlay bitmaps): origin = region's left/top.
-            let reg = md.regions[r]
+            guard let reg = md.regions[checked: r] else { ctx.restoreGState(); return } // cmux: a region of another layout draws nothing
             ctx.translateBy(x: -reg.frame.minX, y: -reg.frame.minY)
             drawContent(ctx, md, region: r, pal: pal)
             ctx.restoreGState()
@@ -169,6 +169,14 @@ enum MarkdownDraw {
             case .quoteBar:
                 ctx.setFillColor(pal.bar.cgColor)
                 ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)); ctx.fillPath()
+            case let .image(img):
+                // Host-provided only (MarkdownImageProvider). The context is y-down: flip locally.
+                ctx.saveGState()
+                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.clip()
+                ctx.translateBy(x: b.rect.minX, y: b.rect.maxY); ctx.scaleBy(x: 1, y: -1)
+                ctx.interpolationQuality = .high
+                ctx.draw(img, in: CGRect(origin: .zero, size: b.rect.size))
+                ctx.restoreGState()
             default: break
             }
         }

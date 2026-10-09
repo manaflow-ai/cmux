@@ -97,7 +97,7 @@ enum SessionWire {
             guard case .object(let object)? = extra?["progress"],
                   let state = object["state"]?.stringValue.flatMap(TerminalProgressReport.State.init(rawValue:)) else { return nil }
             var value: Int?
-            if case .number(let number)? = object["value"] { value = Int(number) }
+            if case .number(let number)? = object["value"] { value = number.saturatedInteger(Int.self) }
             return TerminalProgressReport(state: state, value: value)
         }
 

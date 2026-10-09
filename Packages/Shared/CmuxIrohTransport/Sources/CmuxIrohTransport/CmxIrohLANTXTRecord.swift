@@ -28,10 +28,10 @@ public struct CmxIrohLANTXTRecord: Equatable, Sendable {
         var result = Data()
         for string in ["v=1", "e=\(epoch)"] + addresses.map({ "a=\($0.value)" }) {
             let bytes = Array(string.utf8)
-            guard !bytes.isEmpty, bytes.count <= 255 else {
+            guard let length = UInt8(exactly: bytes.count), length > 0 else {
                 throw CmxIrohLANDiscoveryError.invalidTXTRecord
             }
-            result.append(UInt8(bytes.count))
+            result.append(length)
             result.append(contentsOf: bytes)
         }
         guard result.count <= Self.maximumEncodedSize else {
@@ -46,21 +46,15 @@ public struct CmxIrohLANTXTRecord: Equatable, Sendable {
             throw CmxIrohLANDiscoveryError.invalidTXTRecord
         }
         var strings: [String] = []
-        var offset = data.startIndex
-        while offset < data.endIndex {
-            let length = Int(data[offset])
-            offset = data.index(after: offset)
+        var reader = WireByteReader(data)
+        while let length = reader.byte() {
             guard length > 0,
-                  data.distance(from: offset, to: data.endIndex) >= length else {
-                throw CmxIrohLANDiscoveryError.invalidTXTRecord
-            }
-            let end = data.index(offset, offsetBy: length)
-            guard let value = String(data: data[offset..<end], encoding: .utf8),
+                  let field = reader.bytes(length),
+                  let value = String(data: field, encoding: .utf8),
                   value.utf8.allSatisfy({ $0 >= 0x20 && $0 <= 0x7E }) else {
                 throw CmxIrohLANDiscoveryError.invalidTXTRecord
             }
             strings.append(value)
-            offset = end
         }
         guard strings.count >= 3,
               strings.count <= Self.maximumAddressCount + 2,

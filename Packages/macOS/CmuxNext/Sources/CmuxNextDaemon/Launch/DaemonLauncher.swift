@@ -158,9 +158,9 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity.
+    /// variables only, never a build's `CMUX_*` identity; and the brain's tools socket (chief.*).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET"]
         return base.filter { kept.contains($0.key) }
     }
 
@@ -370,9 +370,8 @@ public struct DaemonLauncher: Sendable {
     }
 
     static func parseBuildCommit(_ version: String) -> String? {
-        guard let open = version.firstIndex(of: "(") else { return nil }
-        let rest = version[version.index(after: open)...]
-        let commit = rest.prefix { $0.isHexDigit }
+        guard version.contains("(") else { return nil }
+        let commit = version.drop { $0 != "(" }.dropFirst().prefix { $0.isHexDigit }
         return commit.count >= 7 ? String(commit) : nil
     }
 
