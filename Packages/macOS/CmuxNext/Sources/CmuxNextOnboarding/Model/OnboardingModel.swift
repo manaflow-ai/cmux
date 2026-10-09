@@ -10,7 +10,7 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
+        case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts, tabKeys
     }
 
     /// The first run: agent sign-ins, classic cmux workspaces and agent
@@ -33,6 +33,7 @@ public final class OnboardingModel {
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
     public let computerUse: ComputerUseStepModel
+    public let tabKeys: TabKeysStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the flow ended, so a second close does not report twice.
     public private(set) var ended = false
@@ -52,6 +53,7 @@ public final class OnboardingModel {
             case .firstTask, .chats: services.canRunFirstTask
             case .classicSessions: services.canImportClassicSessions
             case .accounts: services.hasAccountsStep
+            case .tabKeys: services.offersTabKeys
             case .computerUse: computerUseSource != nil
             default: true
             }
@@ -75,6 +77,7 @@ public final class OnboardingModel {
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
         computerUse = ComputerUseStepModel(source: computerUseSource)
+        tabKeys = TabKeysStepModel(services: services)
         // Opening or resuming only shows the step; it is not the person moving.
         if isFirstRun { services.onboardingDidReach(step, interacted: false) }
     }
@@ -118,6 +121,7 @@ public final class OnboardingModel {
         case .classicSessions: classicSessions.commit()
         case .chats: chats.commit()
         case .theme: theme.commit()
+        case .tabKeys: tabKeys.commit()
         default: break
         }
         guard !isLast else { return finish(completed: true) }
@@ -158,6 +162,7 @@ public final class OnboardingModel {
         case .firstTask: firstTask.refreshOutputs()
         case .computerUse: computerUse.start()
         case .accounts: break
+        case .tabKeys: tabKeys.load()
         }
     }
 

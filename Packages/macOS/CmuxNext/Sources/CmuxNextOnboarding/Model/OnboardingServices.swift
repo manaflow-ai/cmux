@@ -75,6 +75,15 @@ public protocol OnboardingServices: AnyObject {
     /// (the step is left out then).
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
 
+    // Number keys (Ctrl-1…9)
+    /// Whether the first run offers the Ctrl-1…9 choice (`TabKeysStepModel`).
+    var offersTabKeys: Bool { get }
+    /// What Ctrl-1…9 select in cmux.json now; nil when the person bound
+    /// them by hand.
+    func currentTabKeys() async -> TabKeysChoice?
+    /// Writes `choice` to cmux.json (bindings set by hand stay).
+    func applyTabKeys(_ choice: TabKeysChoice)
+
     // Accounts
     /// Whether the App supplies the accounts step (`makeAccountsStepView`).
     var hasAccountsStep: Bool { get }
@@ -107,6 +116,9 @@ public extension OnboardingServices {
     func revealInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    var offersTabKeys: Bool { false }
+    func currentTabKeys() async -> TabKeysChoice? { .tabs }
+    func applyTabKeys(_ choice: TabKeysChoice) {}
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }

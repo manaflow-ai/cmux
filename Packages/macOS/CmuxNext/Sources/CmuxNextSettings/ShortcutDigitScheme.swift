@@ -23,4 +23,26 @@ public nonisolated enum ShortcutDigitScheme: String, CaseIterable, Sendable {
 
     /// The action ids a scheme may write (removed when switching to ``tabs``).
     public static let actionIDs = ["space.selectByNumber", "selectSurfaceByNumber"]
+
+    /// The edits that switch `bindings` (cmux.json `shortcuts.bindings`) to
+    /// this scheme.
+    public func plan(from bindings: [String: JSONValue]) -> ShortcutDigitSchemePlan {
+        ShortcutDigitSchemePlan(scheme: self, changes: [], kept: [])
+    }
+
+    /// The scheme `bindings` is on; nil when a digit binding was set by hand.
+    public static func active(in bindings: [String: JSONValue]) -> ShortcutDigitScheme? {
+        nil
+    }
+}
+
+/// The `shortcuts.bindings` edits that switch cmux.json to a digit scheme.
+public nonisolated struct ShortcutDigitSchemePlan: Sendable, Equatable {
+    public let scheme: ShortcutDigitScheme
+    /// Each edit: the value to write, or nil to remove the override.
+    public let changes: [ShortcutKeymapPlan.Change]
+    /// Digit actions the user bound by hand (another value), left alone.
+    public let kept: [String]
+
+    public var isEmpty: Bool { changes.isEmpty }
 }
