@@ -13,7 +13,7 @@ final class IconPickerPanel: ActiveAppKeyPanel {
     var onDismiss: (() -> Void)?
 
     init(content: NSView, size: NSSize) {
-        super.init(contentRect: PopupStyle.windowFrame(forCard: NSRect(origin: .zero, size: size)),
+        super.init(contentRect: PopupStyle.standard.windowFrame(forCard: NSRect(origin: .zero, size: size)),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
         level = .floating
@@ -24,7 +24,7 @@ final class IconPickerPanel: ActiveAppKeyPanel {
         material.blendingMode = .behindWindow
         material.state = .active
         material.wantsLayer = true
-        material.layer?.cornerRadius = PopupStyle.cornerRadius
+        material.layer?.cornerRadius = PopupStyle.standard.cornerRadius
         material.layer?.cornerCurve = .continuous
         material.layer?.masksToBounds = true
         content.frame = material.bounds
@@ -44,7 +44,7 @@ final class IconPickerPanel: ActiveAppKeyPanel {
     /// to the right of the anchor, top-aligned with it, kept inside `visible` (the screen's
     /// visible frame), plus the popup's shadow band.
     static func frame(size: NSSize, anchor: NSRect, visible: NSRect?) -> NSRect {
-        PopupStyle.windowFrame(forCard: cardFrame(size: size, anchor: anchor, visible: visible))
+        PopupStyle.standard.windowFrame(forCard: cardFrame(size: size, anchor: anchor, visible: visible))
     }
 
     /// The picker's own frame, without the shadow band.

@@ -32,9 +32,9 @@ import Testing
         let panel = TabGroupEditorPanel()
         let surface = try #require(panel.glass)
         #expect(!panel.hasShadow)
-        #expect(surface.cornerRadius == PopupStyle.cornerRadius)
+        #expect(surface.cornerRadius == PopupStyle.standard.cornerRadius)
         let host = try #require(panel.contentView as? PopupHostView)
         #expect(host.card === surface)
-        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.shadowAlpha))
+        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.standard.shadowAlpha))
     }
 }

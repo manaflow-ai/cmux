@@ -31,7 +31,7 @@ final class HoverCardPanel: NSPanel {
     private weak var adoptedScope: ThemeScope?
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.cornerRadius)
+        glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         Self.liveInstances += 1
         adoptPopupStyle(card: glass)
@@ -49,7 +49,7 @@ final class HoverCardPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     /// The card's frame on screen: the window less its shadow band.
-    var cardFrame: CGRect { PopupStyle.cardFrame(inWindow: frame) }
+    var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: frame) }
 
     /// The card is on screen (fading in or shown), not fading out.
     var isShowingCard: Bool { isVisible && parentWindowRef != nil && !isDismissing }
@@ -136,7 +136,7 @@ final class HoverCardPanel: NSPanel {
         }
         // R131: a retarget moves the card in the same frame (Chrome); a
         // window-frame slide restarted on every tab trailed the pointer.
-        setFrame(PopupStyle.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
     }
 
     func dismiss() {

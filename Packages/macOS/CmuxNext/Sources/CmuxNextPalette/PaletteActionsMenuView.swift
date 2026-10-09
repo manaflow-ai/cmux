@@ -9,7 +9,7 @@ final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
 
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.cornerRadius)
+    let glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let filter = PaletteText.label(Typography.body, tone: .tertiary)

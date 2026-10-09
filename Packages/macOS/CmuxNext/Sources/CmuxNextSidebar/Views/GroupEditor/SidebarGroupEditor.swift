@@ -124,7 +124,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         let content = ThemeChangeView()
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.cornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
         adoptPopupStyle(card: glass)
         self.glass = glass
         content.onThemeChange = { [weak self, weak glass] in
@@ -273,7 +273,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             // No room below: open above the chip.
             if origin.y < visible.minY + Metrics.space2 { origin.y = anchor.maxY + Metrics.space1 }
         }
-        setFrame(PopupStyle.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: ordersFront)
         guard ordersFront else { return }
         alphaValue = 0
         makeKeyAndOrderFront(nil)

@@ -27,23 +27,23 @@ struct PopupStyleTests {
 
     @Test func theTokensMatchTheWebPopupSurface() throws {
         let css = try Self.webSurface()
-        #expect(PopupStyle.cornerRadius == (try Self.number(#"--ui-popup-radius:\s*(\d+)px"#, in: css)))
-        #expect(PopupStyle.padding == (try Self.number(#"--ui-popup-padding:\s*(\d+)px"#, in: css)))
-        #expect(PopupStyle.rowHeight == (try Self.number(#"--ui-row-height:\s*(\d+)px"#, in: css)))
-        #expect(PopupStyle.rowCornerRadius == (try Self.number(#"--ui-row-radius:\s*(\d+)px"#, in: css)))
+        #expect(PopupStyle.standard.cornerRadius == (try Self.number(#"--ui-popup-radius:\s*(\d+)px"#, in: css)))
+        #expect(PopupStyle.standard.padding == (try Self.number(#"--ui-popup-padding:\s*(\d+)px"#, in: css)))
+        #expect(PopupStyle.standard.rowHeight == (try Self.number(#"--ui-row-height:\s*(\d+)px"#, in: css)))
+        #expect(PopupStyle.standard.rowCornerRadius == (try Self.number(#"--ui-row-radius:\s*(\d+)px"#, in: css)))
         let shadow = #"--ui-popup-shadow:\s*0 (\d+)px (\d+)px color-mix\(in srgb, black (\d+)%"#
-        #expect(PopupStyle.shadowOffset == (try Self.number(shadow, in: css, group: 1)))
-        #expect(PopupStyle.shadowBlur == (try Self.number(shadow, in: css, group: 2)))
-        #expect(abs(PopupStyle.shadowAlpha * 100 - (try Self.number(shadow, in: css, group: 3))) < 0.001)
-        #expect(abs(PopupStyle.openDuration * 1000 - Double(try Self.number(#"--ui-popup-open:\s*(\d+)ms"#, in: css))) < 0.001)
+        #expect(PopupStyle.standard.shadowOffset == (try Self.number(shadow, in: css, group: 1)))
+        #expect(PopupStyle.standard.shadowBlur == (try Self.number(shadow, in: css, group: 2)))
+        #expect(abs(PopupStyle.standard.shadowAlpha * 100 - (try Self.number(shadow, in: css, group: 3))) < 0.001)
+        #expect(abs(PopupStyle.standard.openDuration * 1000 - Double(try Self.number(#"--ui-popup-open:\s*(\d+)ms"#, in: css))) < 0.001)
     }
 
     @Test func theShadowIsOneSubtleLayer() {
-        let shadow = PopupStyle.shadow()
-        #expect(shadow.shadowBlurRadius == PopupStyle.shadowBlur)
-        #expect(shadow.shadowOffset == NSSize(width: 0, height: -PopupStyle.shadowOffset))
-        #expect(shadow.shadowColor?.alphaComponent == PopupStyle.shadowAlpha)
-        #expect(PopupStyle.shadowMargin >= PopupStyle.shadowBlur + PopupStyle.shadowOffset)
+        let shadow = PopupStyle.standard.shadow()
+        #expect(shadow.shadowBlurRadius == PopupStyle.standard.shadowBlur)
+        #expect(shadow.shadowOffset == NSSize(width: 0, height: -PopupStyle.standard.shadowOffset))
+        #expect(shadow.shadowColor?.alphaComponent == PopupStyle.standard.shadowAlpha)
+        #expect(PopupStyle.standard.shadowMargin >= PopupStyle.standard.shadowBlur + PopupStyle.standard.shadowOffset)
     }
 
     /// The hover card: no window shadow; the card casts the popup shadow
@@ -54,16 +54,16 @@ struct PopupStyleTests {
         parent.isReleasedWhenClosed = false
         let panel = HoverCardPanel()
         #expect(!panel.hasShadow)
-        #expect(panel.glass.cornerRadius == PopupStyle.cornerRadius)
+        #expect(panel.glass.cornerRadius == PopupStyle.standard.cornerRadius)
         let host = try #require(panel.contentView as? PopupHostView)
-        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.shadowAlpha))
+        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.standard.shadowAlpha))
         let body = NSView()
         body.widthAnchor.constraint(equalToConstant: 200).isActive = true
         body.heightAnchor.constraint(equalToConstant: 80).isActive = true
         panel.present(body: body, anchor: CGRect(x: 200, y: 400, width: 100, height: 30), placement: .below, parent: parent,
                       themeAnchor: nil, sliding: false, applyTheme: {})
         #expect(panel.cardFrame.size == CGSize(width: 200, height: 80))
-        #expect(panel.frame == panel.cardFrame.insetBy(dx: -PopupStyle.shadowMargin, dy: -PopupStyle.shadowMargin))
+        #expect(panel.frame == panel.cardFrame.insetBy(dx: -PopupStyle.standard.shadowMargin, dy: -PopupStyle.standard.shadowMargin))
         #expect(panel.cardFrame.minX == 200)
         #expect(host.shadowLayer.shadowPath?.boundingBox == host.card.frame)
         parent.removeChildWindow(panel)

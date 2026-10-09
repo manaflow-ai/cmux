@@ -12,11 +12,11 @@ import Testing
         let panel = IconPickerPanel(content: page, size: NSSize(width: 300, height: 200))
         let host = try #require(panel.contentView as? PopupHostView)
         #expect(!panel.hasShadow)
-        #expect(host.card.layer?.cornerRadius == PopupStyle.cornerRadius)
-        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.shadowAlpha))
+        #expect(host.card.layer?.cornerRadius == PopupStyle.standard.cornerRadius)
+        #expect(host.shadowLayer.shadowOpacity == Float(PopupStyle.standard.shadowAlpha))
         host.layoutSubtreeIfNeeded()
         #expect(page.frame.size == NSSize(width: 300, height: 200))
-        #expect(panel.frame.size == NSSize(width: 300 + 2 * PopupStyle.shadowMargin, height: 200 + 2 * PopupStyle.shadowMargin))
+        #expect(panel.frame.size == NSSize(width: 300 + 2 * PopupStyle.standard.shadowMargin, height: 200 + 2 * PopupStyle.standard.shadowMargin))
         // The masked material keeps its corners; the host's layer casts the shadow around them.
         #expect(host.shadowLayer.shadowPath?.boundingBox == host.card.frame)
     }
