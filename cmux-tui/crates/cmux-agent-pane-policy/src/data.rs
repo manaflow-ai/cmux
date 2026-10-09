@@ -29,6 +29,20 @@ pub struct KnownParams {
     pub acpmux: BTreeSet<String>,
 }
 
+/// The bounds on a question's answers (crate rule, stricter than the Swift
+/// host today): `method`'s `param` is accepted only for a pending question,
+/// and only as an object of at most `maximum_items` item ids, each mapped to a
+/// string or a list of strings of at most `maximum_value_bytes` UTF-8 bytes
+/// (a list: its strings together). The default (a policy that did not parse)
+/// accepts no answers.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct QuestionAnswers {
+    pub method: String,
+    pub param: String,
+    pub maximum_items: usize,
+    pub maximum_value_bytes: usize,
+}
+
 /// The shape of a reply the host filters itself.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyShape {
@@ -73,6 +87,7 @@ struct Raw {
     reply_shapes: BTreeMap<String, Value>,
     history_replies: BTreeSet<String>,
     path_keys: BTreeSet<String>,
+    question_answers: QuestionAnswers,
 }
 
 /// The rules.
@@ -112,6 +127,7 @@ pub struct Policy {
     /// The params a page frame may name a folder in, at any depth
     /// (`AcpmuxPathPolicy.keys`): such a frame waits for the host's path check.
     pub path_keys: BTreeSet<String>,
+    pub question_answers: QuestionAnswers,
 }
 
 pub fn policy() -> &'static Policy {
@@ -144,6 +160,7 @@ pub fn policy() -> &'static Policy {
             reply_shapes,
             history_replies: raw.history_replies,
             path_keys: raw.path_keys,
+            question_answers: raw.question_answers,
         }
     })
 }
