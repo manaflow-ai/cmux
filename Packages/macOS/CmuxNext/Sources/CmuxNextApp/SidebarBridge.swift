@@ -55,6 +55,7 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        wireGroupEditor()
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = chatsMount.makeSections(services: services)
@@ -173,7 +174,8 @@ final class SidebarBridge {
     private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
         let sections = seed.merge(live, launching: launching, failed: failed)
         model.ungroupedFirst = !usesMixedOrder
-        model.setSections(sections)
+        // An organization change in flight keeps its optimistic rows (holdRows).
+        if groupEditor.rowHolds == 0 { model.setSections(sections) }
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         openPendingGroupEditor()
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }

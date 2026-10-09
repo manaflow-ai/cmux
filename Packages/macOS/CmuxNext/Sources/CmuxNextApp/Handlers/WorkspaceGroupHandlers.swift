@@ -27,12 +27,12 @@ enum WorkspaceGroupHandlers {
             let members = (try? context.workspace(invocation).model).map { [SidebarWorkspaceID($0.id)] } ?? []
             let name = invocation["name"]?.stringValue ?? ""
             if members.isEmpty, invocation.origin == .user, name.isEmpty { return try context.sidebar().newEmptyGroup(name: name) }
-            try createGroup(named: name, members: members, context)
+            try createGroup(named: name, members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             var members = try context.sidebar().model.orderedSelection
             if members.isEmpty { members = [SidebarWorkspaceID(try context.workspace(invocation).model.id)] }
-            try createGroup(named: "", members: members, context)
+            try createGroup(named: "", members: members, byUser: invocation.origin == .user, context)
         })
         registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
@@ -148,8 +148,8 @@ enum WorkspaceGroupHandlers {
         CmuxNextSidebar.GroupID(group.id.rawValue)
     }
 
-    private static func createGroup(named name: String, members: [SidebarWorkspaceID], _ context: AppActionContext) throws {
-        try context.sidebar().handle(.createGroup(.make(), name: name, color: .grey, workspaces: members))
+    private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
+        try context.sidebar().newGroup(of: members, name: name, byUser: byUser)
     }
 
     /// Sends a sidebar intent for the targeted group.

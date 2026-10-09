@@ -28,7 +28,7 @@ extension SidebarBridge {
             // The groups these workspaces leave empty go too (cx-rcby).
             let ending = life.emptied(by: members, into: id)
             model.apply(intent)
-            life.commit("set-personal-workspace", ending: ending, failed: resync) { connection in
+            life.commit("set-personal-workspace", ending: ending, failed: resync, settled: holdRows()) { connection in
                 for workspace in members {
                     try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                       group: .set(id))
@@ -36,12 +36,6 @@ extension SidebarBridge {
             }
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
-            // Workspaces that already are one whole group get no second group:
-            // its name editor opens instead (repeated New Group, cx-rcby).
-            if let whole = life.whole(members) {
-                editGroup(whole)
-                return true
-            }
             let ending = life.emptied(by: members, into: nil)
             model.apply(intent)
             // Mixed order: the new group's place where the model formed it,
@@ -49,7 +43,7 @@ extension SidebarBridge {
             let place = usesMixedOrder && v2 ? PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
                 : PersonalSidebar.GroupPlacement()
             let move = place.move, top = place.topIndex
-            life.commit("create-personal-group", ending: ending, failed: resync) { connection in
+            life.commit("create-personal-group", ending: ending, failed: resync, settled: holdRows()) { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                     name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
@@ -125,7 +119,7 @@ extension SidebarBridge {
         let regroup = statePersonal ? plan.regroup : []
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let ending = life.emptied(by: plan.steps.filter(\.moves).map(\.workspace), into: group)
-        life.commit("set-personal-workspace", ending: ending, failed: resync) { connection in
+        life.commit("set-personal-workspace", ending: ending, failed: resync, settled: holdRows()) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -139,6 +133,20 @@ extension SidebarBridge {
 
     /// The group lifecycle rule (cx-rcby).
     var life: PersonalGroupLife { PersonalGroupLife(machines: services.machines) }
+
+    /// Keeps the sidebar's optimistic rows until an organization change's
+    /// commands have all landed, then shows daemon truth once (cx-rcby): a
+    /// new group's create, place and delete commits each send a snapshot,
+    /// and showing them one by one made the group jump (it arrived empty,
+    /// its member snapped back, then moved in). Returns the release.
+    func holdRows() -> @MainActor () -> Void {
+        groupEditor.rowHolds += 1
+        return { [weak self] in
+            guard let self else { return }
+            groupEditor.rowHolds -= 1
+            if groupEditor.rowHolds == 0 { resync() }
+        }
+    }
 
     /// A new group with no member, its name editor open; it goes when the
     /// editor closes while it is still empty (`groupEditorEnded`).

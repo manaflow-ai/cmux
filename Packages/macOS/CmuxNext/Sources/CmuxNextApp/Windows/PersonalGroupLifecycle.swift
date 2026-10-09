@@ -100,13 +100,18 @@ struct PersonalGroupLife {
     /// the groups it `ends`. Until the delete lands an ending group that
     /// shows no member is hidden (`PersonalStore.endingGroups`), so the
     /// emptied group never flashes back between the two commits.
-    /// `failed` runs when a command fails (the caller re-syncs).
+    /// `failed` runs when a command fails (the caller re-syncs); `settled`
+    /// runs last either way.
     func commit(_ label: String, ending: [WorkspaceGroupID], failed: @escaping @MainActor () -> Void,
+                settled: @escaping @MainActor () -> Void = {},
                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
         personal.endingGroups.formUnion(ending)
         Task {
-            defer { personal.endingGroups.subtract(ending) }
+            defer {
+                personal.endingGroups.subtract(ending)
+                settled()
+            }
             guard await home.request(label, body) != nil else { return failed() }
             guard !ending.isEmpty else { return }
             let deleted = await home.request("delete-personal-group") { connection in
@@ -132,4 +137,7 @@ struct PersonalGroupLife {
 final class PersonalGroupEditorState {
     var pending: WorkspaceGroupID?
     var explicit: Set<WorkspaceGroupID> = []
+    /// Organization changes in flight; the sidebar keeps its optimistic
+    /// rows while any is (`SidebarBridge.holdRows`).
+    var rowHolds = 0
 }
