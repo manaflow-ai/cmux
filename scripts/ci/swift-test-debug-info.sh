@@ -11,9 +11,13 @@
 #   none   -debug-info-format none: no DWARF, no dSYM. The bundle keeps its
 #          symbol table, so `sample` stacks (hung_test_watchdog.py) and crash
 #          reports still name functions; lldb has no source lines.
+# Default: none; dwarf for a sanitizer run (CMUX_SWIFT_SANITIZE), whose
+# reports need source lines. Set dwarf to debug a test in lldb.
 # Returns 2 on any other value.
 swift_test_debug_info_args=()
-case "${CMUX_SWIFT_TEST_DEBUG_INFO:-dwarf}" in
+swift_test_debug_info_default=none
+[ -z "${CMUX_SWIFT_SANITIZE:-}" ] || swift_test_debug_info_default=dwarf
+case "${CMUX_SWIFT_TEST_DEBUG_INFO:-$swift_test_debug_info_default}" in
   dwarf) ;;
   none) swift_test_debug_info_args=(-debug-info-format none) ;;
   *)
