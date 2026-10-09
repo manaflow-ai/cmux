@@ -53,7 +53,7 @@
    "CmuxIrohTransport": 40,
    "CmuxIrxTransport": 30,
    "CmuxNextControl": 22,
-   "CmuxNextDaemon": 88,
+   "CmuxNextDaemon": 54,
    "CmuxNextMobile": 5,
    "CmuxTerminalSizing": 5,
    "MessagesLabHome": 739,
@@ -64,7 +64,7 @@
    "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 43,
    "CmuxNextControl": 45,
-   "CmuxNextDaemon": 8,
+   "CmuxNextDaemon": 3,
    "CmuxNextMobile": 5,
    "MessagesLabHome": 83,
    "MessagesLabSidebar": 18

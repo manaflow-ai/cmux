@@ -28,7 +28,8 @@ extension DaemonStore {
         }
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
-        intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1)
+        let undo = IntentOverlay.apply(intent, to: self)
+        if !intentLog.setUndo(undo, at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
         recordMirror()
         workspaceListMayHaveChanged()
@@ -135,14 +136,15 @@ extension DaemonStore {
     private func liftOverlay() {
         for index in intentLog.entries.indices.reversed() {
             if let undo = intentLog.entries[index].undo { IntentOverlay.undo(undo, in: self) }
-            intentLog.setUndo(nil, at: index)
+            if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
-        for index in intentLog.entries.indices {
-            intentLog.setUndo(IntentOverlay.restore(intentLog.entries[index], to: self), at: index)
+        // IntentOverlay changes the store's records, never the intent log.
+        for (index, entry) in intentLog.entries.enumerated() {
+            if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 }
