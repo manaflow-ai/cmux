@@ -924,6 +924,17 @@ fn agent_chat_dock_refuses_an_edge_drop() {
 }
 
 #[test]
+fn a_split_column_cannot_become_the_chat_dock() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.ok(json!({"cmd": "split", "pane": panes[0], "dir": "down"}));
+    refused_chat_dock(&wire.send(json!({
+        "cmd": "set-column-dock", "pane": panes[0], "dock": true, "edge": "left", "role": "agent_chat",
+    })));
+    assert_eq!(wire.dock(), vec![None, None], "the split column stays a plain column");
+    assert_eq!(column_panes(&wire, 0), 2);
+}
+
+#[test]
 fn plain_dock_still_splits() {
     let (mut wire, panes) = Wire::with_columns(2);
     wire.set_dock(panes[0], "left", "docked");
