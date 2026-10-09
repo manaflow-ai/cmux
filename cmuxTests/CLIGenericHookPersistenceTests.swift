@@ -3221,7 +3221,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, incompleteWaitingMessage)
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+        // Prose waiting notifications remain actionable; only the structured
+        // idle_prompt marker is observational.
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let neutralFallbackCommandStart = state.commands.count
         let neutralFallback = runGrokHook(
@@ -3246,7 +3248,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(session["runtimeStatus"] as? String, "idle")
+        // Rebuilding a display summary keeps the existing actionable marker.
+        XCTAssertEqual(session["runtimeStatus"] as? String, "needsInput")
 
         let resumedSessionID = "grok-resumed-after-stop"
         let resumedCommandStart = state.commands.count
