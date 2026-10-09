@@ -173,7 +173,9 @@ describe("HistoryPage", () => {
     const menu = $("[role=menu]")!;
     expect(menu).not.toBeNull();
     expect(menu.querySelectorAll<HTMLElement>("[role=menuitem]")).toHaveLength(3);
-    expect(menu.querySelector<HTMLElement>("[role=menuitem][aria-disabled=true]")?.textContent).toBe("Resume Agent Session");
+    expect(menu.querySelector<HTMLElement>("[role=menuitem][aria-disabled=true]")?.textContent).toBe(
+      "Resume Agent Session",
+    );
 
     const positioner = $(".page-menu-positioner")!;
     expect(positioner.style.position).toBe("fixed");
