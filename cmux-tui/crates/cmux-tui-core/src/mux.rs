@@ -74,7 +74,9 @@ use agent_hook_errors::{
 };
 
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
-pub(crate) use agent_chat_columns::{agent_chat_columns, ensure_agent_chat_columns_unsplit};
+pub(crate) use agent_chat_columns::{
+    agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
+};
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };

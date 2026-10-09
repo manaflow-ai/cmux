@@ -43,13 +43,35 @@ pub(crate) fn ensure_agent_chat_columns_unsplit(
         let had = before.iter().find(|(entry, _)| *entry == key).map_or(1, |(_, had)| *had);
         panes > had.max(1)
     });
-    if !grew {
-        return Ok(());
-    }
-    Err(ResourceError::operation_failed(
+    if grew { Err(refusal(operation)) } else { Ok(()) }
+}
+
+/// Refuses a new pane in `target`'s column (a split, a row or an auto-layout
+/// append) when that column is an agent chat dock. Pane creation spawns its
+/// terminal outside the staged plan, so it checks here before the spawn and
+/// again when it attaches. A new viewport column beside the dock is allowed.
+pub(crate) fn ensure_pane_column_not_agent_chat(
+    operation: &str,
+    state: &State,
+    target: PaneId,
+) -> anyhow::Result<()> {
+    let chat = state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.layout_columns.iter())
+        .any(|column| {
+            column.dock.is_some_and(|flag| flag.role == Some(DockRole::AgentChat))
+                && column.root.contains(target)
+        });
+    if chat { Err(refusal(operation)) } else { Ok(()) }
+}
+
+fn refusal(operation: &str) -> anyhow::Error {
+    ResourceError::operation_failed(
         operation,
         format!("{AGENT_CHAT_COLUMN_CODE}: the agent chat dock holds one pane"),
         serde_json::json!({"reason_code": AGENT_CHAT_COLUMN_CODE}),
     )
-    .into())
+    .into()
 }

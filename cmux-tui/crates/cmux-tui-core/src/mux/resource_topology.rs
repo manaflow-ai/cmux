@@ -4817,6 +4817,16 @@ impl Mux {
                 })
             })
             .transpose()?;
+        let operation = if direction.is_some() {
+            ResourceOperation::PaneSplit
+        } else {
+            ResourceOperation::PaneCreate
+        }
+        .wire_name();
+        if viewport_width.is_none() {
+            let state = self.state.lock().unwrap();
+            crate::mux::ensure_pane_column_not_agent_chat(operation, &state, target)?;
+        }
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
@@ -4842,6 +4852,9 @@ impl Mux {
             let Some((workspace, screen_index)) = state.screen_of(target) else {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
+            if viewport_width.is_none() {
+                crate::mux::ensure_pane_column_not_agent_chat(operation, &state, target)?;
+            }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
             let screen = &mut state.workspaces[workspace].screens[screen_index];
