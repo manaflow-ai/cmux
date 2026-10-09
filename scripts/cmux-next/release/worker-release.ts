@@ -322,7 +322,7 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
       return 0
     }
     const parts = [d.added.length ? `added: ${d.added.join(", ")}` : "", d.removed.length ? `removed: ${d.removed.join(", ")}` : "", d.changed.length ? `changed: ${d.changed.join(", ")}` : ""].filter(Boolean)
-    io.error(`vars drift between ${configFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}). This deploy ships code only, so it is refused; reconcile the vars with their owner first`)
+    io.error(`vars drift between ${configFile} env.${env}.vars and ${worker} version ${id} (${parts.join("; ")}). This deploy ships code only; deploy refused. Reconcile the vars with their owner first`)
     return 1
   }
   io.error(`unknown command ${JSON.stringify(command)}`)
