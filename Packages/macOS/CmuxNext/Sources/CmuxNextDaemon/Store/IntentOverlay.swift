@@ -60,6 +60,8 @@ import Foundation
             pane.insertTab(tab, at: pane.tabs.count)
             store.tabsBySurface[provisional.surface] = tab
             return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .splitPane:
+            return nil
         case .bindAgentSession(let surface, let session):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
             let previous = tab.snapshot

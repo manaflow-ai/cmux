@@ -137,6 +137,9 @@ struct RefState: Equatable, CustomStringConvertible {
         case .bindAgentSession:
             // The property world's tabs have no agent session record.
             return false
+        case .splitPane:
+            // The property world has no split trees (SplitIsProvisionalTests covers splits).
+            return false
         case .createTab(let pane, let provisional):
             // The client's view of a creation: the provisional tab at the end of an open pane.
             guard layout.tabs[pane] != nil, layout.pane(of: provisional.surface) == nil else { return false }
