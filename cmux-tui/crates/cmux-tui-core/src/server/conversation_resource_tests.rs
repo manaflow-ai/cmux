@@ -368,3 +368,60 @@ fn drafts_never_reach_the_raw_subscribe_stream() {
         ConversationEvent::Typing { conversation: "c".into(), participant: "p".into(), on: true };
     assert!(!typing.is_draft());
 }
+
+#[test]
+fn a_connection_whose_agent_token_was_replaced_is_nobody_not_the_person() {
+    let (mux, user, mine, _) = setup("conv-v2-rebind");
+    let chief = bound(&mux, &user, "agent_mux");
+    // The person mints a new token: the old binding ends.
+    raw(&mux, &user, json!({"cmd":"conversation-agent-token","participant":"agent_mux"}));
+    assert_ne!(mux.conversation_principal(chief.id), "user_local");
+    let refused = send(&mux, &chief, &mine, "k-after", "as the person?");
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(
+        ok(&v2(&mux, &chief, "conversation.list", json!({}), None)).as_array().unwrap().is_empty()
+    );
+}
+
+#[test]
+fn an_events_stream_ends_when_its_principal_loses_the_conversation() {
+    let (mux, user, mine, _) = setup("conv-v2-revoke");
+    let chief = bound(&mux, &user, "agent_mux");
+    ok(&v2(
+        &mux,
+        &chief,
+        "conversation.events",
+        json!({"conversation":mine,"stream_id":"stream_66666666666666666666666666666666","tail":0}),
+        None,
+    ));
+    assert_eq!(stream_line(&chief)["item"]["type"], "snapshot");
+    raw(&mux, &user, json!({"cmd":"conversation-agent-token","participant":"agent_mux"}));
+    ok(&send(&mux, &user, &mine, "k1", "private after the token changed"));
+    let next = stream_line(&chief);
+    assert_eq!(next["type"], "stream_end", "{next}");
+}
+
+#[test]
+fn another_agent_cannot_use_up_a_turns_draft_seqs() {
+    let (mux, user, mine, _) = setup("conv-v2-draft-owner");
+    raw(
+        &mux,
+        &user,
+        json!({"cmd":"conversation-op","conversation":mine,"idempotency_key":"add",
+        "op":{"kind":"participants.add","participant":{"id":"agent_two","kind":"agent","display_name":"two"}}}),
+    );
+    let chief = bound(&mux, &user, "agent_mux");
+    let two = bound(&mux, &user, "agent_two");
+    let draft = |conn: &Conn, key: &str| {
+        v2(
+            &mux,
+            conn,
+            "conversation.draft",
+            json!({"conversation":mine,"turn":"turn:optchat:9","segment":0,"seq":1,"kind":"talk",
+                  "text":"x","fresh":true,"done":false}),
+            Some(key),
+        )
+    };
+    assert_eq!(ok(&draft(&two, "a"))["value"]["published"], true);
+    assert_eq!(ok(&draft(&chief, "b"))["value"]["published"], true, "the Chief's seq 1 is its own");
+}
