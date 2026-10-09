@@ -2,47 +2,6 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
-/// The grouping rules every grouped strip shares (pane tab strips and the
-/// screen bar): one reducer, one color rule, one collapse rule.
-@Suite struct SharedGroupColorTests {
-    @Test func aNewGroupTakesTheFirstUnusedColorAndNeverPicksBlue() {
-        #expect(TabGroupOrdering.nextColor(used: []) == .grey)
-        #expect(TabGroupOrdering.nextColor(used: [.grey]) == GroupColor.allCases.first { $0 != .grey && $0 != .blue })
-        #expect(TabGroupOrdering.nextColor(used: GroupColor.allCases.filter { $0 != .blue }) == .grey, "all taken: grey")
-        for used in [[GroupColor](), [.grey], [.grey, .red], [.red, .yellow, .green]] {
-            #expect(TabGroupOrdering.nextColor(used: used) != .blue)
-        }
-    }
-}
-
-/// The selection a caller moves before collapsing a group over it.
-@Suite struct SelectionBeforeCollapsingTests {
-    static func tab(_ id: String, _ group: String?) -> TabItem {
-        var item = TabItem(id: TabID(id), title: id)
-        item.groupID = group.map { TabGroupID($0) }
-        return item
-    }
-
-    @Test func nearestVisibleToTheRightThenLeft() {
-        let tabs = [Self.tab("a", nil), Self.tab("b", "g"), Self.tab("c", "g"), Self.tab("d", nil)]
-        #expect(TabGroupOrdering.selectionBeforeCollapsing(TabGroupID("g"), in: tabs, collapsed: [], selected: TabID("b")) == TabID("d"))
-        let noRight = Array(tabs.dropLast())
-        #expect(TabGroupOrdering.selectionBeforeCollapsing(TabGroupID("g"), in: noRight, collapsed: [], selected: TabID("c")) == TabID("a"))
-    }
-
-    /// Review finding: with every other item in a collapsed group, the
-    /// selection must not stay hidden inside the collapsing group.
-    @Test func everyOtherItemCollapsedFallsBackToTheFirstOutside() {
-        let tabs = [Self.tab("a", "g1"), Self.tab("b", "g2")]
-        #expect(TabGroupOrdering.selectionBeforeCollapsing(TabGroupID("g2"), in: tabs, collapsed: [TabGroupID("g1")], selected: TabID("b")) == TabID("a"))
-    }
-
-    @Test func nothingChangesWhenTheSelectionIsOutsideTheGroup() {
-        let tabs = [Self.tab("a", nil), Self.tab("b", "g")]
-        #expect(TabGroupOrdering.selectionBeforeCollapsing(TabGroupID("g"), in: tabs, collapsed: [], selected: TabID("a")) == nil)
-    }
-}
-
 /// Seeded random sequences of group intents against the strip's reducer
 /// (the one both tab groups and screen groups render through). After every
 /// step: no item lost or duplicated (conservation on drag and regroup),

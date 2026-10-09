@@ -14,8 +14,7 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
     case remoteHosts
 
     /// The feature `descriptor` belongs to, or nil. Rules by id, category and
-    /// owning catalog, so a new action of a feature is covered with no edit;
-    /// `ActionFeatureTests` pins the resulting sets.
+    /// owning catalog, so a new action of a feature is covered with no edit.
     public static func feature(of descriptor: ActionDescriptor) -> ActionFeature? {
         let id = descriptor.id.rawValue
         let lowered = id.lowercased()

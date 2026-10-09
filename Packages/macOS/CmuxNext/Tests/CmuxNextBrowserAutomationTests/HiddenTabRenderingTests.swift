@@ -21,7 +21,10 @@ import WebKit
         func openAutomationTab(url: URL?) async throws -> WebKitTab { try await inner.openAutomationTab(url: url) }
         func closeAutomationTab(_ id: BrowserTabID) { inner.closeAutomationTab(id) }
         func endSessionTab(_ id: String) -> Bool { inner.endSessionTab(id) }
-        func activateAutomationTab(_ id: BrowserTabID) {}
+        func activateAutomationTab(_ id: BrowserTabID) { activated.append(id) }
+        var activated: [BrowserTabID] = []
+        var drivable: Set<String> = []
+        func isDrivable(_ targetID: String) -> Bool { drivable.contains(targetID) }
 
         func keepRendering(_ tab: WebKitTab) async -> Bool {
             kept.append(tab.id)
@@ -52,5 +55,21 @@ import WebKit
         #expect(provider.kept.contains(tab.id))
         #expect(tab.webView.window != nil)
         provider.windows.forEach { $0.close() }
+    }
+
+    /// `tabs.activate` (page.bringToFront) on a Chromium tab the App lets
+    /// agents drive succeeds: the app, not the WebKit driver, owns tab
+    /// selection. Before, it failed with "no tab" because the driver knew
+    /// only WebKit tabs.
+    @Test func activateAcceptsADrivableChromiumTab() async throws {
+        let provider = RenderingProvider()
+        provider.drivable = ["c1"]
+        let driver = WebKitDriver(provider: provider)
+        let result = try await driver.call(method: "tabs.activate", params: .object(["targetId": .string("c1")]))
+        #expect(result == .null)
+        #expect(provider.activated == [BrowserTabID(rawValue: "c1")])
+        await #expect(throws: DriverError.self) {
+            try await driver.call(method: "tabs.activate", params: .object(["targetId": .string("nope")]))
+        }
     }
 }
