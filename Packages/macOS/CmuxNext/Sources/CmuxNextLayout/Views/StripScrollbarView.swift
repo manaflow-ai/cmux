@@ -5,7 +5,9 @@ import QuartzCore
 
 /// The thin scrollbar under the column strip (dock-column.md, B1 to B5):
 /// a neutral thumb showing the visible range, no track color. Dragging the
-/// thumb scrolls, a click beside it pages. `auto` fades it in while the
+/// thumb scrolls, a click beside it pages. `system` (the default) is `auto`
+/// for overlay scrollers and `always` for legacy ones, live on a change of the
+/// macOS setting (``SystemScrollers``). `auto` fades it in while the
 /// strip scrolls or the pointer is over it and out after a one-shot
 /// deadline; `always` keeps it while columns overflow; `off` hides it.
 /// It takes the mouse only while shown, so clicks pass to the panes below.
@@ -53,7 +55,19 @@ final class StripScrollbarView: NSView {
         let hover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
         hover.isHoverable = { [weak self] in self?.thumbRect != nil && self?.input?.mode != .off }
         pointerHover = hover
+        // `system` re-resolves on a change of the macOS "Show scroll bars" setting.
+        SystemScrollers.observe(self) { [weak self] _ in
+            guard let self, let input = self.input, input.mode == .system else { return }
+            self.update(input, scrolled: false)
+        }
     }
+
+    /// The mode applied now: `system` resolved against the macOS scroller style.
+    private static func applied(_ mode: StripScrollbarMode) -> StripScrollbarMode {
+        mode.resolved(legacyScrollers: SystemScrollers.preferredStyle == .legacy)
+    }
+    /// The mode the last `update` applied (a style change compares against it).
+    private var appliedMode: StripScrollbarMode?
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -72,8 +86,10 @@ final class StripScrollbarView: NSView {
     /// New geometry or offset. `scrolled` is true when the offset moved
     /// (any cause): `auto` flashes the thumb.
     func update(_ input: Input, scrolled: Bool) {
-        let previous = self.input
+        let previousMode = appliedMode
         self.input = input
+        let mode = Self.applied(input.mode)
+        appliedMode = mode
         if frame != input.band { frame = input.band }
         let track = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
         thumbRect = StripScrollbarGeometry.thumb(track: track, offset: input.offset, contentWidth: input.contentWidth,
@@ -82,15 +98,15 @@ final class StripScrollbarView: NSView {
         // The band moved, resized or lost its thumb under a possibly still
         // pointer: hover follows before the fade decision reads it.
         pointerHover?.refresh()
-        switch input.mode {
-        case .off:
+        switch mode {
+        case .off, .system: // `system` never survives `applied`
             setShown(false)
         case .always:
             setShown(thumbRect != nil)
         case .auto:
             if thumbRect == nil {
                 setShown(false)
-            } else if scrolled || isHovered || drag != nil || (previous?.mode != .auto && previous != nil) {
+            } else if scrolled || isHovered || drag != nil || (previousMode != .auto && previousMode != nil) {
                 flash()
             }
         }
@@ -110,12 +126,12 @@ final class StripScrollbarView: NSView {
     /// Shows the thumb and schedules the `auto` fade-out.
     private func flash() {
         setShown(true)
-        guard input?.mode == .auto, !isHovered, drag == nil else {
+        guard appliedMode == .auto, !isHovered, drag == nil else {
             hideTimer.cancel()
             return
         }
         hideTimer.schedule(after: Self.idleDelay) { @MainActor [weak self] in
-            guard let self, self.input?.mode == .auto, !self.isHovered, self.drag == nil else { return }
+            guard let self, self.appliedMode == .auto, !self.isHovered, self.drag == nil else { return }
             self.setShown(false)
         }
     }

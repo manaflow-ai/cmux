@@ -68,6 +68,8 @@ import PackageDescription
 //     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
+//   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
+//     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -131,6 +133,10 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
+        // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
+        .package(path: "../../Shared/CmuxSentryTelemetry"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", "9.3.0"..<"9.29.0"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
@@ -145,6 +151,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextCrashReporting",
                 "CmuxNextHome",
                 "CmuxNextAgentQuestion",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -697,6 +704,24 @@ let package = Package(
             dependencies: ["CmuxNextProcessEnvironment"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Crash and exception reports to Sentry (cx-urd.58): consent, channel
+        // environment, release, fingerprint, scrubbing, signal handler order.
+        .target(
+            name: "CmuxNextCrashReporting",
+            dependencies: [
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCrashReportingTests",
+            dependencies: [
+                "CmuxNextCrashReporting",
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
             dependencies: ["CmuxNextWakeups"],
@@ -816,15 +841,10 @@ let package = Package(
             dependencies: ["CmuxNextTerminalFind"],
             swiftSettings: daemonSwiftSettings
         ),
-        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
-        // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
+        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit;
+        // CmuxNextTerminal drives Ghostty's keyboard-copy API.
         .target(
             name: "CmuxNextCopyMode",
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextCopyModeTests",
-            dependencies: ["CmuxNextCopyMode"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -970,7 +990,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],

@@ -67,6 +67,19 @@ pub fn harness_choice(
     (turn, compactor)
 }
 
+/// The compactor's harness when none is set (Lawrence 2026-10-09: "just
+/// always use haiku for default compactor"): the turns' own when it is a
+/// Claude harness (claude-sr stays claude-sr), else `claude`, the Claude
+/// route acpmux has (the configured CodeRouter route, else the user's own
+/// login).
+pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> String {
+    if family == Family::Claude {
+        turn.to_owned()
+    } else {
+        claude.to_owned()
+    }
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
@@ -86,6 +99,35 @@ pub fn default_harness(answer: &serde_json::Value) -> &'static str {
         CODEROUTER_HARNESS
     } else {
         DEFAULT_HARNESS
+    }
+}
+
+/// Which codex the codex sessions run, in host.log and the trace (event
+/// `codex`: path and `--version`). Without the Chief's own copy, one line
+/// says that the PATH codex runs and may not read the view back.
+fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String)) {
+    let (path, own) = match crate::codex_home::chief_codex(paths) {
+        Some(p) => (p, true),
+        None => {
+            log(format!(
+                "codex: the Chief's own codex is not installed at {}; codex sessions run the PATH codex, which may ignore the Chief's prompt cache key",
+                paths.codex_bin.display()
+            ));
+            (PathBuf::from("codex"), false)
+        }
+    };
+    let version = std::process::Command::new(&path)
+        .arg("--version")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    trace.emit(
+        "codex",
+        serde_json::json!({"path": path.display().to_string(), "own": own, "version": version}),
+    );
+    if own {
+        log(format!("codex: {} ({version})", path.display()));
     }
 }
 
@@ -115,6 +157,12 @@ pub fn turn_preset(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if let Some(codex) = crate::codex_home::chief_codex(paths) {
+            env.insert(
+                crate::codex_home::CODEX_PATH_ENV.to_owned(),
+                codex.display().to_string(),
+            );
+        }
         if isolate {
             // The Chief's own codex home: no native subagents (its subagents
             // are `chief spawn` sessions), no user MCP servers, hooks or skills.
@@ -507,12 +555,16 @@ fn start(
         // else the user's own Claude login (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
-            if compactor_set.is_none() {
-                compactor_harness = harness.clone();
-            }
             if sub_set.is_none() {
                 sub_harness = harness.clone();
             }
+        }
+        // The compactor runs on a Claude route unless set otherwise, whatever
+        // the turns run on (engine.json may swap them to codex per turn).
+        if compactor_set.is_none() {
+            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
+            compactor_harness =
+                default_compactor_harness(&harness, turn_family, default_harness(&answer));
         }
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
@@ -620,6 +672,9 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some() || compactor_family == Family::Codex {
+        trace_codex(paths, &trace, &log);
+    }
     if codex_preset.is_some()
         && isolate
         && let Err(e) =
@@ -915,7 +970,13 @@ fn start(
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        Some(Arc::new(app))
+        // E17: the app while it runs, else the Chief's owner daemon.
+        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
+            app,
+            daemon_socket.into(),
+            home,
+            Some(sub_harness.clone()),
+        )))
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {
@@ -1129,7 +1190,15 @@ fn start(
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
-    spawn_probe(model, fallback, system, route, tx.clone());
+    let probe_delay = Arc::new(ProbeDelay::default());
+    spawn_probe(
+        probe_delay.clone(),
+        model,
+        fallback,
+        system,
+        route,
+        tx.clone(),
+    );
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
@@ -1172,6 +1241,7 @@ fn start(
         }
     }
     let fatal = brain.run(rx);
+    probe_delay.stop();
     chat.shutdown();
     Ok(fatal)
 }
@@ -1183,6 +1253,7 @@ fn start(
 /// Chief conversation one notice, instead of every turn waiting on settle
 /// with nothing said.
 fn spawn_probe(
+    delay: Arc<ProbeDelay>,
     model: Arc<dyn CompactModel>,
     fallback: Option<Arc<dyn CompactModel>>,
     system: String,
@@ -1193,7 +1264,14 @@ fn spawn_probe(
         .name("optchat-compact-probe".into())
         .spawn(move || {
             let started = std::time::Instant::now();
-            match probe_models(&*model, fallback.as_deref(), &system) {
+            // A transient failure (the network, an exhausted route) is
+            // retried after a backoff through the host's delay, quietly; a
+            // real fault is posted once; the host's end stops the probe.
+            let probe = || probe_models(&*model, fallback.as_deref(), &system);
+            let Some(result) = probe_until_ready(&probe, &*delay, &|line: &str| log(line)) else {
+                return;
+            };
+            match result {
                 Ok(line) => {
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
@@ -1226,11 +1304,103 @@ fn spawn_probe(
     }
 }
 
+/// A wait the host can cut short: the start-up probe's retry delay. No
+/// sleep in runtime code: `ProbeDelay` waits on a condition variable that
+/// `stop` wakes (the host's end).
+pub trait Delay: Send + Sync {
+    /// Waits `d`; false when stopped (now or during the wait).
+    fn wait(&self, d: std::time::Duration) -> bool;
+}
+
+/// The host's `Delay`, stopped when the host ends.
+#[derive(Default)]
+pub struct ProbeDelay {
+    stopped: std::sync::Mutex<bool>,
+    woken: std::sync::Condvar,
+}
+
+impl ProbeDelay {
+    pub fn stop(&self) {
+        *self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.woken.notify_all();
+    }
+}
+
+impl Delay for ProbeDelay {
+    fn wait(&self, d: std::time::Duration) -> bool {
+        let stopped = self
+            .stopped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (stopped, _) = self
+            .woken
+            .wait_timeout_while(stopped, d, |s| !*s)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        !*stopped
+    }
+}
+
+/// The start-up probe: `probe` again after each transient failure, with
+/// `delay` between tries; None when the delay was stopped.
+pub fn probe_until_ready(
+    probe: &dyn Fn() -> Result<String, String>,
+    delay: &dyn Delay,
+    log: &dyn Fn(&str),
+) -> Option<Result<String, String>> {
+    let mut attempt = 0;
+    loop {
+        match probe() {
+            Err(e) => match probe_retry_wait(&e, attempt) {
+                Some(wait) => {
+                    log(&format!(
+                        "compactor probe: {e}; trying again in {} s",
+                        wait.as_secs()
+                    ));
+                    if !delay.wait(wait) {
+                        return None;
+                    }
+                    attempt += 1;
+                }
+                None => return Some(Err(e)),
+            },
+            ok => return Some(ok),
+        }
+    }
+}
+
+/// How long the start-up probe waits before it tries again after `error`
+/// (its `attempt`-th failure, from 0); None: no retry (a real fault).
+pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
+    use std::time::Duration;
+    const MAX: Duration = Duration::from_secs(120);
+    if let Some(wait) = optchat_host::capacity_wait(error) {
+        return Some(wait.min(MAX));
+    }
+    let lower = error.to_ascii_lowercase();
+    let transient = [
+        "network error",
+        "check your internet connection",
+        "connection was lost",
+        "connection refused",
+        "connection reset",
+        "timed out",
+        "did not answer within",
+        "overloaded",
+    ]
+    .iter()
+    .any(|t| lower.contains(t));
+    transient.then(|| Duration::from_secs(1u64 << attempt.min(16)).min(MAX))
+}
+
 /// The notice a failed start-up probe posts in the Chief conversation;
 /// None posts none (the failure is only logged).
 pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
-    // An exhausted route is a wait, not a fault: nothing to post.
-    if optchat_host::capacity_wait(error).is_some() {
+    // An exhausted route or a transient error is a wait, not a fault:
+    // nothing to post (the probe tries again).
+    if probe_retry_wait(error, 0).is_some() {
         return None;
     }
     let remedy = match route {

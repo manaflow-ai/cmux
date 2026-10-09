@@ -148,6 +148,28 @@ describe("shared palette ranker", () => {
     expect(score("action:splitRight")).toBe(score("action:splitUp"));
   });
 
+  // The Raycast model (palette-ranking.md 5.2): the row picked for a query start goes first while
+  // it matches, over better text matches; a faded or non-matching pick does not.
+  test("a learned pick lifts its row while it matches and has not faded", () => {
+    const entries = [
+      entry("splitRight", "Split Right", { frecencyKey: "action:splitRight" }),
+      entry("splitBrowser", "Split Browser Right", { frecencyKey: "action:splitBrowserRight" }),
+    ];
+    const week = 7 * 24 * 60 * 60;
+    const picks = (score: number, lastUsed: number, last = true): PaletteFrecency => ({
+      entries: {},
+      pickHalfLife: week,
+      picks: [{ prefix: "sp", key: "action:splitBrowserRight", score, lastUsed, last }],
+    });
+    expect(rankedIDs(entries, "sp")[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "sp", picks(3, now, false))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "spl", picks(1, now))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "spl", picks(1, now - 5 * week))[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "spl", picks(1, now, false))[0]).toBe("splitRight");
+    expect(rankedIDs(entries, "split r", picks(3, now))[0]).toBe("splitBrowser");
+    expect(rankedIDs(entries, "split d", picks(3, now))).toEqual([]);
+  });
+
   test("frecency decays by its half-life and orders recent keys", () => {
     const store: PaletteFrecency = { entries: { a: { score: 2, lastUsed: now } }, halfLife: 100 };
     const score = (at: number) => store.entries!.a.score * 2 ** (-(at - store.entries!.a.lastUsed) / store.halfLife!);

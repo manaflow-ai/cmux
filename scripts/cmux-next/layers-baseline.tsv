@@ -8,7 +8,6 @@ webviews/src/agent-session/acpmux/composerLocation.css	z	1
 webviews/src/agent-session/acpmux/conversation/conversation.css	backdrop	2
 webviews/src/agent-session/acpmux/conversation/conversation.css	z	2
 webviews/src/agent-session/acpmux/handoff/styles.css	z	1
-webviews/src/agent-session/acpmux/header/header.css	z	1
 webviews/src/agent-session/acpmux/modelPicker.css	z	1
 webviews/src/agent-session/acpmux/newtab/screen.css	z	2
 webviews/src/agent-session/acpmux/prototype/prototype.css	z	5
@@ -26,5 +25,5 @@ webviews/src/pages/markdown/styles.css	z	1
 webviews/src/pages/shared/pageBase.css	z	1
 webviews/src/styles.css	backdrop	2
 webviews/src/styles.css	z	14
-webviews/src/ui/ui.css	z	2
+webviews/src/ui/ui.css	z	1
 webviews/src/viewer-empty/styles.css	z	2

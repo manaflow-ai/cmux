@@ -106,7 +106,8 @@ public final class PaletteModel {
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
     @ObservationIgnored public internal(set) var frecency: FrecencyStore
-    @ObservationIgnored let persistence: (any FrecencyPersisting)?
+    /// The usage history's owner; `frecency` mirrors its `history`.
+    @ObservationIgnored let usage: any PaletteUsageStore
     @ObservationIgnored public internal(set) var nav = PaletteNavState()
     /// One page per level, by level id.
     @ObservationIgnored var pages: [Int: PageState] = [:]
@@ -130,9 +131,17 @@ public final class PaletteModel {
     /// The level whose page chrome and rows are on screen.
     @ObservationIgnored var shownLevelID: Int?
 
-    public init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
-        self.persistence = persistence
-        self.frecency = frecency ?? persistence?.load() ?? FrecencyStore()
+    public convenience init(frecency: FrecencyStore? = nil, persistence: (any FrecencyPersisting)? = nil) {
+        self.init(usage: LocalPaletteUsageStore(history: frecency, persistence: persistence))
+    }
+
+    public init(usage: any PaletteUsageStore) {
+        self.usage = usage
+        self.frecency = usage.history
+        usage.onChange = { [weak self] in
+            guard let self else { return }
+            frecency = self.usage.history
+        }
     }
 
     // MARK: Derived
@@ -261,9 +270,9 @@ public final class PaletteModel {
 
     /// Records a use of `key` (an item's `frecencyKey`) from outside the
     /// palette, so actions run by shortcut or menu also rank higher here.
-    public func recordUse(_ key: String) {
-        frecency.record(key, at: now())
-        persistence?.save(frecency)
+    public func recordUse(_ key: String, query: String = "") {
+        usage.recordUse(key: key, query: query, at: now())
+        frecency = usage.history
     }
 
     /// Runs `command` for `item`, recording usage.
@@ -275,8 +284,7 @@ public final class PaletteModel {
             return
         }
         if let key = item.frecencyKey {
-            frecency.record(key, at: now())
-            persistence?.save(frecency)
+            recordUse(key, query: current?.query ?? "")
         }
         switch command.effect.resolved() {
         case .deferred:
