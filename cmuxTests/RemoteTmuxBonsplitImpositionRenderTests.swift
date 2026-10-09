@@ -1553,7 +1553,7 @@ import Testing
         #expect(mirror.hostProbeView === old)
     }
 
-    private func makeDisplayChangeMirror() throws -> (
+    private func makeDisplayChangeMirror(mounted: Bool = true) throws -> (
         mirror: RemoteTmuxWindowMirror,
         connection: RemoteTmuxControlConnection,
         window: DisplayChangeProbeWindow,
@@ -1580,12 +1580,51 @@ import Testing
         )
         let probe = MirrorHostProbeView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         probe.mirror = mirror
-        try #require(window.contentView).addSubview(probe)
-        window.orderFront(nil)
-        mirror.isVisibleForSizing = true
-        mirror.noteContainerSize(pointSize: probe.bounds.size, scale: window.backingScaleFactor)
-        mirror.performSizingPassNow()
+        if mounted {
+            try #require(window.contentView).addSubview(probe)
+            window.orderFront(nil)
+            mirror.isVisibleForSizing = true
+            mirror.noteContainerSize(pointSize: probe.bounds.size, scale: window.backingScaleFactor)
+            mirror.performSizingPassNow()
+        }
         return (mirror, connection, window, probe)
+    }
+
+    /// A never-selected mirror must claim before its probe has a window.
+    @Test func windowlessHiddenMirrorClaimsItsFirstMeasuredRegion() async throws {
+        let (mirror, connection, _, _) = try makeDisplayChangeMirror(mounted: false)
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let host = NSHostingView(rootView: RemoteTmuxWindowMirrorSplitView(
+            mirror: mirror, appearance: appearance, isOuterFocused: false,
+            isVisibleInUI: false, portalPriority: 0, onOuterFocus: {}
+        ).environment(\.displayScale, 2))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            await drainDisplayChangeCallbacks()
+        }
+        let probe = try #require(mirror.hostProbeView as? MirrorHostProbeView)
+        #expect(probe.window == nil)
+        #expect(probe.bounds.width > 1 && probe.bounds.height > 1)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == probe.bounds.size)
+        #expect(mirror.containerScale == 2)
+        let claim = try #require(connection.lastWindowSizes[0])
+        let expected = try #require(mirror.clientGrid(contentSize: probe.bounds.size))
+        #expect(claim.0 == expected.columns && claim.1 == expected.rows)
+
+        // Later detached geometry cannot overwrite the initial useful reading.
+        let accepted = mirror.containerSizePt
+        probe.setFrameSize(CGSize(width: 1200, height: 900))
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == accepted)
+        #expect(connection.lastWindowSizes[0]?.0 == claim.0)
+        #expect(connection.lastWindowSizes[0]?.1 == claim.1)
+        withExtendedLifetime(host) {}
     }
 
     private func drainDisplayChangeCallbacks() async {
