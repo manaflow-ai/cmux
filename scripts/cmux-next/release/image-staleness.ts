@@ -156,7 +156,35 @@ const splitTopLevel = (text: string): Array<string> =>
     .filter(Boolean)
 
 /** The tip's capability list from cmux-tui source (see the file comment). */
-export const tipCapabilities = (_reader: SourceReader): TipCapabilities => ({ always: [], conditional: [] })
+export const tipCapabilities = (reader: SourceReader): TipCapabilities => {
+  const source = reader.read(CAPABILITIES_RS)
+  if (!source) throw new Error(`${CAPABILITIES_RS} is missing`)
+  const text = stripComments(source)
+  const index = constIndex(reader)
+  const always = new Set<string>()
+  const conditional = new Set<string>()
+  const advertised = fnBody(text, "advertised_capabilities")
+  const vec = advertised.match(/vec!\s*\[([\s\S]*?)\]/)
+  if (!vec) throw new Error(`${CAPABILITIES_RS}: advertised_capabilities has no vec![...]`)
+  for (const token of splitTopLevel(vec[1]!)) always.add(resolveToken(token, index, reader))
+  // Statements after the vec: a push counts on Linux unless its cfg excludes Linux; an extend is a machine-dependent list.
+  const rest = advertised.slice(advertised.indexOf(vec[0]) + vec[0].length)
+  for (const m of rest.matchAll(/(#\[cfg\(([^\]]*)\)\]\s*)?capabilities\.(push|extend)\(([^;]*)\);/g)) {
+    const cfg = m[2] ?? ""
+    const linux = !cfg || (!/not\s*\(/.test(cfg) && /unix|linux/.test(cfg))
+    if (m[3] === "extend") continue
+    if (linux) always.add(resolveToken(m[4]!.trim(), index, reader))
+  }
+  const identify = fnBody(text, "identify_capabilities")
+  let depth = 0
+  for (const line of identify.split("\n")) {
+    const push = line.match(/capabilities\.push\(([^;]*)\);/)
+    if (push) (depth === 0 ? always : conditional).add(resolveToken(push[1]!.trim(), index, reader))
+    depth += (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0)
+  }
+  for (const c of always) conditional.delete(c)
+  return { always: [...always].sort(), conditional: [...conditional].sort() }
+}
 
 export interface ImageRecord {
   readonly snapshot: string
@@ -197,7 +225,56 @@ const pointersOf = (doc: Json): Array<{ variable: SnapshotVar; snapshot: string;
   return out
 }
 
-export const checkStaleness = (reader: SourceReader, _options: { maxAgeDays?: number } = {}): StalenessReport => ({ tip_commit: reader.commit(), tip_committed_at: reader.commitTime(), tip_capabilities: 0, images: [], problems: [] })
+export const checkStaleness = (reader: SourceReader, options: { maxAgeDays?: number } = {}): StalenessReport => {
+  const maxAgeDays = options.maxAgeDays ?? 7
+  const tip = tipCapabilities(reader)
+  const tipTime = reader.commitTime()
+  const problems: Array<string> = []
+  const images: Array<ImageVerdict> = []
+  const devText = reader.read(`${CHANNELS}/dev.json`)
+  const history: Array<ImageRecord> = devText ? (((JSON.parse(devText) as Json).history as Array<ImageRecord> | undefined) ?? []) : []
+  const wrangler = reader.read(WRANGLER)
+  for (const channel of CHANNEL_LIST) {
+    const text = reader.read(`${CHANNELS}/${channel}.json`)
+    const doc: Json = text ? (JSON.parse(text) as Json) : {}
+    const pointers = pointersOf(doc)
+    if (wrangler)
+      for (const variable of VARS) {
+        let serving: string | undefined
+        try {
+          serving = readVar(wrangler, ENV_OF[channel], variable)
+        } catch {
+          serving = undefined
+        }
+        if (serving && !pointers.some((p) => p.variable === variable && p.snapshot === serving))
+          problems.push(`${channel}: ${WRANGLER} env ${ENV_OF[channel]} boots ${variable}=${serving}, but channels/${channel}.json does not point at it (promote it with images/cmux-vm/promote.ts so the guard can see it)`)
+      }
+    for (const pointer of pointers) {
+      const entry = history.find((h) => (channel === "dev" ? h.snapshot_id === pointer.snapshot_id : h.names?.[channel]?.snapshot_id === pointer.snapshot_id))
+      const label = `${channel} ${pointer.variable} ${pointer.snapshot} (${pointer.snapshot_id ?? "no id"})`
+      const own: Array<string> = []
+      const recorded = entry?.cmux_tui?.capabilities
+      let missing: Array<string> = []
+      let extra: Array<string> = []
+      let age: number | null = null
+      if (!entry) own.push(`${label}: no bake record in channels/dev.json history`)
+      else if (!recorded?.length) own.push(`${label}: its bake record has no cmux_tui.capabilities (re-probe it with web/scripts/cmux-vm-image/capabilities-probe.ts and record the list, or rebake)`)
+      else {
+        const served = new Set(recorded)
+        missing = tip.always.filter((c) => !served.has(c))
+        extra = [...served].filter((c) => !tip.always.includes(c) && !tip.conditional.includes(c)).sort()
+        const at = entry.cmux_tui?.committed_at
+        age = at ? (Date.parse(tipTime) - Date.parse(at)) / DAY : null
+        if (missing.length) own.push(`${label}: cmux-tui ${entry.cmux_tui?.commit?.slice(0, 12) ?? "?"} lacks ${missing.length} tip capabilit${missing.length === 1 ? "y" : "ies"}: ${missing.join(", ")}`)
+        if ((missing.length || extra.length) && (age === null || age > maxAgeDays))
+          own.push(`${label}: capability set differs from the tip and its cmux-tui is ${age === null ? "of unknown age (no cmux_tui.committed_at)" : `${age.toFixed(1)} days`} older than the tip (limit ${maxAgeDays})${extra.length ? `; not served by the tip: ${extra.join(", ")}` : ""}`)
+      }
+      problems.push(...own)
+      images.push({ channel, variable: pointer.variable, snapshot: pointer.snapshot, snapshot_id: pointer.snapshot_id, cmux_tui_commit: entry?.cmux_tui?.commit ?? null, missing, extra, age_days: age, problems: own })
+    }
+  }
+  return { tip_commit: reader.commit(), tip_committed_at: tipTime, tip_capabilities: tip.always.length, images, problems }
+}
 
 export const formatReport = (report: StalenessReport): string => {
   const lines = [`tip ${report.tip_commit.slice(0, 12)} (${report.tip_committed_at}): ${report.tip_capabilities} capabilities always served`]

@@ -212,6 +212,26 @@ feat-cmux-next-hq39-backend-label-rails: it needs `PLANETSCALE_SERVICE_TOKEN_ID`
 landed-checkout production apply (workflow_dispatch after landing); without both, the required
 gate "backend migrations applied" could not pass.
 
+## Image staleness
+
+`image-staleness.ts` (bead cx-4l51; workflow `cloud-image-staleness.yml`) keeps the Cloud images
+from falling behind the daemon silently. Each bake records the baked daemon's full `identify`
+answer (`web/scripts/cmux-vm-image/identify.ts`); the bake record in `channels/dev.json`
+`history` keeps it as `cmux_tui: {commit, committed_at, capabilities}`. The guard reads every
+image a channel points at (the Cloud image at the top level, the team VM image under `team_vm`)
+and the tip's capability list from the cmux-tui source (`advertised_capabilities` and
+`identify_capabilities` in `cmux-tui-core/src/server/capabilities.rs`; a name it cannot resolve
+fails it). Runtime-only capabilities (inside an `if` in `identify_capabilities`, and the app host
+and file ops lists) are never required. It fails when an image lacks a capability the tip always
+serves, when the set differs and the image's cmux-tui is more than 7 days older than the tip
+commit, when an image has no recorded list, or when wrangler.jsonc boots an image the channel
+does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the channels or
+wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
+match again. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
+(GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
+smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
+`web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
+
 ## Rollback
 
 - Bad deploy: automatic (`wrangler rollback`). By hand: `wrangler rollback <version> --name <worker>`; the version is in the deploy log line "previous version of ...".
