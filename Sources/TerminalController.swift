@@ -2008,6 +2008,12 @@ class TerminalController {
                 "screenshot_id": parts[0],
                 "path": parts[1],
             ])
+        case "debug.global_search.query":
+            let query = (request.params["query"] as? String) ?? ""
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                let result = await GlobalSearchCoordinator.shared.debugQuery(query)
+                return .ok(GlobalSearchCoordinator.debugQueryPayload(result))
+            }
         case "debug.mobile.transport.disconnect":
             let selectedConnectionID: UUID?
             if let rawConnectionID = request.params["connection_id"] {
@@ -2115,6 +2121,7 @@ class TerminalController {
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.global_search.query"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
                 || request.method == "debug.cloudtree.gallery" {
