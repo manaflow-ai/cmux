@@ -80,6 +80,9 @@ const MAX_PENDING_ALERTS: usize = 8;
 /// formatting characters).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProgramStatusAlert {
+    /// The record that raised it; removing the record before the alert is
+    /// taken withdraws it.
+    pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) body: String,
     /// `Error` for a failed record, else `Blocked`.
@@ -118,6 +121,7 @@ impl ProgramStatusRecords {
                 let prefix = format!("{id}/");
                 self.records.retain(|key, _| key != &id && !key.starts_with(&prefix));
             }
+            self.withdraw_alerts_of_removed_records();
             if self.records.len() != before {
                 self.revision += 1;
             }
@@ -152,8 +156,10 @@ impl ProgramStatusRecords {
     }
 
     /// Raises an alert when the record `id` starts waiting on the user or
-    /// fails. A report that repeats the same state, kind and message (a
-    /// progress update while blocked) raises nothing.
+    /// fails, or a blocked record changes what it waits for (`kind`). A
+    /// report that keeps the state and kind (a progress update, or a message
+    /// that counts down while blocked) raises nothing, so a program cannot
+    /// turn one wait into a stream of notifications.
     fn raise_alert(&mut self, id: &str, previous: Option<&ProgramStatusRecord>) {
         let Some(record) = self.records.get(id) else { return };
         let verb = match (record.state, record.kind) {
@@ -164,11 +170,9 @@ impl ProgramStatusRecords {
             (ProgramStatusState::Error, _) => "failed",
             _ => return,
         };
-        if previous.is_some_and(|previous| {
-            previous.state == record.state
-                && previous.kind == record.kind
-                && previous.message == record.message
-        }) {
+        if previous
+            .is_some_and(|previous| previous.state == record.state && previous.kind == record.kind)
+        {
             return;
         }
         let name = record
@@ -177,6 +181,7 @@ impl ProgramStatusRecords {
             .or_else(|| self.app_of(id).map(str::to_owned))
             .unwrap_or_else(|| "A program".to_owned());
         let alert = ProgramStatusAlert {
+            id: id.to_owned(),
             title: shown_text(&format!("{name} {verb}"), MAX_TITLE_CHARS),
             body: record.message.clone().unwrap_or_default(),
             state: record.state,
@@ -216,6 +221,14 @@ impl ProgramStatusRecords {
         if self.records.len() != before {
             self.revision += 1;
         }
+        self.withdraw_alerts_of_removed_records();
+    }
+
+    /// A record cleared (or ended by a prompt) before its alert was taken
+    /// no longer asks for anything: its alert goes too.
+    fn withdraw_alerts_of_removed_records(&mut self) {
+        let records = &self.records;
+        self.alerts.retain(|alert| records.contains_key(&alert.id));
     }
 
     #[cfg(test)]

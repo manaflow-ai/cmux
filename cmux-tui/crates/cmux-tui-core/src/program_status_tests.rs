@@ -222,23 +222,27 @@ fn a_record_without_app_takes_the_nearest_ancestors_app() {
 /// A record that starts waiting on the user (`blocked`, worded by `kind`) or
 /// fails (`error`) posts one terminal notification on the record's terminal:
 /// the record's title, else its (inherited) app, names the program; the body
-/// is the record's message. Repeating the same report posts nothing new;
-/// `working`, `done`, `idle` and `clear` post nothing. A real PTY: the test
-/// runtime's placeholder surfaces never run their command.
+/// is the record's message. A report that keeps the state and kind (a
+/// progress update, a new message) posts nothing new; `working`, `done`,
+/// `idle` and `clear` post nothing. A real PTY: the test runtime's
+/// placeholder surfaces never run their command.
 #[cfg(unix)]
 #[test]
 fn blocked_and_error_records_post_one_terminal_notification_each() {
     use crate::{Mux, MuxEvent, NotificationLevel, NotificationSource, SurfaceOptions};
     use std::time::{Duration, Instant};
-    // Each step sleeps past the terminal's notification spacing (1 s, and
-    // 5 s for a repeat of the same text) so a missing notification is the
-    // daemon's choice, not the rate limit's.
+    // Each step sleeps well past the terminal's notification spacing (1 s,
+    // and 5 s for a repeat of the same text) so a missing notification is
+    // the daemon's choice, not the rate limit's.
     let script = concat!(
-        "s() { printf '\\033]7501;%s\\033\\\\' \"$1\"; sleep 1.3; }; ",
+        "s() { printf '\\033]7501;%s\\033\\\\' \"$1\"; sleep 2; }; ",
         // "Apply 3 to add, 1 to change, 0 to destroy?"
         "s 'state=blocked:kind=permission:app=terraform:msg=QXBwbHkgMyB0byBhZGQsIDEgdG8gY2hhbmdlLCAwIHRvIGRlc3Ryb3k/'; ",
-        "sleep 4; ",
-        "s 'state=blocked:kind=permission:app=terraform:msg=QXBwbHkgMyB0byBhZGQsIDEgdG8gY2hhbmdlLCAwIHRvIGRlc3Ryb3k/:progress=50'; ",
+        "sleep 5; ",
+        // The same wait with progress and a new message: no new notification.
+        "s 'state=blocked:kind=permission:app=terraform:msg=U3RpbGwgd2FpdGluZw:progress=50'; ",
+        // Blocked and cleared in one chunk: the alert is withdrawn.
+        "printf '\\033]7501;state=blocked:id=gone\\033\\\\\\033]7501;state=clear:id=gone\\033\\\\'; sleep 2; ",
         "s 'state=working:app=deploy'; ",
         "s 'state=blocked:kind=auth:id=eu-west'; ",
         "s 'state=error:id=build:title=QnVpbGQ=:msg=ZXhpdCAy'; ",
@@ -256,7 +260,7 @@ fn blocked_and_error_records_post_one_terminal_notification_each() {
     );
     let events = mux.subscribe();
     let surface = mux.new_workspace(None, Some((40, 6))).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(40);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let mut notes = Vec::new();
     while notes.last().map(|(title, ..): &(String, String, NotificationLevel)| title.as_str())
         != Some("end")
