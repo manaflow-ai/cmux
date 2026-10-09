@@ -223,7 +223,7 @@ import Testing
         // The op, one renewal, and the resend it recovers.
         #expect(await daemon.wait { Self.ops($0) >= 2 })
         // The second refusal's lease request reached the link.
-        await asked.wait { _, handled in handled >= 2 }
+        await asked.wait { $0.fires >= 2 }
         await linker.settle()
         try #require(daemon.leases == 2, "renewals looped: \(daemon.leases)")
         #expect(Self.ops(daemon.calls) == 2, "resends looped: \(Self.ops(daemon.calls))")
@@ -232,7 +232,7 @@ import Testing
         await clock.sleepers(atLeast: 1)
         clock.advance(by: HomeCloudLink.firstRetry)
         #expect(await daemon.wait { Self.ops($0) >= 3 })
-        await asked.wait { _, handled in handled >= 3 }
+        await asked.wait { $0.fires >= 3 }
         await linker.settle()
         #expect(daemon.leases == 3)
         await clock.sleepers(atLeast: 1)
