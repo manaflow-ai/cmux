@@ -44,9 +44,9 @@ extension SessionRestorableAgentSnapshot {
         )
     }
 
-    /// Claude's `cmux restore` command is a deferred-tool continuation. A
-    /// normally completed conversation has no active prompt turn to continue,
-    /// so it must use the native `claude --resume` launch instead.
+    /// Selects the restore startup path for this snapshot. Legacy and active
+    /// prompt snapshots retain the local restore admission path; an explicitly
+    /// completed Claude session uses the native `claude --resume` fallback.
     func sessionRestoreStartupInput(
         useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
@@ -61,9 +61,13 @@ extension SessionRestorableAgentSnapshot {
         useLocalRestoreVerb: Bool,
         workingDirectorySelection: RestorableAgentWorkingDirectorySelection
     ) -> String? {
+        let policy = NormallyEndedClaudeResumePolicy()
         resumeStartupInput(
-            useLocalRestoreVerb: useLocalRestoreVerb &&
-                (kind != .claude || hadActivePromptTurn == true),
+            useLocalRestoreVerb: policy.usesLocalRestoreVerb(
+                requested: useLocalRestoreVerb,
+                agentKind: kind.rawValue,
+                hadActivePromptTurn: hadActivePromptTurn
+            ),
             workingDirectorySelection: workingDirectorySelection
         )
     }
@@ -74,20 +78,22 @@ extension SessionRestorableAgentSnapshot {
         restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> Bool {
+        let policy = NormallyEndedClaudeResumePolicy()
         guard let restorableAgent,
-              restorableAgent.kind == .claude,
-              restorableAgent.hadActivePromptTurn != true,
-              let resumeBinding,
-              resumeBinding.isAgentHookBinding,
-              resumeBinding.allowsAutomaticResume,
-              let checkpointID = resumeBinding.checkpointId,
-              ManagedAgentSessionIdentity.sessionIDsMatch(
-                  kind: RestorableAgentKind.claude.rawValue,
-                  lhs: checkpointID,
-                  rhs: restorableAgent.sessionId
-              ) else {
+              let resumeBinding else { return false }
+        guard policy.admits(.init(
+            agentKind: restorableAgent.kind.rawValue,
+            agentSessionID: restorableAgent.sessionId,
+            hadActivePromptTurn: restorableAgent.hadActivePromptTurn,
+            bindingKind: resumeBinding.kind,
+            bindingSessionID: resumeBinding.checkpointId,
+            bindingSource: resumeBinding.source,
+            autoResume: resumeBinding.autoResume
+        )) else {
             return false
         }
+        // Preserve the app's registry-aware kind validation for custom agent
+        // registrations before allowing the package policy to admit Claude.
         guard let bindingKind = resumeBinding.kind,
               RestorableAgentKind(
                   persistedRawValue: bindingKind,
@@ -95,7 +101,7 @@ extension SessionRestorableAgentSnapshot {
               )?.rawValue == RestorableAgentKind.claude.rawValue else {
             return false
         }
-        return true
+        return resumeBinding.isAgentHookBinding
     }
 
     var resumeCommand: String? {

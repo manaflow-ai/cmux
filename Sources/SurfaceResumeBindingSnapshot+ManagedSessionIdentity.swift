@@ -144,7 +144,10 @@ extension SurfaceResumeBindingSnapshot {
                 ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil),
+            hadActivePromptTurn: continuesPreviousSession
+                ? previousForKind?.hadActivePromptTurn
+                : nil
         )
     }
 
