@@ -211,12 +211,13 @@ impl Brain {
                                 turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
-                                marker_refused.store(true, Ordering::SeqCst);
+                                marker_refused.refused();
                                 // The inspector lays this turn out unmarked.
                                 trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
                                 log(&format!(
-                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
-                                    start.key
+                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and the next {} turns go without it",
+                                    start.key,
+                                    crate::prompt::MARK_RETRY_AFTER
                                 ));
                                 let mut again = start.clone();
                                 for block in &mut again.blocks {
@@ -379,7 +380,7 @@ impl Brain {
         // system prompt; else the view and the messages as blocks.
         let (cached, plain_preset) = self.session_presets(family);
         let cached = cached.as_deref();
-        let marker = !self.marker_refused.load(Ordering::SeqCst);
+        let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our one mark: the last whole block of the view, held within the
         // API's lookback of the last turn's mark (optchat_core::mark_piece).

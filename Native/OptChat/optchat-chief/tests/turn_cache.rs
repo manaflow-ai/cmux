@@ -456,5 +456,9 @@ fn a_refused_marker_comes_back_after_ten_turns() {
     for k in 1..=11 {
         assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
     }
-    assert_eq!(markers(&inner.prompts[12]).len(), 1, "turn 11 tries the mark again");
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "turn 11 tries the mark again"
+    );
 }
