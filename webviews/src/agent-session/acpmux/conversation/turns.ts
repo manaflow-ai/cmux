@@ -258,3 +258,8 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[]): AcpmuxRow[] {
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);
+
+/// Stub (red commit): `formatDuration` in a given language lands in the next commit.
+export function formatDurationIn(ms: number, _lang: string): string {
+  return formatDuration(ms);
+}
