@@ -11,6 +11,7 @@ pub mod errors;
 pub mod handoff;
 pub mod harness;
 pub mod harness_folder;
+pub mod harness_login;
 pub mod harness_registry;
 pub mod harness_run;
 pub mod harness_secret;

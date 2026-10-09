@@ -27,7 +27,7 @@ use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
-mod wire;
+pub(crate) mod wire;
 use wire::{TempFolder, Wire};
 
 /// Example profiles shipped with acpmux, by id (`harness add --example`).
@@ -73,6 +73,9 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         }
         HarnessCmd::Secret(SecretCmd::Set { id, key }) => {
             super::harness_secret::set_cmd(&id, &key).await
+        }
+        HarnessCmd::Login { id, method, list, status } => {
+            super::harness_login::run_cmd(&id, method, list, status, json_out).await
         }
         HarnessCmd::Registry { refresh } => {
             super::harness_registry::list_cmd(refresh, json_out).await
