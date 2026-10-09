@@ -3934,6 +3934,73 @@ jobs:
               await github.rest.issues.create({ owner, repo, title: `${appName} build is failing on ${refName}`, labels: [label], body });
             }
 
+  # cx-f58x: nightly-next stopped publishing for two days (2026-10-07 to
+  # 10-09) while promotion kept running, and Lawrence's app kept saying "Up to
+  # Date". Every nightly-next push (one per promotion) checks the published
+  # feed. When its newest item is older than NIGHTLY_NEXT_MAX_FEED_LAG_HOURS
+  # and the promoted commit is not the published one, it opens or updates the
+  # `nightly-next-feed-stale` issue. A fresh feed closes that issue.
+  nightly-next-feed-staleness:
+    needs: [decide]
+    if: needs.decide.outputs.track == 'nightly-next' && github.event_name == 'push' && needs.decide.outputs.notary_test != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Alarm when the published nightly-next feed lags the promoted build
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FEED_URL: ${{ env.NIGHTLY_NEXT_FEED_BASE }}/appcast-arm64.xml
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+          MAX_LAG_HOURS: ${{ vars.NIGHTLY_NEXT_MAX_FEED_LAG_HOURS || '24' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const label = 'nightly-next-feed-stale';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const maxLag = Number(process.env.MAX_LAG_HOURS);
+            const response = await fetch(process.env.FEED_URL, { cache: 'no-store' });
+            if (!response.ok) {
+              core.warning(`could not read ${process.env.FEED_URL}: HTTP ${response.status}`);
+              return;
+            }
+            const xml = await response.text();
+            const dates = [...xml.matchAll(/<pubDate>([^<]+)<\/pubDate>/g)]
+              .map((m) => Date.parse(m[1])).filter(Number.isFinite);
+            if (dates.length === 0) {
+              core.warning('the nightly-next feed has no dated item');
+              return;
+            }
+            const newest = Math.max(...dates);
+            const lagHours = (Date.now() - newest) / 3_600_000;
+            const promotedUnpublished = process.env.HEAD_SHA !== process.env.PUBLISHED_SHA;
+            const stale = Number.isFinite(maxLag) && lagHours > maxLag && promotedUnpublished;
+            core.notice(`nightly-next feed: newest item ${new Date(newest).toISOString()} (${lagHours.toFixed(1)}h old), promoted ${process.env.HEAD_SHA.slice(0, 12)}, published ${(process.env.PUBLISHED_SHA || '(none)').slice(0, 12)}`);
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
+            if (!stale) {
+              for (const issue of open.data) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `The nightly-next feed is current again (newest item ${lagHours.toFixed(1)}h old): ${runUrl}` });
+                await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `The nightly-next feed's newest item is ${lagHours.toFixed(1)} hours old (limit ${maxLag}h), and nightly-next is promoted to ${process.env.HEAD_SHA}, which is not published. Installed nightly-next apps report "Up to Date". Check the notarization (NIGHTLY_NEXT_NOTARY_PAUSED, Apple status) and the publish jobs. Run: ${runUrl}`;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'nightly-next feed lags the promoted build' });
+            }
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: 'nightly-next feed is more than a day behind the promoted build', labels: [label], body });
+            }
+            core.warning(body);
+
   close-nightly-failure-issue:
     needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     # always(): a skipped notes job must not skip this job silently; the
