@@ -245,6 +245,19 @@ const forwardedMethods = (body: string): Set<string> => new Set([...body.matchAl
 /** Header names a request builder sets (`setValue(x, forHTTPHeaderField: "Name")`), not ones it reads. */
 const setHeaders = (body: string): Array<string> => [...body.matchAll(/\b(?:setValue|addValue)\(\s*(?!nil\b)[^\n]*?forHTTPHeaderField:\s*"([^"]+)"/g)].map((m) => m[1]!)
 
+/**
+ * The query a request always carries: the literal's own `?a=b` (literal pairs only), else literal
+ * `URLQueryItem(name: "a", value: "b")` assignments to `queryItems` in the function that builds it.
+ */
+const literalQuery = (literal: string, body: string | undefined): string | undefined => {
+  const own = literal.includes("?") ? literal.slice(literal.indexOf("?") + 1) : ""
+  if (own && !own.includes("\\(")) return own
+  const items = body?.match(/\.queryItems\s*=\s*\[([^\]]*)\]/)?.[1]
+  if (!items) return undefined
+  const pairs = [...items.matchAll(/URLQueryItem\(\s*name:\s*"([^"]+)"\s*,\s*value:\s*"([^"]*)"\s*\)/g)].map((m) => `${encodeURIComponent(m[1]!)}=${encodeURIComponent(m[2]!)}`)
+  return pairs.length && pairs.length === (items.match(/URLQueryItem\(/g) ?? []).length ? pairs.join("&") : undefined
+}
+
 /** Not request helpers: the path is only part of a URL here; the function that holds it decides. */
 const URL_BUILDERS = new Set(["URL", "URLComponents", "appendingPathComponent", "appending", "String", "URLRequest"])
 
@@ -433,6 +446,8 @@ export interface OldRequest {
   readonly method: string
   /** Path template; `{name}` marks a path parameter. */
   readonly path: string
+  /** The literal query the client always sends (`?all=true`: from the path literal or literal `URLQueryItem`s). */
+  readonly query?: string
   readonly params: ReadonlyArray<string>
   readonly headers: ReadonlyArray<string>
   readonly sources: ReadonlyArray<string>
@@ -621,6 +636,7 @@ const bodyOf = (src: string, masked: string, at: number): Body | undefined => {
 interface ExtractedRequest {
   method: string
   path: string
+  query?: string
   params: Array<string>
   headers: Set<string>
   sources: Set<string>
@@ -686,6 +702,7 @@ export const extractRequests = (repo: string, tag: string, review: Review = {}):
         entry.sources.add(site)
         entry.via.add(r.via)
         const func = enclosingFunc(file.src, file.masked, r.at)
+        entry.query ??= literalQuery(lit[1]!, func?.body)
         const call = enclosingCall(file.src, file.masked, r.at)
         for (const h of setHeaders(func?.body ?? "")) entry.headers.add(h)
         if (call && !URL_BUILDERS.has(call.callee)) {
@@ -751,7 +768,7 @@ export const generate = (repo: string, tag: string, review: Review = readReview(
     const key = `${r.method} ${r.path}`
     const read = r.method === "GET" ? !review.shapeOnly?.[key] : !!review.reads?.[key]
     const fill = Object.fromEntries(r.params.flatMap((p) => (fillSource(review.fill, key, p) ? [[p, fillSource(review.fill, key, p)!]] : [])))
-    const base = { method: r.method, path: r.path, params: r.params, headers: [...r.headers].sort(), sources: [...r.sources].sort(), via: [...r.via].sort().join("; "), ...(r.body ? { body: r.body } : {}), ...(Object.keys(fill).length ? { fill } : {}) }
+    const base = { method: r.method, path: r.path, ...(r.query ? { query: r.query } : {}), params: r.params, headers: [...r.headers].sort(), sources: [...r.sources].sort(), via: [...r.via].sort().join("; "), ...(r.body ? { body: r.body } : {}), ...(Object.keys(fill).length ? { fill } : {}) }
     if (!read) {
       requests.push({ ...base, mode: "shape-only", reason: review.shapeOnly?.[key] ?? "changes state: never replayed signed in; probed without credentials (route present, auth layer intact)" })
       continue
@@ -1028,7 +1045,7 @@ export const replay = async (spec: Spec, origin: string, options: ReplayOptions 
     let res: Response
     let text: string
     try {
-      res = await doFetch(new URL(path, origin), {
+      res = await doFetch(new URL(r.query ? `${path}?${r.query}` : path, origin), {
         method: r.method,
         redirect: "manual",
         signal: AbortSignal.timeout(30_000),
@@ -1079,9 +1096,11 @@ export const replay = async (spec: Spec, origin: string, options: ReplayOptions 
       counts.gap!++
       continue
     }
-    lines.push(`${problem ? "FAIL" : "PASS"} ${kind.padEnd(20)} ${r.method} ${r.path}: ${res.status}${problem ? ` (${problem})` : ""}`)
+    // The answer's first bytes say why (an error code); never a token: requests carry none in their bodies.
+    const said = problem && !statusOk(res.status) ? ` [${text.slice(0, 120).replace(/\s+/g, " ")}]` : ""
+    lines.push(`${problem ? "FAIL" : "PASS"} ${kind.padEnd(20)} ${r.method} ${r.path}: ${res.status}${problem ? ` (${problem})${said}` : ""}`)
     if (problem) {
-      failures.push(`${r.method} ${r.path}: ${problem}`)
+      failures.push(`${r.method} ${r.path}: ${problem}${said}`)
       counts.fail!++
     } else counts[kind] = (counts[kind] ?? 0) + 1
   }

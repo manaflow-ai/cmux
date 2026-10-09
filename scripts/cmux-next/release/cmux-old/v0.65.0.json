@@ -323,6 +323,7 @@
     {
       "method": "GET",
       "path": "/api/device-tokens",
+      "query": "all=true",
       "params": [],
       "headers": [
         "Authorization",

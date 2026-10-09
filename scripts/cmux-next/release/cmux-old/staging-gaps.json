@@ -1,6 +1,33 @@
 {
-  "_doc": "Requests where STAGING differs from production for a reason outside cmux-next (environment configuration). cmux-old.ts replay accepts a listed request only when staging answers exactly this status, and reports it as a warning in the receipt. Every entry needs a reason and a date; remove it when staging is fixed.",
+  "_doc": "Reviewed requests where the replay against STAGING cannot pass for a reason outside cmux-next: staging environment configuration, or a route production also no longer serves (a break cmux-old already has in production, not one a staging change made). cmux-old.ts replay accepts a listed request only when staging answers exactly this status, and reports it as a warning in the receipt. Every entry needs a reason and a date; remove it when the cause is fixed.",
   "gaps": [
-    { "method": "POST", "path": "/api/billing/recover", "status": 503, "reason": "staging has no billing recovery configured: {\"error\":\"recovery_unavailable\"} (production answers 400 invalid_email to {})", "since": "2026-10-09" }
+    {
+      "method": "POST",
+      "path": "/api/billing/recover",
+      "status": 503,
+      "reason": "staging has no billing recovery configured: {\"error\":\"recovery_unavailable\"} (production answers 400 invalid_email to {})",
+      "since": "2026-10-09"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/email-verification",
+      "status": 503,
+      "reason": "staging has no email recovery configured: {\"error\":\"recovery_unavailable\"} (production answers 400 invalid_email to {})",
+      "since": "2026-10-09"
+    },
+    {
+      "method": "POST",
+      "path": "/api/observability/mobile-network",
+      "status": 503,
+      "reason": "staging has no observability sink configured: {\"error\":\"observability_unavailable\"} (production answers 401 unauthorized without credentials)",
+      "since": "2026-10-09"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vm/{encodedID}/ssh-endpoint",
+      "status": 404,
+      "reason": "web/ removed the route in #11566 (2026-09-02), before v0.65.0 shipped; production answers the same 404 (v0.65.0 SSH attach is already broken there)",
+      "since": "2026-10-09"
+    }
   ]
 }
