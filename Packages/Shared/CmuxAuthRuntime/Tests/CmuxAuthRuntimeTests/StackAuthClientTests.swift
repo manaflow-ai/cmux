@@ -30,15 +30,13 @@ struct StackAuthClientTests {
 }
 
 private final class StackAuthClientURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var paths: [String] = []
+    // URLProtocol's synchronous callback must record before it reports completion.
+    private static let recorder = StackAuthClientURLProtocolRecorder()
 
-    static var recordedPaths: [String] {
-        lock.withLock { paths }
-    }
+    static var recordedPaths: [String] { recorder.paths }
 
     static func reset() {
-        lock.withLock { paths = [] }
+        recorder.reset()
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -54,7 +52,7 @@ private final class StackAuthClientURLProtocol: URLProtocol, @unchecked Sendable
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        Self.lock.withLock { Self.paths.append(url.path) }
+        Self.recorder.record(path: url.path)
         let response = HTTPURLResponse(
             url: url,
             statusCode: 400,
@@ -67,4 +65,21 @@ private final class StackAuthClientURLProtocol: URLProtocol, @unchecked Sendable
     }
 
     override func stopLoading() {}
+}
+
+private final class StackAuthClientURLProtocolRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedPaths: [String] = []
+
+    var paths: [String] {
+        lock.withLock { storedPaths }
+    }
+
+    func reset() {
+        lock.withLock { storedPaths = [] }
+    }
+
+    func record(path: String) {
+        lock.withLock { storedPaths.append(path) }
+    }
 }
