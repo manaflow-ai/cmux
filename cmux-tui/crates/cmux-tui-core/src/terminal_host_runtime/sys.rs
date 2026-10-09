@@ -37,6 +37,15 @@ pub(crate) enum LeaseProbe {
     Unknown,
 }
 
+/// A signal to a terminal's process groups (the ProcessTree seam).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GroupSignal {
+    /// A graceful hangup (SIGHUP on Unix).
+    Hangup,
+    /// An unconditional kill (SIGKILL on Unix).
+    Kill,
+}
+
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -63,6 +72,27 @@ mod windows_stubs {
     /// Windows v1 hosts never hand over PTY custody (`supports_pty_custody:
     /// false`), so no value of this type exists there.
     pub(crate) enum PtyCustody {}
+
+    /// An adopted session id. Windows v1 adopts no session.
+    pub(crate) enum SessionId {}
+
+    /// The accept-loop waker. Creating one fails until `sys/windows.rs`.
+    pub(crate) struct AcceptWaker;
+
+    impl AcceptWaker {
+        pub(crate) fn new() -> io::Result<Self> {
+            Err(unsupported())
+        }
+
+        pub(crate) fn wake(&self) {}
+
+        pub(crate) fn drain(&self) {}
+    }
+
+    impl super::super::shared::host_shared::HostShared {
+        /// Windows: Job Object termination arrives with `sys/windows.rs`.
+        pub(crate) fn signal_terminal_process_groups(&self, _signal: super::GroupSignal) {}
+    }
 
     /// No owner is ever read on Windows yet, so no value exists.
     #[derive(Clone, Copy)]
