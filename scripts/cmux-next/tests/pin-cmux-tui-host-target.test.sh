@@ -3,6 +3,8 @@
 #   Linux x86_64 or amd64  -> x86_64-unknown-linux-musl
 #   Linux aarch64 or arm64 -> aarch64-unknown-linux-musl
 #   macOS (any machine)    -> aarch64-apple-darwin, the gate target (no target subdirectory)
+#   Windows x86_64 (Git Bash MINGW64_NT-*, MSYS_NT-*, CYGWIN_NT-*)
+#                          -> x86_64-pc-windows-gnu, fetched as cmux-tui.exe
 #   anything else          -> exit 2, naming CMUX_TUI_TREE_TARGET
 # and CMUX_TUI_TREE_TARGET overrides the host. `path` prints the tree directory, which
 # names the target, so this needs no network. A uname shim plays the host.
@@ -55,6 +57,12 @@ expect Linux aarch64 "$tree/aarch64-unknown-linux-musl/cmux-tui"
 expect Linux arm64 "$tree/aarch64-unknown-linux-musl/cmux-tui"
 expect Darwin arm64 "$tree/cmux-tui"
 expect Darwin x86_64 "$tree/cmux-tui"
+expect MINGW64_NT-10.0-20348 x86_64 "$tree/x86_64-pc-windows-gnu/cmux-tui.exe"
+expect MSYS_NT-10.0-20348 x86_64 "$tree/x86_64-pc-windows-gnu/cmux-tui.exe"
+expect CYGWIN_NT-10.0-20348 x86_64 "$tree/x86_64-pc-windows-gnu/cmux-tui.exe"
+
+status=0; path_on MINGW64_NT-10.0-20348 aarch64 >/dev/null || status=$?
+[[ "$status" == 2 ]] || fail "Windows arm64 (no published target) did not exit 2 (exit $status):" "$(cat "$TMP/err")"
 
 status=0; path_on FreeBSD amd64 >/dev/null || status=$?
 [[ "$status" == 2 ]] || fail "an unknown host did not exit 2 (exit $status):" "$(cat "$TMP/err")"

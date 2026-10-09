@@ -26,13 +26,15 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
+import { TemplateDots } from "./newtab/TemplateDots";
+import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
-import { composerDraft } from "./composerDraft";
+import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
@@ -84,7 +86,13 @@ import { TurnActionsContext, type TurnActions } from "./conversation/turnActions
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
-import { canFork, latestForkSeq, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import {
+  canFork,
+  latestForkSeq,
+  messageMenuTarget,
+  openReportedImage,
+  setMessageMenuSource,
+} from "./conversation/messageMenu";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -224,6 +232,27 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 /// Asks the host to show the Quick Composer's chat in a window.
 const postOpenInWindow = (sessionId: string) =>
   void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
+
+/// The longest workspace name a background start asks for (AgentPaneQuickStart.maximumName).
+const QUICK_NAME_LIMIT = 80;
+
+/// A started chat's workspace name: the prompt's first non-empty line, or none.
+export function quickChatName(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part !== "");
+  // By code point, so the cut never splits a surrogate pair.
+  return line ? Array.from(line).slice(0, QUICK_NAME_LIMIT).join("") : undefined;
+}
+
+/// Asks the host to put the Quick Composer's started chat in the sidebar, in the background.
+const postStartInBackground = (sessionId: string, cwd: string | undefined, name: string | undefined) =>
+  void callNative(QUICK_MESSAGES.startInBackground, {
+    sessionId,
+    ...(cwd ? { cwd } : {}),
+    ...(name ? { name } : {}),
+  }).catch(() => undefined);
 
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
 const trustSource: TrustSource = {
@@ -1524,15 +1553,39 @@ function AcpmuxPane() {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
-  // ⌘Return in the Quick Composer opens its chat in a window. With a prompt it waits until the
+  // Start Agent (cx-hkat): Return in the Quick Composer starts its chat in the background (the
+  // host puts it in the sidebar), ⌘Return starts it and opens it in a window. Each waits until the
   // prompt is on its way (closing the page sooner drops it) and the chat has a session; a send
   // that fails, or Escape, cancels the hand-off.
-  const handOff = useRef({ pending: false, landed: false });
+  const handOff = useRef<{
+    pending: boolean;
+    landed: boolean;
+    /// Return's hand-off also waits until acpmux took the prompt: one it refuses (folder trust,
+    /// the remote guard) stays in this panel with its question.
+    background?: { name?: string; accepted: boolean };
+  }>({ pending: false, landed: false });
+  const quickCwd = useRef<string | undefined>(undefined);
   const flushOpenInWindow = () => {
     const sessionId = sessionIdRef.current;
     if (!handOff.current.pending || !handOff.current.landed || !sessionId) return;
+    const background = handOff.current.background;
+    if (background && !background.accepted) return;
     handOff.current.pending = false;
-    postOpenInWindow(sessionId);
+    if (background) postStartInBackground(sessionId, quickCwd.current, background.name);
+    else postOpenInWindow(sessionId);
+  };
+  /// Return's send in the Quick Composer: hand the chat to the sidebar once it lands.
+  const startInBackground = (text: string, taken: Promise<unknown>) => {
+    const next = { pending: true, landed: false, background: { name: quickChatName(text), accepted: false } };
+    handOff.current = next;
+    void taken.then(
+      () => {
+        if (handOff.current !== next) return;
+        next.background.accepted = true;
+        flushOpenInWindow();
+      },
+      () => undefined,
+    );
   };
   const promptLanded = useRef(() => {});
   promptLanded.current = () => {
@@ -1546,6 +1599,10 @@ function AcpmuxPane() {
     if (sent) handOff.current = { pending: true, landed: false };
     else if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
   };
+  // The started chat's folder: the session's, else the one picked before the first send.
+  // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
+  const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  quickCwd.current = remoteChat ? undefined : (snapshot.summary?.cwd ?? projectDraft);
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
   useEscapeToDismiss(quick, () => {
     cancelOpenInWindow();
@@ -2029,6 +2086,9 @@ function AcpmuxPane() {
             composerHandle.current?.focus();
           },
           "chat.history": () => client.loadOlder(),
+          // Composer drafts belong to the daemon session so every host can restore them.
+          "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
+          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -2041,6 +2101,8 @@ function AcpmuxPane() {
             await client.adoptLive(choice === "fork" ? "fork" : "open");
             return persistSession(client.adopted);
           },
+          // The native context menu's Open Image: the image the page reported under the pointer.
+          "chat.menu.openImage": async () => openReportedImage(),
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
@@ -2087,6 +2149,7 @@ function AcpmuxPane() {
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
         };
+        notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
           restore: restorePrompt,
           opened: (sessionId) => {
@@ -2166,6 +2229,7 @@ function AcpmuxPane() {
       directClient.current?.close();
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
+      notifyDraftActionsChanged();
     };
     // These are stable for the pane's life (state, provider client, and a memoized bridge callback).
   }, [harnessSwitch, queryClient, toggleInspector]);
@@ -2346,7 +2410,8 @@ function AcpmuxPane() {
   );
   const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
   useEffect(() => {
-    if (!freshChat || newTab || quick) return;
+    // Start Agent's folder picker lists them too (cx-hkat).
+    if (!freshChat || newTab) return;
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
@@ -2356,7 +2421,7 @@ function AcpmuxPane() {
     return () => {
       active = false;
     };
-  }, [freshChat, newTab, quick, loadNewTabProjects]);
+  }, [freshChat, newTab, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
@@ -2526,6 +2591,8 @@ function AcpmuxPane() {
             // The composer that holds the prompt: a refusal that comes once it is gone (the pane
             // swaps it when the chat's session starts) puts the prompt in the one shown now.
             const holder = composerHandle.current;
+            // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
+            if (surfaceRef.current === "quick") startInBackground(text, taken);
             const turn = send();
             turn.then(() => promptLanded.current(), cancelOpenInWindow);
             // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
@@ -2545,8 +2612,11 @@ function AcpmuxPane() {
               () => undefined,
             )
           }
-          // A started local chat lists the same folders to move to (dogfood 09).
-          projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
+          // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
+          // panel lists them before its first prompt (cx-hkat).
+          projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+          // Start Agent's pickers head its panel: the folder row comes before the prompt.
+          contextFirst={quick}
           onBrowseProject={
             freshChat && !quick
               ? () => {
@@ -2638,9 +2708,26 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.layout === "b" ? (
+          {showNewTab && (
+            <TemplateDots
+              current={shownTemplate(newTab)}
+              onPick={(template) =>
+                pickNewTabTemplate(template, {
+                  callNative,
+                  cwd: newTab.cwd,
+                  show: (next) => {
+                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
+                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                  },
+                })
+              }
+            />
+          )}
+          {showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
@@ -2708,7 +2795,15 @@ function AcpmuxPane() {
                       tabTools={!quick}
                       onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
-                      summary={<SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />}
+                      summary={
+                        <SummaryButton
+                          // Another chat closes its summary and gallery, as it does the image viewer.
+                          key={snapshot.sessionId}
+                          rows={snapshot.rows}
+                          onOpenOutput={quick ? undefined : openOutput}
+                          onOpenImage={quick ? undefined : openImage}
+                        />
+                      }
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}

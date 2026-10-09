@@ -1,0 +1,476 @@
+# Builds cmux-mobile-ffi (plans/cmux-next/mobile-rust-core.md, slice 0) for
+# both mobile platforms and runs the shared terminal sizing fixtures
+# (schemas/terminal-sizing/fixtures.json) in Rust, in Swift against the
+# generated bindings and the xcframework, and in Kotlin against the generated
+# bindings and the host-built library.
+#
+# - rust: fmt, clippy -D warnings and the Rust tests of the three crates.
+# - apple: static libraries for iOS arm64, the iOS simulator (arm64, x86_64)
+#   and macOS (arm64, x86_64) in CmuxMobileFFI.xcframework; `swift test` on the
+#   macOS slice and `xcodebuild test` on an iOS simulator.
+# - android: cargo-ndk .so files for arm64-v8a and x86_64, the Kotlin
+#   bindings, the AAR, and JUnit tests on the runner's JVM (JNA loads the
+#   host-built libcmux_mobile_ffi.so; no emulator runs here).
+#
+# Artifacts only. Publishing (GitHub release for the xcframework, GitHub
+# Packages for the AAR) comes with slice 1.
+name: cmux-mobile-ffi
+
+on:
+  push:
+    branches:
+      - feat-cmux-next
+      - "feat-cmux-next-hq39-mobile-*"
+    paths:
+      - ".github/workflows/cmux-mobile-ffi.yml"
+      - ".github/actions/setup-cmux-tui-rust/**"
+      - "cmux-tui/Cargo.toml"
+      - "cmux-tui/Cargo.lock"
+      - "cmux-tui/rust-toolchain.toml"
+      - "cmux-tui/crates/cmux-terminal-sizing/**"
+      - "cmux-tui/crates/cmux-mobile-core/**"
+      - "cmux-tui/crates/cmux-mobile-ffi/**"
+      - "schemas/terminal-sizing/**"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit or branch to build (defaults to the dispatched ref)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: cmux-mobile-ffi-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Every job installs the toolchain pinned in cmux-tui/rust-toolchain.toml.
+  CMUX_MOBILE_FFI_CRATE: cmux-mobile-ffi
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, tests)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui
+          key: cmux-mobile-ffi-rust
+
+      - name: rustfmt
+        working-directory: cmux-tui
+        run: cargo fmt --check -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi
+
+      - name: clippy
+        working-directory: cmux-tui
+        run: cargo clippy --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi --all-targets -- -D warnings
+
+      - name: Rust tests (fixtures included)
+        working-directory: cmux-tui
+        run: cargo test --locked -p cmux-terminal-sizing -p cmux-mobile-core -p cmux-mobile-ffi
+
+  apple:
+    name: apple (xcframework, Swift tests)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Apple targets
+        run: |
+          rustup target add \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            x86_64-apple-ios \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui
+          key: cmux-mobile-ffi-apple
+
+      - name: Build static libraries
+        working-directory: cmux-tui
+        env:
+          # Thin LTO leaves LLVM bitcode in the archive, which Apple's ld cannot
+          # read from a newer rustc (see cmux-terminal-client-xcframework.yml).
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          RUSTFLAGS: "-C embed-bitcode=no"
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: |
+          set -euo pipefail
+          for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --locked --release -p "$CMUX_MOBILE_FFI_CRATE" --lib --target "$target"
+            lib="target/$target/release/libcmux_mobile_ffi.a"
+            exported="$(nm -g "$lib" 2>/dev/null | grep -c ' T _uniffi_cmux_mobile_ffi_' || true)"
+            echo "$target: $exported exported uniffi symbols"
+            if [[ "$exported" -lt 1 ]]; then
+              echo "::error::$lib exports no uniffi text symbols" >&2
+              exit 1
+            fi
+          done
+
+      - name: Generate Swift bindings
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/uniffi-swift"
+          rm -rf "$out"
+          cargo run --locked -p "$CMUX_MOBILE_FFI_CRATE" --features bindgen --bin uniffi-bindgen -- \
+            generate --library target/aarch64-apple-darwin/release/libcmux_mobile_ffi.dylib \
+            --language swift --out-dir "$out"
+          ls -l "$out"
+          sources=crates/cmux-mobile-ffi/swift/Sources/CmuxMobileFFI
+          mkdir -p "$sources"
+          cp "$out/CmuxMobileFFI.swift" "$sources/"
+
+      - name: Assemble xcframework
+        run: |
+          set -euo pipefail
+          # Static frameworks, not bare libraries, for the reason in
+          # cmux-terminal-client-xcframework.yml: bare-library slices copy
+          # their module maps to one Build/Products include path and collide.
+          lib=cmux-tui/target
+          gen="$RUNNER_TEMP/uniffi-swift"
+          name=CmuxMobileFFIFFI
+          out="$RUNNER_TEMP/xcframework"
+          xcf="$out/$name.xcframework"
+          rm -rf "$out"
+          mkdir -p "$xcf"
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' cmux-tui/crates/cmux-mobile-ffi/Cargo.toml | head -1)"
+          entries=""
+          add_slice() {
+            local slice="$1" platform="$2" supported="$3" minos="$4" variant="$5" architectures="$6"
+            shift 6
+            local archive="$out/$slice/libcmux_mobile_ffi.a"
+            local fw="$xcf/$slice/$name.framework"
+            mkdir -p "$(dirname "$archive")" "$fw/Headers" "$fw/Modules"
+            if [[ "$#" == 1 ]]; then cp "$1" "$archive"; else lipo -create "$@" -output "$archive"; fi
+            cp "$archive" "$fw/$name"
+            cp "$gen/$name.h" "$fw/Headers/"
+            printf 'framework module %s {\n    umbrella header "%s.h"\n    export *\n    module * { export * }\n}\n' "$name" "$name" > "$fw/Modules/module.modulemap"
+            local variant_key=""
+            [[ -z "$variant" ]] || variant_key="<key>SupportedPlatformVariant</key><string>$variant</string>"
+            cat > "$fw/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>$name</string>
+            <key>CFBundleIdentifier</key><string>com.cmuxterm.$name</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>$name</string>
+            <key>CFBundlePackageType</key><string>FMWK</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>$supported</string></array>
+            <key>MinimumOSVersion</key><string>$minos</string>
+          </dict></plist>
+          PLIST
+            plutil -lint "$fw/Info.plist"
+            local architectures_xml=""
+            for architecture in $architectures; do architectures_xml+="<string>$architecture</string>"; done
+            entries+="<dict><key>BinaryPath</key><string>$name.framework/$name</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>$name.framework</string><key>SupportedArchitectures</key><array>$architectures_xml</array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
+          }
+          add_slice ios-arm64 ios iPhoneOS 17.0 "" "arm64" \
+            "$lib/aarch64-apple-ios/release/libcmux_mobile_ffi.a"
+          add_slice ios-arm64_x86_64-simulator ios iPhoneSimulator 17.0 simulator "arm64 x86_64" \
+            "$lib/aarch64-apple-ios-sim/release/libcmux_mobile_ffi.a" \
+            "$lib/x86_64-apple-ios/release/libcmux_mobile_ffi.a"
+          add_slice macos-arm64_x86_64 macos MacOSX 14.0 "" "arm64 x86_64" \
+            "$lib/aarch64-apple-darwin/release/libcmux_mobile_ffi.a" \
+            "$lib/x86_64-apple-darwin/release/libcmux_mobile_ffi.a"
+          cat > "$xcf/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>AvailableLibraries</key><array>$entries</array>
+            <key>CFBundlePackageType</key><string>XFWK</string>
+            <key>XCFrameworkFormatVersion</key><string>1.0</string>
+          </dict></plist>
+          PLIST
+          plutil -lint "$xcf/Info.plist"
+          find "$xcf" -exec touch -t 198001010000 {} +
+          (cd "$out" && ditto -c -k --keepParent "$name.xcframework" "$name.xcframework.zip")
+          checksum="$(shasum -a 256 "$out/$name.xcframework.zip" | awk '{print $1}')"
+          printf '%s  %s\n' "$checksum" "$name.xcframework.zip" > "$out/SHA256SUMS"
+          echo "xcframework sha256: $checksum"
+          mkdir -p cmux-tui/crates/cmux-mobile-ffi/swift/build
+          cp -R "$xcf" cmux-tui/crates/cmux-mobile-ffi/swift/build/
+
+      - name: Report sizes
+        run: |
+          set -euo pipefail
+          {
+            echo "### cmux-mobile-ffi Apple sizes (bytes)"
+            echo
+            echo "| slice | static library |"
+            echo "| --- | --- |"
+            for slice in ios-arm64 ios-arm64_x86_64-simulator macos-arm64_x86_64; do
+              echo "| $slice | $(stat -f %z "$RUNNER_TEMP/xcframework/$slice/libcmux_mobile_ffi.a") |"
+            done
+            echo "| xcframework zip | $(stat -f %z "$RUNNER_TEMP/xcframework/CmuxMobileFFIFFI.xcframework.zip") |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Report linked size
+        run: |
+          set -euo pipefail
+          # An archive holds all of std; what an app pays is the code a link
+          # keeps. Link a program that takes the address of every exported
+          # uniffi symbol, with dead stripping, and compare it to an empty one.
+          work="$RUNNER_TEMP/linked-size"
+          mkdir -p "$work"
+          {
+            echo "### cmux-mobile-ffi linked size (bytes, -dead_strip, every uniffi export kept)"
+            echo
+            echo "| slice | empty program | with library | added |"
+            echo "| --- | --- | --- | --- |"
+            for spec in "ios-arm64 iphoneos arm64-apple-ios17.0" "ios-arm64_x86_64-simulator iphonesimulator arm64-apple-ios17.0-simulator"; do
+              read -r slice sdk triple <<<"$spec"
+              archive="$RUNNER_TEMP/xcframework/$slice/libcmux_mobile_ffi.a"
+              symbols=()
+              while IFS= read -r symbol; do symbols+=("$symbol"); done < <(
+                nm -gU "$archive" 2>/dev/null |
+                  awk '$2 == "T" && $3 ~ /^_(uniffi|ffi)_cmux_mobile_ffi_/ { print substr($3, 2) }' | sort -u
+              )
+              {
+                printf 'extern void %s(void);\n' "${symbols[@]}"
+                echo 'int main(void) { const void *volatile p[] = {'
+                printf '  (const void *)&%s,\n' "${symbols[@]}"
+                echo '  0 }; return p[0] == 0; }'
+              } > "$work/$slice.c"
+              echo 'int main(void) { return 0; }' > "$work/empty.c"
+              sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
+              xcrun --sdk "$sdk" clang -target "$triple" -isysroot "$sysroot" -Os -Wl,-dead_strip \
+                -o "$work/empty-$slice" "$work/empty.c"
+              xcrun --sdk "$sdk" clang -target "$triple" -isysroot "$sysroot" -Os -Wl,-dead_strip \
+                -o "$work/linked-$slice" "$work/$slice.c" "$archive" -framework Foundation -framework Security
+              strip -x "$work/empty-$slice" "$work/linked-$slice"
+              empty="$(stat -f %z "$work/empty-$slice")"
+              linked="$(stat -f %z "$work/linked-$slice")"
+              echo "| $slice (${#symbols[@]} exports) | $empty | $linked | $((linked - empty)) |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Swift fixture tests (macOS slice)
+        working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
+        run: swift test
+
+      - name: Swift fixture tests (iOS simulator slice)
+        working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          found = sorted(
+              (runtime, device["udid"])
+              for runtime, items in devices.items()
+              if ".SimRuntime.iOS-" in runtime
+              for device in items
+              if device["name"].startswith("iPhone")
+          )
+          print(found[-1][1] if found else "")
+          ')"
+          if [[ -z "$udid" ]]; then
+            echo "::error::no available iPhone simulator on this runner" >&2
+            exit 1
+          fi
+          scheme="$(xcodebuild -list -json | python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["workspace"]["schemes"]
+          print("CmuxMobileFFI-Package" if "CmuxMobileFFI-Package" in schemes else "CmuxMobileFFI")
+          ')"
+          echo "simulator $udid, scheme $scheme"
+          xcodebuild test -scheme "$scheme" -destination "id=$udid" \
+            -derivedDataPath "$RUNNER_TEMP/dd-sim" CODE_SIGNING_ALLOWED=NO
+
+      - name: Link the iOS device slice
+        working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
+        run: |
+          set -euo pipefail
+          scheme="$(xcodebuild -list -json | python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["workspace"]["schemes"]
+          print("CmuxMobileFFI-Package" if "CmuxMobileFFI-Package" in schemes else "CmuxMobileFFI")
+          ')"
+          xcodebuild build-for-testing -scheme "$scheme" -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/dd-device" CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload xcframework
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: CmuxMobileFFIFFI.xcframework
+          path: |
+            ${{ runner.temp }}/xcframework/CmuxMobileFFIFFI.xcframework.zip
+            ${{ runner.temp }}/xcframework/SHA256SUMS
+            ${{ runner.temp }}/uniffi-swift
+          if-no-files-found: error
+
+  android:
+    name: android (cargo-ndk, AAR, Kotlin tests)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      NDK_VERSION: r27c
+      CARGO_NDK_VERSION: 3.5.4
+      GRADLE_VERSION: "8.13"
+      GRADLE_SHA256: 20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78
+      ANDROID_PLATFORM: "24"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Android targets
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui
+          key: cmux-mobile-ffi-android
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Set up Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: false
+
+      - name: Install cargo-ndk and Gradle
+        run: |
+          set -euo pipefail
+          cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
+          zip="$RUNNER_TEMP/gradle-$GRADLE_VERSION-bin.zip"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$zip" \
+            "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
+          echo "$GRADLE_SHA256  $zip" | sha256sum --check --strict
+          unzip -q "$zip" -d "$RUNNER_TEMP/gradle"
+          echo "$RUNNER_TEMP/gradle/gradle-$GRADLE_VERSION/bin" >> "$GITHUB_PATH"
+
+      - name: Build host library and Kotlin bindings
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          cargo build --locked -p "$CMUX_MOBILE_FFI_CRATE" --lib
+          out="$RUNNER_TEMP/uniffi-kotlin"
+          rm -rf "$out"
+          cargo run --locked -p "$CMUX_MOBILE_FFI_CRATE" --features bindgen --bin uniffi-bindgen -- \
+            generate --library target/debug/libcmux_mobile_ffi.so \
+            --language kotlin --no-format --out-dir "$out"
+          find "$out" -type f -print
+
+      - name: Build Android libraries
+        working-directory: cmux-tui
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          cargo ndk -t arm64-v8a -t x86_64 --platform "$ANDROID_PLATFORM" -o "$RUNNER_TEMP/jniLibs" \
+            build --locked --release -p "$CMUX_MOBILE_FFI_CRATE" --lib
+          find "$RUNNER_TEMP/jniLibs" -type f -name '*.so' -print
+          for abi in arm64-v8a x86_64; do
+            test -s "$RUNNER_TEMP/jniLibs/$abi/libcmux_mobile_ffi.so"
+          done
+
+      - name: Kotlin fixture tests and AAR
+        working-directory: cmux-tui/crates/cmux-mobile-ffi/android
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace \
+            -PuniffiKotlinDir="$RUNNER_TEMP/uniffi-kotlin" \
+            -PjniLibsDir="$RUNNER_TEMP/jniLibs" \
+            -PhostLibDir="$GITHUB_WORKSPACE/cmux-tui/target/debug" \
+            -PsizingFixtures="$GITHUB_WORKSPACE/schemas/terminal-sizing/fixtures.json" \
+            :ffi:testDebugUnitTest :ffi:assembleRelease
+          aar=ffi/build/outputs/aar/ffi-release.aar
+          test -s "$aar"
+          unzip -l "$aar" | grep -E 'jni/(arm64-v8a|x86_64)/libcmux_mobile_ffi.so'
+          mkdir -p "$RUNNER_TEMP/aar"
+          cp "$aar" "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar"
+          (cd "$RUNNER_TEMP/aar" && sha256sum cmux-mobile-ffi-release.aar > SHA256SUMS)
+
+      - name: Report sizes
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          strip="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          test -x "$strip"
+          packed="$RUNNER_TEMP/aar-unpacked"
+          rm -rf "$packed" && mkdir -p "$packed"
+          unzip -q "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar" 'jni/*' -d "$packed"
+          {
+            echo "### cmux-mobile-ffi Android sizes (bytes)"
+            echo
+            echo "| ABI | cargo-ndk .so | stripped | in the AAR |"
+            echo "| --- | --- | --- | --- |"
+            for abi in arm64-v8a x86_64; do
+              so="$RUNNER_TEMP/jniLibs/$abi/libcmux_mobile_ffi.so"
+              "$strip" --strip-all -o "$RUNNER_TEMP/stripped-$abi.so" "$so"
+              echo "| $abi | $(stat -c %s "$so") | $(stat -c %s "$RUNNER_TEMP/stripped-$abi.so") | $(stat -c %s "$packed/jni/$abi/libcmux_mobile_ffi.so") |"
+            done
+            echo "| AAR | | | $(stat -c %s "$RUNNER_TEMP/aar/cmux-mobile-ffi-release.aar") |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload AAR
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-mobile-ffi-android
+          path: |
+            ${{ runner.temp }}/aar
+            ${{ runner.temp }}/jniLibs
+            ${{ runner.temp }}/uniffi-kotlin
+          if-no-files-found: error

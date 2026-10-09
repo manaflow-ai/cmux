@@ -18,19 +18,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "chat.readDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty {
-                self = .readDraft(id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "chat.writeDraft":
-            if let id = params?["sessionId"] as? String, !id.isEmpty,
-               let text = params?["text"] as? String {
-                self = .writeDraft(id, text: String(text.prefix(Self.maximumDraftText)))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
@@ -123,6 +110,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.setTemplate":
+            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
+                self = .setNewTabTemplate(template)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "project.list":
@@ -170,6 +163,8 @@ extension AgentPaneRequest {
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
+        case "quick.startInBackground":
+            self = AgentPaneQuickStart(params: params).map(AgentPaneRequest.quickStartInBackground) ?? .unsupported(method)
         case "turn.undo": self = AgentPaneTurnUndo(params: params).map(AgentPaneRequest.turnUndo) ?? .invalidTurnUndo
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {

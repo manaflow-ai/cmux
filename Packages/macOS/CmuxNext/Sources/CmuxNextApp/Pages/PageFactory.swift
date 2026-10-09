@@ -105,6 +105,15 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        let harnesses = SettingsHarnesses(
+            environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+            openTerminal: { [weak services] line in
+                guard let pane = services?.windows.active?.focusedPane else { return }
+                pane.newTerminalTab(typing: line + "\r")
+            }
+        )
+        provider.harnessesState = { harnesses.state }
+        provider.harnessesRun = { params in try await harnesses.run(params) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in

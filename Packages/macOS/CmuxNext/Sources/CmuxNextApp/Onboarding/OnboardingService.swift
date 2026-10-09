@@ -186,21 +186,37 @@ final class OnboardingService {
         state.write("onboarding state") { try $0.markDone(completed: completed) }
     }
 
-    /// Onboarding ended: records it, and Done over Home lands on the New
-    /// Tab page through the sidebar's New (`newTab`).
+    /// The workspace this launch created on the New Tab page because the
+    /// tree had none (`FirstWorkspace`): the first run lands on it instead
+    /// of opening a second one. Cleared once onboarding landed.
+    var freshWorkspaceID: String?
+
+    /// Onboarding ended (Skip or Done): records it, then lands (D3).
     func didEnd(completed: Bool) {
         // Only the first run's Skip or Done ends the first run; another
         // window's (Import and Sync, a single step) leaves it as it is.
-        if controller?.model.isFirstRun ?? true { markDone(completed: completed) }
-        guard Self.opensNewTab(completed: completed, shown: services.windows.active?.shownTopPage) else { return }
-        services.registry.perform("newTab")
+        let firstRun = controller?.model.isFirstRun ?? true
+        if firstRun { markDone(completed: completed) }
+        land(firstRun: firstRun)
     }
 
-    /// Done (not Skip) opens the New Tab page when the window behind
-    /// onboarding shows Home; reopened over a workspace or another page,
-    /// the window stays as it is.
-    nonisolated static func opensNewTab(completed: Bool, shown: TopPageRoute?) -> Bool {
-        completed && shown == .home
+    /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue
+    /// Setup reopened it) land on a New Tab page, one path for both
+    /// buttons (`OnboardingLanding`). Selecting a workspace only changes
+    /// what the window shows: no window is ordered front, so the person
+    /// stays on their Space and a fullscreen window keeps its Space; with
+    /// no window open, a new one opens on the current Space.
+    private func land(firstRun: Bool) {
+        let windows = services.windows
+        let fresh = freshWorkspaceID.flatMap { services.machines.workspace(id: $0) == nil ? nil : $0 }
+        let landing = OnboardingLanding.decide(firstRun: firstRun, hasOpenWindow: !windows.registry.value.openWindows.isEmpty,
+                                               shown: windows.active?.shownTopPage, fresh: fresh)
+        switch landing {
+        case .stay: return
+        case .select(let id): _ = windows.reveal(workspaceID: id)
+        case .newWorkspace: services.registry.perform("newTab")
+        }
+        freshWorkspaceID = nil
     }
 
     /// Imported history and bookmarks go into each browser profile's

@@ -75,22 +75,26 @@ extension AgentPaneView {
     /// The page's report for the menu about to open (nil: the pointer is not on a message).
     func receiveContextMenuReport(_ body: Any?) {
         messageMenuTarget = AgentPaneMessageTarget(report: body)
+        menuSelection = AgentPaneContextMenu.selection(report: body)
     }
 
     /// Builds the pane's menu from WebKit's for the last report, which it uses up.
     func editContextMenu(_ menu: NSMenu) {
-        let target = messageMenuTarget
+        let target = messageMenuTarget, selection = menuSelection
         messageMenuTarget = nil
-        let chatMenu = target == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
+        menuSelection = nil
+        let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
-            open: { [weak self] url in self?.openLink(url) }))
+            open: { [weak self] url in self?.openLink(url) },
+            search: { [weak self] text in self?.model.onSearchWeb?(text) },
+            openImage: { [weak self] in self?.runMessageAction("chat.menu.openImage", [:]) }))
     }
 
-    /// Retry and Edit and Resend: the page's own actions, with the menu choice as the gesture.
+    /// Retry, Edit and Resend, and Open Image: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
         model.transport.gestures.record()

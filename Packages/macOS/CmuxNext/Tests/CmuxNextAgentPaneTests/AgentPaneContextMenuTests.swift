@@ -87,6 +87,42 @@ import WebKit
         #expect(log.done == ["retry: p9", "edit: deploy"])
     }
 
+    // MARK: Selected text
+
+    private func rebuiltOnSelection(_ selection: String) -> (NSMenu, Log) {
+        let menu = Self.webKitMenu()
+        let log = Log()
+        AgentPaneContextMenu.rebuild(menu, target: Self.reply, selection: selection, devTools: false, actions: .init(
+            copy: { log.done.append("copy: \($0)") }, fork: { log.done.append("fork: \($0)") },
+            edit: { log.done.append("edit: \($0)") }, search: { log.done.append("search: \($0)") }))
+        return (menu, log)
+    }
+
+    /// The contract's selection menu: Copy, Quote in Reply, Ask About This, Search the Web and
+    /// WebKit's Look Up (macOS adds Services last). The message's own rows stay out.
+    @Test func selectedTextGetsTheSelectionMenu() {
+        let (menu, _) = rebuiltOnSelection("Fixed")
+        #expect(Self.titles(menu) == ["WKMenuItemIdentifierCopy", AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis,
+                                      "-", AgentPaneMenuStrings.searchTheWeb, "WKMenuItemIdentifierLookUp"])
+    }
+
+    @Test func quoteAndAskPutTheSelectionInTheComposerAndSearchSearchesIt() throws {
+        let (menu, log) = rebuiltOnSelection("line one\nline two")
+        for title in [AgentPaneMenuStrings.quoteInReply, AgentPaneMenuStrings.askAboutThis, AgentPaneMenuStrings.searchTheWeb] {
+            Self.choose(try #require(menu.items.first { $0.title == title }))
+        }
+        #expect(log.done == ["edit: > line one\n> line two\n\n",
+                             "edit: > line one\n> line two\n\n\(AgentPaneMenuStrings.askAboutThisPrompt)",
+                             "search: line one\nline two"])
+    }
+
+    @Test func thePageReportCarriesTheSelection() {
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "Fixed", "text": "Fixed it"]) == "Fixed")
+        #expect(AgentPaneContextMenu.selection(report: ["selection": "  \n "]) == nil, "blank is no selection")
+        #expect(AgentPaneContextMenu.selection(report: ["text": "Fixed it"]) == nil)
+        #expect(AgentPaneContextMenu.selection(report: NSNull()) == nil)
+    }
+
     @Test func aMessageWithOneLinkOpensIt() throws {
         let link = try #require(URL(string: "https://cmux.dev/docs"))
         let (menu, log) = rebuiltLogging(target: AgentPaneMessageTarget(text: "docs", markdown: "[docs](https://cmux.dev/docs)", links: [link]))
@@ -115,8 +151,28 @@ import WebKit
             item.identifier = NSUserInterfaceItemIdentifier(id)
             menu.addItem(item)
         }
-        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, actions: .init(copy: { _ in }, fork: { _ in }))
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: false, actions: .init(copy: { _ in }, fork: { _ in }, openImage: {}))
         #expect(Self.titles(menu) == ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"])
+    }
+
+    /// POLISH right-click contract (Leo 2026-10-08): an image in the chat or its gallery offers
+    /// Open Image (the page opens it as its click does) and WebKit's Copy Image, and no other
+    /// WebKit image items.
+    @Test func anImageOffersOpenAndCopyImage() throws {
+        let menu = NSMenu()
+        for id in ["WKMenuItemIdentifierOpenImageInNewWindow", "WKMenuItemIdentifierDownloadImage",
+                   "WKMenuItemIdentifierCopyImage", "WKMenuItemIdentifierShareMenu"] {
+            let item = NSMenuItem(title: id, action: nil, keyEquivalent: "")
+            item.identifier = NSUserInterfaceItemIdentifier(id)
+            menu.addItem(item)
+        }
+        var opened = 0
+        let target = try #require(AgentPaneMessageTarget(report: ["openImage": true]))
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: false,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, openImage: { opened += 1 }))
+        #expect(Self.titles(menu) == [AgentPaneMenuStrings.openImage, "WKMenuItemIdentifierCopyImage"])
+        Self.choose(try #require(menu.items.first))
+        #expect(opened == 1)
     }
 
     @Test func choosingAnItemActsOnTheReportedMessage() throws {
@@ -135,6 +191,7 @@ import WebKit
             == AgentPaneMessageTarget(text: "a", markdown: "*a*", forkSeq: 12))
         #expect(AgentPaneMessageTarget(report: NSNull()) == nil, "the pointer was not on a message")
         #expect(AgentPaneMessageTarget(report: ["text": ""]) == nil)
+        #expect(AgentPaneMessageTarget(report: ["text": "a", "openImage": true]) == AgentPaneMessageTarget(text: "a", opensImage: true))
     }
 
     @Test func thePageReportReadsRetryAndWebLinksOnly() {

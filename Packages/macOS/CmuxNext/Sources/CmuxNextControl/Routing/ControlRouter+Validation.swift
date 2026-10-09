@@ -125,12 +125,12 @@ extension ControlRouter {
         switch raw {
         case .string(let text):
             let trimmed = text.trimmingCharacters(in: .whitespaces)
-            let colon = trimmed.firstIndex(of: ":")
-            let prefix = colon.map { String(trimmed[..<$0]) } ?? ""
-            if let colon, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
+            let parts = trimmed.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let prefix = parts.count == 2 ? String(parts.first ?? "") : ""
+            if parts.count == 2, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
                 || allowedKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) }) {
                 kindText = prefix
-                id = String(trimmed[trimmed.index(after: colon)...])
+                id = String(parts.last ?? "")
             } else {
                 kindText = nil
                 id = trimmed

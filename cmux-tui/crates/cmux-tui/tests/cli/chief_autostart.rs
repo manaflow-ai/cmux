@@ -21,6 +21,9 @@ except OSError:
     sys.exit(0)
 with open(os.path.join(home, "brain-starts.log"), "a") as log:
     log.write("%d\n" % os.getpid())
+# The names (never the values) of the environment the brain got.
+with open(os.path.join(home, "brain-env-names"), "w") as names:
+    names.write("\n".join(sorted(os.environ)))
 with open(os.path.join(home, "brain.pid"), "w") as pid:
     pid.write(str(os.getpid()))
 with open(os.path.join(home, "daemon-socket"), "w") as where:
@@ -100,7 +103,12 @@ impl Sandbox {
     }
 
     fn chief(&self, args: &[&str]) -> Output {
+        self.chief_with(args, &[])
+    }
+
+    fn chief_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         let child = Command::new(bin())
+            .envs(env.iter().copied())
             .arg("chief")
             .args(args)
             .env("LC_ALL", "C")
@@ -228,4 +236,40 @@ fn chief_starts_nothing_on_a_brain_socket() {
 
 fn stderr_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn a_cli_started_brain_gets_the_harness_environment_an_app_started_one_gets() {
+    let sandbox = Sandbox::new("chief-autostart-env");
+    let home = sandbox.isolated();
+    let output = sandbox.chief_with(
+        &["--chief-home", home.to_str().unwrap(), "-p", "hello"],
+        &[
+            ("CLAUDE_CODE_OAUTH_TOKEN", "test-token-not-real"),
+            ("CODEX_HOME", "/tmp/codex-home"),
+            ("ANTHROPIC_BASE_URL", "http://127.0.0.1:9"),
+            ("OPTCHAT_CHIEF_HARNESS", "claude"),
+            ("SHELL", "/bin/zsh"),
+            ("NOT_FOR_THE_BRAIN", "x"),
+        ],
+    );
+    assert_success(&output);
+    let names = fs::read_to_string(home.join("brain-env-names")).unwrap();
+    let names: Vec<&str> = names.lines().collect();
+    for wanted in [
+        "HOME",
+        "PATH",
+        "USER",
+        "SHELL",
+        "TMPDIR",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CODEX_HOME",
+        "ANTHROPIC_BASE_URL",
+        "OPTCHAT_CHIEF_HARNESS",
+        "MUX_AGENT_TOKEN_FILE",
+        "ACPMUX_HOME",
+    ] {
+        assert!(names.contains(&wanted), "{wanted} did not reach the brain: {names:?}");
+    }
+    assert!(!names.contains(&"NOT_FOR_THE_BRAIN"), "only the allowlist passes");
 }

@@ -446,6 +446,8 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -458,10 +460,20 @@ pub struct Agents {
     pub responses: Vec<(String, String, Option<String>)>,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
+    /// Every `set_mode`: (session, mode id, prompts sent before it).
+    pub modes: Vec<(String, String, usize)>,
     /// The sessions steer (deliver between tool calls); else a steer fails.
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
     pub steers: Vec<(String, Vec<Value>)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
+    /// Steers are answered only when the turn ends (codex-acp).
+    pub steer_at_end: bool,
+    /// Turns whose prompt was answered.
+    pub answered_turns: usize,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -584,6 +596,9 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
@@ -644,6 +659,8 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
+            me.inner.lock().unwrap().answered_turns += 1;
+            me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
             } else if let Some(error) = error {
@@ -738,15 +755,37 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
-    fn steer(&self, session: &str, blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
         let mut inner = self.inner.lock().unwrap();
         if !inner.steering {
             return Err("steer.unavailable".into());
         }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
         inner.steers.push((session.to_owned(), blocks));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
         drop(inner);
         self.changed.notify_all();
-        Ok(())
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
     }
 
     fn prewarm(
@@ -765,6 +804,15 @@ impl AgentPort for FakeAgents {
 
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
+    fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        let prompts = inner.prompts.len();
+        inner
+            .modes
+            .push((session.to_owned(), mode.to_owned(), prompts));
+        Ok(())
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
@@ -984,6 +1032,15 @@ impl Harness {
         while !self.brain.is_idle() {
             let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
             self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
         }
     }
 
