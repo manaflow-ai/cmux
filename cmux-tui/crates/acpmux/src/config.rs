@@ -602,6 +602,21 @@ impl Config {
             cfg.auto_default = true;
             cfg.default_harness = cfg.harnesses.keys().next().cloned();
         }
+        // Installed ACP Registry agents (the cached copy; no network, nothing
+        // started), after the default so a registry agent never becomes it
+        // while a built-in harness exists.
+        if let Some(registry) = crate::registry::load_cached(&home()) {
+            let found = crate::registry::discovered(
+                &registry,
+                crate::registry::platform(),
+                &which,
+                &|id| cfg.harnesses.contains_key(id),
+            );
+            cfg.join_discovered(found);
+            if cfg.default_harness.is_none() {
+                cfg.default_harness = cfg.harnesses.keys().next().cloned();
+            }
+        }
         cfg.folder_gate = path.parent().and_then(folder_profiles::FolderGate::for_home);
         cfg.profile_sources = sources.clone();
         cfg.path = Some(path);

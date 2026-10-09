@@ -74,7 +74,18 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         HarnessCmd::Secret(SecretCmd::Set { id, key }) => {
             super::harness_secret::set_cmd(&id, &key).await
         }
-        HarnessCmd::Add { id, command, protocol, example, force } => {
+        HarnessCmd::Registry { refresh } => {
+            super::harness_registry::list_cmd(refresh, json_out).await
+        }
+        HarnessCmd::Add { id: Some(id), registry: true, force, .. } => {
+            super::harness_registry::add_cmd(&id, force, json_out).await
+        }
+        HarnessCmd::Add { registry: true, .. } => {
+            bail!(
+                "give the registry agent id: `cmux harness add <id> --registry` (see `cmux harness registry`)"
+            )
+        }
+        HarnessCmd::Add { id, command, protocol, example, force, registry: false } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
             let added = add(&req, &sources)?;
