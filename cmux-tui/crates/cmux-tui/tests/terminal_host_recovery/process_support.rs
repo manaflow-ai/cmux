@@ -6,11 +6,11 @@ use super::*;
 pub(crate) fn wait_for_process_and_group_absent(pid: libc::pid_t) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let process_exists = process_exists(pid);
+        let process_is_running = process_running(pid);
         // SAFETY: same signal-0 probe for the positive process-group id.
         let group_exists = unsafe { libc::killpg(pid, 0) } == 0
             || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied;
-        if !process_exists && !group_exists {
+        if !process_is_running && !group_exists {
             return;
         }
         assert!(Instant::now() < deadline, "terminated PTY process/group {pid} remained alive");
