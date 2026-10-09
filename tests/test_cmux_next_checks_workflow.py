@@ -447,6 +447,23 @@ class PathRoutingStructure(unittest.TestCase):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
 
+    def test_bot_overflow_ignores_stale_placement_output(self):
+        """A bot rerun must reach the Blacksmith fallback after attempt two.
+
+        GitHub retains the successful placement job's outputs across a full
+        rerun. Gate that output with the same attempt and actor rule as the
+        fallback expression, or attempt three keeps the side label forever.
+        """
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for job_id in ("swift-test", "daemon-test", "generated-files", "release-compile", "cmux-scheme-compile"):
+            with self.subTest(job=job_id):
+                expression = jobs[job_id]["runs-on"]
+                self.assertIn(
+                    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && "
+                    "needs.macos-placement.outputs.runner",
+                    expression,
+                )
+
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
