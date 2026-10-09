@@ -11,6 +11,27 @@
       "package.json": "7b655ea723b2b0402e2d691ef3753fa4254cc828c4ff1670ec60b5951fa04492"
     }
   },
+  "runtime": {
+    "packages": [
+      "@pgsql",
+      "libpg-query",
+      "pg",
+      "pg-cloudflare",
+      "pg-connection-string",
+      "pg-int8",
+      "pg-pool",
+      "pg-protocol",
+      "pg-types",
+      "pgpass",
+      "postgres-array",
+      "postgres-bytea",
+      "postgres-date",
+      "postgres-interval",
+      "split2",
+      "xtend"
+    ],
+    "sha256": "60277beb427fbb887dcb6e4bdd97745569f90725f86fa9fe2350c982fc55c693"
+  },
   "trees": {
     "cmux-vm": {
       "grandfatheredThrough": "0008",
