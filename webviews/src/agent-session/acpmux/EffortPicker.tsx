@@ -104,7 +104,15 @@ export function EffortPicker({
         >
           <div className="acpmux-effort-title">{name}</div>
           {model && <div className="acpmux-effort-model">{model}</div>}
-          <EffortTrack efforts={efforts} current={current} onPick={onPick} autoFocus onEscape={close} />
+          <EffortTrack
+            efforts={efforts}
+            current={current}
+            onPick={onPick}
+            // The anchor starts hidden while it measures. Wait until the menu is visible so the
+            // browser accepts focus on the native range input.
+            autoFocus={menuStyle.visibility === "visible"}
+            onEscape={close}
+          />
         </div>
       )}
     </span>
