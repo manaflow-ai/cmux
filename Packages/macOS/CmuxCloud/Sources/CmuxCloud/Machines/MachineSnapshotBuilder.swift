@@ -19,7 +19,7 @@ public enum MachineSnapshotBuilder: Sendable {
                 activity: activity(fromStatus: info.status),
                 createdAt: nil,
                 label: info.name == id ? nil : info.name,
-                usesResourcePool: CloudVMResizePlanValidator.usesResourcePool(forStatus: info.status),
+                usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: info.status),
                 privateAddress: info.privateAddress
             )
         }
@@ -54,7 +54,7 @@ public enum MachineSnapshotBuilder: Sendable {
             stats: summary.capabilities.stats ? previousStats : nil,
             resourceReservation: summary.resourceReservation,
             resourcePoolClaim: summary.resourcePoolClaim,
-            usesResourcePool: CloudVMResizePlanValidator.usesResourcePool(forStatus: summary.status),
+            usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: summary.status),
             privateAddress: summary.preferredPrivateAddress
         )
         snapshot.agentUpdates = summary.agentUpdates

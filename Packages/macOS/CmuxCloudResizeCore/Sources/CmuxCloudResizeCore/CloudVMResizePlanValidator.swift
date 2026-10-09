@@ -82,22 +82,6 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Creates a stateless resize evaluator.
     public init() {}
 
-    /// Returns whether a VM status currently holds a shared CPU/RAM pool claim.
-    ///
-    /// Provisioning and wake transitions still reserve their target shape. A
-    /// paused, stopped, or standby machine is admitted as a fresh allocation
-    /// when it is resized and therefore must not subtract its old claim.
-    /// Unknown statuses fail closed so a new lifecycle state cannot silently
-    /// make the client over-admit a resize.
-    public static func usesResourcePool(forStatus status: String) -> Bool {
-        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "running", "provisioning", "ready", "creating", "starting", "pending", "resuming":
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Decodes server plan limits, applying conservative fallbacks for older
     /// control-plane responses that omit explicit resize ceilings.
     ///

@@ -313,7 +313,7 @@ extension CMUXCLI {
         if let failure = CloudVMResizePlanValidator().violation(
             target: target,
             current: current,
-            usesResourcePool: status.map { CloudVMResizePlanValidator.usesResourcePool(forStatus: $0) } ?? false,
+            usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: status ?? ""),
             reservation: poolClaimShape,
             limits: resizeLimits
         ) {
