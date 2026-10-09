@@ -5,8 +5,10 @@
 //! Windows side of its seams: `liveness` (Lease: LockFileEx for flock),
 //! `endpoint` (EndpointPolicy: the per-user socket path), `jobs` (the named,
 //! owner-only Job Object a restarted daemon checks before it reads a
-//! terminal's processes).
+//! terminal's processes), `standby` (the host process spawn: breakaway,
+//! handle list, no window).
 
 pub mod endpoint;
 pub mod jobs;
 pub mod liveness;
+pub mod standby;
