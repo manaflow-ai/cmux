@@ -134,6 +134,36 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             print!("{GUIDE}");
             Ok(())
         }
+        HarnessCmd::Remove { id } => {
+            let cfg = Config::load()?;
+            let removed = crate::harness_admin::remove(
+                &id,
+                &cfg,
+                &ProfileSources::current(),
+                &crate::config::home(),
+            )?;
+            let reloaded = reload_daemon().await;
+            if json_out {
+                println!("{}", json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded}));
+            } else {
+                println!("removed {id}; undo with `cmux harness restore {}`", removed.backup);
+            }
+            Ok(())
+        }
+        HarnessCmd::Restore { backup } => {
+            let restored = crate::harness_admin::restore(
+                &backup,
+                &ProfileSources::current(),
+                &crate::config::home(),
+            )?;
+            let reloaded = reload_daemon().await;
+            if json_out {
+                println!("{}", json!({"id": restored.id, "path": restored.path, "daemonReloaded": reloaded}));
+            } else {
+                println!("restored {} to {}", restored.id, restored.path.display());
+            }
+            Ok(())
+        }
         HarnessCmd::Reload => {
             if reload_daemon().await {
                 println!("the daemon read the harness profiles again");
@@ -314,7 +344,7 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
     Ok(Added { id, path, diagnostics })
 }
 
-fn example_id(name: &str) -> Option<String> {
+pub(crate) fn example_id(name: &str) -> Option<String> {
     let text = example(name)?;
     text.lines()
         .find_map(|l| l.strip_prefix("id = \""))

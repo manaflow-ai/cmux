@@ -145,7 +145,7 @@ impl Hub {
         Ok((path, cfg.profile_sources.clone()))
     }
 
-    async fn reload_and_announce(self: &Arc<Self>) {
+    pub(crate) async fn reload_and_announce(self: &Arc<Self>) {
         match self.reload_catalog().await {
             Ok(reply) => {
                 let diagnostics = self.config.read().await.profile_diagnostics.clone();

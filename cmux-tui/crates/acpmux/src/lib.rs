@@ -38,6 +38,7 @@ pub mod protected_folders;
 pub mod question_answer;
 #[cfg(test)]
 mod question_answer_tests;
+pub mod harness_admin;
 pub mod registry;
 pub mod rpc;
 pub mod schema;
