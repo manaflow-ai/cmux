@@ -316,6 +316,8 @@ final class SidebarBridge {
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
+        case .tab(let workspace, _):
+            return contextMenu(for: .workspaces([workspace]))
         case .workspaces(let ids):
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
             guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder }) else { return nil }
