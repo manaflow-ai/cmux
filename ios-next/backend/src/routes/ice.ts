@@ -7,7 +7,7 @@ import { userRateLimit } from "../signal/client";
 
 export const STUN_URL = "stun:stun.cloudflare.com:3478";
 export const ICE_TTL_S = 3600;
-export const ICE_LIMIT = 60;
+export const ICE_LIMIT = 300;
 export const ICE_WINDOW_MS = 60 * 60 * 1000;
 
 export interface IceServer {
@@ -40,7 +40,7 @@ iceRoutes.get("/", requireUserOrHost, async (c) => {
   if (principal.kind === "user" && (await repo.listHosts(principal.userId)).length === 0) {
     throw new ApiError("forbidden", "pair a host first");
   }
-  const key = principal.kind === "host" ? `ice:${principal.hostId}` : "ice:phone";
+  const key = principal.kind === "host" ? `ice:host:${principal.hostId}` : `ice:fam:${principal.family ?? "none"}`;
   if (!(await userRateLimit(c.env, principal.userId, key, ICE_LIMIT, ICE_WINDOW_MS))) throw new ApiError("rate_limited", "too many ICE requests");
   const iceServers: IceServer[] = [{ urls: [STUN_URL] }];
   if (turnConfigured(c.env)) {

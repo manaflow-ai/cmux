@@ -10,6 +10,16 @@ async function pair(h: ReturnType<typeof harness>, accessToken: string) {
 }
 
 describe("host pairing (device code)", () => {
+  it("refuses approval from an account without an email", async () => {
+    const h = harness();
+    const user = await emailLogin(h, "noemail@example.com");
+    h.repo.users.get(user.user.id)!.email = null;
+    const start = await h.call("POST", "/v1/hosts/pair/start", { body: { name: "Mac", os: "macOS" } });
+    const res = await h.call("POST", "/v1/hosts/pair/approve", { token: user.accessToken, body: { userCode: start.json.userCode } });
+    expect(res.status).toBe(403);
+    expect(res.json.error).toEqual({ code: "forbidden", message: "account has no email" });
+  });
+
   it("rate-limits approve attempts per user (10 per 10 min)", async () => {
     const h = harness();
     const user = await emailLogin(h, "guesser@example.com");
@@ -154,13 +164,16 @@ describe("/ice", () => {
     expect((await h.call("GET", "/v1/ice", { token: owner.hostToken })).status).toBe(200);
   });
 
-  it("rate-limits per user", async () => {
+  it("rate-limits per sign-in family (300/hour)", async () => {
     const h = harness();
     const user = await userWithHost(h);
-    for (let i = 0; i < 60; i++) expect((await h.call("GET", "/v1/ice", { token: user.accessToken })).status).toBe(200);
+    for (let i = 0; i < 300; i++) expect((await h.call("GET", "/v1/ice", { token: user.accessToken })).status).toBe(200);
     const limited = await h.call("GET", "/v1/ice", { token: user.accessToken });
     expect(limited.status).toBe(429);
     expect(limited.json.error.code).toBe("rate_limited");
+    // Another phone (another sign-in of the same user) has its own budget.
+    const otherPhone = await emailLogin(h, "a@example.com");
+    expect((await h.call("GET", "/v1/ice", { token: otherPhone.accessToken })).status).toBe(200);
     // The host has its own budget.
     expect((await h.call("GET", "/v1/ice", { token: user.hostToken })).status).toBe(200);
   });

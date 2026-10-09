@@ -20,7 +20,7 @@ export interface Deps {
   mailer: Mailer;
 }
 
-export type Principal = { kind: "user"; userId: string; expiresAt: number } | { kind: "host"; userId: string; hostId: string };
+export type Principal = { kind: "user"; userId: string; expiresAt: number; family: string | null } | { kind: "host"; userId: string; hostId: string };
 
 export type HonoEnv = {
   Bindings: AppEnv;

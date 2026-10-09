@@ -16,13 +16,14 @@ enabled = true
 invocation_logs = false
 
 [vars]
-# Stack Auth projects accepted by /v1/auth/stack. The dev project is open to
-# anyone who signs up there; it is accepted only while DEV_STACK_ENABLED is
-# "true" (Debug builds use it) and never links accounts by email.
+# Stack Auth project accepted by /v1/auth/stack (cmux prod). A separate dev
+# deployment may also set STACK_DEV_PROJECT_ID and DEV_STACK_ENABLED = "true";
+# production must not (anyone can sign up in the dev project).
 STACK_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-STACK_DEV_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
-DEV_STACK_ENABLED = "true"
-APPLE_AUDIENCES = "dev.cmux.next.drawer,dev.cmux.next.tabs"
+DEV_STACK_ENABLED = "false"
+# Direct Sign in with Apple is off (the app signs in with Apple through Stack).
+# Set to "dev.cmux.next.drawer,dev.cmux.next.tabs" to enable; a nonce is then required.
+APPLE_AUDIENCES = ""
 # Custom URL schemes the OAuth flow may redirect back to.
 OAUTH_REDIRECT_SCHEMES = "cmux-next,dev.cmux.next.drawer,dev.cmux.next.tabs"
 # Sender address for login codes. Must be on a domain onboarded for

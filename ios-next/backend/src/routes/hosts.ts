@@ -83,6 +83,9 @@ hostRoutes.post("/pair/approve", requireUser, async (c) => {
     throw new ApiError("rate_limited", "too many pairing attempts; try again later");
   }
   const userCode = normalizeUserCode(str(await readJson(c), "userCode", { max: 32 }));
+  // The host shows the approver's email for confirmation; it must be recognizable.
+  const approver = await repo.getUser(principal.userId);
+  if (!approver?.email) throw new ApiError("forbidden", "account has no email");
   const now = deps.now();
   const pairing = await repo.getPendingPairingByUserCode(userCode, now);
   if (!pairing) throw notFound("unknown or expired code");

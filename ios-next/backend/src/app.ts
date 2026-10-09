@@ -9,7 +9,7 @@ import { hostRoutes } from "./routes/hosts";
 import { iceRoutes } from "./routes/ice";
 import { oauthRoutes } from "./routes/oauth";
 import { signalRoutes } from "./routes/signal";
-import { notifyUserDeleted } from "./signal/client";
+import { notifyFamiliesRevoked, notifyUserDeleted } from "./signal/client";
 
 /** Sends through the Cloudflare Email Sending binding. */
 export const cloudflareMailer: Mailer = async (env: AppEnv, mail) => {
@@ -58,6 +58,7 @@ export function createApp(overrides: Partial<Deps> = {}) {
       auth: Boolean(c.env.JWT_SECRET),
       stack: stackProjects(c.env).size > 0,
       stackDev: c.env.DEV_STACK_ENABLED === "true",
+      apple: Boolean(c.env.APPLE_AUDIENCES),
       oauth: { github: oauthConfigured(c.env, "github"), google: oauthConfigured(c.env, "google") },
     }),
   );
@@ -83,7 +84,10 @@ export function createApp(overrides: Partial<Deps> = {}) {
 
   v1.delete("/me", requireUser, async (c) => {
     const { userId } = c.var.principal;
+    const families = await c.var.repo.listActiveRefreshFamilies(userId);
     await c.var.repo.deleteUser(userId);
+    // Hosts drop links of every sign-in before their sockets close with 4004.
+    await notifyFamiliesRevoked(c.env, userId, families, false);
     await notifyUserDeleted(c.env, userId);
     return c.json({});
   });

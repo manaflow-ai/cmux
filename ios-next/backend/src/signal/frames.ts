@@ -9,6 +9,8 @@ export interface PeerInfo {
   userId: string;
   /** Phones: access-token expiry (ms). The socket is closed with 4002 at this time. */
   expiresAt?: number;
+  /** Phones: refresh-token family of the access token (JWT `fam`). */
+  family?: string;
 }
 
 export type RelayType = "offer" | "answer" | "candidate" | "bye";

@@ -9,12 +9,14 @@ export const HEADER_HOST = "x-cmux-host-id";
 export const HEADER_HOSTS = "x-cmux-hosts";
 export const HEADER_PEER = "x-cmux-peer-id";
 export const HEADER_EXPIRES = "x-cmux-expires-at";
+export const HEADER_FAMILY = "x-cmux-family";
 
 /** Close codes. Hosts drop live WebRTC peers on 4003 and 4004. */
 export const CLOSE_REPLACED = 4001;
 export const CLOSE_TOKEN_EXPIRED = 4002;
 export const CLOSE_HOST_REMOVED = 4003;
 export const CLOSE_ACCOUNT_DELETED = 4004;
+export const CLOSE_SESSION_REVOKED = 4005;
 
 /** Throttle for hosts.last_seen_at writes while a host is connected. */
 export const LAST_SEEN_INTERVAL_MS = 60 * 1000;
@@ -51,6 +53,16 @@ export class SignalRoom extends DurableObject<AppEnv> {
       case "/internal/close-all":
         for (const ws of this.ctx.getWebSockets()) safeClose(ws, CLOSE_ACCOUNT_DELETED, "account deleted");
         return Response.json({});
+      case "/internal/revoked": {
+        const { families, closePhones } = (await request.json()) as { families: string[]; closePhones?: boolean };
+        for (const family of families) {
+          this.broadcastToHosts({ type: "revoked", family });
+          if (closePhones !== false) for (const ws of this.ctx.getWebSockets(tagRole("phone"))) {
+            if ((ws.deserializeAttachment() as PeerInfo | null)?.family === family) safeClose(ws, CLOSE_SESSION_REVOKED, "session revoked");
+          }
+        }
+        return Response.json({});
+      }
       case "/internal/limit":
         return Response.json(await this.limit(url));
       default:
@@ -76,7 +88,8 @@ export class SignalRoom extends DurableObject<AppEnv> {
 
     const expiresAt = Number(request.headers.get(HEADER_EXPIRES));
     if (role === "phone" && !(expiresAt > Date.now())) return new Response("token expired", { status: 401 });
-    const peer: PeerInfo = role === "host" ? { peerId, role, hostId, userId } : { peerId, role, userId, expiresAt };
+    const family = request.headers.get(HEADER_FAMILY) ?? undefined;
+    const peer: PeerInfo = role === "host" ? { peerId, role, hostId, userId } : { peerId, role, userId, expiresAt, ...(family ? { family } : {}) };
     const replaced = role === "host" ? this.ctx.getWebSockets(tagHost(hostId!)) : [];
 
     const pair = new WebSocketPair();
@@ -164,7 +177,9 @@ export class SignalRoom extends DurableObject<AppEnv> {
     if (targets.length === 0) {
       send(ws, errorFrame(role === "host" ? "host_offline" : "peer_offline", `${frame.to} is not connected`, frame.sessionId));
     } else {
-      const out = JSON.stringify({ ...frame, from: addressOf(sender) });
+      // Offers carry the phone's sign-in family so hosts can drop the link on `revoked`.
+      const stamped = frame.type === "offer" && sender.family ? { ...frame, family: sender.family } : frame;
+      const out = JSON.stringify({ ...stamped, from: addressOf(sender) });
       for (const t of targets) send(t, out);
     }
     if (sender.role === "host" && sender.hostId) this.touchHost(sender.hostId, false);
@@ -196,6 +211,11 @@ export class SignalRoom extends DurableObject<AppEnv> {
       if (peer?.hostId) ids.add(peer.hostId);
     }
     return [...ids];
+  }
+
+  private broadcastToHosts(frame: unknown) {
+    const out = JSON.stringify(frame);
+    for (const ws of this.ctx.getWebSockets(tagRole("host"))) send(ws, out);
   }
 
   private broadcastToPhones(frame: unknown) {

@@ -26,7 +26,7 @@ async function login() {
   const email = `bot${++seq}-${crypto.randomUUID().slice(0, 8)}@test.cmux.dev`;
   const res = await api("POST", "/v1/auth/test", { body: { email, secret: "test-login-secret" } });
   expect(res.status).toBe(200);
-  return res.json as { accessToken: string; user: { id: string } };
+  return res.json as { accessToken: string; refreshToken: string; user: { id: string } };
 }
 
 async function pairHost(accessToken: string, name = "Mac") {
@@ -111,7 +111,11 @@ describe("signaling", () => {
     expect(hosts.json.hosts[0].lastSeenAt).toEqual(expect.any(Number));
 
     phone.send({ type: "offer", to: hostId, sessionId: "s_1", sdp: "v=0 offer" });
-    expect(await host.next((f) => f.type === "offer")).toEqual({ type: "offer", to: hostId, sessionId: "s_1", sdp: "v=0 offer", from: welcome.peerId });
+    const offer = await host.next((f) => f.type === "offer");
+    expect(offer).toEqual({ type: "offer", to: hostId, sessionId: "s_1", sdp: "v=0 offer", from: welcome.peerId, family: expect.stringMatching(/^rf_/) });
+    // The family is the phone token's `fam`, not anything the phone sends.
+    phone.send({ type: "offer", to: hostId, sessionId: "s_1b", sdp: "x", family: "rf_spoofed" });
+    expect((await host.next((f) => f.type === "offer" && f.sessionId === "s_1b")).family).toBe(offer.family);
 
     host.send({ type: "answer", to: welcome.peerId, sessionId: "s_1", sdp: "v=0 answer" });
     expect(await phone.next((f) => f.type === "answer")).toEqual({ type: "answer", to: welcome.peerId, sessionId: "s_1", sdp: "v=0 answer", from: hostId });
@@ -236,11 +240,41 @@ describe("signaling", () => {
     const host = await connect(hostToken);
     await host.next((f) => f.type === "welcome");
     expect((await api("DELETE", "/v1/me", { token: user.accessToken })).status).toBe(200);
+    expect(await host.next((f) => f.type === "revoked")).toEqual({ type: "revoked", family: expect.stringMatching(/^rf_/) });
     await host.waitClosed();
     await phone.waitClosed();
     expect(host.closed?.code).toBe(4004);
     expect(phone.closed?.code).toBe(4004);
     // The deleted host token no longer authenticates.
     expect((await worker.fetch(`${BASE}/v1/signal`, { headers: { upgrade: "websocket", authorization: `Bearer ${hostToken}` } })).status).toBe(401);
+  });
+
+  it("tells hosts when a sign-in family is revoked (logout, reuse) and closes that family's phones with 4005", async () => {
+    const user = await login();
+    const { hostId, hostToken } = await pairHost(user.accessToken);
+    const host = await connect(hostToken);
+    await host.next((f) => f.type === "welcome");
+
+    // Logout.
+    const phone = await connect(user.accessToken);
+    const welcome = await phone.next((f) => f.type === "welcome");
+    phone.send({ type: "offer", to: hostId, sessionId: "s_l", sdp: "x" });
+    const family = (await host.next((f) => f.type === "offer")).family;
+    expect((await api("POST", "/v1/auth/logout", { token: user.accessToken, body: { refreshToken: user.refreshToken } })).status).toBe(200);
+    expect(await host.next((f) => f.type === "revoked")).toEqual({ type: "revoked", family });
+    await phone.waitClosed();
+    expect(phone.closed?.code).toBe(4005);
+    expect(welcome.peerId).toMatch(/^p_/);
+
+    // Reuse detection on a second sign-in of the same account.
+    const again = await api("POST", "/v1/auth/test", { body: { email: (await api("GET", "/v1/me", { token: user.accessToken })).json.user.email, secret: "test-login-secret" } });
+    const rotated = await api("POST", "/v1/auth/refresh", { body: { refreshToken: again.json.refreshToken } });
+    expect((await api("POST", "/v1/auth/refresh", { body: { refreshToken: rotated.json.refreshToken } })).status).toBe(200);
+    // Replaying the first token after its successor rotated is reuse.
+    expect((await api("POST", "/v1/auth/refresh", { body: { refreshToken: again.json.refreshToken } })).status).toBe(401);
+    const revoked = await host.next((f) => f.type === "revoked");
+    expect(revoked.family).not.toBe(family);
+    expect(revoked.family).toMatch(/^rf_/);
+    host.ws.close(1000);
   });
 });

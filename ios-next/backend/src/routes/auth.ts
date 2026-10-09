@@ -5,7 +5,8 @@ import type { HonoEnv } from "../context";
 import { CODE_ALPHABET, hmacHex, randomCode, randomToken, sha256Hex, timingSafeEqual } from "../crypto";
 import { csv, stackProjects } from "../env";
 import { fetchStackUser, verifyStackAccessToken } from "../stack";
-import { ApiError, badRequest, notFound, unauthorized, unavailable } from "../errors";
+import { notifyFamiliesRevoked } from "../signal/client";
+import { ApiError, badRequest, notFound, unauthorized, unavailable, unsupported } from "../errors";
 import { rateLimit, readJson, str } from "../http";
 
 export const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
@@ -136,7 +137,9 @@ authRoutes.post("/stack", async (c) => {
   return c.json(await issueTokens(repo, secret, user, now));
 });
 
+/** Disabled unless APPLE_AUDIENCES is set; the app signs in with Apple through Stack. */
 authRoutes.post("/apple", async (c) => {
+  if (csv(c.env.APPLE_AUDIENCES).length === 0) throw unsupported("Sign in with Apple is not enabled; use Stack");
   await rateLimit(c, "auth");
   const { repo, deps } = c.var;
   const secret = jwtSecret(c.env);
@@ -144,6 +147,7 @@ authRoutes.post("/apple", async (c) => {
   const identityToken = str(body, "identityToken", { max: 8192 });
   const now = deps.now();
   const nonce = str(body, "nonce", { max: 256, optional: true });
+  if (!nonce) throw unsupported("Sign in with Apple requires a nonce");
   const claims = await verifyAppleIdentityToken(identityToken, csv(c.env.APPLE_AUDIENCES), deps.fetch, now, nonce);
   const user = await resolveUser(
     repo,
@@ -167,7 +171,9 @@ authRoutes.post("/refresh", async (c) => {
   await rateLimit(c, "refresh");
   const { repo, deps } = c.var;
   const refreshToken = str(await readJson(c), "refreshToken", { max: 256 });
-  return c.json(await rotateRefreshToken(repo, jwtSecret(c.env), refreshToken, deps.now()));
+  return c.json(
+    await rotateRefreshToken(repo, jwtSecret(c.env), refreshToken, deps.now(), (userId, family) => notifyFamiliesRevoked(c.env, userId, [family])),
+  );
 });
 
 authRoutes.post("/logout", requireUser, async (c) => {
@@ -175,7 +181,10 @@ authRoutes.post("/logout", requireUser, async (c) => {
   const refreshToken = str(await readJson(c), "refreshToken", { max: 256, optional: true });
   if (refreshToken) {
     const row = await repo.getRefreshToken(await sha256Hex(refreshToken));
-    if (row && row.userId === principal.userId) await repo.revokeRefreshFamily(row.familyId, deps.now());
+    if (row && row.userId === principal.userId) {
+      await repo.revokeRefreshFamily(row.familyId, deps.now());
+      await notifyFamiliesRevoked(c.env, principal.userId, [row.familyId]);
+    }
   }
   return c.json({});
 });

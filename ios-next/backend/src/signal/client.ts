@@ -39,6 +39,16 @@ export async function notifyHostRemoved(env: AppEnv, userId: string, hostId: str
   }
 }
 
+/** Tells the user's hosts (and phones) that a sign-in family was revoked. */
+export async function notifyFamiliesRevoked(env: AppEnv, userId: string, families: string[], closePhones = true): Promise<void> {
+  if (families.length === 0) return;
+  try {
+    await signalRoom(env, userId).fetch("https://signal/internal/revoked", { method: "POST", body: JSON.stringify({ families, closePhones }) });
+  } catch (err) {
+    console.error("signal revoked failed", err instanceof Error ? err.message : err);
+  }
+}
+
 export async function notifyUserDeleted(env: AppEnv, userId: string): Promise<void> {
   try {
     await signalRoom(env, userId).fetch("https://signal/internal/close-all", { method: "POST" });

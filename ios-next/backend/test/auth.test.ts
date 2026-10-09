@@ -209,11 +209,15 @@ describe("/me", () => {
 });
 
 describe("Sign in with Apple", () => {
+  const RAW = "raw-nonce-123";
+  let HASHED = "";
+  const appleHarness = () => harness({ APPLE_AUDIENCES: "dev.cmux.next.drawer,dev.cmux.next.tabs" });
   let keys: CryptoKeyPair;
   let jwk: JsonWebKey;
 
   beforeEach(async () => {
     resetAppleJwksCache();
+    HASHED = await sha256Hex(RAW);
     keys = (await crypto.subtle.generateKey(
       { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
       true,
@@ -240,60 +244,67 @@ describe("Sign in with Apple", () => {
     sub: "apple-sub-1",
     email: "a@example.com",
     email_verified: "true",
+    nonce: HASHED,
     iat: Math.floor(h.clock.now / 1000),
     exp: Math.floor(h.clock.now / 1000) + 600,
   });
 
   it("verifies the token, creates the user and stores the name", async () => {
-    const h = harness();
+    const h = appleHarness();
     withJwks(h);
     const res = await h.call("POST", "/v1/auth/apple", {
-      body: { identityToken: await appleToken(base(h)), fullName: { givenName: "Ada", familyName: "Lovelace" } },
+      body: { nonce: RAW, identityToken: await appleToken(base(h)), fullName: { givenName: "Ada", familyName: "Lovelace" } },
     });
     expect(res.status).toBe(200);
     expect(res.json.user).toMatchObject({ email: "a@example.com", name: "Ada Lovelace" });
 
     // Second sign-in without email/name maps to the same user.
     const { email: _e, ...noEmail } = base(h);
-    const again = await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(noEmail) } });
+    const again = await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken(noEmail) } });
     expect(again.json.user.id).toBe(res.json.user.id);
   });
 
   it("links to an existing email account when the email is verified", async () => {
-    const h = harness();
+    const h = appleHarness();
     withJwks(h);
     const emailUser = await emailLogin(h, "a@example.com");
-    const res = await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(base(h)) } });
+    const res = await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken(base(h)) } });
     expect(res.json.user.id).toBe(emailUser.user.id);
   });
 
   it("accepts the drawer bundle id and rejects other audiences, issuers, expiry and signatures", async () => {
-    const h = harness();
+    const h = appleHarness();
     withJwks(h);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken({ ...base(h), aud: "dev.cmux.next.drawer" }) } })).status).toBe(200);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken({ ...base(h), aud: "com.evil.app" }) } })).status).toBe(401);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken({ ...base(h), iss: "https://evil" }) } })).status).toBe(401);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken({ ...base(h), exp: 1 }) } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken({ ...base(h), aud: "dev.cmux.next.drawer" }) } })).status).toBe(200);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken({ ...base(h), aud: "com.evil.app" }) } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken({ ...base(h), iss: "https://evil" }) } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken({ ...base(h), exp: 1 }) } })).status).toBe(401);
     const good = await appleToken(base(h));
     const tampered = good.slice(0, good.lastIndexOf(".")) + "." + base64url(new Uint8Array(256));
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: tampered } })).status).toBe(401);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(base(h), "unknown-kid") } })).status).toBe(401);
-    expect((await h.call("POST", "/v1/auth/apple", { body: { identityToken: "garbage" } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: tampered } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: await appleToken(base(h), "unknown-kid") } })).status).toBe(401);
+    expect((await h.call("POST", "/v1/auth/apple", { body: { nonce: RAW, identityToken: "garbage" } })).status).toBe(401);
   });
 
-  it("checks the nonce when the app sends one", async () => {
-    const h = harness();
+  it("requires and checks a nonce", async () => {
+    const h = appleHarness();
     withJwks(h);
-    const raw = "raw-nonce-123";
-    const hashed = await sha256Hex(raw);
     const post = async (claims: Record<string, unknown>, nonce?: string) =>
       (await h.call("POST", "/v1/auth/apple", { body: { identityToken: await appleToken(claims), ...(nonce ? { nonce } : {}) } })).status;
-    expect(await post({ ...base(h), nonce: hashed }, raw)).toBe(200);
-    expect(await post({ ...base(h), nonce: raw }, raw)).toBe(200);
-    expect(await post({ ...base(h), nonce: hashed }, "other")).toBe(401);
-    expect(await post(base(h), raw)).toBe(401);
-    // No nonce sent: not checked.
-    expect(await post({ ...base(h), nonce: hashed })).toBe(200);
+    expect(await post({ ...base(h), nonce: HASHED }, RAW)).toBe(200);
+    expect(await post({ ...base(h), nonce: RAW }, RAW)).toBe(200);
+    expect(await post({ ...base(h), nonce: HASHED }, "other")).toBe(401);
+    const { nonce: _n, ...noNonce } = base(h);
+    expect(await post(noNonce, RAW)).toBe(401);
+    // Missing nonce: refused.
+    expect(await post(base(h))).toBe(501);
+  });
+
+  it("is unsupported unless APPLE_AUDIENCES is configured", async () => {
+    const h = harness({ APPLE_AUDIENCES: "" });
+    const res = await h.call("POST", "/v1/auth/apple", { body: { identityToken: "x", nonce: RAW } });
+    expect(res.status).toBe(501);
+    expect(res.json.error.code).toBe("unsupported");
   });
 });
 

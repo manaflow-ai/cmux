@@ -174,6 +174,10 @@ export class PlanetScaleRepo implements Repo {
     await this.run("UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL", [now, familyId]);
   }
 
+  async listActiveRefreshFamilies(userId: string) {
+    return (await this.all("SELECT DISTINCT family_id FROM refresh_tokens WHERE user_id = ? AND revoked_at IS NULL", [userId])).map((r) => String(r.family_id));
+  }
+
   async createHost(h: Host) {
     await this.run(
       "INSERT INTO hosts (id, user_id, name, os, token_hash, last_seen_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

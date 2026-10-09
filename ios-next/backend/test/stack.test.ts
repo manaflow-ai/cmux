@@ -73,7 +73,7 @@ describe("Stack Auth sign-in", () => {
   });
 
   it("accepts the dev project as a separate identity that never links by email", async () => {
-    const h = setup();
+    const h = setup({ DEV_STACK_ENABLED: "true", STACK_DEV_PROJECT_ID: DEV });
     const existing = await emailLogin(h, "s@example.com");
     const res = await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h, DEV)), projectId: DEV } });
     expect(res.status).toBe(200);
@@ -85,8 +85,8 @@ describe("Stack Auth sign-in", () => {
     expect(prod.json.user.id).toBe(existing.user.id);
   });
 
-  it("refuses the dev project unless DEV_STACK_ENABLED is true", async () => {
-    const h = setup({ DEV_STACK_ENABLED: "false" });
+  it("refuses the dev project unless DEV_STACK_ENABLED is true (production config)", async () => {
+    const h = setup({ STACK_DEV_PROJECT_ID: DEV });
     expect((await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h, DEV)), projectId: DEV } })).status).toBe(400);
     expect((await h.call("POST", "/v1/auth/stack", { body: { accessToken: await stackToken(claims(h)), projectId: PROD } })).status).toBe(200);
   });

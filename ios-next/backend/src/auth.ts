@@ -29,31 +29,36 @@ export function jwtSecret(env: { JWT_SECRET?: string }): string {
   return env.JWT_SECRET;
 }
 
-export async function signAccessToken(secret: string, userId: string, now: number): Promise<string> {
+/** `fam` is the refresh-token family the access token belongs to (one per sign-in). */
+export async function signAccessToken(secret: string, userId: string, now: number, familyId: string): Promise<string> {
   const iat = Math.floor(now / 1000);
-  return signHs256(secret, { iss: ISSUER, sub: userId, typ: "user", iat, exp: iat + ACCESS_TTL_S });
+  return signHs256(secret, { iss: ISSUER, sub: userId, typ: "user", fam: familyId, iat, exp: iat + ACCESS_TTL_S });
 }
 
-export async function verifyAccessToken(secret: string, token: string, now: number): Promise<{ userId: string; exp: number } | null> {
+export async function verifyAccessToken(secret: string, token: string, now: number): Promise<{ userId: string; exp: number; family: string | null } | null> {
   const payload = await verifyHs256(secret, token, now);
   if (!payload || payload.typ !== "user" || payload.iss !== ISSUER || typeof payload.sub !== "string" || typeof payload.exp !== "number") return null;
-  return { userId: payload.sub, exp: payload.exp * 1000 };
+  return { userId: payload.sub, exp: payload.exp * 1000, family: typeof payload.fam === "string" ? payload.fam : null };
 }
+
+/** Called after a refresh family is revoked, so live phone links of that sign-in can be dropped. */
+export type OnFamilyRevoked = (userId: string, familyId: string) => Promise<void>;
 
 /** Issues an access token and a new refresh token in `familyId` (new family when omitted). */
 export async function issueTokens(repo: Repo, secret: string, user: User, now: number, familyId?: string): Promise<Tokens> {
   const refreshToken = randomToken("rt");
+  const family = familyId ?? randomId("rf");
   await repo.createRefreshToken({
     hash: await sha256Hex(refreshToken),
     userId: user.id,
-    familyId: familyId ?? randomId("rf"),
+    familyId: family,
     expiresAt: now + REFRESH_TTL_MS,
     revokedAt: null,
     rotatedAt: null,
     createdAt: now,
   });
   return {
-    accessToken: await signAccessToken(secret, user.id, now),
+    accessToken: await signAccessToken(secret, user.id, now, family),
     refreshToken,
     expiresIn: ACCESS_TTL_S,
     user: userView(user),
@@ -73,7 +78,13 @@ async function successorOf(secret: string, refreshToken: string): Promise<string
  * REFRESH_GRACE_MS returns the same new pair; any other reuse of a rotated or
  * revoked token revokes the whole family.
  */
-export async function rotateRefreshToken(repo: Repo, secret: string, refreshToken: string, now: number): Promise<Tokens> {
+export async function rotateRefreshToken(
+  repo: Repo,
+  secret: string,
+  refreshToken: string,
+  now: number,
+  onRevoked: OnFamilyRevoked = async () => {},
+): Promise<Tokens> {
   const hash = await sha256Hex(refreshToken);
   const row = await repo.getRefreshToken(hash);
   if (!row) throw unauthorized("invalid refresh token");
@@ -82,12 +93,13 @@ export async function rotateRefreshToken(repo: Repo, secret: string, refreshToke
 
   const reuse = async (): Promise<never> => {
     await repo.revokeRefreshFamily(row.familyId, now);
+    await onRevoked(row.userId, row.familyId);
     throw unauthorized("refresh token reused");
   };
   const pair = async (at: number): Promise<Tokens> => {
     const user = await repo.getUser(row.userId);
     if (!user) throw unauthorized("user not found");
-    return { accessToken: await signAccessToken(secret, user.id, at), refreshToken: next, expiresIn: ACCESS_TTL_S, user: userView(user) };
+    return { accessToken: await signAccessToken(secret, user.id, at, row.familyId), refreshToken: next, expiresIn: ACCESS_TTL_S, user: userView(user) };
   };
   const grace = async (rotatedAt: number | null): Promise<Tokens> => {
     if (rotatedAt === null || now - rotatedAt > REFRESH_GRACE_MS) return reuse();
@@ -187,7 +199,7 @@ async function authenticate(c: Parameters<MiddlewareHandler<HonoEnv>>[0], token:
   }
   const verified = await verifyAccessToken(jwtSecret(c.env), token, deps.now());
   if (!verified) throw unauthorized("invalid or expired access token");
-  return { kind: "user", userId: verified.userId, expiresAt: verified.exp };
+  return { kind: "user", userId: verified.userId, expiresAt: verified.exp, family: verified.family };
 }
 
 /** Requires a user access token. */

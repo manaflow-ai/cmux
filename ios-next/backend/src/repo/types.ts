@@ -102,6 +102,8 @@ export interface Repo {
   /** Revokes one token if still active; returns false if it was already revoked. */
   revokeRefreshToken(hash: string, now: number): Promise<boolean>;
   revokeRefreshFamily(familyId: string, now: number): Promise<void>;
+  /** Families with at least one unrevoked token. */
+  listActiveRefreshFamilies(userId: string): Promise<string[]>;
 
   // hosts
   createHost(host: Host): Promise<void>;
