@@ -87,6 +87,21 @@ pub struct HostState {
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub side: BTreeMap<String, SideFloor>,
+    /// The compactor's failure notice now in the conversation (cx-1hpt):
+    /// a host start whose probe fails again posts none, and a good probe
+    /// retracts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_notice: Option<PostedNotice>,
+}
+
+/// A notice the host posted and may take back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostedNotice {
+    /// Its idempotency key and client_msg_id.
+    pub key: String,
+    /// Its message id, once the owner confirmed it (what a retract names).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 /// A side conversation's floor is dropped after this many days without a
@@ -146,6 +161,8 @@ pub enum SubStatus {
     /// Its session is being created.
     #[default]
     Starting,
+    /// It waits for a free slot (`subagents::MAX_LIVE` run at once).
+    Queued,
     /// A turn runs, or one ended and was not read yet.
     Running,
     /// It ended a turn; `report` holds its last reply, not logged yet.

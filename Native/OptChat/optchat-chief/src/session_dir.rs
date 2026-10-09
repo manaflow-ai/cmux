@@ -317,6 +317,45 @@ pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
     }
 }
 
+/// Sets `promptCacheTtl` in the session directory's Claude Code project
+/// settings (settings.json and settings.local.json; the other keys stay):
+/// Claude Code's own cache marks then take the TTL of ours, since the API
+/// refuses a 1h mark after a 5m one. Claude Code reads it at session start.
+pub fn set_prompt_cache_ttl(session: &Path, ttl: crate::prompt::CacheTtl) -> io::Result<()> {
+    let dir = session.join(".claude");
+    std::fs::create_dir_all(&dir)?;
+    for name in ["settings.json", "settings.local.json"] {
+        let path = dir.join(name);
+        let mut value: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        value["promptCacheTtl"] = json!(ttl.as_str());
+        // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
+        // other source of Claude Code's TTL (a subscription login marks 1h).
+        if !value["env"].is_object() {
+            value["env"] = json!({});
+        }
+        match ttl {
+            crate::prompt::CacheTtl::FiveMinutes => {
+                value["env"]["FORCE_PROMPT_CACHING_5M"] = json!("1");
+            }
+            crate::prompt::CacheTtl::OneHour => {
+                if let Some(env) = value["env"].as_object_mut() {
+                    env.remove("FORCE_PROMPT_CACHING_5M");
+                }
+            }
+        }
+        let text = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).map_err(io::Error::other)?
+        );
+        write_if_changed(&path, text.as_bytes())?;
+    }
+    Ok(())
+}
+
 fn remove_if_present(path: &Path) -> io::Result<()> {
     match std::fs::remove_file(path) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),

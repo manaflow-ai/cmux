@@ -328,8 +328,10 @@ fn start(
     // engine.json's compactor fields apply at host start (engine.rs).
     let engine_choice_file = crate::engine::load(&crate::engine::path(home));
     let chief_set = env("OPTCHAT_CHIEF_HARNESS").or_else(|| env("MUX_HARNESS"));
-    let compactor_set =
-        env("OPTCHAT_COMPACTOR_HARNESS").or_else(|| engine_choice_file.compactor_harness.clone());
+    let compactor_set = crate::engine::compactor_harness_setting(
+        env("OPTCHAT_COMPACTOR_HARNESS"),
+        &engine_choice_file,
+    );
     let sub_set = env("OPTCHAT_SUBAGENT_HARNESS");
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
@@ -813,6 +815,7 @@ fn start(
     } else {
         "this Chief host has neither a cmux app nor a cloud install, so no cmux app shows this subagent".to_owned()
     };
+    let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
             chat.clone(),
@@ -834,7 +837,9 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
-        Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
+        let spawner = Arc::new(spawner);
+        sub_starter = Some(spawner.queue_starter());
+        spawner as Arc<dyn crate::tools::Orchestrator>
     });
     log(format!(
         "subagents: {}; workspaces: {}; trace: {}",
@@ -880,6 +885,14 @@ fn start(
     // calls for Claude models with 429 (it serves Claude Code clients), so
     // the native engine needs an endpoint that takes API calls
     // (OPTCHAT_ANTHROPIC_BASE_URL plus a key). Checked live on 2026-10-04.
+    // The host env's TTL (Claude Code's own switches, then
+    // OPTCHAT_CACHE_TTL) over the Chief's cache.ttl setting.
+    let cache_ttl_env = crate::prompt::cache_ttl_from_env(&|k: &str| env(k));
+    if let Some(v) = env("OPTCHAT_CACHE_TTL")
+        && crate::prompt::CacheTtl::parse(&v).is_none()
+    {
+        log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
+    }
     let engine = match engine_choice.as_deref() {
         Some("native") => {
             let native_config = NativeConfig {
@@ -900,9 +913,18 @@ fn start(
                 base_url
             ));
             let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
+            // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
+            // says otherwise (read at host start).
+            let native_ttl = cache_ttl_env
+                .or(
+                    crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
+                        .cache_ttl,
+                )
+                .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
             Engine::Native(Arc::new(
                 Native::new(native_config, Arc::new(model), optchat_host::RETRY)
-                    .with_trace(trace.clone()),
+                    .with_trace(trace.clone())
+                    .with_cache_ttl(native_ttl),
             ))
         }
         None | Some("acpmux") => {
@@ -947,6 +969,7 @@ fn start(
         codex_preset,
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
+        cache_ttl: cache_ttl_env,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -976,6 +999,7 @@ fn start(
     ))
     .with_workspaces(workspaces);
     let mut brain = brain;
+    brain.set_sub_starter(sub_starter);
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
@@ -1044,12 +1068,15 @@ fn spawn_probe(
         .spawn(move || {
             let started = std::time::Instant::now();
             match probe_models(&*model, fallback.as_deref(), &system) {
-                Ok(line) => log(format!(
-                    "compactor probe ({}{}) built a node in {} ms: {line}",
-                    route.name(),
-                    if fallback.is_some() { ", fallback too" } else { "" },
-                    started.elapsed().as_millis()
-                )),
+                Ok(line) => {
+                    log(format!(
+                        "compactor probe ({}{}) built a node in {} ms: {line}",
+                        route.name(),
+                        if fallback.is_some() { ", fallback too" } else { "" },
+                        started.elapsed().as_millis()
+                    ));
+                    let _ = tx.send(Input::CompactorStatus(Ok(())));
+                }
                 Err(e) => {
                     let remedy = match route {
                         CompactRoute::Acpmux => {
@@ -1067,8 +1094,7 @@ fn spawn_probe(
                          that need a summary wait, and so does every reply, until it can. {remedy}",
                         route.name()
                     );
-                    let key = format!("notice:optchat:compactor:{}", now_ms());
-                    let _ = tx.send(Input::Notice { key, text });
+                    let _ = tx.send(Input::CompactorStatus(Err(text)));
                 }
             }
         });
@@ -1111,12 +1137,6 @@ fn start_inspector(
         Err(e) => log(format!("memory inspector not started: {e}")),
     }
     Some(inspector)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// The native bash tool's env: the turn session's, with the `chief`

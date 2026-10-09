@@ -70,6 +70,11 @@ on:
         required: false
         default: false
         type: boolean
+      notary_test_without_browser_data_import:
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One notary submission, nothing published.
+        required: false
+        default: false
+        type: boolean
       promote_nightly_next_sha:
         description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
@@ -111,7 +116,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -152,6 +157,7 @@ jobs:
       should_publish: ${{ steps.decide.outputs.should_publish }}
       notary_paused: ${{ steps.decide.outputs.notary_paused }}
       notary_test: ${{ steps.decide.outputs.notary_test }}
+      notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
       variants: ${{ steps.decide.outputs.variants }}
       feeds: ${{ steps.decide.outputs.feeds }}
@@ -206,7 +212,8 @@ jobs:
           # nothing (cx-f58x: every nightly-next DMG got notary status 7000
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
-          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
+          NOTARY_TEST: ${{ github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import) && 'true' || 'false' }}
+          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -516,6 +523,7 @@ jobs:
             const notaryPaused = track === 'nightly-next' && process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1' && !notaryTest;
             core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
             core.setOutput('notary_test', notaryTest ? 'true' : 'false');
+            core.setOutput('notary_test_browser_data', notaryTest && process.env.NOTARY_TEST_BROWSER_DATA === 'true' ? 'true' : 'false');
             core.setOutput('no_publish', notaryPaused || notaryTest ? 'true' : 'false');
             if (notaryTest) {
               core.notice('cx-f58x notary test: the browser password-import readers are compiled out (CMUX_NO_PASSWORD_IMPORT); one notary submission, nothing published.');
@@ -1497,11 +1505,20 @@ jobs:
       - name: Build nightly app (Release)
         env:
           NOTARY_TEST: ${{ needs.decide.outputs.notary_test }}
+          NOTARY_TEST_BROWSER_DATA: ${{ needs.decide.outputs.notary_test_browser_data }}
         run: |
           set -euo pipefail
-          # cx-f58x notary test only: compile out the browser password-import readers.
+          # cx-f58x notary test only: compile out the browser password-import
+          # readers, and with notary_test_without_browser_data_import every read
+          # of another browser's files or Keychain items plus the shipped
+          # browser target list.
           notary_test_flags=(build)
-          if [[ "$NOTARY_TEST" == true ]]; then
+          if [[ "$NOTARY_TEST_BROWSER_DATA" == true ]]; then
+            printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' \
+              > Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+            # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
+            notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT' build)
+          elif [[ "$NOTARY_TEST" == true ]]; then
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
             notary_test_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_PASSWORD_IMPORT' build)
           fi
@@ -1548,6 +1565,12 @@ jobs:
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
           scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/cmux"
+
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: needs.decide.outputs.notary_test_browser_data == 'true'
+        run: |
+          set -euo pipefail
+          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound

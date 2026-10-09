@@ -757,6 +757,7 @@ pub fn settings(dir: &Path) -> Settings {
         codex_preset: None,
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
+        cache_ttl: None,
     }
 }
 

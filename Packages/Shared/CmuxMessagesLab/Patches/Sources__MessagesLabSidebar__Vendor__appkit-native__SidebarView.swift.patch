@@ -21,7 +21,7 @@
      private let hoverLayer = CALayer()
      private let menuRing = CALayer()
      private var hovered: Hit?
-@@ -221,6 +224,7 @@
+@@ -224,6 +227,7 @@
          layoutDocument()
          tile(force: true)
          updateAccessibility()
@@ -29,7 +29,7 @@
      }
  
      // MARK: Geometry
-@@ -321,7 +325,7 @@
+@@ -328,7 +332,7 @@
  
      @objc private func clipMoved() { tile(force: false) }
  
@@ -38,7 +38,7 @@
          SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                               space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                               bellSecondary: bellSecondary, bellSelected: bellSelected, now: Date())
-@@ -449,7 +453,9 @@
+@@ -456,7 +460,9 @@
          let selected = c.id == highlightID
          let k = key(.row, item: i, emphasized: emphasized(i))
          l.frame = frame
@@ -49,7 +49,22 @@
          l.selection.frame = CGRect(x: SidebarMetrics.selectionInsetX, y: 0, width: frame.width - 2 * SidebarMetrics.selectionInsetX, height: frame.height)
          l.selection.cornerRadius = SidebarMetrics.selectionRadius
          l.selection.isHidden = !selected
-@@ -836,6 +842,9 @@
+@@ -628,10 +634,11 @@
+             l.avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
+             l.avatarSpec = c.avatar; l.avatarGeneration = generation
+         }
+-        // The unread dot left of the avatar's top, outside the bubble (to verify).
++        // cmux: the unread dot on the tile's leading edge, below the unread bubble when one is
++        // shown, so a wide bubble never covers it (SidebarDraw.tileUnreadDot).
+         l.dot.isHidden = !c.unread
+-        let r = ar.width / 2
+-        l.dot.frame = CGRect(x: ar.midX - r * 0.86 - 6, y: ar.midY - r * 0.5 - 6, width: 12, height: 12)
++        let shownBubble = c.unread && !c.typing ? SidebarDraw.tileBubble(c, metrics: metrics)?.rect : nil
++        l.dot.frame = SidebarDraw.tileUnreadDot(metrics, bubble: shownBubble)
+         l.dot.cornerRadius = 6
+         l.dot.backgroundColor = palette.unread
+         if c.typing {
+@@ -918,6 +925,9 @@
      }
  
      // MARK: Hover
@@ -59,7 +74,7 @@
  
      func mouseMoved(_ p: CGPoint?) {
          let h = p.flatMap(hit)
-@@ -846,6 +855,9 @@
+@@ -928,6 +938,9 @@
      private func updateHover() {
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
@@ -69,7 +84,7 @@
          // The hovered row or tile may be gone (unpinned, filtered out): check before reading it.
          guard let h = hovered else { hoverLayer.isHidden = true; return }
          if case let .row(r) = h, r >= rowItems.count { hoverLayer.isHidden = true; return }
-@@ -1078,6 +1090,7 @@
+@@ -1160,6 +1173,7 @@
          window?.makeFirstResponder(self)
          guard let c = controller, let h = c.hit(point(event)) else { return }
          c.highlight(c.snapshot.items[c.item(h)].id, reveal: false)
@@ -77,7 +92,7 @@
      }
      override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
      override func keyDown(with event: NSEvent) {
-@@ -1087,6 +1100,7 @@
+@@ -1169,6 +1183,7 @@
          default: interpretKeyEvents([event])
          }
      }
