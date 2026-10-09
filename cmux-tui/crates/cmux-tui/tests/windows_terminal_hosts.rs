@@ -327,14 +327,14 @@ fn tab_of(path: &Path, surface: u64) -> serde_json::Value {
         .unwrap_or_else(|| panic!("no tab for surface {surface}: {tree}"))
 }
 
-/// A daemon in a job that forbids breakaway cannot give a terminal a host
-/// that outlives the daemon's job. The terminal still runs (in the daemon's
-/// own ConPTY), and every tree says why it will not survive a restart:
+/// A daemon in a kill-on-close job that forbids breakaway starts the
+/// terminal's host inside that job (coordinator decision 2026-10-09). The
+/// terminal runs, and every tree says it ends when the job closes:
 /// `terminal_host_fallback: "breakaway_denied"`.
 #[test]
-fn a_terminal_without_breakaway_runs_in_process_and_says_so() {
+fn a_terminal_in_a_kill_on_close_job_without_breakaway_says_so() {
     let daemon = Daemon::new_in_job_without_breakaway("nobreak");
-    let marker = format!("in-process-{}", std::process::id());
+    let marker = format!("in-job-{}", std::process::id());
     let created = request(
         &daemon.socket,
         serde_json::json!({
@@ -352,7 +352,7 @@ fn a_terminal_without_breakaway_runs_in_process_and_says_so() {
     );
     assert!(
         wait_for_screen(&daemon.socket, surface, &marker).contains(&marker),
-        "the in-process terminal does not run"
+        "the terminal in the daemon's job does not run"
     );
     let tab = tab_of(&daemon.socket, surface);
     assert_eq!(tab["terminal_state"], "running", "{tab}");

@@ -18,17 +18,11 @@ fn system32(exe: &str) -> PathBuf {
     PathBuf::from(root).join("System32").join(exe)
 }
 
-/// The hosted Windows runner runs tests in a job that forbids breakaway
-/// (run 37935857605): there a spawn must say BreakawayDenied, and the test
-/// goes on with the host in the runner's job.
-fn breakaway_for_tests(exe: &Path, args: &[&str]) -> Breakaway {
-    if breakaway_allowed().unwrap() {
-        return Breakaway::Required;
-    }
-    match spawn_host_process(exe, args) {
-        Err(HostSpawnError::BreakawayDenied) => Breakaway::Stay,
-        other => panic!("expected BreakawayDenied in a job without breakaway: {other:?}"),
-    }
+/// Breakaway when this runner allows it. The hosted Windows runner runs
+/// tests in a job that forbids breakaway (run 37935857605); there the
+/// hook-taking tests start their host inside the runner's job.
+fn test_breakaway() -> Breakaway {
+    if breakaway_allowed().unwrap() { Breakaway::Required } else { Breakaway::Stay }
 }
 
 fn helper_args() -> [&'static str; 4] {
@@ -36,9 +30,7 @@ fn helper_args() -> [&'static str; 4] {
 }
 
 fn stand_in_host() -> HostProcess {
-    let exe = std::env::current_exe().unwrap();
-    let breakaway = breakaway_for_tests(&exe, &helper_args());
-    spawn_host_process_with(&exe, &helper_args(), breakaway, |_| {}).unwrap()
+    spawn_host_process(&std::env::current_exe().unwrap(), &helper_args()).unwrap()
 }
 
 fn ask(host: &mut HostProcess, reader: &mut BufReader<File>, line: &str) -> String {
@@ -135,7 +127,7 @@ fn dropping_an_unused_host_ends_that_process() {
 #[test]
 fn a_pipe_opened_by_another_process_is_refused() {
     let exe = std::env::current_exe().unwrap();
-    let breakaway = breakaway_for_tests(&exe, &helper_args());
+    let breakaway = test_breakaway();
     let mut squatter = None;
     let result = spawn_host_process_with(&exe, &helper_args(), breakaway, |base| {
         squatter = Some(OpenOptions::new().read(true).open(format!("{base}.in")).unwrap());
@@ -154,7 +146,7 @@ fn a_pipe_opened_by_another_process_is_refused() {
 fn a_host_that_never_connects_is_refused() {
     let cmd = system32("cmd.exe");
     let args = ["/d", "/c", "exit", "0"];
-    let breakaway = breakaway_for_tests(&cmd, &args);
+    let breakaway = test_breakaway();
     let started = std::time::Instant::now();
     let result = spawn_host_process_with(&cmd, &args, breakaway, |_| {});
     assert!(result.is_err(), "{result:?}");
@@ -163,11 +155,10 @@ fn a_host_that_never_connects_is_refused() {
 
 const JOB_HELPER_ENV: &str = "CMUX_TEST_STANDBY_BREAKAWAY_HELPER";
 
-/// In a job without breakaway the spawn says so instead of starting a host
-/// that would die with the daemon's job. Runs in a child test process,
-/// which puts itself in such a job (the test runner stays out).
-#[test]
-fn a_job_without_breakaway_denies_the_host() {
+/// Runs `helper_in_a_job_without_breakaway` in a child test process with
+/// `mode` (`plain` or `kill-on-close`); it puts itself in such a job (the
+/// test runner stays out).
+fn run_job_helper(mode: &str) {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
@@ -176,7 +167,7 @@ fn a_job_without_breakaway_denies_the_host() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env(JOB_HELPER_ENV, "1")
+        .env(JOB_HELPER_ENV, mode)
         .output()
         .unwrap();
     let text = format!(
@@ -188,31 +179,76 @@ fn a_job_without_breakaway_denies_the_host() {
     assert!(text.contains("1 passed"), "the helper did not run: {text}");
 }
 
+/// A job without breakaway and without kill-on-close: breakaway is denied,
+/// the host starts inside the job, and it does not end with the job's
+/// owner (no notice).
 #[test]
-#[ignore = "run by a_job_without_breakaway_denies_the_host in its own process"]
+fn a_job_without_breakaway_keeps_the_host_inside_it() {
+    run_job_helper("plain");
+}
+
+/// The same in a kill-on-close job: the host starts inside it and says it
+/// ends with that job (the notice).
+#[test]
+fn a_kill_on_close_job_without_breakaway_marks_the_host() {
+    run_job_helper("kill-on-close");
+}
+
+#[test]
+#[ignore = "run by the job tests in its own process"]
 fn helper_in_a_job_without_breakaway() {
-    if std::env::var_os(JOB_HELPER_ENV).is_none() {
+    let Some(mode) = std::env::var_os(JOB_HELPER_ENV) else {
         return;
-    }
-    use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW};
-    // SAFETY: an unnamed job with default limits (no BREAKAWAY_OK); this
-    // helper process puts itself in it and never closes it.
-    unsafe {
+    };
+    let kill_on_close = mode == "kill-on-close";
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
+    };
+    // SAFETY: an unnamed job without BREAKAWAY_OK; this helper process puts
+    // itself in it and never closes it.
+    let job = unsafe {
         let job = CreateJobObjectW(ptr::null(), ptr::null());
         assert!(!job.is_null(), "{}", io::Error::last_os_error());
+        if kill_on_close {
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            assert_ne!(
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const limits).cast(),
+                    size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                ),
+                0,
+                "{}",
+                io::Error::last_os_error()
+            );
+        }
         assert_ne!(
             AssignProcessToJobObject(job, GetCurrentProcess()),
             0,
             "{}",
             io::Error::last_os_error()
         );
-    }
+        job
+    };
     assert!(in_job().unwrap());
     assert!(!breakaway_allowed().unwrap());
-    match spawn_host_process(&system32("sort.exe"), &[]) {
+    assert_eq!(job_kills_on_close().unwrap(), kill_on_close);
+    let exe = std::env::current_exe().unwrap();
+    match spawn_host_process_with(&exe, &helper_args(), Breakaway::Required, |_| {}) {
         Err(HostSpawnError::BreakawayDenied) => {}
         other => panic!("expected BreakawayDenied, got {other:?}"),
     }
+    let mut host = spawn_host_process(&exe, &helper_args()).expect("a host inside the job");
+    assert_eq!(host.ends_with_daemon_job(), kill_on_close);
+    let mut inside = 0;
+    // SAFETY: the host's process handle and our job handle.
+    unsafe { IsProcessInJob(host.process.as_raw_handle() as HANDLE, job, &mut inside) };
+    assert_ne!(inside, 0, "the host is not in the daemon's job");
+    let mut reader = BufReader::new(host.stdout.take().unwrap());
+    assert_eq!(ask(&mut host, &mut reader, "echo inside"), "inside");
 }
 
 /// Whether `handle` (a value in this process) is open on a file whose path

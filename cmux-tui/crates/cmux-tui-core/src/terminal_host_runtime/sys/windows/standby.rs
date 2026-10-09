@@ -21,11 +21,14 @@
 //! made inheritable for a `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` are not used.
 //!
 //! When the daemon's job does not allow breakaway, `CreateProcessW` fails
-//! with `ERROR_ACCESS_DENIED`: [`HostSpawnError::BreakawayDenied`]. The
-//! daemon then runs that terminal in its own ConPTY and marks it with
-//! `TerminalHostFallback::BreakawayDenied` (tab JSON
-//! `terminal_host_fallback`), so the user sees that it will not survive a
-//! restart.
+//! with `ERROR_ACCESS_DENIED`. The spawn then starts the host inside the
+//! daemon's job (coordinator decision, 2026-10-09): the host still outlives a
+//! daemon restart, and ends only when that job closes. [`HostProcess::
+//! ends_with_daemon_job`] says whether the job kills its processes on close
+//! (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`); only then does the daemon mark the
+//! terminal with `TerminalHostFallback::BreakawayDenied` (tab JSON
+//! `terminal_host_fallback`). The in-process ConPTY fallback
+//! (`TerminalHostFallback::HostStartFailed`) is for a start that fails.
 
 use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
@@ -47,8 +50,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_INBOUND, PIPE_ACCESS_OUTBOUND,
 };
 use windows_sys::Win32::System::JobObjects::{
-    IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
-    JOBOBJECT_BASIC_LIMIT_INFORMATION, JobObjectBasicLimitInformation, QueryInformationJobObject,
+    IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK, JOBOBJECT_BASIC_LIMIT_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicLimitInformation,
+    JobObjectExtendedLimitInformation, QueryInformationJobObject,
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, PIPE_READMODE_BYTE,
@@ -134,6 +139,31 @@ pub fn breakaway_allowed() -> io::Result<bool> {
         != 0)
 }
 
+/// Whether this process's innermost job kills its processes when its last
+/// handle closes (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`). False outside a job.
+/// An outer job of a nested chain is not visible here.
+pub fn job_kills_on_close() -> io::Result<bool> {
+    if !in_job()? {
+        return Ok(false);
+    }
+    // SAFETY: a zeroed plain-data struct is a valid out buffer.
+    let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a null job handle queries the job of the calling process.
+    let ok = unsafe {
+        QueryInformationJobObject(
+            ptr::null_mut(),
+            JobObjectExtendedLimitInformation,
+            (&raw mut limits).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(limits.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0)
+}
+
 /// A started host process and the daemon's ends of its bootstrap pipes.
 /// Dropping it ends that exact process (a standby host is unused until
 /// claimed) and waits for it.
@@ -146,11 +176,19 @@ pub struct HostProcess {
     /// The daemon's end of the host's output (bootstrap replies).
     pub stdout: Option<File>,
     detached: bool,
+    ends_with_daemon_job: bool,
 }
 
 impl HostProcess {
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+
+    /// The host could not leave the daemon's job and that job kills its
+    /// processes on close: the terminal ends when the program that started
+    /// the daemon closes the job (show the notice).
+    pub fn ends_with_daemon_job(&self) -> bool {
+        self.ends_with_daemon_job
     }
 
     /// False once the process has exited.
@@ -191,10 +229,21 @@ impl Drop for HostProcess {
 }
 
 /// Start `exe args... <pipe base name>` as a terminal-host process: no
-/// window, its own process group, outside the daemon's job, no inherited
-/// handle. Returns once the host has opened both bootstrap pipes.
+/// window, its own process group, no inherited handle; outside the daemon's
+/// job, or inside it when the job forbids breakaway (then
+/// [`HostProcess::ends_with_daemon_job`] tells whether the job kills it on
+/// close). Returns once the host has opened both bootstrap pipes. An error
+/// means no host: run the terminal in-process.
 pub fn spawn_host_process(exe: &Path, args: &[&str]) -> Result<HostProcess, HostSpawnError> {
-    spawn_host_process_with(exe, args, Breakaway::Required, |_| {})
+    match spawn_host_process_with(exe, args, Breakaway::Required, |_| {}) {
+        Err(HostSpawnError::BreakawayDenied) => {
+            let kills_on_close = job_kills_on_close().unwrap_or(true);
+            let mut host = spawn_host_process_with(exe, args, Breakaway::Stay, |_| {})?;
+            host.ends_with_daemon_job = kills_on_close;
+            Ok(host)
+        }
+        other => other,
+    }
 }
 
 /// Whether the host must leave the daemon's job.
@@ -203,9 +252,7 @@ pub enum Breakaway {
     /// `CREATE_BREAKAWAY_FROM_JOB`; a job that forbids it gives
     /// [`HostSpawnError::BreakawayDenied`].
     Required,
-    /// Stay in the daemon's job (tests on a runner whose job forbids
-    /// breakaway).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Stay in the daemon's job (its job forbids breakaway).
     Stay,
 }
 
@@ -408,8 +455,14 @@ fn spawn_host_process_with(
         (OwnedHandle::from_raw_handle(info.hProcess), OwnedHandle::from_raw_handle(info.hThread))
     };
     drop(thread);
-    let mut host =
-        HostProcess { process, pid: info.dwProcessId, stdin: None, stdout: None, detached: false };
+    let mut host = HostProcess {
+        process,
+        pid: info.dwProcessId,
+        stdin: None,
+        stdout: None,
+        detached: false,
+        ends_with_daemon_job: false,
+    };
     let pid = host.pid;
     let connected =
         with_connect_watchdog(host.process.as_raw_handle() as HANDLE, [in_name, out_name], || {
