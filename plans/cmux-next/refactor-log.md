@@ -11,6 +11,8 @@ Append-only. One line per landing: date, SHA, lane, what moved where, old -> new
 
 - 2026-10-09 cdde5b4d3a34 refactor-swift-ts: MobileCoreRPCSession.swift -> MobileCoreRPCSession+{TearDown,Connect,ReadWrite,PendingRequests,CancelledWrites,ControlStreamRepair,TransportClose}.swift (phase 1); 1741 -> 430; cmux-ci CmuxMobileRPCTests 221/223 (2 named reds, bead filed), about 6 min.
 - 2026-10-09 3a3629c3d9b6 refactor-swift-ts: MobilePairedMacStore.swift -> MobilePairedMacStore+{Migrations,Upsert,RouteAuthority}.swift (phase 1); 1616 -> 362; cmux-ci CmuxMobilePairedMacTests 45/45, about 5 min.
+- 2026-10-09 0b8109dc0e0c refactor-swift-ts: test-only fix of the RPCStackTokenGate reset tests (helper raced a 1 ns timeout against the released provider); suite 10/10 x10 green, step 16763635.
+- 2026-10-09 6963cf9ff635 refactor-swift-ts: HomeStore phase 2 step 1, HomeConversationHookRegistry owns the conversation hooks (owner split); CmuxHomeCoreTests 122/122, CmuxHomeRenderTests 115/115, about 6 min.
 
 ## Phase 2 designs
 
