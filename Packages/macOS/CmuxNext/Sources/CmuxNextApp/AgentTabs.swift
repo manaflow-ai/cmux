@@ -109,6 +109,8 @@ final class AgentTabStore {
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+    /// Gives every new pane view the App's chrome (the New Tab omnibar row, NewTabOmnibar).
+    var decorateView: ((AgentPaneView) -> Void)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
@@ -348,6 +350,7 @@ final class AgentTabStore {
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
+        decorateView?(view)
         pageSettings.apply(to: view)
         customization.start()
         return view

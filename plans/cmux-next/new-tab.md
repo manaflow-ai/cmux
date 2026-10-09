@@ -205,7 +205,11 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   under the field are only for addresses, open tabs and visited pages, and show only for an
   address or a match (then a web search row last); a prompt shows none, and no row is selected
   until Down or Ctrl-N (Ctrl-P, Up). A key typed anywhere on the page goes into the field.
-  Durable project storage: projects.md. Still open: the native omnibar on the page (Cmd-L).
+  Durable project storage: projects.md. The page shows the browser's own omnibar row on top
+  (`OmnibarToolbarView`: the same `AddressBarView`, suggestions and state machine as a browser tab),
+  held by the pane while it is a New Tab page; Cmd-L on the page focuses it, Escape returns to the
+  page's field, and a committed address replaces the page with a browser tab (`tab.open`). Cmd-L
+  from another tab still opens the page with its field focused (type-ahead goes there).
 
 ### Status (2026-10-04)
 
