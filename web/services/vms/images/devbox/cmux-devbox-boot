@@ -186,14 +186,31 @@ def unique_object(pairs):
         result[key] = value
     return result
 
+def reject_constant(value):
+    raise ValueError("non-standard JSON constant")
+
+def contains_surrogate(value):
+    if isinstance(value, str):
+        return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+    if isinstance(value, dict):
+        return any(contains_surrogate(key) or contains_surrogate(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(contains_surrogate(item) for item in value)
+    return False
+
 try:
     with open(sys.argv[1], encoding="utf-8") as stream:
-        value = json.load(stream, object_pairs_hook=unique_object)
+        value = json.load(
+            stream,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
 except (OSError, TypeError, ValueError):
     raise SystemExit(1)
 
 if (
-    type(value) is not dict
+    contains_surrogate(value)
+    or type(value) is not dict
     or type(value.get("version")) is not int
     or value["version"] != 1
     or type(value.get("lifecycle_id")) is not str

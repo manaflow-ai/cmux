@@ -230,6 +230,8 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
         '{"version":1e0,"lifecycle_id":"predecessor","status":"succeeded"}',
         '{"version":2,"lifecycle_id":"predecessor","status":"succeeded"}',
         '{"version":1,"lifecycle_id":"","status":"succeeded"}',
+        '{"version":1,"lifecycle_id":"predecessor","status":"succeeded","extra":NaN}',
+        '{"version":1,"lifecycle_id":"\\ud801","status":"succeeded"}',
         `{"version":1,"lifecycle_id":"predecessor","status":"failed"}\n${succeededOutcome}`,
       ]) {
         writeFileSync(path.join(session, "runtime.json"), "runtime");
