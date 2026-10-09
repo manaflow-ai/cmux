@@ -1083,6 +1083,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_notary_handoff.py
 
+      - name: Validate the nightly-next pending notarization continuation
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_recovery.py
+
       - name: Validate Sparkle delta finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_finalize_sparkle_deltas.sh

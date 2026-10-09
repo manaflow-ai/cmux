@@ -271,7 +271,8 @@ describe("acpmux composer pickers", () => {
     expect(menu.textContent).toContain("Unrestricted");
   });
 
-  test("model rows keep a fixed order across openings and put the newest model nearest the anchor", async () => {
+  // cx-jqkx: newest first; older versions fold under "Older models" so a release is never below the fold.
+  test("model rows keep a fixed order across openings with the newest model first", async () => {
     const catalog = [
       {
         id: "codex",
@@ -291,8 +292,8 @@ describe("acpmux composer pickers", () => {
     await act(async () => model.click());
     const labels = () => [...doc.querySelectorAll(".acpmux-mp-row .acpmux-menu-label")].map((row) => row.textContent);
     const first = labels();
-    expect(first.at(-1)).toBe("6.1 Sol");
-    expect(first).toEqual(["6 Astra", "6 Luna", "6 Mini", "6 Nano", "6.1 Sol"]);
+    // Each name is its own line here (no catalog family), so every model is a newest one.
+    expect(first).toEqual(["6 Astra", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
     await act(async () => model.click());
     await render(long({ model: "sol", configOptions: [effort] }));
     await act(async () => button("Model")!.click());
@@ -588,7 +589,7 @@ describe("acpmux composer pickers", () => {
 
   test("the mode chip shows the current mode, with descriptions in its menu and the warning color for full access", async () => {
     await render(snapshot({ modes }));
-    expect(button("Mode")!.textContent).not.toContain("Ask for approval");
+    expect(button("Mode")!.textContent).toContain("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
     expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
@@ -649,6 +650,19 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
   });
 
+  // Dogfood 2026-10-08 ("this button does not work yet"): before the first usage update the
+  // ring opened "0% used" over an empty bar. It keeps its place (no shift when usage arrives) but
+  // is disabled until there is something to show.
+  test("before its first usage the context ring holds its place but opens nothing", async () => {
+    await render(snapshot());
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    expect(ring().disabled).toBe(true);
+    await act(async () => ring().click());
+    expect(doc.querySelector(".acpmux-context-pop")).toBeNull();
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }));
+    expect(ring().disabled).toBe(false);
+  });
+
   test("a click on the context ring opens the usage details and Compact", async () => {
     let compacted = 0;
     const withCompact = (summary: Parameters<typeof snapshot>[0], isWorking = false) => ({
@@ -685,12 +699,46 @@ describe("acpmux composer pickers", () => {
     await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
     expect(compacted).toBe(1);
     expect(pop()).toBeNull();
-    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
-    await render(snapshot({}), { onCompact });
+    // Without the agent's compact command there is no Compact.
+    await render(snapshot({ usage: { used: 34000, size: 200000 } }), { onCompact });
     await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
     expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
-    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
-    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
+  });
+
+  test("the context details split the agent's setup from the conversation once the chat has it", async () => {
+    const pop = () => doc.querySelector(".acpmux-context-pop");
+    const rows = () =>
+      [...pop()!.querySelectorAll(".acpmux-context-part")].map((row) => [
+        row.querySelector(".acpmux-context-part-name")!.textContent,
+        row.querySelector(".acpmux-context-part-tokens")!.textContent,
+      ]);
+    const open = async () => {
+      const ring = doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+      if (ring.getAttribute("aria-expanded") !== "true") await act(async () => ring.click());
+    };
+    // The first reading of a new chat is the system prompt, the tools and the instructions,
+    // plus the first message: 25.3K of 258.4K after "a" on Codex.
+    await render(snapshot({ sessionId: "fresh", turnCount: 1, usage: { used: 25_300, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "0"],
+    ]);
+    expect(pop()!.querySelector(".acpmux-context-part-detail")!.textContent).toBe(
+      "System prompt, tools and instructions",
+    );
+    // Later turns add to the conversation; the setup stays what it was.
+    await render(snapshot({ sessionId: "fresh", turnCount: 3, usage: { used: 40_000, size: 258_400 } }));
+    await open();
+    expect(rows()).toEqual([
+      ["Agent setup", "25.3K"],
+      ["Conversation", "14.7K"],
+    ]);
+    // A chat first seen mid-way (resumed) has no first reading, so no split.
+    await render(snapshot({ sessionId: "resumed", turnCount: 6, usage: { used: 90_000, size: 258_400 } }));
+    await open();
+    expect(pop()!.querySelector(".acpmux-context-part")).toBeNull();
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("90K of 258.4K tokens");
   });
 });
 
@@ -888,6 +936,8 @@ describe("acpmux composer queue", () => {
       const box = doc.querySelector(".acpmux-composer-box")!;
       expect(box.lastElementChild!.classList.contains("acpmux-composer-context")).toBe(true);
       expect(box.previousElementSibling!.classList.contains("acpmux-composer-queue")).toBe(true);
+      const tray = doc.querySelector(".acpmux-composer-context")!;
+      expect(tray.parentElement?.classList.contains("acpmux-composer-box")).toBe(true);
     } finally {
       await act(async () => root.unmount());
     }

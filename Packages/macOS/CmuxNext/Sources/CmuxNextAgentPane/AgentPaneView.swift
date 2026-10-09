@@ -70,9 +70,10 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
-    /// The message the page reported under the pointer for the next context menu, and where the
-    /// menu's copies go (tests record them instead).
+    /// The message and the selected transcript text the page reported under the pointer for the
+    /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
+    var menuSelection: String?
     var copyText: @MainActor (String) -> Void = { text in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -179,7 +180,7 @@ public final class AgentPaneView: NSView {
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
             guard Thread.isMainThread else { return event }
-            // crash-allow: guarded by Thread.isMainThread above, so it cannot trap; the decision must read the window's focus and the web view's bounds at event time, before AppKit dispatches the event, which a hop would read too late
+            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; the decision must read focus and bounds before dispatch, so no hop)
             MainActor.assumeIsolated { self?.monitored(event) }
             return event
         }
@@ -215,11 +216,11 @@ public final class AgentPaneView: NSView {
         // Reduce Motion is not observable through Observation.
         reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() }
+            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
         }
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyTheme() }
+            MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
         }
     }
 

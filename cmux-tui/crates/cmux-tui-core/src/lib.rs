@@ -14,7 +14,9 @@ pub mod backoff;
 mod browser;
 pub mod browser_host;
 mod browser_provider;
-pub mod cloud_conversations;
+/// The cloud conversations proxy; its own crate, re-exported at the old path.
+pub use cmux_tui_cloud_conversations as cloud_conversations;
+mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -58,6 +60,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod scripts;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;

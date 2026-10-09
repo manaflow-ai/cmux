@@ -90,6 +90,11 @@ export type ArmMeasurement = {
   over16: number;
   /** Main-thread time the arm spent planning its motion, in ms per toggle (largest). */
   planMs?: number;
+  /** Action-to-settled samples across clicks, keys and press-drag pointer steps. */
+  settleCount?: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
   /** The frame strip image, relative to the run's folder. */
   strip?: string;
 };
@@ -118,6 +123,8 @@ type VariantBase = {
    * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
    */
   play?: Play;
+  /** Variant-specific play thresholds, merged over the entry defaults. */
+  checks?: PlayChecks;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -433,6 +440,8 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
+    for (const [name, variant] of Object.entries(entry.variants))
+      for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);
   }
   return problems;
 }

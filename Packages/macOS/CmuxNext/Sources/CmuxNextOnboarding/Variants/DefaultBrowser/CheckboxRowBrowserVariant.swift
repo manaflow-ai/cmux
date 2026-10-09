@@ -24,11 +24,10 @@ struct CheckboxRowBrowser: OnboardingScreenVariant {
 final class CheckboxRowBrowserBody: BrowserClaimView {
     private let row = FlippedView()
     private let state = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary, lines: 2)
-    private var box: NSButton!
+    private lazy var box: NSButton = OnboardingControl.checkbox(BrowserVariantStrings.openLinks, target: self, action: #selector(toggled))  // no IUO (crash program)
 
     override init(model: DefaultAppsStepModel) {
         super.init(model: model)
-        box = OnboardingControl.checkbox(BrowserVariantStrings.openLinks, target: self, action: #selector(toggled))
         box.setContentCompressionResistancePriority(.required, for: .horizontal)
         state.alignment = .right
         row.addSubview(box)

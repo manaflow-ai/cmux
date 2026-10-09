@@ -37,6 +37,8 @@ pub struct Interrupt {
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
+    /// Wakes [`Interrupt::wait`] on a request.
+    waiting: (Mutex<()>, std::sync::Condvar),
 }
 
 impl Interrupt {
@@ -46,6 +48,14 @@ impl Interrupt {
 
     pub fn request(&self) {
         self.wanted.store(true, Ordering::SeqCst);
+        {
+            let _held = self
+                .waiting
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.waiting.1.notify_all();
+        }
         if let Some(tx) = self
             .wake
             .lock()
@@ -58,6 +68,30 @@ impl Interrupt {
 
     pub fn is_set(&self) -> bool {
         self.wanted.load(Ordering::SeqCst)
+    }
+
+    /// Waits up to `limit` for a request (a bounded wait, woken by
+    /// [`Interrupt::request`], never polled); whether one came.
+    pub fn wait(&self, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        let mut held = self
+            .waiting
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !self.is_set() {
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            held = self
+                .waiting
+                .1
+                .wait_timeout(held, deadline - now)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 
     /// Sets whether the turn's local effects need an approval.
@@ -147,6 +181,8 @@ pub struct TurnOutcome {
     /// The gate refused the harness (`error` says why): nothing ran on it,
     /// or acpmux moved the session onto a refused profile.
     pub refused: bool,
+    /// The turn's last draft (`done`), published after its reply is posted.
+    pub done_draft: Option<crate::draft::Draft>,
 }
 
 /// A turn the harness gate refused: traced, and posted as its error.
@@ -170,6 +206,30 @@ pub fn run(
     log: &dyn Fn(&str),
     progress: &dyn Fn(&str, u64),
     trace: &Trace,
+) -> TurnOutcome {
+    run_with_drafts(
+        agents,
+        chat,
+        start,
+        interrupt,
+        log,
+        progress,
+        trace,
+        &|_| {},
+    )
+}
+
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`).
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_drafts(
+    agents: &dyn AgentPort,
+    chat: &OptChat,
+    start: &TurnStart,
+    interrupt: &Interrupt,
+    log: &dyn Fn(&str),
+    progress: &dyn Fn(&str, u64),
+    trace: &Trace,
+    draft: &dyn Fn(crate::draft::Draft),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
@@ -237,6 +297,16 @@ pub fn run(
         }
     };
     folding.replace(Some(session.clone()));
+    let drafter = std::cell::RefCell::new(crate::draft::Drafter::new(
+        &start.key,
+        Some(admitted.profile.clone()),
+    ));
+    let publish = |fold: &mut TurnFold| {
+        let (closed, open) = fold.take_segments();
+        for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
+            draft(d);
+        }
+    };
     // The session is on record before it can act: a host that stops from
     // here on folds what it did at the next start, even if the brain never
     // saved the id (it hears of it through `progress`, later).
@@ -265,9 +335,12 @@ pub fn run(
             append_at(entries, fold.seq());
             optchat_host::fault("turn:after-fold");
             progress(&session, fold.seq());
+            publish(fold);
         }
         Ok(())
     };
+    let mut last_fetch = Instant::now();
+    let mut stream_due: Option<Instant> = None;
     let mut orphan = None;
     let mut totals = None;
     let mut cost = None;
@@ -300,14 +373,16 @@ pub fn run(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
-        let wake = match (deadline, resend) {
-            (Some(d), Some(r)) => Some(d.min(r)),
-            (d, r) => d.or(r),
-        };
+        let wake = [deadline, resend, stream_due].into_iter().flatten().min();
         let signal = match wake {
             None => rx.recv().unwrap_or(TurnSignal::Lost),
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(signal) => signal,
+                Err(RecvTimeoutError::Timeout)
+                    if stream_due.is_some_and(|due| Instant::now() >= due) =>
+                {
+                    TurnSignal::Changed
+                }
                 Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
                     continue;
                 }
@@ -328,13 +403,22 @@ pub fn run(
                 Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
             },
         };
+        // Streamed text is read at most every STREAM_GAP; a change at once.
+        let signal = match signal {
+            TurnSignal::Streamed if last_fetch.elapsed() < crate::draft::STREAM_GAP => {
+                stream_due.get_or_insert(last_fetch + crate::draft::STREAM_GAP);
+                continue;
+            }
+            TurnSignal::Streamed => TurnSignal::Changed,
+            other => other,
+        };
         // Coalesce a burst of change signals into one fetch.
         let signal = match signal {
             TurnSignal::Changed => {
                 let mut last = TurnSignal::Changed;
                 loop {
                     match rx.try_recv() {
-                        Ok(TurnSignal::Changed) => {}
+                        Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
                         Ok(other) => {
                             last = other;
                             break;
@@ -347,7 +431,10 @@ pub fn run(
             other => other,
         };
         match signal {
+            TurnSignal::Streamed => {}
             TurnSignal::Changed => {
+                stream_due = None;
+                last_fetch = Instant::now();
                 if let Err(e) = fetch(&mut fold) {
                     log(&format!("turn {}: {e}", start.key));
                 }
@@ -393,11 +480,15 @@ pub fn run(
             }
         }
     }
+    // What the turn's end closed, then the last draft (the brain publishes
+    // it once the reply is posted).
+    publish(&mut fold);
+    let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
     let until = Instant::now() + ANSWER_WAIT;
     while !answered {
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
-            Ok(TurnSignal::Changed) => {}
+            Ok(TurnSignal::Changed | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
@@ -449,7 +540,8 @@ pub fn run(
         (e, m) => e.or(m),
     };
     TurnOutcome {
-        reply: fold.final_text().map(str::to_owned),
+        reply: fold.final_text(),
+        done_draft,
         cancelled,
         error,
         orphan,
@@ -561,4 +653,78 @@ pub fn adopt_orphan(
         ));
     }
     Ok(())
+}
+
+/// The wait before a capacity refusal names no retry-after.
+pub const CAPACITY_DEFAULT_WAIT: Duration = Duration::from_secs(60);
+/// The longest a turn waits for capacity in all (the turn limit still
+/// applies); past it the refusal is the turn's error.
+pub const CAPACITY_MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// How long to wait before a turn that the model route refused for want of
+/// capacity runs again: the subrouter's "no non-exhausted ... accounts"
+/// (503) and the API's overload (529), at their "retry after Ns", else
+/// [`CAPACITY_DEFAULT_WAIT`]. None for any other error.
+pub fn capacity_retry_after(error: &str) -> Option<Duration> {
+    let lower = error.to_ascii_lowercase();
+    // An overload without a retry-after stays the turn's error (the shared
+    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it).
+    let capacity = lower.contains("no non-exhausted")
+        || ((lower.contains("overloaded")
+            || lower.contains("api error: 529")
+            || lower.contains("api error: 503"))
+            && lower.contains("retry after"));
+    if !capacity {
+        return None;
+    }
+    let seconds = lower.find("retry after ").and_then(|at| {
+        let digits: String = lower[at + 12..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse::<u64>().ok()
+    });
+    Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))
+}
+
+/// Runs `outcome`'s turn again while its route refuses it for want of
+/// capacity: each time it waits the retry-after (a newer message ends the
+/// wait, and the turn then stops as for that message), with one log line
+/// and one trace event, and never posts the refusal. Past
+/// [`CAPACITY_MAX_WAIT`] in all, the refusal stays the turn's error.
+pub fn run_after_capacity_waits(
+    mut outcome: TurnOutcome,
+    start: &TurnStart,
+    interrupt: &Interrupt,
+    log: &dyn Fn(&str),
+    trace: &Trace,
+    mut again: impl FnMut(&TurnStart) -> TurnOutcome,
+) -> TurnOutcome {
+    let mut waited = Duration::ZERO;
+    let mut attempt = 0u32;
+    loop {
+        let Some(wait) = outcome.error.as_deref().and_then(capacity_retry_after) else {
+            return outcome;
+        };
+        if outcome.reply.is_some() || waited + wait > CAPACITY_MAX_WAIT || interrupt.is_set() {
+            return outcome;
+        }
+        attempt += 1;
+        log(&format!(
+            "turn {}: the model route has no capacity now; running the turn again in {} s (attempt {attempt})",
+            start.key,
+            wait.as_secs()
+        ));
+        trace.emit(
+            "turn.capacity_wait",
+            serde_json::json!({"turn": start.key, "seconds": wait.as_secs(), "attempt": attempt}),
+        );
+        if interrupt.wait(wait) {
+            return outcome;
+        }
+        waited += wait;
+        let mut next = start.clone();
+        next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
+        outcome = again(&next);
+    }
 }

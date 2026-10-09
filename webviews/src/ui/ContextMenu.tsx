@@ -61,39 +61,41 @@ export function ContextMenu({ items, children, className }: ContextMenuProps) {
       }}
     >
       {children}
-      {point ? createPortal(
-        <div className="ui-context-menu-backdrop" onPointerDown={close}>
-          <div
-            // Takes focus when it opens, so Up/Down/Return work.
-            ref={(node) => node?.focus()}
-            className="ui-popup ui-context-menu"
-            role="menu"
-            tabIndex={-1}
-            style={{ left: Math.max(4, Math.min(point.x, window.innerWidth - 244)), top: Math.max(4, point.y) }}
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={onKeyDown}
-          >
-            {items.map((item) => (
-              <div key={item.id} role="none">
-                {item.separatorBefore ? <hr className="ui-separator" /> : null}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
-                  disabled={item.disabled}
-                  aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                  onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
-                  data-highlighted={enabled[active] === item ? "" : undefined}
-                  onClick={() => run(item)}
-                >
-                  {item.label}
-                </button>
+      {point
+        ? createPortal(
+            <div className="ui-context-menu-backdrop" onPointerDown={close}>
+              <div
+                // Takes focus when it opens, so Up/Down/Return work.
+                ref={(node) => node?.focus()}
+                className="ui-popup ui-context-menu"
+                role="menu"
+                tabIndex={-1}
+                style={{ left: Math.max(4, Math.min(point.x, window.innerWidth - 244)), top: Math.max(4, point.y) }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={onKeyDown}
+              >
+                {items.map((item) => (
+                  <div key={item.id} role="none">
+                    {item.separatorBefore ? <hr className="ui-separator" /> : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
+                      disabled={item.disabled}
+                      aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
+                      onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
+                      data-highlighted={enabled[active] === item ? "" : undefined}
+                      onClick={() => run(item)}
+                    >
+                      {item.label}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>,
-        document.body,
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

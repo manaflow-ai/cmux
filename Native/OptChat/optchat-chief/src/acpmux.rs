@@ -104,6 +104,9 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {
+    /// Reply text streamed (drafts, `draft.rs`): read soon, at most every
+    /// `draft::STREAM_GAP`.
+    Streamed,
     /// New events that matter for the log (not text chunks, but for a
     /// prompt's first, which says its response started): fetch them.
     Changed,
@@ -320,6 +323,22 @@ impl Acpmux {
                 let Some(map) = set.as_object_mut() else {
                     break result;
                 };
+                // A daemon older than the isolation args: keep the args it
+                // knows (`--tools ""` and the rest), drop only those.
+                // First the --tools list alone (an acpmux that knows the
+                // setting source keeps it), then every isolation word.
+                if key == "args"
+                    && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
+                    && let Some(kept) =
+                        without_tools_list(args).or_else(|| without_isolation_args(args))
+                {
+                    *args = kept;
+                    log(&format!(
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        preset.name
+                    ));
+                    continue;
+                }
                 if map.remove(key).is_none() {
                     break result;
                 }
@@ -475,6 +494,55 @@ impl Acpmux {
     }
 }
 
+/// `args` without the newer preset allowlist words: `--setting-sources
+/// <value>`, `--disable-slash-commands` and `--tools <names>` (`--tools ""`
+/// stays, an older acpmux takes it); None when it has none of them.
+pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            Some("--setting-sources") => {
+                words.next();
+                dropped = true;
+            }
+            Some("--disable-slash-commands") => dropped = true,
+            Some("--tools") => match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            },
+            _ => kept.push(word.clone()),
+        }
+    }
+    dropped.then_some(kept)
+}
+
+/// `args` without a `--tools <names>` list (`--tools ""` stays); None when
+/// it has none.
+pub fn without_tools_list(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word.as_str() == Some("--tools") {
+            match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            }
+        } else {
+            kept.push(word.clone());
+        }
+    }
+    dropped.then_some(kept)
+}
+
 /// Sends a notification to the turn that owns its session, or to the brain.
 /// A running prompt's signals.
 struct TurnRoute {
@@ -517,6 +585,8 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 turn.spoke |= is_output(kind);
                 if first || !is_noise(kind) {
                     let _ = turn.tx.send(TurnSignal::Changed);
+                } else if kind == "agent_message_chunk" {
+                    let _ = turn.tx.send(TurnSignal::Streamed);
                 }
             }
         }

@@ -4,7 +4,7 @@ use std::time::Duration;
 use optchat_core::{CompactPrompt, VIEW};
 
 use crate::report::{stderr_reporter, Reporter};
-use crate::RETRY;
+use crate::RETRY_BASE;
 
 /// The team subrouter, which speaks the Anthropic Messages API and ignores the key.
 pub const DEFAULT_BASE_URL: &str = "http://cmux-lawrences-mac-mini:31415";
@@ -15,15 +15,19 @@ pub const API_KEY_ENV: &str = "OPTCHAT_ANTHROPIC_API_KEY";
 /// What the team subrouter gets: it ignores the key, and a real key must not
 /// travel to it.
 pub const SUBROUTER_KEY: &str = "subrouter";
-/// The compactor model: Claude Haiku 5.5 at high effort, as the reference
-/// client runs it (section 4.2 uses Sonnet at medium). About half the time
+/// The compactor model: Claude Haiku 5.5 (the reference client's), at
+/// `DEFAULT_EFFORT` (section 4.2 uses Sonnet at medium). About half the time
 /// per node and a fraction of the cost; it writes over-long lines more
 /// often, which the ruler and the "Too long" retry handle.
 /// `OPTCHAT_COMPACTOR_MODEL` (or engine.json's `compactor-model`) picks
 /// another, e.g. `claude-sonnet-5-5`.
 pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
-/// The compactor's `output_config.effort` (`OPTCHAT_COMPACTOR_EFFORT`).
-pub const DEFAULT_EFFORT: &str = "high";
+/// The compactor's `output_config.effort` (`OPTCHAT_COMPACTOR_EFFORT`):
+/// medium. Measured 2026-10-09 on 33 node inputs (Haiku 5.5 through Claude
+/// Code): 20% cheaper and 36% faster per node than high with lines as
+/// good; low was cheaper still but leaked reasoning into 3 of 12 lines and
+/// left 2 over the size limit.
+pub const DEFAULT_EFFORT: &str = "medium";
 /// Where a node goes when the compactor model declines it. Claude Sonnet 5
 /// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
 /// reasoning-extraction or general-harms classifiers on the same scale), so a
@@ -69,7 +73,7 @@ pub struct Config {
     /// sends the turns' system prompt and tools, never called, so it reads
     /// them from the turns' cache entry). None sends no tools.
     pub tools: Option<serde_json::Value>,
-    /// Wait before retrying a failed node.
+    /// A failed node's first retry wait, doubled each try (`RETRY_BASE`).
     pub retry: Duration,
     pub reporter: Reporter,
     /// The memory database; None puts it in the chat directory
@@ -96,7 +100,7 @@ impl Default for Config {
             http_timeout: Duration::from_secs(240),
             budget: VIEW,
             tools: None,
-            retry: RETRY,
+            retry: RETRY_BASE,
             reporter: stderr_reporter(),
             db: None,
         }

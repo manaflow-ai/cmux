@@ -115,6 +115,19 @@ pub fn turn_preset(
             CODEX_CACHE_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        if isolate {
+            // The Chief's own codex home: no native subagents (its subagents
+            // are `chief spawn` sessions), no user MCP servers, hooks or skills.
+            env.insert(
+                "CODEX_HOME".to_owned(),
+                paths.turn_codex.display().to_string(),
+            );
+        }
+    }
+    if family == Family::Claude && isolate {
+        // The preset's system prompt carries the instructions: no CLAUDE.md
+        // file reaches a turn (the user's own ~/.claude/CLAUDE.md included).
+        env.insert("CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(), "1".to_owned());
     }
     if family == Family::Claude {
         // claude-sr (when chosen): every turn of this Chief on one sticky
@@ -124,13 +137,87 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    // The reference's Claude Code path: no user settings (user MCP servers,
+    // hooks, plugins), no skills or slash commands, only TURN_TOOLS of the
+    // built-ins; the session directory's own settings and .mcp.json stay,
+    // and the user's login still signs in.
+    let args = if family == Family::Claude && isolate {
+        turn_isolation_args()
+    } else {
+        Vec::new()
+    };
     (isolate || family != Family::Other).then(|| Preset {
         name: turn_preset_name(home, family),
         harness: harness.to_owned(),
         env,
-        args: Vec::new(),
+        args,
         system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
     })
+}
+
+/// The built-in tools a turn is offered (an allowlist: a built-in a later
+/// Claude Code adds is not offered); the Chief's MCP tools come on top.
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
+
+/// The Claude Code args of an isolated turn: no user or local setting
+/// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
+/// (acpmux's preset allowlist).
+pub fn turn_isolation_args() -> Vec<String> {
+    vec![
+        "--setting-sources".to_owned(),
+        "project".to_owned(),
+        "--disable-slash-commands".to_owned(),
+        "--tools".to_owned(),
+        TURN_TOOLS.join(","),
+    ]
+}
+
+/// A subagent preset `name`: the user's own environment (subagents do real
+/// work in the user's repositories), the pinned cmux env, its cache key,
+/// and on a Claude harness its system prompt `text`.
+#[allow(clippy::too_many_arguments)]
+pub fn subagent_preset(
+    paths: &Paths,
+    home: &std::path::Path,
+    name: String,
+    profile: &str,
+    family: Family,
+    isolate: bool,
+    text: &str,
+    pinned: &BTreeMap<String, String>,
+) -> Preset {
+    let mut env = if isolate {
+        session_dir::isolation_env(paths)
+    } else {
+        BTreeMap::new()
+    };
+    env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+    // Subagents' cmux calls reach the same app daemon as the Chief's.
+    env.extend(pinned.clone());
+    if family == Family::Codex {
+        env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+    }
+    if family == Family::Claude {
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+            codex_cache_key(home, "sub"),
+        );
+    }
+    Preset {
+        name,
+        harness: profile.to_owned(),
+        env,
+        args: Vec::new(),
+        system_prompt: (family == Family::Claude).then(|| text.to_owned()),
+    }
 }
 
 /// The turn preset's name: `optchat-chief-<home id>`, and
@@ -478,6 +565,7 @@ fn start(
         env: session_env,
         instructions: instructions.clone(),
         tools,
+        user_env: session_dir::host_user_env(),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -532,6 +620,13 @@ fn start(
     let codex_preset = (family == Family::Codex
         || (other_family == Family::Codex && other_preset.is_some()))
     .then(|| turn_preset_name(home, Family::Codex));
+    if codex_preset.is_some()
+        && isolate
+        && let Err(e) =
+            crate::codex_home::prepare_turn_codex_home(paths, &crate::codex_home::user_codex_home())
+    {
+        log(format!("the codex turns' CODEX_HOME: {e}"));
+    }
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
@@ -553,30 +648,7 @@ fn start(
     // turn preset (whose system prompt is the Chief's view).
     let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
     let sub_preset = |name: String, profile: &str, family: Family, text: &str| {
-        let mut env = if isolate {
-            session_dir::isolation_env(paths)
-        } else {
-            BTreeMap::new()
-        };
-        env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
-        // Subagents' cmux calls reach the same app daemon as the Chief's.
-        env.extend(pinned.clone());
-        if family == Family::Codex {
-            env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
-        }
-        if family == Family::Claude {
-            env.insert(
-                crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
-                codex_cache_key(home, "sub"),
-            );
-        }
-        Preset {
-            name,
-            harness: profile.to_owned(),
-            env,
-            args: Vec::new(),
-            system_prompt: (family == Family::Claude).then(|| text.to_owned()),
-        }
+        subagent_preset(paths, home, name, profile, family, isolate, text, &pinned)
     };
     if uses_acpmux {
         required.push(sub_preset(
@@ -645,6 +717,9 @@ fn start(
         String,
         Option<Arc<dyn crate::brain::images::Describe>>,
     );
+    // The turns' cache TTL, which the brain decides per turn; the compactor's
+    // Claude Code nodes take it too (one TTL per route).
+    let shared_ttl = crate::prompt::SharedTtl::default();
     let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
@@ -665,12 +740,13 @@ fn start(
             let compactor_claude = compactor_family == Family::Claude;
             let compactor_model = env("OPTCHAT_COMPACTOR_MODEL")
                 .or_else(|| engine_choice_file.compactor_model.clone())
-                .or_else(|| compactor_claude.then(|| config.model.clone()));
+                .or_else(|| crate::compactor::compactor_model_for(compactor_family));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.
             let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
+            let shared_ttl = shared_ttl.clone();
             let build = |model: Option<&str>| {
                 let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
@@ -680,6 +756,7 @@ fn start(
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                     .with_log(compactor_log.clone())
                     .with_trace(trace.clone())
+                    .with_cache_ttl(shared_ttl.clone())
             };
             let effort = compactor_effort
                 .clone()
@@ -698,11 +775,22 @@ fn start(
                 .map(|m| Arc::new(build(Some(m))) as Arc<dyn CompactModel>);
             // An account without the compactor model (Haiku on some
             // subscriptions) builds with the turn model instead, logged once.
-            let main = Arc::new(
-                build(compactor_model.as_deref())
-                    .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                    .with_warm(crate::compactor::WARM_SESSIONS),
-            );
+            // The other route while the first is exhausted (a 503 with
+            // retry-after): OPTCHAT_COMPACTOR_ALT_HARNESS, else the user's
+            // own `claude` login for a pooled or routed Claude harness.
+            let admitted: Vec<String> = families.keys().cloned().collect();
+            let alternate = env("OPTCHAT_COMPACTOR_ALT_HARNESS")
+                .or_else(|| crate::compactor::derived_alternate(&compactor_harness, &admitted));
+            if let Some(alt) = &alternate {
+                log(format!(
+                    "compactor: {alt} builds while {compactor_harness} is exhausted"
+                ));
+            }
+            let main = build(compactor_model.as_deref())
+                .with_alternate_harness(alternate)
+                .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
+                .with_warm(crate::compactor::WARM_SESSIONS)
+                .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
                 main as Arc<dyn CompactModel>,
@@ -922,7 +1010,7 @@ fn start(
                 )
                 .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
             Engine::Native(Arc::new(
-                Native::new(native_config, Arc::new(model), optchat_host::RETRY)
+                Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
                     .with_trace(trace.clone())
                     .with_cache_ttl(native_ttl),
             ))
@@ -970,6 +1058,7 @@ fn start(
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
         cache_ttl: cache_ttl_env,
+        shared_ttl,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1074,35 +1163,57 @@ fn spawn_probe(
                     log(format!(
                         "compactor probe ({}{}) built a node in {} ms: {line}",
                         route.name(),
-                        if fallback.is_some() { ", fallback too" } else { "" },
+                        if fallback.is_some() {
+                            ", fallback too"
+                        } else {
+                            ""
+                        },
                         started.elapsed().as_millis()
                     ));
                     let _ = tx.send(Input::CompactorStatus(Ok(())));
                 }
-                Err(e) => {
-                    let remedy = match route {
-                        CompactRoute::Acpmux => {
-                            "Check that acpmux runs and that its Claude harness signs in, or set \
-                             OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
-                             that takes Messages API calls."
-                        }
-                        CompactRoute::Api => {
-                            "Check OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY, or set \
-                             OPTCHAT_COMPACTOR=acpmux to build summaries in acpmux sessions."
-                        }
-                    };
-                    let text = format!(
-                        "The memory compactor cannot build summaries ({} route: {e}). Messages \
-                         that need a summary wait, and so does every reply, until it can. {remedy}",
-                        route.name()
-                    );
-                    let _ = tx.send(Input::CompactorStatus(Err(text)));
-                }
+                Err(e) => match probe_notice(route, &e) {
+                    Some(text) => {
+                        let _ = tx.send(Input::CompactorStatus(Err(text)));
+                    }
+                    None => log(format!(
+                        "compactor probe: summaries wait for the model: ready in ~{}m ({e})",
+                        optchat_host::capacity_wait(&e)
+                            .unwrap_or_default()
+                            .as_secs()
+                            .div_ceil(60)
+                    )),
+                },
             }
         });
     if let Err(e) = spawned {
         log(format!("starting the compactor probe: {e}"));
     }
+}
+
+/// The notice a failed start-up probe posts in the Chief conversation;
+/// None posts none (the failure is only logged).
+pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
+    // An exhausted route is a wait, not a fault: nothing to post.
+    if optchat_host::capacity_wait(error).is_some() {
+        return None;
+    }
+    let remedy = match route {
+        CompactRoute::Acpmux => {
+            "Check that acpmux runs and that its Claude harness signs in, or set \
+             OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY for an endpoint \
+             that takes Messages API calls."
+        }
+        CompactRoute::Api => {
+            "Check OPTCHAT_ANTHROPIC_BASE_URL and OPTCHAT_ANTHROPIC_API_KEY, or set \
+             OPTCHAT_COMPACTOR=acpmux to build summaries in acpmux sessions."
+        }
+    };
+    Some(format!(
+        "The memory compactor cannot build summaries ({} route: {error}). Messages \
+         that need a summary wait, and so does every reply, until it can. {remedy}",
+        route.name()
+    ))
 }
 
 /// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its

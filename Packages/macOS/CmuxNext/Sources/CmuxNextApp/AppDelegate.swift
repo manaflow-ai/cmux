@@ -18,7 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchSettle = LaunchSettle()
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
-    private var services: AppServices!
+    /// Set in applicationDidFinishLaunching; nil before it (no IUO).
+    private var services: AppServices?
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
@@ -74,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
+        AppProcessRoot.shared.adopt(services)
         self.services = services
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -91,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(registry: services.registry, launch: settingsRead)
+        startSettingsAndControl(services: services, launch: settingsRead)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
@@ -123,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
             if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
+                MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") } // main-proof: CATransaction.h: the completion block is called on the main thread
             }
         }
         // Once the first terminal frame is drawn, the palette panel is made
@@ -192,7 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// cmux-next.json settings (density, shortcut overrides) and the tagged
     /// control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(registry: ActionRegistry, launch: SettingsController.LaunchRead) {
+    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
+        let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()

@@ -32,10 +32,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use base64::Engine;
-use ghostty_vt::{
-    Dirty, KeyAction, KeyEncoder, KeyInput, KittyReplayState, Mods, StyledRun, UnderlineStyle,
-    key_input_from_chord, rows_to_runs, sys,
-};
+#[cfg(test)]
+use ghostty_vt::{KeyAction, Mods, sys};
+use ghostty_vt::{KeyEncoder, KeyInput, KittyReplayState, key_input_from_chord, rows_to_runs};
 use regex::Regex;
 use regex::bytes::{Regex as BytesRegex, RegexBuilder as BytesRegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -45,9 +44,9 @@ use sha2::{Digest, Sha256};
 use tungstenite::WebSocket;
 use zeroize::Zeroize;
 
-use crate::browser::{
-    BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
-};
+#[cfg(test)]
+use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
+use crate::browser::{BrowserMouseDispatch, BrowserPointerOwner};
 use crate::browser_provider::{
     BrowserProviderAuthentication, BrowserProviderRegistration, BrowserProviderSnapshot,
 };
@@ -70,9 +69,7 @@ use crate::sizing_policy::{
     detach_reason,
 };
 use crate::stream_interrupt::{InterruptSet, StreamInterrupt};
-use crate::surface::{
-    AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
-};
+use crate::surface::{AttachLifecycle, ClearHistoryDelivery, ClearHistoryFailure};
 use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
@@ -91,6 +88,8 @@ mod apps;
 pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[cfg(unix)]
+mod scripts;
 #[path = "server/window_title.rs"]
 mod window_title;
 use window_title::sanitize_window_title;
@@ -101,6 +100,10 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_session_attach;
+#[cfg(unix)]
+pub use agent_session_attach::AGENT_SESSION_ATTACH_CAPABILITY;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -122,6 +125,9 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_resource;
+mod resource_trust;
+use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -138,6 +144,7 @@ use remote_relay::handle_connection_message;
 mod responses;
 mod rows;
 mod screen_json;
+mod server_stats;
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -183,6 +190,7 @@ pub use socket_path::{
 };
 pub(crate) mod activity;
 mod browser_input;
+mod chief_control;
 mod chief_inspect;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
@@ -413,7 +421,13 @@ pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROT
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
-const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
+mod protocol_key;
+#[cfg(test)]
+use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
+pub use protocol_key::ProtocolKeyInput;
+pub(crate) use protocol_key::{
+    decode_terminal_host_clear_history, encode_terminal_host_clear_history,
+};
 
 fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
     if client_id.is_empty()
@@ -488,333 +502,6 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-macro_rules! protocol_keys {
-    ($($variant:ident => $constant:ident),+ $(,)?) => {
-        #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-        #[serde(rename_all = "kebab-case")]
-        enum ProtocolKey {
-            $($variant),+
-        }
-
-        impl TryFrom<sys::GhosttyKey> for ProtocolKey {
-            type Error = anyhow::Error;
-
-            fn try_from(key: sys::GhosttyKey) -> Result<Self, Self::Error> {
-                match key {
-                    $(sys::$constant => Ok(Self::$variant),)+
-                    _ => anyhow::bail!("unsupported terminal key"),
-                }
-            }
-        }
-
-        impl From<ProtocolKey> for sys::GhosttyKey {
-            fn from(key: ProtocolKey) -> Self {
-                match key {
-                    $(ProtocolKey::$variant => sys::$constant),+
-                }
-            }
-        }
-    };
-}
-
-protocol_keys! {
-    Unidentified => GHOSTTY_KEY_UNIDENTIFIED,
-    Backquote => GHOSTTY_KEY_BACKQUOTE,
-    Backslash => GHOSTTY_KEY_BACKSLASH,
-    BracketLeft => GHOSTTY_KEY_BRACKET_LEFT,
-    BracketRight => GHOSTTY_KEY_BRACKET_RIGHT,
-    Comma => GHOSTTY_KEY_COMMA,
-    Digit0 => GHOSTTY_KEY_DIGIT_0,
-    Digit1 => GHOSTTY_KEY_DIGIT_1,
-    Digit2 => GHOSTTY_KEY_DIGIT_2,
-    Digit3 => GHOSTTY_KEY_DIGIT_3,
-    Digit4 => GHOSTTY_KEY_DIGIT_4,
-    Digit5 => GHOSTTY_KEY_DIGIT_5,
-    Digit6 => GHOSTTY_KEY_DIGIT_6,
-    Digit7 => GHOSTTY_KEY_DIGIT_7,
-    Digit8 => GHOSTTY_KEY_DIGIT_8,
-    Digit9 => GHOSTTY_KEY_DIGIT_9,
-    Equal => GHOSTTY_KEY_EQUAL,
-    A => GHOSTTY_KEY_A,
-    B => GHOSTTY_KEY_B,
-    C => GHOSTTY_KEY_C,
-    D => GHOSTTY_KEY_D,
-    E => GHOSTTY_KEY_E,
-    F => GHOSTTY_KEY_F,
-    G => GHOSTTY_KEY_G,
-    H => GHOSTTY_KEY_H,
-    I => GHOSTTY_KEY_I,
-    J => GHOSTTY_KEY_J,
-    K => GHOSTTY_KEY_K,
-    L => GHOSTTY_KEY_L,
-    M => GHOSTTY_KEY_M,
-    N => GHOSTTY_KEY_N,
-    O => GHOSTTY_KEY_O,
-    P => GHOSTTY_KEY_P,
-    Q => GHOSTTY_KEY_Q,
-    R => GHOSTTY_KEY_R,
-    S => GHOSTTY_KEY_S,
-    T => GHOSTTY_KEY_T,
-    U => GHOSTTY_KEY_U,
-    V => GHOSTTY_KEY_V,
-    W => GHOSTTY_KEY_W,
-    X => GHOSTTY_KEY_X,
-    Y => GHOSTTY_KEY_Y,
-    Z => GHOSTTY_KEY_Z,
-    Minus => GHOSTTY_KEY_MINUS,
-    Period => GHOSTTY_KEY_PERIOD,
-    Quote => GHOSTTY_KEY_QUOTE,
-    Semicolon => GHOSTTY_KEY_SEMICOLON,
-    Slash => GHOSTTY_KEY_SLASH,
-    Backspace => GHOSTTY_KEY_BACKSPACE,
-    Enter => GHOSTTY_KEY_ENTER,
-    Space => GHOSTTY_KEY_SPACE,
-    Tab => GHOSTTY_KEY_TAB,
-    Delete => GHOSTTY_KEY_DELETE,
-    End => GHOSTTY_KEY_END,
-    Home => GHOSTTY_KEY_HOME,
-    Insert => GHOSTTY_KEY_INSERT,
-    PageDown => GHOSTTY_KEY_PAGE_DOWN,
-    PageUp => GHOSTTY_KEY_PAGE_UP,
-    ArrowDown => GHOSTTY_KEY_ARROW_DOWN,
-    ArrowLeft => GHOSTTY_KEY_ARROW_LEFT,
-    ArrowRight => GHOSTTY_KEY_ARROW_RIGHT,
-    ArrowUp => GHOSTTY_KEY_ARROW_UP,
-    Numpad0 => GHOSTTY_KEY_NUMPAD_0,
-    Numpad1 => GHOSTTY_KEY_NUMPAD_1,
-    Numpad2 => GHOSTTY_KEY_NUMPAD_2,
-    Numpad3 => GHOSTTY_KEY_NUMPAD_3,
-    Numpad4 => GHOSTTY_KEY_NUMPAD_4,
-    Numpad5 => GHOSTTY_KEY_NUMPAD_5,
-    Numpad6 => GHOSTTY_KEY_NUMPAD_6,
-    Numpad7 => GHOSTTY_KEY_NUMPAD_7,
-    Numpad8 => GHOSTTY_KEY_NUMPAD_8,
-    Numpad9 => GHOSTTY_KEY_NUMPAD_9,
-    NumpadAdd => GHOSTTY_KEY_NUMPAD_ADD,
-    NumpadBackspace => GHOSTTY_KEY_NUMPAD_BACKSPACE,
-    NumpadComma => GHOSTTY_KEY_NUMPAD_COMMA,
-    NumpadDecimal => GHOSTTY_KEY_NUMPAD_DECIMAL,
-    NumpadDivide => GHOSTTY_KEY_NUMPAD_DIVIDE,
-    NumpadEnter => GHOSTTY_KEY_NUMPAD_ENTER,
-    NumpadEqual => GHOSTTY_KEY_NUMPAD_EQUAL,
-    NumpadMultiply => GHOSTTY_KEY_NUMPAD_MULTIPLY,
-    NumpadSubtract => GHOSTTY_KEY_NUMPAD_SUBTRACT,
-    NumpadUp => GHOSTTY_KEY_NUMPAD_UP,
-    NumpadDown => GHOSTTY_KEY_NUMPAD_DOWN,
-    NumpadRight => GHOSTTY_KEY_NUMPAD_RIGHT,
-    NumpadLeft => GHOSTTY_KEY_NUMPAD_LEFT,
-    NumpadBegin => GHOSTTY_KEY_NUMPAD_BEGIN,
-    NumpadHome => GHOSTTY_KEY_NUMPAD_HOME,
-    NumpadEnd => GHOSTTY_KEY_NUMPAD_END,
-    NumpadInsert => GHOSTTY_KEY_NUMPAD_INSERT,
-    NumpadDelete => GHOSTTY_KEY_NUMPAD_DELETE,
-    NumpadPageUp => GHOSTTY_KEY_NUMPAD_PAGE_UP,
-    NumpadPageDown => GHOSTTY_KEY_NUMPAD_PAGE_DOWN,
-    Escape => GHOSTTY_KEY_ESCAPE,
-    F1 => GHOSTTY_KEY_F1,
-    F2 => GHOSTTY_KEY_F2,
-    F3 => GHOSTTY_KEY_F3,
-    F4 => GHOSTTY_KEY_F4,
-    F5 => GHOSTTY_KEY_F5,
-    F6 => GHOSTTY_KEY_F6,
-    F7 => GHOSTTY_KEY_F7,
-    F8 => GHOSTTY_KEY_F8,
-    F9 => GHOSTTY_KEY_F9,
-    F10 => GHOSTTY_KEY_F10,
-    F11 => GHOSTTY_KEY_F11,
-    F12 => GHOSTTY_KEY_F12,
-    F13 => GHOSTTY_KEY_F13,
-    F14 => GHOSTTY_KEY_F14,
-    F15 => GHOSTTY_KEY_F15,
-    F16 => GHOSTTY_KEY_F16,
-    F17 => GHOSTTY_KEY_F17,
-    F18 => GHOSTTY_KEY_F18,
-    F19 => GHOSTTY_KEY_F19,
-    F20 => GHOSTTY_KEY_F20,
-}
-
-#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProtocolModifiers {
-    shift: bool,
-    control: bool,
-    alt: bool,
-    #[serde(rename = "super")]
-    super_key: bool,
-    caps_lock: bool,
-    num_lock: bool,
-}
-
-impl ProtocolModifiers {
-    fn try_from_ghostty(mods: Mods) -> anyhow::Result<Self> {
-        let known = Mods::SHIFT.0
-            | Mods::CTRL.0
-            | Mods::ALT.0
-            | Mods::SUPER.0
-            | Mods::CAPS_LOCK.0
-            | Mods::NUM_LOCK.0;
-        if mods.0 & !known != 0 {
-            anyhow::bail!("unsupported terminal modifier bits");
-        }
-        Ok(Self {
-            shift: mods.contains(Mods::SHIFT),
-            control: mods.contains(Mods::CTRL),
-            alt: mods.contains(Mods::ALT),
-            super_key: mods.contains(Mods::SUPER),
-            caps_lock: mods.contains(Mods::CAPS_LOCK),
-            num_lock: mods.contains(Mods::NUM_LOCK),
-        })
-    }
-
-    fn into_ghostty(self) -> Mods {
-        let mut mods = Mods::default();
-        for (enabled, flag) in [
-            (self.shift, Mods::SHIFT),
-            (self.control, Mods::CTRL),
-            (self.alt, Mods::ALT),
-            (self.super_key, Mods::SUPER),
-            (self.caps_lock, Mods::CAPS_LOCK),
-            (self.num_lock, Mods::NUM_LOCK),
-        ] {
-            if enabled {
-                mods = mods | flag;
-            }
-        }
-        mods
-    }
-}
-
-/// Validated key input carried over the clear-history control protocol for
-/// authoritative terminal-mode encoding.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProtocolKeyInput {
-    key: ProtocolKey,
-    mods: ProtocolModifiers,
-    consumed_mods: ProtocolModifiers,
-    #[serde(default)]
-    composing: bool,
-    utf8: String,
-    unshifted_codepoint: Option<char>,
-    #[serde(default)]
-    shifted_codepoint: Option<char>,
-    #[serde(default)]
-    base_layout_codepoint: Option<char>,
-    action: Option<ProtocolKeyAction>,
-    macos_option_as_alt: bool,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum ProtocolKeyAction {
-    Press,
-    Release,
-    Repeat,
-}
-
-fn validate_protocol_key_text(text: &str) -> anyhow::Result<()> {
-    if text.len() > PROTOCOL_KEY_TEXT_MAX_BYTES {
-        anyhow::bail!("terminal key text exceeds the 4 KiB protocol limit");
-    }
-    if text.chars().any(char::is_control) {
-        anyhow::bail!("terminal key text contains control characters");
-    }
-    Ok(())
-}
-
-impl TryFrom<&KeyInput> for ProtocolKeyInput {
-    type Error = anyhow::Error;
-
-    fn try_from(input: &KeyInput) -> Result<Self, Self::Error> {
-        validate_protocol_key_text(&input.utf8)?;
-        let unshifted_codepoint = match input.unshifted_codepoint {
-            0 => None,
-            codepoint => Some(
-                char::from_u32(codepoint)
-                    .ok_or_else(|| anyhow::anyhow!("invalid unshifted key codepoint"))?,
-            ),
-        };
-        let shifted_codepoint = match input.shifted_codepoint {
-            0 => None,
-            codepoint => Some(
-                char::from_u32(codepoint)
-                    .ok_or_else(|| anyhow::anyhow!("invalid shifted key codepoint"))?,
-            ),
-        };
-        let base_layout_codepoint = match input.base_layout_codepoint {
-            0 => None,
-            codepoint => Some(
-                char::from_u32(codepoint)
-                    .ok_or_else(|| anyhow::anyhow!("invalid base-layout key codepoint"))?,
-            ),
-        };
-        Ok(Self {
-            key: ProtocolKey::try_from(input.key)?,
-            mods: ProtocolModifiers::try_from_ghostty(input.mods)?,
-            consumed_mods: ProtocolModifiers::try_from_ghostty(input.consumed_mods)?,
-            composing: input.composing,
-            utf8: input.utf8.clone(),
-            unshifted_codepoint,
-            shifted_codepoint,
-            base_layout_codepoint,
-            action: input.action.map(|action| match action {
-                KeyAction::Press => ProtocolKeyAction::Press,
-                KeyAction::Release => ProtocolKeyAction::Release,
-                KeyAction::Repeat => ProtocolKeyAction::Repeat,
-            }),
-            macos_option_as_alt: input.macos_option_as_alt,
-        })
-    }
-}
-
-impl TryFrom<ProtocolKeyInput> for KeyInput {
-    type Error = anyhow::Error;
-
-    fn try_from(input: ProtocolKeyInput) -> Result<Self, Self::Error> {
-        validate_protocol_key_text(&input.utf8)?;
-        let mods = input.mods.into_ghostty();
-        let consumed_mods = input.consumed_mods.into_ghostty();
-        if consumed_mods.0 & !mods.0 != 0 {
-            anyhow::bail!("consumed terminal modifiers are not active");
-        }
-        if !input.macos_option_as_alt
-            && (!mods.contains(Mods::ALT) || !consumed_mods.contains(Mods::ALT))
-        {
-            anyhow::bail!("consumed macOS Option requires an active Alt modifier");
-        }
-        Ok(Self {
-            key: input.key.into(),
-            mods,
-            consumed_mods,
-            composing: input.composing,
-            utf8: input.utf8,
-            unshifted_codepoint: input.unshifted_codepoint.map_or(0, char::into),
-            shifted_codepoint: input.shifted_codepoint.map_or(0, char::into),
-            base_layout_codepoint: input.base_layout_codepoint.map_or(0, char::into),
-            action: input.action.map(|action| match action {
-                ProtocolKeyAction::Press => KeyAction::Press,
-                ProtocolKeyAction::Release => KeyAction::Release,
-                ProtocolKeyAction::Repeat => KeyAction::Repeat,
-            }),
-            macos_option_as_alt: input.macos_option_as_alt,
-        })
-    }
-}
-
-pub(crate) fn encode_terminal_host_clear_history(
-    fallback_key: Option<&KeyInput>,
-) -> anyhow::Result<Vec<u8>> {
-    let fallback_key = fallback_key.map(ProtocolKeyInput::try_from).transpose()?;
-    Ok(serde_json::to_vec(&fallback_key)?)
-}
-
-pub(crate) fn decode_terminal_host_clear_history(
-    payload: &[u8],
-) -> anyhow::Result<Option<KeyInput>> {
-    let fallback_key: Option<ProtocolKeyInput> = serde_json::from_slice(payload)?;
-    fallback_key.map(KeyInput::try_from).transpose()
 }
 
 #[derive(Deserialize)]
@@ -1047,8 +734,11 @@ enum Command {
     },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
-    /// admission. Owner-only diagnostics, never journaled.
-    ServerStats,
+    /// admission. Owner-only diagnostics, never journaled. `include` names
+    /// optional sections (`resource_projection`); unknown names are ignored.
+    ServerStats {
+        include: Option<Vec<String>>,
+    },
     /// Turn terminal command history on or off for this daemon
     /// (`terminal-command-journal-v1`). Off by default and after a restart;
     /// trusted local connections only.
@@ -4261,16 +3951,6 @@ fn claim_connection(
         .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
 }
 
-fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
-    crate::diagnostics::ServerStatsSnapshot {
-        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
-        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
-        registry_lock: mux.registry_lock_stats(),
-        journal_writer: mux.journal_writer_stats(),
-        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
-    }
-}
-
 impl BoundedOutbound {
     fn push_regular(
         &self,
@@ -5163,8 +4843,13 @@ pub(crate) struct ClientRegistry {
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
+    #[cfg(unix)]
+    agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    /// Script sessions by connection (`script-*`, crate::scripts).
+    pub(crate) scripts: crate::scripts::ScriptsSlot,
     origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
@@ -5183,8 +4868,11 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            #[cfg(unix)]
+            agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
@@ -6240,7 +5928,10 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
+        #[cfg(unix)]
+        self.agent_sessions.disconnect(client);
         self.apps.disconnect(client);
+        self.scripts.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
         // record still goes, so a fail-closed close never panics here.
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -7268,62 +6959,6 @@ const fn journal_class_index(class: JournalClass) -> usize {
     }
 }
 
-const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
-        ResourceOperation::SessionEvents
-            | ResourceOperation::SessionJournalSubscribe
-            | ResourceOperation::SessionJournalProducerList
-            | ResourceOperation::SessionJournalProducerPut
-            | ResourceOperation::SessionJournalAppend
-            | ResourceOperation::SessionJournalHookList
-            | ResourceOperation::SessionJournalHookPut
-            | ResourceOperation::SessionJournalCheckpointCreate
-            | ResourceOperation::SessionJournalCheckpointList
-            | ResourceOperation::SessionJournalRestorePreview
-            | ResourceOperation::SessionJournalSegmentList
-            | ResourceOperation::SessionJournalSegmentSeal
-            | ResourceOperation::SessionShutdown
-            | ResourceOperation::PairingRequestList
-            | ResourceOperation::PairingRequestResolve
-            | ResourceOperation::RequestCancel
-            | ResourceOperation::ClientList
-            | ResourceOperation::ClientGet
-            | ResourceOperation::ClientMetadataUpdate
-            | ResourceOperation::ClientSizingSet
-            | ResourceOperation::ClientSizingRelease
-            | ResourceOperation::ClientCellPixelsSet
-            | ResourceOperation::ClientDetach
-            | ResourceOperation::TerminalRendererGrantCreate
-            | ResourceOperation::TerminalViewerResize
-            | ResourceOperation::TerminalViewerRelease
-            | ResourceOperation::TerminalAttach
-            | ResourceOperation::BrowserViewerResize
-            | ResourceOperation::BrowserViewerRelease
-            | ResourceOperation::BrowserAttach
-            | ResourceOperation::SidebarViewAttach
-            | ResourceOperation::StreamCancel
-            | ResourceOperation::OriginConfirmationIssue
-    )
-}
-
-fn trusted_local_resource_client(
-    mux: &Mux,
-    client: u64,
-    operation: ResourceOperation,
-) -> Result<(), ResourceError> {
-    if mux.control_clients.is_unix(client) {
-        Ok(())
-    } else {
-        let operation = operation.wire_name().to_owned();
-        Err(ResourceError::operation_failed(
-            operation,
-            "operation requires a trusted local connection",
-            json!({"required_authority":"trusted_local"}),
-        ))
-    }
-}
-
 fn handle_resource_session_shutdown(
     mux: &Arc<Mux>,
     client: u64,
@@ -7404,6 +7039,12 @@ fn handle_resource_connection_message(
         crate::resource_router::requires_connection_context(operation)
     );
     match operation {
+        operation if conversation_resource::handles(operation) => {
+            conversation_resource::handle(mux, client, request, writer)
+        }
+        operation if chief_control::handles(operation) => {
+            chief_control::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
@@ -10461,7 +10102,15 @@ fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
@@ -11672,556 +11321,13 @@ fn terminal_colors_json(colors: TerminalColors, include_overrides: bool) -> Valu
     value
 }
 
-struct VtStateMessage {
-    surface: SurfaceId,
-    cols: u16,
-    rows: u16,
-    replay: Arc<[u8]>,
-    kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
-    kitty_state: KittyReplayState,
-    colors: Value,
-    pending_sequence: Arc<[u8]>,
-}
-
-/// Additive attach-event fields captured from the client's advertised
-/// capabilities when it attaches.
-#[derive(Clone, Copy, Debug, Default)]
-struct AttachWireShape {
-    color_overrides: bool,
-    pending_sequence: bool,
-}
-
-/// Appends the optional `pending` field: the incomplete sequence a replay's
-/// source parser is inside. Clients write it after the replay and its colors,
-/// immediately before the live stream. Omitted when the parser is at a
-/// boundary, so those events are unchanged for older clients.
-fn write_pending_sequence_json(
-    writer: &mut BudgetedJsonWriter,
-    pending: &[u8],
-) -> std::io::Result<()> {
-    if pending.is_empty() {
-        return Ok(());
-    }
-    writer.write_all(b",\"pending\":\"")?;
-    write_base64_json_string(writer, pending)?;
-    writer.write_all(b"\"")
-}
-
-fn rgb_hex(color: Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
-}
-
-fn styled_run_json(run: &StyledRun) -> Value {
-    let underline = run.underline.map(|style| match style {
-        UnderlineStyle::Single => "single",
-        UnderlineStyle::Double => "double",
-        UnderlineStyle::Curly => "curly",
-        UnderlineStyle::Dotted => "dotted",
-        UnderlineStyle::Dashed => "dashed",
-    });
-    let mut value = json!({
-        "text": run.text,
-        "fg": run.fg.map(rgb_hex),
-        "bg": run.bg.map(rgb_hex),
-        "attrs": run.attrs,
-    });
-    if let Some(underline) = underline {
-        value["underline"] = json!(underline);
-    }
-    if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
-    }
-    value
-}
-
-fn render_rows_json(frame: &SurfaceRenderFrame, rows: impl IntoIterator<Item = u16>) -> Vec<Value> {
-    rows.into_iter()
-        .filter_map(|row| {
-            frame.frame.row_runs(row).map(|runs| {
-                json!({
-                    "row": row,
-                    "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
-                })
-            })
-        })
-        .collect()
-}
-
-fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
-    let (style, blink) = frame.frame.cursor_visual;
-    let style = match style {
-        ghostty_vt::CursorShape::Bar => "bar",
-        ghostty_vt::CursorShape::Underline => "underline",
-        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
-    };
-    let (x, y, visible) =
-        frame.frame.cursor.map(|cursor| (cursor.x, cursor.y, true)).unwrap_or((0, 0, false));
-    json!({
-        "x": x,
-        "y": y,
-        "style": style,
-        "blink": blink,
-        "visible": visible,
-        "color": frame.frame.cursor_color.map(rgb_hex),
-    })
-}
-
-fn serialize_arc_str<S>(value: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(value)
-}
-
-#[derive(Serialize)]
-struct RenderGraphicImageMessage {
-    id: u32,
-    generation: u64,
-    width: u32,
-    height: u32,
-    format: &'static str,
-    #[serde(serialize_with = "serialize_arc_str")]
-    data: Arc<str>,
-}
-
-#[derive(Serialize)]
-struct RenderGraphicPlacementMessage {
-    image_id: u32,
-    placement_id: u32,
-    ordinal: u32,
-    x_offset: u32,
-    y_offset: u32,
-    source_x: u32,
-    source_y: u32,
-    source_width: u32,
-    source_height: u32,
-    columns: u32,
-    rows: u32,
-    grid_cols: u32,
-    grid_rows: u32,
-    pixel_width: u32,
-    pixel_height: u32,
-    viewport_col: i32,
-    viewport_row: i32,
-    viewport_visible: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    anchor_col: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    anchor_row: Option<u32>,
-    z: i32,
-}
-
-impl From<&ghostty_vt::KittyPlacement> for RenderGraphicPlacementMessage {
-    fn from(placement: &ghostty_vt::KittyPlacement) -> Self {
-        Self {
-            image_id: placement.image_id,
-            placement_id: placement.placement_id,
-            ordinal: placement.key.ordinal,
-            x_offset: placement.x_offset,
-            y_offset: placement.y_offset,
-            source_x: placement.source_x,
-            source_y: placement.source_y,
-            source_width: placement.source_width,
-            source_height: placement.source_height,
-            columns: placement.columns,
-            rows: placement.rows,
-            grid_cols: placement.grid_cols,
-            grid_rows: placement.grid_rows,
-            pixel_width: placement.pixel_width,
-            pixel_height: placement.pixel_height,
-            viewport_col: placement.viewport_col,
-            viewport_row: placement.viewport_row,
-            viewport_visible: placement.viewport_visible,
-            anchor_col: placement.anchor.map(|anchor| anchor.col),
-            anchor_row: placement.anchor.map(|anchor| anchor.row),
-            z: placement.z,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct RenderGraphicsMessage {
-    generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    placements: Option<Vec<RenderGraphicPlacementMessage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    images: Option<Vec<RenderGraphicImageMessage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    removed_image_ids: Option<Vec<u32>>,
-}
-
-fn render_graphics_message(
-    render_service: &RenderService,
-    graphics: &ghostty_vt::KittyGraphicsSnapshot,
-    image_ids: Option<&HashSet<u32>>,
-    removed_image_ids: &[u32],
-    include_placements: bool,
-) -> RenderGraphicsMessage {
-    let images = graphics
-        .images
-        .iter()
-        .filter(|image| image_ids.is_none_or(|ids| ids.contains(&image.id)))
-        .map(|image| {
-            let data = render_service.encode_graphic(&image.data);
-            RenderGraphicImageMessage {
-                id: image.id,
-                generation: image.generation,
-                width: image.width,
-                height: image.height,
-                format: match image.format {
-                    ghostty_vt::KittyImageFormat::Rgb => "rgb",
-                    ghostty_vt::KittyImageFormat::Rgba => "rgba",
-                },
-                data,
-            }
-        })
-        .collect::<Vec<_>>();
-    RenderGraphicsMessage {
-        generation: graphics.generation,
-        placements: include_placements
-            .then(|| graphics.placements.iter().map(RenderGraphicPlacementMessage::from).collect()),
-        images: (image_ids.is_none() || !images.is_empty()).then_some(images),
-        removed_image_ids: (!removed_image_ids.is_empty()).then(|| removed_image_ids.to_vec()),
-    }
-}
-
-#[derive(Serialize)]
-struct RenderSizeMessage {
-    cols: u16,
-    rows: u16,
-}
-
-#[derive(Serialize)]
-struct RenderStateMessage {
-    event: &'static str,
-    surface: SurfaceId,
-    size: RenderSizeMessage,
-    cursor: Value,
-    default_fg: String,
-    default_bg: String,
-    scrollback_rows: u32,
-    history_epoch: u64,
-    rows: Vec<Value>,
-    graphics: RenderGraphicsMessage,
-}
-
-fn render_state_message(
-    render_service: &RenderService,
-    surface: SurfaceId,
-    frame: &SurfaceRenderFrame,
-) -> RenderStateMessage {
-    let (cols, rows) = frame.frame.size;
-    RenderStateMessage {
-        event: "render-state",
-        surface,
-        size: RenderSizeMessage { cols, rows },
-        cursor: render_cursor_json(frame),
-        default_fg: rgb_hex(frame.frame.default_colors.1),
-        default_bg: rgb_hex(frame.frame.default_colors.0),
-        scrollback_rows: frame.scrollback_rows,
-        history_epoch: frame.history_epoch,
-        rows: render_rows_json(frame, 0..rows),
-        graphics: render_graphics_message(
-            render_service,
-            &frame.frame.kitty_graphics,
-            None,
-            &[],
-            true,
-        ),
-    }
-}
-
-#[derive(Serialize)]
-struct RenderDeltaMessage {
-    event: &'static str,
-    surface: SurfaceId,
-    cursor: Value,
-    full: bool,
-    rows: Vec<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    size: Option<RenderSizeMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_fg: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_bg: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scrollback_rows: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    history_epoch: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    graphics: Option<RenderGraphicsMessage>,
-}
-
-struct RenderClientState {
-    render_service: Arc<RenderService>,
-    size: (u16, u16),
-    default_colors: (Rgb, Rgb),
-    scrollback_rows: u32,
-    history_epoch: u64,
-    graphics_snapshot_id: u64,
-    graphics_image_revision: u64,
-    graphics_placement_revision: u64,
-    graphics_image_generations: Arc<[(u32, u64)]>,
-    graphics_image_generations_match_snapshot: bool,
-    #[cfg(test)]
-    image_generation_scan_count: usize,
-}
-
-fn render_client_image_delta(
-    previous: &[(u32, u64)],
-    next: &[(u32, u64)],
-) -> (HashSet<u32>, Vec<u32>) {
-    let mut changed = HashSet::new();
-    let mut removed = Vec::new();
-    let (mut previous_index, mut next_index) = (0, 0);
-    while previous_index < previous.len() || next_index < next.len() {
-        match (previous.get(previous_index), next.get(next_index)) {
-            (Some(&(previous_id, previous_generation)), Some(&(next_id, next_generation))) => {
-                if previous_id < next_id {
-                    removed.push(previous_id);
-                    previous_index += 1;
-                } else if next_id < previous_id {
-                    changed.insert(next_id);
-                    next_index += 1;
-                } else {
-                    if previous_generation != next_generation {
-                        changed.insert(next_id);
-                    }
-                    previous_index += 1;
-                    next_index += 1;
-                }
-            }
-            (Some(&(previous_id, _)), None) => {
-                removed.push(previous_id);
-                previous_index += 1;
-            }
-            (None, Some(&(next_id, _))) => {
-                changed.insert(next_id);
-                next_index += 1;
-            }
-            (None, None) => break,
-        }
-    }
-    (changed, removed)
-}
-
-impl RenderClientState {
-    fn new(render_service: Arc<RenderService>, frame: &SurfaceRenderFrame) -> Self {
-        let graphics_delta = &frame.frame.kitty_graphics_delta;
-        let mut graphics_image_generations = frame
-            .frame
-            .kitty_graphics
-            .images
-            .iter()
-            .map(|image| (image.id, image.generation))
-            .collect::<Vec<_>>();
-        graphics_image_generations.sort_unstable_by_key(|(id, _)| *id);
-        let graphics_image_generations: Arc<[(u32, u64)]> = graphics_image_generations.into();
-        let graphics_image_generations_match_snapshot =
-            graphics_image_generations.as_ref() == graphics_delta.image_generations.as_ref();
-        Self {
-            render_service,
-            size: frame.frame.size,
-            default_colors: frame.frame.default_colors,
-            scrollback_rows: frame.scrollback_rows,
-            history_epoch: frame.history_epoch,
-            graphics_snapshot_id: graphics_delta.snapshot_id,
-            graphics_image_revision: graphics_delta.image_revision,
-            graphics_placement_revision: graphics_delta.placement_revision,
-            graphics_image_generations,
-            graphics_image_generations_match_snapshot,
-            #[cfg(test)]
-            image_generation_scan_count: 0,
-        }
-    }
-
-    fn delta_message(
-        &mut self,
-        surface: SurfaceId,
-        frame: &SurfaceRenderFrame,
-    ) -> RenderDeltaMessage {
-        let size_changed = self.size != frame.frame.size;
-        let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
-        let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
-        let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
-        let history_epoch_changed = self.history_epoch != frame.history_epoch;
-        let full = size_changed
-            || foreground_changed
-            || background_changed
-            || frame.frame.dirty == Dirty::Full;
-        let rows = if full {
-            render_rows_json(frame, 0..frame.frame.size.1)
-        } else {
-            render_rows_json(frame, frame.frame.dirty_rows.iter().copied())
-        };
-        let mut message = RenderDeltaMessage {
-            event: "render-delta",
-            surface,
-            cursor: render_cursor_json(frame),
-            full,
-            rows,
-            size: size_changed.then_some(RenderSizeMessage {
-                cols: frame.frame.size.0,
-                rows: frame.frame.size.1,
-            }),
-            default_fg: foreground_changed.then(|| rgb_hex(frame.frame.default_colors.1)),
-            default_bg: background_changed.then(|| rgb_hex(frame.frame.default_colors.0)),
-            scrollback_rows: scrollback_changed.then_some(frame.scrollback_rows),
-            history_epoch: history_epoch_changed.then_some(frame.history_epoch),
-            graphics: None,
-        };
-        let graphics_delta = &frame.frame.kitty_graphics_delta;
-        if self.graphics_snapshot_id != graphics_delta.snapshot_id {
-            let graphics = &frame.frame.kitty_graphics;
-            let image_revision_changed =
-                self.graphics_image_revision != graphics_delta.image_revision;
-            let (upsert_image_ids, removed_image_ids) = if self
-                .graphics_image_generations_match_snapshot
-                && graphics_delta.previous_snapshot_id == Some(self.graphics_snapshot_id)
-            {
-                if image_revision_changed {
-                    (
-                        graphics_delta.changed_image_ids.iter().copied().collect::<HashSet<_>>(),
-                        graphics_delta.removed_image_ids.to_vec(),
-                    )
-                } else {
-                    (HashSet::new(), Vec::new())
-                }
-            } else {
-                #[cfg(test)]
-                {
-                    self.image_generation_scan_count += self
-                        .graphics_image_generations
-                        .len()
-                        .max(graphics_delta.image_generations.len());
-                }
-                render_client_image_delta(
-                    &self.graphics_image_generations,
-                    &graphics_delta.image_generations,
-                )
-            };
-            let images_changed = !upsert_image_ids.is_empty() || !removed_image_ids.is_empty();
-            let placements_changed =
-                self.graphics_placement_revision != graphics_delta.placement_revision;
-            if images_changed || placements_changed {
-                message.graphics = Some(render_graphics_message(
-                    &self.render_service,
-                    graphics,
-                    Some(&upsert_image_ids),
-                    &removed_image_ids,
-                    placements_changed,
-                ));
-            }
-            self.graphics_snapshot_id = graphics_delta.snapshot_id;
-            self.graphics_image_revision = graphics_delta.image_revision;
-            self.graphics_placement_revision = graphics_delta.placement_revision;
-            self.graphics_image_generations = graphics_delta.image_generations.clone();
-            self.graphics_image_generations_match_snapshot = true;
-        }
-        self.size = frame.frame.size;
-        self.default_colors = frame.frame.default_colors;
-        self.scrollback_rows = frame.scrollback_rows;
-        self.history_epoch = frame.history_epoch;
-        message
-    }
-}
-
-#[derive(Serialize)]
-struct BrowserStateMessage<'a> {
-    event: &'static str,
-    surface: SurfaceId,
-    cols: u16,
-    rows: u16,
-    url: &'a str,
-    title: &'a str,
-    status: &'static str,
-    error: Option<&'a str>,
-    pointer_frame_floor_seq: Option<u64>,
-    pointer_frame_seq: Option<u64>,
-    frames_stalled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    frame: Option<Option<BrowserFramePayload<'a>>>,
-}
-
-#[derive(Serialize)]
-struct BrowserFramePayload<'a> {
-    seq: u64,
-    width: u32,
-    height: u32,
-    image_width: u32,
-    image_height: u32,
-    data: &'a str,
-}
-
-fn browser_state_message<'a>(
-    surface: SurfaceId,
-    state: &'a BrowserAttachState,
-    include_frame: bool,
-) -> BrowserStateMessage<'a> {
-    BrowserStateMessage {
-        event: "browser-state",
-        surface,
-        cols: state.cols,
-        rows: state.rows,
-        url: &state.url,
-        title: &state.title,
-        status: state.status.as_str(),
-        error: match &state.status {
-            crate::BrowserStatus::Failed(error) => Some(error),
-            crate::BrowserStatus::Starting | crate::BrowserStatus::Live => None,
-        },
-        pointer_frame_floor_seq: state.pointer_frame_floor_seq,
-        pointer_frame_seq: state.pointer_frame_seq,
-        frames_stalled: state.frames_stalled,
-        frame: include_frame.then(|| state.frame.as_ref().map(browser_frame_payload)),
-    }
-}
-
-fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value {
-    json!({
-        "event": "frame",
-        "surface": surface,
-        "seq": update.frame.seq,
-        "width": update.frame.css_width,
-        "height": update.frame.css_height,
-        "image_width": update.frame.image_width,
-        "image_height": update.frame.image_height,
-        "data": update.frame.data_b64,
-        "status": update.status.as_str(),
-        "error": update.status.error(),
-        "pointer_frame_floor_seq": update.pointer_frame_floor_seq,
-        "pointer_frame_seq": update.pointer_frame_seq,
-    })
-}
-
-fn send_browser_attach_update(
-    writer: &MessageWriter,
-    surface: SurfaceId,
-    update: BrowserAttachUpdate,
-    outbound_stream: &OutboundStream,
-) -> std::io::Result<()> {
-    if let Some(frame) = update.frame {
-        writer.send_stream_backpressured(&browser_frame_json(surface, &frame), outbound_stream)?;
-    }
-    if let Some(state) = update.state {
-        writer.send_stream_backpressured(
-            &browser_state_message(surface, &state, false),
-            outbound_stream,
-        )?;
-    }
-    Ok(())
-}
-
-fn browser_frame_payload(frame: &crate::BrowserFrame) -> BrowserFramePayload<'_> {
-    BrowserFramePayload {
-        seq: frame.seq,
-        width: frame.css_width,
-        height: frame.css_height,
-        image_width: frame.image_width,
-        image_height: frame.image_height,
-        data: &frame.data_b64,
-    }
-}
+mod render_messages;
+use render_messages::{
+    AttachWireShape, RenderClientState, VtStateMessage, browser_state_message,
+    render_state_message, send_browser_attach_update, styled_run_json, write_pending_sequence_json,
+};
+#[cfg(test)]
+use render_messages::{browser_frame_json, render_graphics_message};
 
 fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
@@ -12662,11 +11768,11 @@ fn handle_command_with_cancellation(
             mux.set_terminal_command_history(enabled);
             Ok(json!({ "enabled": enabled }))
         }
-        Command::ServerStats => {
+        Command::ServerStats { include } => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
             }
-            Ok(serde_json::to_value(server_stats(mux))?)
+            Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
         }
         Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
@@ -15068,6 +14174,7 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
+                        MuxEvent::Conversation(event) if event.is_draft() => continue,
                         MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
                             if !trusted_pairing_client =>
                         {
@@ -15855,6 +14962,10 @@ pub fn cleanup(path: &Path) {
 #[cfg(test)]
 #[path = "server/loopback_forward_tests.rs"]
 mod loopback_forward_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_attach_tests.rs"]
+mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
@@ -20054,7 +19165,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 33);
+        assert_eq!(connection_operations, 44);
     }
 
     #[test]
@@ -20859,8 +19970,13 @@ mod tests {
         );
         // Any registry use records a hold at its call site.
         let _ = mux.registry_identity();
-        let stats =
-            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        let stats = handle_command(
+            &mux,
+            unix_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .unwrap();
         assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
         assert!(stats["uptime_ms"].is_u64());
         let lock = &stats["registry_lock"];
@@ -20871,8 +19987,13 @@ mod tests {
         assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
         assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
 
-        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
-            .expect_err("remote clients must not receive internal server stats");
+        let error = handle_command(
+            &mux,
+            websocket_client,
+            Command::ServerStats { include: None },
+            &test_writer(),
+        )
+        .expect_err("remote clients must not receive internal server stats");
         assert!(error.to_string().contains("trusted local connection"));
     }
 

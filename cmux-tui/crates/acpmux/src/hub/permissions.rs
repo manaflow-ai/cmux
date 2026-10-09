@@ -154,6 +154,20 @@ impl Hub {
             let _ = child.respond(id, result).await;
             return;
         }
+        // Cursor's cursor/ requests: a question or a plan approval (cursor_ext.rs).
+        if let Some(kind) = super::cursor_ext::request_kind(&m) {
+            let result = self
+                .handle_cursor_request(
+                    &session,
+                    kind,
+                    params.unwrap_or(Value::Null),
+                    epoch,
+                    turn_id,
+                )
+                .await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
             let result =

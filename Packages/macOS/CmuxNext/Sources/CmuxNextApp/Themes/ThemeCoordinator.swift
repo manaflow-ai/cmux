@@ -88,12 +88,12 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
-        Task {
+        Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
             for await loaded in Observations({ local.store.isLoaded }) where loaded {
-                self.pruneTerminalThemes()
+                self?.pruneTerminalThemes()
                 return
             }
         }
@@ -167,11 +167,11 @@ final class ThemeCoordinator {
     /// Re-reads every theme. `forceSurfaces` re-applies surface configs
     /// even when unchanged (after a Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
-        for controller in services.windows?.controllers ?? [] {
+        for controller in services.windows.controllers {
             windowDidChange(controller)
             for content in controller.mountedContents { contentDidShow(content) }
         }
-        for entry in services.cache?.terminals.values.map({ $0 }) ?? [] {
+        for entry in services.cache.terminals.values.map({ $0 }) {
             entry.themeBinding.coordinator = self
             setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
             if forceSurfaces { entry.themeBinding.syncSurface(force: true) }

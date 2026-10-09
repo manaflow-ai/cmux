@@ -199,6 +199,9 @@ pub(in crate::server) fn remote_event(
                 "on": on,
             }))
         }
+        // Drafts reach only the v2 conversation.events stream, which the
+        // relay never admits (it refuses every resource-protocol frame).
+        ConversationEvent::Draft { .. } => None,
     }
 }
 

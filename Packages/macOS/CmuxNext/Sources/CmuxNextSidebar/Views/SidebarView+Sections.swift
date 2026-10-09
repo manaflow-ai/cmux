@@ -41,8 +41,6 @@ extension SidebarView {
         // The band below keeps the same rule it had while it held the footer.
         footerRegion.allowsDrag = false
         belowRegion.allowsDrag = false
-        aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
-        belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
         addSubview(aboveFade)
         addSubview(belowFade)
         addSubview(footerRegion)

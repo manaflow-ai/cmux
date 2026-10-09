@@ -56,6 +56,7 @@ fn setup() -> SessionSetup {
         env: BTreeMap::from([("MUX_HOME".into(), "/h".into())]),
         instructions: None,
         tools: optchat_chief::prompt::Tools::Mcp,
+        user_env: Default::default(),
     }
 }
 

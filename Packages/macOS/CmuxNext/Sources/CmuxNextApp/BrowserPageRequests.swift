@@ -198,7 +198,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             child?.close()
             return
         }
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let daemon = services.machines.daemon(forTab: tab)
         guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
             if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
@@ -238,7 +238,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return
         }
         // The opener's pane is not on screen (its page is kept alive).
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         guard browserTabs.isAvailable() else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers

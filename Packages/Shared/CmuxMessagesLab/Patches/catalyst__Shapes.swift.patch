@@ -1,0 +1,15 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
+@@ -130,9 +130,10 @@
+         let white = UIColor.white
+         let space = CGColorSpace(name: CGColorSpace.sRGB)
+         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
+-            let span = stops.last!.0
++            // cmux: no force unwraps (crash program); an empty rim or a failed gradient draws nothing.
++            guard let span = stops.last?.0 else { continue }
+             let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
+-                               locations: stops.map { $0.0 / span })!
++                               locations: stops.map { $0.0 / span })
+             let y0 = fromTop ? rect.minY : rect.maxY
+             let y1 = fromTop ? rect.minY + span : rect.maxY - span
+             ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: y0), end: CGPoint(x: 0, y: y1), options: [])

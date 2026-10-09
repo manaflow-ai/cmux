@@ -169,6 +169,8 @@ export type AcpmuxSnapshot = {
     id: string;
     name: string;
     models: AcpmuxCatalogModel[];
+    /** The configured harness login command, when its profile declares one. */
+    auth?: { login?: string };
     unavailable?: string;
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */

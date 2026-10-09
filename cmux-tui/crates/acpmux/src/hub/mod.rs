@@ -6,6 +6,7 @@
 
 mod adoption;
 mod catalog_reload;
+mod cursor_ext;
 mod fork;
 mod handoff;
 mod harness_view;
@@ -13,6 +14,7 @@ mod harness_watch;
 mod idle;
 mod launch_roots;
 mod launchers;
+mod live_models;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod hosts;
 mod lifecycle;
@@ -205,6 +207,9 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// Model lists from Claude Code's and Codex's own CLIs, by profile name
+    /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
+    pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -276,6 +281,7 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
+            live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -364,6 +370,8 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // The last live model lists, before anything slow.
+        self.load_live_cache().await;
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env && crate::login_env::import().await {

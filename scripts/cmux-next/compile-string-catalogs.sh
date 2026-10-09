@@ -5,7 +5,10 @@
 # their English default values and plural rules are lost.
 # Run from Packages/macOS/CmuxNext after `swift build --build-tests`.
 set -euo pipefail
-bin="$(swift build -c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" --show-bin-path)"
+# A sanitizer lane (package-test-lane.sh, CMUX_SWIFT_SANITIZE) builds into its own scratch folder.
+scratch=()
+if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then scratch=(--scratch-path ".build-sanitize-$CMUX_SWIFT_SANITIZE"); fi
+bin="$(swift build -c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${scratch[@]+"${scratch[@]}"} --show-bin-path)"
 count=0
 while IFS= read -r -d '' catalog; do
   xcrun xcstringstool compile "$catalog" --output-directory "$(dirname "$catalog")"

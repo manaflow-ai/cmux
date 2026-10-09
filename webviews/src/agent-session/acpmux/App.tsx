@@ -26,10 +26,12 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
+import { TemplateDots } from "./newtab/TemplateDots";
+import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft } from "./composerDraft";
@@ -83,7 +85,7 @@ import { SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
-import { canFork, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
+import { canFork, latestForkSeq, messageMenuTarget, setMessageMenuSource } from "./conversation/messageMenu";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
@@ -989,6 +991,8 @@ function AcpmuxPane() {
   // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
+  const forkSeq = latestForkSeq(snapshot.rows);
+  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1178,13 +1182,25 @@ function AcpmuxPane() {
     () => ({
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+        forkSeq,
       }),
       ...(connected && {
         retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
       }),
+      ...(connected &&
+        loginCommand &&
+        snapshot.summary?.hostKind !== "cloud" && {
+          reauthenticate: () =>
+            void callNative("tab.open", {
+              kind: "terminal",
+              text: loginCommand,
+              ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+              run: true,
+            }).catch(() => undefined),
+        }),
       review: hunkReview,
     }),
-    [forkable, connected, hunkReview],
+    [forkable, forkSeq, connected, hunkReview, loginCommand, snapshot.summary?.hostKind, snapshot.summary?.cwd],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
@@ -1797,6 +1813,12 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit and Resend (the message menu): the prompt goes back into the composer, before
+          // anything typed since, with the caret in it.
+          "chat.editPrompt": async ({ text }) => {
+            restorePrompt(String(text ?? ""), []);
+            composerHandle.current?.focus();
+          },
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
@@ -1966,7 +1988,7 @@ function AcpmuxPane() {
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
     });
-  const lastForkSeq = [...snapshot.rows].reverse().find((row) => row.seq !== undefined)?.seq;
+  const lastForkSeq = latestForkSeq(snapshot.rows);
   const copyLinkRow = (link: string): ChatMenuItem => ({
     key: "copyLink",
     label: t("chatMenu.copyLink"),
@@ -2126,6 +2148,8 @@ function AcpmuxPane() {
       active = false;
     };
   }, [freshChat, newTab, quick, loadNewTabProjects]);
+  // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+  const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -2257,116 +2281,128 @@ function AcpmuxPane() {
           }}
         />
       )}
-      <Composer
-        snapshot={composerSnapshot}
-        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-        chips={ComposerChips}
-        draft={draft}
-        onCmuxCommand={(command, args) => {
-          if (command.action !== "continue" || !canContinue) return false;
-          if (!args?.trim()) {
-            setContinuing(true);
+      {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
+      <ImageViewerContext.Provider value={quick ? undefined : openImage}>
+        <Composer
+          snapshot={composerSnapshot}
+          sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          chips={ComposerChips}
+          draft={draft}
+          onCmuxCommand={(command, args) => {
+            if (command.action !== "continue" || !canContinue) return false;
+            if (!args?.trim()) {
+              setContinuing(true);
+              return true;
+            }
+            const target = resolveHarnessTarget(args, handoffTargets);
+            if (!target) return false;
+            setContinuing(false);
+            ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
             return true;
+          }}
+          onSend={(text, chips) => {
+            // Until acpmux connects nothing takes a prompt; the composer keeps it.
+            if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+            // Shell mode's chips carry their commands' output as it is now.
+            const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
+            if (!snapshot.sessionId) claimShellRuns.current = true;
+            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
+            // remote guard, the sandbox) leaves it there to send again.
+            let accept: (taken: true) => void = () => undefined;
+            const taken = new Promise<true>((resolve) => (accept = resolve));
+            const send = async () => {
+              if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
+              return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
+            };
+            // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+            // swaps it when the chat's session starts) puts the prompt in the one shown now.
+            const holder = composerHandle.current;
+            const turn = send();
+            turn.then(() => promptLanded.current(), cancelOpenInWindow);
+            // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+            const held = Promise.race([taken, turn.then(() => true as const)]);
+            held.catch(() => {
+              if (composerHandle.current === holder) return;
+              if (composerHandle.current) composerHandle.current.restore(text, attachments);
+              else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+            });
+            return held;
+          }}
+          onStop={() => void callNative("chat.cancel")}
+          onProject={chooseProject}
+          // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+          onConnect={(kind) =>
+            void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
+              () => undefined,
+            )
           }
-          const target = resolveHarnessTarget(args, handoffTargets);
-          if (!target) return false;
-          setContinuing(false);
-          ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
-          return true;
-        }}
-        onSend={(text, chips) => {
-          // Until acpmux connects nothing takes a prompt; the composer keeps it.
-          if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          // Shell mode's chips carry their commands' output as it is now.
-          const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
-          if (!snapshot.sessionId) claimShellRuns.current = true;
-          // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-          // remote guard, the sandbox) leaves it there to send again.
-          let accept: (taken: true) => void = () => undefined;
-          const taken = new Promise<true>((resolve) => (accept = resolve));
-          const send = async () => {
-            if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
-            return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
-          };
-          // The composer that holds the prompt: a refusal that comes once it is gone (the pane
-          // swaps it when the chat's session starts) puts the prompt in the one shown now.
-          const holder = composerHandle.current;
-          const turn = send();
-          turn.then(() => promptLanded.current(), cancelOpenInWindow);
-          // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-          const held = Promise.race([taken, turn.then(() => true as const)]);
-          held.catch(() => {
-            if (composerHandle.current === holder) return;
-            if (composerHandle.current) composerHandle.current.restore(text, attachments);
-            else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-          });
-          return held;
-        }}
-        onStop={() => void callNative("chat.cancel")}
-        onProject={chooseProject}
-        // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
-        onConnect={(kind) =>
-          void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
-            () => undefined,
-          )
-        }
-        projectChoices={freshChat && !quick ? newTabProjects : undefined}
-        onBrowseProject={
-          freshChat && !quick
-            ? () => {
-                void callNative<{ cwd?: string }>("project.browse")
-                  .then((result) => {
-                    if (result?.cwd) chooseProject(result.cwd);
+          // A started local chat lists the same folders to move to (dogfood 09).
+          projectChoices={!quick && (freshChat || canMove) ? newTabProjects : undefined}
+          onBrowseProject={
+            freshChat && !quick
+              ? () => {
+                  void callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => {
+                      if (result?.cwd) chooseProject(result.cwd);
+                    })
+                    .catch(() => undefined);
+                }
+              : undefined
+          }
+          // The host runs commands on this Mac: a Cloud chat has no shell mode.
+          onShell={
+            composerSnapshot.summary?.hostKind === "cloud"
+              ? undefined
+              : (command) =>
+                  shellRuns.start(command, {
+                    ...((movedTo ?? composerSnapshot.summary?.cwd)
+                      ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
+                      : {}),
+                    ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                   })
-                  .catch(() => undefined);
-              }
-            : undefined
-        }
-        // The host runs commands on this Mac: a Cloud chat has no shell mode.
-        onShell={
-          composerSnapshot.summary?.hostKind === "cloud"
-            ? undefined
-            : (command) =>
-                shellRuns.start(command, {
-                  ...((movedTo ?? composerSnapshot.summary?.cwd)
-                    ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
-                    : {}),
-                  ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
-                })
-        }
-        localName={machineName}
-        movedTo={movedTo}
-        // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
-        onMove={
-          snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
-            ? (cwd) => {
-                const move: ChatMove = {
-                  id: `${Date.now().toString(36)}-${chatMoves.length}`,
-                  sessionId: snapshot.sessionId!,
-                  cwd,
-                  machine: machineName ?? t("composer.thisMac"),
-                  at: Date.now(),
-                };
-                setChatMoves((current) => [...current, move]);
-                return move;
-              }
-            : undefined
-        }
-        onShellInterrupt={() => {
-          const running = shellRuns.running(snapshot.sessionId);
-          if (running) shellRuns.stop(running.id);
-          return running !== undefined;
-        }}
-        onMode={(modeId) => void callNative("chat.mode", { modeId })}
-        // Without a folder there is nothing to search; the + menu leaves the item out.
-        searchFiles={fileRoot ? searchFiles : undefined}
-        onOpenInWindow={quick ? openInWindow : undefined}
-        prompt={prompt}
-        handle={composerRef}
-        blocked={trustAsk.blocked}
-        accessory={<DictationButton dictation={dictation} />}
-        onImportFile={importFile}
-      />
+          }
+          localName={machineName}
+          movedTo={movedTo}
+          onBrowseFolder={
+            canMove
+              ? () =>
+                  callNative<{ cwd?: string }>("project.browse")
+                    .then((result) => result?.cwd)
+                    .catch(() => undefined)
+              : undefined
+          }
+          // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+          onMove={
+            canMove
+              ? (cwd) => {
+                  const move: ChatMove = {
+                    id: `${Date.now().toString(36)}-${chatMoves.length}`,
+                    sessionId: snapshot.sessionId!,
+                    cwd,
+                    machine: machineName ?? t("composer.thisMac"),
+                    at: Date.now(),
+                  };
+                  setChatMoves((current) => [...current, move]);
+                  return move;
+                }
+              : undefined
+          }
+          onShellInterrupt={() => {
+            const running = shellRuns.running(snapshot.sessionId);
+            if (running) shellRuns.stop(running.id);
+            return running !== undefined;
+          }}
+          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          // Without a folder there is nothing to search; the + menu leaves the item out.
+          searchFiles={fileRoot ? searchFiles : undefined}
+          onOpenInWindow={quick ? openInWindow : undefined}
+          prompt={prompt}
+          handle={composerRef}
+          blocked={trustAsk.blocked}
+          accessory={<DictationButton dictation={dictation} />}
+          onImportFile={importFile}
+        />
+      </ImageViewerContext.Provider>
     </>
   );
   const hostErrorCard = hostError && (
@@ -2393,9 +2429,26 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.layout === "b" ? (
+          {showNewTab && (
+            <TemplateDots
+              current={shownTemplate(newTab)}
+              onPick={(template) =>
+                pickNewTabTemplate(template, {
+                  callNative,
+                  cwd: newTab.cwd,
+                  show: (next) => {
+                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
+                    // The dot took focus; the field gets it back (the screen listens for this event).
+                    window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
+                  },
+                })
+              }
+            />
+          )}
+          {showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              template={screenTemplate(shownTemplate(newTab))}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

@@ -23,6 +23,7 @@
 
 mod approvals;
 mod children;
+mod drafts;
 mod engine_control;
 pub mod images;
 mod inbox;
@@ -34,6 +35,7 @@ mod side;
 mod spawns;
 mod steer;
 mod turns;
+pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -74,6 +76,8 @@ pub enum Input {
         /// The prompt blocks to deliver: the messages' images, then their text.
         reply: Sender<Vec<serde_json::Value>>,
     },
+    /// A draft of the running turn's reply (`draft.rs`).
+    Draft(Box<crate::draft::Draft>),
     /// A steer's outcome (`steer.rs`): Ok once the harness read it.
     Steered {
         id: u64,
@@ -260,6 +264,9 @@ pub struct Settings {
     /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
     /// Claude Code path.
     pub cache_ttl: Option<crate::prompt::CacheTtl>,
+    /// The turns' current TTL, shared with the compactor: its nodes take the
+    /// same TTL on the same route.
+    pub shared_ttl: crate::prompt::SharedTtl,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -370,6 +377,8 @@ pub struct Brain {
     /// last steer's number.
     steering: Option<steer::Steering>,
     steer_seq: u64,
+    /// A draft could not be published (logged once).
+    draft_failed: bool,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -377,19 +386,19 @@ pub struct Brain {
     noticed: HashSet<String>,
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
-    marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    marker_refused: crate::prompt::MarkLatch,
     /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
     /// host restarts or `cache.ttl` is set again.
     ttl_refused: Arc<std::sync::atomic::AtomicBool>,
     /// The TTL the session settings held when the pool was last hinted: a
     /// pooled session runs Claude Code with it.
     prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// Whether the pool was last hinted for a turn with our mark (Claude
+    /// Code's own marks off, `session_dir::set_session_cache`).
+    prewarm_ours: Option<bool>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
-    /// The view up to and including the last turn's marked block
-    /// (`optchat_core::mark_piece`): the next turn keeps its mark within the
-    /// API's lookback of it.
-    last_mark: Option<String>,
+
     /// The monitoring trace (`trace.rs`).
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
@@ -480,11 +489,12 @@ impl Brain {
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: None,
             steer_seq: 0,
-            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            draft_failed: false,
+            marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
+            prewarm_ours: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            last_mark: None,
             chief,
             turn_remote: false,
             turn_ask: false,
@@ -508,6 +518,8 @@ impl Brain {
             mux_pending: HashMap::new(),
         };
         brain.save();
+        // The compactor's first nodes take the turns' TTL too.
+        brain.turn_cache_ttl();
         brain
     }
 
@@ -637,6 +649,7 @@ impl Brain {
                 let blocks = self.boundary(&key);
                 let _ = reply.send(blocks);
             }
+            Input::Draft(draft) => self.turn_draft(&draft),
             Input::Steered { id, result } => self.steered(id, result),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
@@ -826,6 +839,7 @@ impl Brain {
             self.chief = next;
             self.ttl_refused
                 .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.turn_cache_ttl();
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
@@ -879,7 +893,8 @@ impl Brain {
         source: Source,
     ) {
         // Section 9: subagents' reports reach a working Chief between its
-        // tool calls; on acpmux that is a stop like a human message's.
+        // tool calls (steered on acpmux); one that cannot reach it waits for
+        // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
         let item = Queued {
