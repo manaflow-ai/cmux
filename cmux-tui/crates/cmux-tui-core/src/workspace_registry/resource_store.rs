@@ -1494,7 +1494,7 @@ impl WorkspaceRegistry {
         }
         let applying = std::time::Instant::now();
         let (patch, prune) = apply_resource_patch_timed(&tx, patch, sqlite_revision)?;
-        let (apply, patch) = (applying.elapsed() - prune, &patch);
+        let (apply, patch) = (applying.elapsed().saturating_sub(prune), &patch);
         let mut result = result.clone();
         decorate_snapshot_result(&tx, operation, &mut result)?;
         let written;

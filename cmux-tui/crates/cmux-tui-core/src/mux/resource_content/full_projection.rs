@@ -34,13 +34,13 @@ impl Mux {
         state.ensure_tab_identity_coverage()?;
         ensure_split_public_ids(state)?;
         let terminal_tab_order = ordered_terminal_tab_ids(state)?;
-        let index = started.elapsed() - read;
+        let index = started.elapsed().saturating_sub(read);
         let projection =
             self.project_live_tree(&before, &terminal_records, state, &terminal_tab_order, result)?;
         registry.resource_projection_stats().projected(ProjectionSpans {
             read,
             index,
-            diff: started.elapsed() - read - index,
+            diff: started.elapsed().saturating_sub(read + index),
             changes: projection.patch.changes.len(),
         });
         Ok(projection)

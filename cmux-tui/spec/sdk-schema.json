@@ -5692,7 +5692,7 @@
    "additional_properties": false,
    "constraints": [
     "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
-    "commit_us is the whole registry commit of a projected patch; commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
+    "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
     "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
    ]
   },

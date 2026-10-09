@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d. */
+/* cmux-tui mux protocol 12, IR 1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a048c2618ca5a556e673d9fb87b5d17c05991dc843fca6c6749699df2f4d5e8d" as const;
+export const SDK_IR_SHA256 = "1a155f2a5580187cd2ff643f0281880a323151236fb48261185a5d61177d30ee" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8677,7 +8677,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "read_us, index_us and diff_us split each topology projection: stored topology read, live resource index rebuild, and the live-tree diff.",
-      "commit_us is the whole registry commit of a projected patch; commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
+      "commit_us is the whole registry commit of a projected patch (only the commit that follows a projection counts); commit_prune_us, commit_apply_us and commit_journal_us are its unchanged-row pruning, row writes and journal append.",
       "projected_changes, written_changes and journaled_changes count durable patch changes, changes left after pruning, and public journal changes."
     ],
     "fields": {

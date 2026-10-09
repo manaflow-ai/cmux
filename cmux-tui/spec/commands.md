@@ -509,9 +509,11 @@ histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99
 mutation runs under the registry lock: `read_us` reads the stored topology and
 terminal records, `index_us` rebuilds the live resource indexes, and `diff_us`
 diffs the live tree against the stored topology. `commit_us` is the whole
-registry commit of a projected patch; `commit_prune_us`, `commit_apply_us` and
-`commit_journal_us` are its unchanged-row pruning, row writes and journal
-append. `projected_changes`, `written_changes` and `journaled_changes` count
+registry commit of a projected patch (only the commit that follows a
+projection counts; it also covers path-specific steps such as the replay
+check, the legacy workspace ledger or terminal close completion);
+`commit_prune_us`, `commit_apply_us` and `commit_journal_us` are its
+unchanged-row pruning, row writes and journal append. `projected_changes`, `written_changes` and `journaled_changes` count
 the patch's durable changes, the changes left after pruning, and the public
 changes in the journal record.
 
