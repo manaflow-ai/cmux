@@ -118,7 +118,7 @@ final class LineTransport: Sendable {
             raw.copyBytes(from: pathBytes)
             raw[pathBytes.count] = 0
         }
-        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        address.sun_len = UInt8(clamping: MemoryLayout<sockaddr_un>.size) // 106 bytes
         let result = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -298,7 +298,7 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk[0..<count]) { route($0, decoder: decoder, onEvent: onEvent) }
+            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading

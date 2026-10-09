@@ -10,6 +10,11 @@ enum PaneLinkTarget: Equatable {
     case card(String, URL?)
 }
 
+extension MarkdownLinkPolicy {
+    /// `dest` as a URL a click may open, or nil (the policy refuses it).
+    static func url(_ dest: String) -> URL? { sanitize(dest).flatMap(URL.init(string:)) }
+}
+
 extension ChatController {
     /// The link under `p` in its bubble, or nil when the point is on no link.
     func linkTarget(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> PaneLinkTarget? {

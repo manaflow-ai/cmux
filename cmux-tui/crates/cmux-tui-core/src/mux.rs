@@ -65,6 +65,8 @@ mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;
+mod terminal_lifecycle_commit;
+use terminal_lifecycle_commit::commit_terminal_lifecycle;
 mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -5263,6 +5265,7 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            projection.restates_all,
         )?;
         state.resource_revision = commit.revision;
         drop(state);
@@ -5283,7 +5286,7 @@ impl Mux {
             idempotency_key,
             operation,
             fingerprint,
-            |registry, state| self.resource_effect_projection_locked(registry, state, result),
+            |registry, state| self.created_view_projection_locked(registry, state, result),
         )
     }
 
@@ -13946,12 +13949,12 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
         Ok(TerminalPlacementResult {
             placement: Some(placement),
             terminal_id: identity.terminal_id,
             terminal_incarnation: Some(identity.incarnation),
-            terminal_revision: snapshot.revision,
+            terminal_revision,
             replayed: false,
             created_path: Some(created_path),
             created_surface: Some(surface.id),
@@ -16458,7 +16461,7 @@ impl Mux {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-                let current_revision = registry.terminal_snapshot()?.revision;
+                let current_revision = registry.terminal_revision()?;
                 let changed = replay.result["changed"].as_bool().unwrap_or(true);
                 #[cfg(test)]
                 if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
@@ -17065,51 +17068,6 @@ fn commit_terminal_transition(
         }),
     )?;
     Ok(commit.revision)
-}
-
-/// Advance only renderer lifecycle fields from the latest durable row. This
-/// deliberately re-reads under the registry writer mutex and uses the
-/// terminal revision as a CAS: a GUI move committed while a host launch or
-/// adoption was in flight can never be overwritten by a stale row clone.
-fn commit_terminal_lifecycle(
-    registry: &mut WorkspaceRegistry,
-    event_kind: &str,
-    operation: &str,
-    terminal_id: &str,
-    lifecycle: TerminalLifecycle,
-    incarnation: Option<&str>,
-    exit: Option<Value>,
-) -> anyhow::Result<(RegistryTerminal, u64)> {
-    let snapshot = registry.terminal_snapshot()?;
-    let mut terminal = registry
-        .terminal_record(terminal_id)?
-        .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-    terminal.lifecycle = lifecycle;
-    if let Some(incarnation) = incarnation {
-        terminal.incarnation = Some(incarnation.to_string());
-    }
-    terminal.exit = exit;
-    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
-    Ok((terminal, commit.revision))
 }
 
 #[cfg(test)]
