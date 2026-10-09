@@ -12,7 +12,7 @@
  *       Also records how the tag signs in to Stack (project, publishable key, path) from its source.
  *       Writes cmux-old/<tag>.json.
  *   bun cmux-old.ts replay --change KEY [--spec FILE] [--origin https://cmux-staging.vercel.app]
- *       [--credentials FILE|-] [--unauthenticated] [--revisions-json JSON]
+ *       [--credentials FILE|-] [--unauthenticated] [--revisions-json JSON]   (CMUX_RELEASE_AGENT_CREDENTIALS=FILE also names the file)
  *       Signs in as the AGENT test profile (CMUX_UITEST_STACK_EMAIL/_PASSWORD from the environment or
  *       the credentials file, default ~/.secrets/cmuxterm-dev.env; values never printed) the way the
  *       tag does, replays every read with the client's headers and checks status and response shape,
@@ -1153,13 +1153,24 @@ export const newestSpec = (dir = SPEC_DIR): Spec | undefined => {
 export const DEFAULT_CREDENTIALS = join(homedir(), ".secrets", "cmuxterm-dev.env")
 export const STAGING_ORIGIN = `https://${STAGING_HOST}`
 
-/** Credentials for the replay: environment, else the dotenv file ("-" reads stdin). Undefined when neither exists. */
-export const loadCredentials = (env: Record<string, string | undefined>, file: string | undefined): Credentials | undefined => {
-  if (env[AGENT[0]] && env[AGENT[1]]) return agentCredentials(env)
-  const path = file ?? DEFAULT_CREDENTIALS
-  if (path === "-") return agentCredentials(env, readFileSync(0, "utf8"))
-  if (!existsSync(path)) return undefined
-  return agentCredentials(env, readFileSync(path, "utf8"))
+/**
+ * Credentials for the replay: CMUX_UITEST_STACK_* from the environment, else the dotenv file
+ * (`file`, else CMUX_RELEASE_AGENT_CREDENTIALS, else ~/.secrets/cmuxterm-dev.env; "-" reads stdin).
+ * The personal-profile refusal compares against CMUX_DOGFOOD_STACK_EMAIL from the environment, that
+ * file and `personalFile` (default ~/.secrets/cmuxterm-dev.env), so an agent file that names no
+ * personal profile is still checked. Undefined when no file exists.
+ */
+export const loadCredentials = (env: Record<string, string | undefined>, file: string | undefined, personalFile = DEFAULT_CREDENTIALS): Credentials | undefined => {
+  const personal = env[PERSONAL_EMAIL] || (existsSync(personalFile) ? parseDotenv(readFileSync(personalFile, "utf8")).get(PERSONAL_EMAIL) : undefined)
+  const guarded = personal ? { ...env, [PERSONAL_EMAIL]: personal } : env
+  if (env[AGENT[0]] && env[AGENT[1]]) return agentCredentials(guarded)
+  const path = file ?? (env.CMUX_RELEASE_AGENT_CREDENTIALS || DEFAULT_CREDENTIALS)
+  const text = path === "-" ? readFileSync(0, "utf8") : existsSync(path) ? readFileSync(path, "utf8") : undefined
+  if (text === undefined) return undefined
+  // The file's own personal email also counts (it may differ from the default file's).
+  const own = parseDotenv(text).get(PERSONAL_EMAIL)
+  if (own && personal && own.trim().toLowerCase() !== personal.trim().toLowerCase()) agentCredentials({ ...guarded, [PERSONAL_EMAIL]: own }, text)
+  return agentCredentials(guarded, text)
 }
 
 const main = async (argv: ReadonlyArray<string>): Promise<number> => {

@@ -270,7 +270,7 @@ export const compatNow = async (root: string, change: Change, env: Record<string
   if (spec) {
     let creds: import("./cmux-old.ts").Credentials | undefined
     try {
-      creds = old.loadCredentials(env, env.CMUX_RELEASE_AGENT_CREDENTIALS)
+      creds = old.loadCredentials(env, undefined)
     } catch (e) {
       problems.push(`agent credentials: ${(e as Error).message}`)
     }
