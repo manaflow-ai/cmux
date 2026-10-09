@@ -70,6 +70,9 @@ final class DaemonService {
     private(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
+    /// Times the wait for a reopened workspace to reach the mirror
+    /// (`DaemonClosedHistory.workspaceAfterReopen`); tests advance it.
+    @ObservationIgnored var reopenClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
