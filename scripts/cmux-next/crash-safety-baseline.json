@@ -50,7 +50,7 @@
   },
   "index_subscript": {
    "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 59,
+   "CmuxIrohTransport": 40,
    "CmuxIrxTransport": 30,
    "CmuxNextControl": 22,
    "CmuxNextDaemon": 88,
@@ -61,7 +61,7 @@
   },
   "int_conversion": {
    "CMUXMobileCore": 18,
-   "CmuxIrohTransport": 72,
+   "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 43,
    "CmuxNextControl": 45,
    "CmuxNextDaemon": 8,
