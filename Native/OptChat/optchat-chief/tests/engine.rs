@@ -122,21 +122,19 @@ fn an_unknown_harness_keeps_the_default() {
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].harness, "claude-sr");
 }
 
-/// cx-1hpt: with no compactor harness of its own, the compactor runs on the
-/// turns' harness from engine.json (a home whose Claude has no login picks
-/// codex there; the compactor must not stay on Claude). Its own choice
-/// (env, then engine.json's compactor-harness) still wins.
+/// Lawrence 2026-10-09 ("just always use haiku for default compactor"):
+/// the turns' harness never picks the compactor's. With no compactor
+/// harness set, engine.json's turn harness (codex here) leaves the
+/// compactor's choice empty, so the host gives it its Claude route. Only an
+/// explicit setting (env, then engine.json's compactor-harness) picks one.
 #[test]
-fn the_compactor_harness_follows_the_engine_file_turn_harness() {
+fn the_turn_harness_never_picks_the_compactor_harness() {
     use optchat_chief::engine::compactor_harness_setting;
     let codex_turns = EngineChoice {
         harness: Some("codex".into()),
         ..EngineChoice::default()
     };
-    assert_eq!(
-        compactor_harness_setting(None, &codex_turns).as_deref(),
-        Some("codex")
-    );
+    assert_eq!(compactor_harness_setting(None, &codex_turns), None);
     let pinned = EngineChoice {
         compactor_harness: Some("claude".into()),
         ..codex_turns.clone()
@@ -192,4 +190,20 @@ fn a_fast_codex_turn_runs_fast_and_claude_refuses_fast() {
     let choice = optchat_chief::engine::apply_flags(EngineChoice::default(), &flags).unwrap();
     assert_eq!(choice.speed.as_deref(), Some("fast"));
     assert_eq!(choice.compactor_speed.as_deref(), Some("fast"));
+}
+
+/// Lawrence 2026-10-09: a codex (or any non-Claude) Chief with no compactor
+/// settings builds its nodes on a Claude route (the configured CodeRouter
+/// route, else the user's own claude) with Claude Haiku 5.5; a Claude Chief
+/// keeps its own route (claude-sr when that is the turns').
+#[test]
+fn a_non_claude_chief_compacts_on_claude_haiku() {
+    use optchat_chief::host::default_compactor_harness;
+    assert_eq!(default_compactor_harness("codex", Family::Codex, "claude"), "claude");
+    assert_eq!(default_compactor_harness("opencode", Family::Other, "claude-cr"), "claude-cr");
+    assert_eq!(default_compactor_harness("claude-sr", Family::Claude, "claude"), "claude-sr");
+    assert_eq!(
+        optchat_chief::compactor::compactor_model_for(Family::Claude).as_deref(),
+        Some("claude-haiku-5-5")
+    );
 }

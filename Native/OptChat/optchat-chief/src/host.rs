@@ -67,6 +67,12 @@ pub fn harness_choice(
     (turn, compactor)
 }
 
+/// The compactor's harness when none is set: the turns' own when it is a
+/// Claude harness, else `claude` (the Claude route acpmux would pick).
+pub fn default_compactor_harness(turn: &str, _family: Family, _claude: &str) -> String {
+    turn.to_owned()
+}
+
 /// The default harness: acpmux's own Claude Code adapter (`claude_stdio`)
 /// running the user's own `claude` login. The subrouter pool (`claude-sr`)
 /// is only an explicit choice.
