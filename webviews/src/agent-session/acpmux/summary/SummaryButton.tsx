@@ -1,27 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow } from "../model";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
+import type { SummaryCardProps } from "./PinnedSummaryCard";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
 /// summary is read from the transcript only while the popover is open, so a live turn pays
 /// nothing for it while it is closed. Its Outputs section opens the chat's gallery; an image
 /// there opens the image viewer (`onOpenImage`) in the gallery's place.
-export function SummaryButton({
-  rows,
-  onOpenOutput,
-  onOpenImage,
-}: {
-  rows: readonly AcpmuxRow[];
-  onOpenOutput?: (path: string) => void;
-  onOpenImage?: (src: string, alt: string) => void;
-}) {
+export function SummaryButton({ rows, onOpenOutput, onOpenImage }: SummaryCardProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState(false);
