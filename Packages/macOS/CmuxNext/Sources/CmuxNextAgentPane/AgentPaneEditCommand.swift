@@ -12,7 +12,7 @@ public nonisolated enum AgentPaneEditCommand: String, Equatable, Sendable {
         case .cut: #selector(NSText.cut(_:))
         case .copy: #selector(NSText.copy(_:))
         case .paste: #selector(NSText.paste(_:))
-        case .pasteAsPlainText: NSSelectorFromString("pasteAsPlainText:")
+        case .pasteAsPlainText: #selector(NSTextView.pasteAsPlainText(_:))
         }
     }
 }
