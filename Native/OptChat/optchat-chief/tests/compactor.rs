@@ -1274,3 +1274,35 @@ fn the_compactor_runs_at_medium_effort_like_the_spec() {
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
 }
+
+/// Single-flight (hq-6d gap 3a): the next node with the same marked prefix
+/// prompts as soon as the writing node's harness streams its first output
+/// (its cache entry exists then), not when the writer's turn ends.
+#[test]
+fn the_next_node_prompts_at_the_writers_first_streamed_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    agents.hold(true);
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    let chat = OptChat::open_with(
+        dir.path().join("chat"),
+        config,
+        Arc::new(compactor(&agents, dir.path())),
+        Arc::new(SystemClock),
+    )
+    .unwrap();
+    // Two long messages on an empty chat: both nodes mark the same prefix.
+    chat.append(Kind::User, &"deploy step; ".repeat(100)).unwrap();
+    chat.append(Kind::User, &"build step; ".repeat(100)).unwrap();
+    agents.wait_prompts(1);
+    // The writer's harness streams its first chunk: acpmux says Changed.
+    let writer = agents.inner.lock().unwrap().signals.values().next().cloned().unwrap();
+    writer.send(optchat_chief::acpmux::TurnSignal::Changed).unwrap();
+    agents.wait_prompts(2);
+    agents.release();
+    agents.release();
+    assert!(chat.settle(None, Some(WAIT)), "{:?}", chat.status().failures);
+}

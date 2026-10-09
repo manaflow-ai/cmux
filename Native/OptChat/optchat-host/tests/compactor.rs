@@ -355,3 +355,72 @@ fn a_cut_line_is_retried_against_its_reduced_room() {
         format!("{prefix}user: short")
     );
 }
+
+/// A model that reports its response start before it answers.
+struct Starting<F>(F);
+
+impl<F> CompactModel for Starting<F>
+where
+    F: Fn(&CompactRequest, &dyn Fn()) -> Result<Reply, ModelError> + Send + Sync,
+{
+    fn call(&self, request: &CompactRequest, _: &[Followup]) -> Result<Reply, ModelError> {
+        (self.0)(request, &|| {})
+    }
+
+    fn call_started(
+        &self,
+        request: &CompactRequest,
+        _: &[Followup],
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        (self.0)(request, started)
+    }
+}
+
+/// Single-flight (spec 3.3): calls that wait for another call writing the
+/// same marked prefix go as soon as that call's response starts, when the
+/// cache entry exists, not when its whole reply is in; and they go together,
+/// since the entry is there for all of them (hq-6d gap 3a).
+#[test]
+fn single_flight_releases_waiting_calls_together_when_the_writers_response_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let (entered_tx, entered) = mpsc::channel::<NodeId>();
+    let entered_tx = Mutex::new(entered_tx);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = {
+        let (calls, gate) = (calls.clone(), gate.clone());
+        Arc::new(Starting(move |r: &CompactRequest, started: &dyn Fn()| {
+            let k = calls.fetch_add(1, Ordering::SeqCst);
+            entered_tx.lock().unwrap().send(r.node).unwrap();
+            if k == 0 {
+                // The writer's response starts; the others never report one.
+                started();
+            }
+            // Every reply takes long.
+            let (open, cv) = &*gate;
+            let open = open.lock().unwrap();
+            let _ = cv
+                .wait_timeout_while(open, Duration::from_secs(20), |o| !*o)
+                .unwrap();
+            Ok(Reply::text(summary(r.node, 200)))
+        }))
+    };
+    let chat = open(dir.path(), 128_000, model);
+    // Three long messages on an empty chat: every call marks the same prefix.
+    for n in 0..3 {
+        chat.append(Kind::User, &long(n)).unwrap();
+    }
+    let first = entered.recv_timeout(Duration::from_secs(10)).unwrap();
+    let others: Vec<_> = (0..2)
+        .map(|_| entered.recv_timeout(Duration::from_secs(3)))
+        .collect();
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    assert!(
+        others.iter().all(Result::is_ok),
+        "waiting calls did not all go at the writer's response start ({} writing): {others:?}",
+        first.name()
+    );
+    assert!(chat.wait_idle(None, WAIT));
+}
