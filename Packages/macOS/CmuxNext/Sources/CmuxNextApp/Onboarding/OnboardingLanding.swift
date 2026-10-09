@@ -23,4 +23,13 @@ enum OnboardingLanding: Equatable {
         guard firstRun, !hasOpenWindow || shown == .home else { return .stay }
         return fresh.map { .select(workspaceID: $0) } ?? .newWorkspace
     }
+
+    /// Whether the main window comes back when Skip or Done ends
+    /// onboarding (chief rule): a minimized one is deminiaturized and
+    /// brought to the front, whatever the landing, because the person just
+    /// finished setup and expects to see it. Nothing else about the window
+    /// changes (no fullscreen change, move, resize or new window).
+    nonisolated static func restoresMainWindow(minimized: Bool) -> Bool {
+        minimized
+    }
 }
