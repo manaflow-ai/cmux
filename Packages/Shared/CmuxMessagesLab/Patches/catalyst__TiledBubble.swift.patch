@@ -18,12 +18,14 @@
          let lh = Fixture.lineHeight
          let size = CGSize(width: width, height: CGFloat(linesPerTile) * lh + 2 * overflow)
          return WideBitmap.make(size: size, scale: scale, opaque: false) { ctx in
-@@ -45,8 +45,8 @@
+@@ -44,9 +44,9 @@
+         let lh = Fixture.lineHeight
          let attr = bl.attributed(outgoing: outgoing)
          let a = chunk * linesPerTile, b = min(bl.lines.count, a + linesPerTile)
-         guard a < b else { return }
+-        guard a < b else { return }
 -        for j in a..<b where bl.lines[j].length > 0 {
 -            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: bl.lines[j]))
++        guard a >= 0, a < b else { return } // cmux: a negative chunk draws nothing
 +        for (j, line) in zip(a..<b, bl.lines.dropFirst(a)) where line.length > 0 { // cmux: no index math
 +            let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line))
              ctx.saveGState()

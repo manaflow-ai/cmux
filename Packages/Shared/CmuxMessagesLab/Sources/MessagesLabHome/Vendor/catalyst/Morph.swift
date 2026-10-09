@@ -183,8 +183,8 @@ final class MorphBubble {
         }
         var first = steps
         var run = 0
-        for i in ok.indices {
-            run = ok[i] ? run + 1 : 0
+        for (i, good) in ok.enumerated() { // cmux: no index math
+            run = good ? run + 1 : 0
             if run == 12 { first = i - 11; break }
         }
         let settle = 0.3 + Double(min(first, steps)) / 120

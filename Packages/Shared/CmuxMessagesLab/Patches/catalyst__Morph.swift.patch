@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
-@@ -176,11 +176,10 @@
+@@ -176,16 +176,15 @@
          // The first 1/120 s step from 0.3 s with 12 steps in a row inside every
          // tolerance (each step's checks evaluated once; same result as testing
          // 12 steps per candidate, about 12x less spring math on the send commit).
@@ -15,6 +15,13 @@
          }
          var first = steps
          var run = 0
+-        for i in ok.indices {
+-            run = ok[i] ? run + 1 : 0
++        for (i, good) in ok.enumerated() { // cmux: no index math
++            run = good ? run + 1 : 0
+             if run == 12 { first = i - 11; break }
+         }
+         let settle = 0.3 + Double(min(first, steps)) / 120
 @@ -252,7 +251,7 @@
          let padded = UIGraphicsImageRenderer(size: CGSize(width: size.width + 2 * p, height: size.height + 2 * p), format: fmt).image { ctx in
              PartRenderer.drawText(ctx.cgContext, tl, in: CGRect(x: p, y: p, width: size.width, height: size.height), outgoing: true)
