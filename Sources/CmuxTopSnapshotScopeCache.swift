@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-struct CmuxTopProcessScopeCacheKey: Hashable {
+struct CmuxTopProcessScopeCacheKey: Hashable, Sendable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
