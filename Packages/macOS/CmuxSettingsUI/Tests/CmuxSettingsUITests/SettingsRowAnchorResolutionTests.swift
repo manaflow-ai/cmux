@@ -61,6 +61,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.warnBeforeClosingTabXButton",
         "app.warnBeforeClosingWindow",
         "app.warnBeforeClosingWorkspace",
+        "app.whatsNew",
         "app.workspaceInheritWorkingDirectory",
         "agentMessages.enabled",
         "automation.agentAutoResume",
@@ -289,6 +290,16 @@ struct SettingsRowAnchorResolutionTests {
             brokenAliasedAnchors.isEmpty,
             "these aliased search results point to non-reachable anchors: \(brokenAliasedAnchors.sorted())"
         )
+    }
+
+    @Test
+    func whatsNewSearchEntryTargetsItsSettingsRow() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let anchor = try #require(index.anchorID(forSettingsPath: "app.whatsNew"))
+
+        #expect(anchor == "setting:app:whats-new")
+        #expect(index.entries.contains { $0.id == anchor })
+        #expect(Self.rowConfigPaths.contains("app.whatsNew"))
     }
 
     /// A setting search hit must select a real row anchor, not merely

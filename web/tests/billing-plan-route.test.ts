@@ -150,6 +150,19 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("none");
   });
 
+  test("reports implicit team billing management for an administrator", async () => {
+    currentUser = planUser({
+      selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+      hasPermission: async () => true,
+    });
+    stripeSubscriptionResults = [[], []];
+
+    const response = await planResponse();
+
+    expect(response.teamPlanId).toBe("free");
+    expect(response.canManageBilling).toBe(true);
+  });
+
   test("does not transfer pending ownership during a plan read", async () => {
     currentUser = planUser({ primaryEmailVerified: true });
     const response = await planResponse();
@@ -189,6 +202,7 @@ async function planResponse() {
 function planUser(options: {
   selectedTeam?: unknown;
   listTeams?: () => Promise<readonly unknown[]>;
+  hasPermission?: (team: unknown, permissionId: string) => Promise<boolean>;
   stackProductGrant?: boolean;
   primaryEmailVerified?: boolean;
 } = {}) {
@@ -201,6 +215,7 @@ function planUser(options: {
     clientReadOnlyMetadata: {},
     selectedTeam: options.selectedTeam ?? null,
     listTeams: options.listTeams ?? mock(async () => []),
+    hasPermission: options.hasPermission ?? mock(async () => false),
     stackProductGrant: options.stackProductGrant ?? false,
     update: mock(async () => undefined),
   };

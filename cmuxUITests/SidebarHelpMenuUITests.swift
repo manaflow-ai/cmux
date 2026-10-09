@@ -173,10 +173,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 2.0) {
-                !app.buttons["SidebarHelpMenuOptionSettings"].exists
-                    && !app.buttons["Settings…"].exists
+                !app.menuItems["SidebarHelpMenuOptionSettings"].exists
             },
-            "Expected the Help popover to dismiss after opening Settings"
+            "Expected the Help menu to close after opening Settings"
         )
         XCTAssertEqual(app.windows.count, 2, "Expected one main window and one Settings window")
 
@@ -229,10 +228,13 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
         let sidebar = app.otherElements["Sidebar"]
+        // Help lives in the footer's one menu button (account chip, or "Help"
+        // while the account button flag is off).
         return [
-            app.buttons["SidebarHelpMenuButton"],
+            app.buttons["SidebarAccountMenuButton"],
+            app.buttons["Account"],
             app.buttons["Help"],
-            sidebar.buttons["SidebarHelpMenuButton"],
+            sidebar.buttons["SidebarAccountMenuButton"],
             sidebar.buttons["Help"],
             app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Help")).firstMatch,
         ]
@@ -243,9 +245,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         identifier: String,
         title: String
     ) -> [XCUIElement] {
+        // The footer menu button opens a native NSMenu.
         [
-            app.buttons[identifier],
-            app.buttons[title],
+            app.menuItems[identifier],
+            app.menuItems[title],
         ]
     }
 
@@ -358,8 +361,17 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
-                !app.buttons["SidebarHelpMenuButton"].exists && !app.buttons["Help"].exists
-            }
+                // Not the footer button's identifier. The sidebar container
+                // sets its own, and SwiftUI hands that one down to every
+                // descendant, so the footer button reports `Sidebar` and a
+                // lookup by `SidebarAccountMenuButton` never finds it. An
+                // assertion that it does not exist would pass with the sidebar
+                // wide open. The label survives, and so does the container.
+                !app.otherElements["Sidebar"].exists
+                    && !app.buttons["Account"].exists
+                    && !app.buttons["Help"].exists
+            },
+            "Expected Cmd-B to take the sidebar and its footer button away"
         )
 
         app.typeKey("f", modifierFlags: [.command, .option])
