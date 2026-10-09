@@ -499,7 +499,7 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.proto-tab-select[aria-selected="true"] {
+.proto-tab.is-active {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-text) !important;
 }

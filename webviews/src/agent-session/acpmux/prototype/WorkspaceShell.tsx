@@ -152,9 +152,16 @@ export function WorkspaceShell() {
       const result = closeTab(stack, workspaceId, tabId);
       if (!result.closed) return;
       if (result.focus) focusAfterClose.current = result.focus;
+      if (
+        mini?.spaceId === space.id &&
+        mini.workspaceId === workspaceId &&
+        !result.stack.workspaces.some((workspace) => workspace.id === workspaceId)
+      ) {
+        setMini(undefined);
+      }
       showSpaces(withStack(spaces, result.stack));
     },
-    [spaces, stack, showSpaces],
+    [mini, space.id, spaces, stack, showSpaces],
   );
 
   useEffect(() => {
@@ -353,7 +360,11 @@ export function WorkspaceShell() {
           {active.tabs.map((tab) => {
             const KindIcon = KIND_ICONS[tab.kind];
             return (
-              <div key={tab.id} className={`proto-tab proto-tab-${tab.kind}`}>
+              <div
+                key={tab.id}
+                role="presentation"
+                className={`proto-tab proto-tab-${tab.kind}${tab.id === activeTab.id ? " is-active" : ""}`}
+              >
                 <button
                   ref={(element) => {
                     const key = `${active.id}:${tab.id}`;
@@ -620,8 +631,9 @@ function MiniBrowser({
   onPromote: () => void;
   onClose: () => void;
 }) {
-  const space = spaces.spaces.find((candidate) => candidate.id === mini.spaceId)!;
-  const target = space.stack.workspaces.find((candidate) => candidate.id === mini.workspaceId)!;
+  const space = spaces.spaces.find((candidate) => candidate.id === mini.spaceId);
+  const target = space?.stack.workspaces.find((candidate) => candidate.id === mini.workspaceId);
+  if (!space || !target) return null;
   return (
     <section className="proto-mini" aria-label="Mini window">
       <header>
