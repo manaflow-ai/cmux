@@ -12,8 +12,8 @@ use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Surface, SurfaceKind};
 
 /// Add `kind`, `conversation`, the `browser_*` fields, `url` and
-/// `terminal_host_fallback` (set only for a terminal that runs in the daemon
-/// process although hosts are on, so it ends with the daemon) to `tab`.
+/// `terminal_host_fallback` (set only for a terminal that will end with the
+/// daemon or the daemon's job although hosts are on) to `tab`.
 pub(super) fn merge_surface_fields(
     tab: &mut Value,
     surface: Option<&Arc<Surface>>,

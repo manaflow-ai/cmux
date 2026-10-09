@@ -1,7 +1,8 @@
 //! A terminal's relation to its host as clients see it: the connection state
 //! to a hosted terminal's host (tab JSON `terminal_state`; read by
 //! `metadata.rs`), and why a terminal runs in the daemon process although
-//! hosts are on (tab JSON `terminal_host_fallback`, cx-ko2e).
+//! hosts are on or why its host ends with the daemon's job (tab JSON
+//! `terminal_host_fallback`, cx-ko2e).
 
 use super::Surface;
 
@@ -25,35 +26,41 @@ impl TerminalHostConnectionState {
     }
 }
 
-/// Why a terminal runs in the daemon process while terminal hosts are on, so
-/// it ends with the daemon instead of surviving a restart
-/// (plans/cmux-next/windows-terminal-hosts.md). Clients read an unknown
-/// value as a fallback for another reason.
+/// Why a terminal will not outlive what normally ends only its shell,
+/// although terminal hosts are on (plans/cmux-next/windows-terminal-hosts.md,
+/// coordinator decision 2026-10-09). Clients read an unknown value as a
+/// notice for another reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalHostFallback {
-    /// Windows: the daemon runs in a Job Object that does not allow
-    /// breakaway (`CREATE_BREAKAWAY_FROM_JOB` gave `ERROR_ACCESS_DENIED`), so
-    /// a host would end with the daemon's job; the daemon owns the ConPTY.
+    /// Windows: the daemon's Job Object forbids breakaway and kills its
+    /// processes on close, so the terminal's host runs inside that job. It
+    /// survives a daemon restart but ends when the program that started the
+    /// daemon closes the job.
     BreakawayDenied,
+    /// The host process did not start, so the daemon runs the terminal in
+    /// its own process (ConPTY): it ends with the daemon.
+    HostStartFailed,
 }
 
 impl TerminalHostFallback {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::BreakawayDenied => "breakaway_denied",
+            Self::HostStartFailed => "host_start_failed",
         }
     }
 }
 
 impl Surface {
-    /// Why this terminal runs in the daemon process although terminal hosts
-    /// are on (tab JSON `terminal_host_fallback`): it ends with the daemon.
+    /// Why this terminal will not outlive what normally ends only its shell
+    /// although terminal hosts are on (tab JSON `terminal_host_fallback`).
     pub fn terminal_host_fallback(&self) -> Option<TerminalHostFallback> {
         self.as_pty().and_then(|pty| pty.host_fallback.get().copied())
     }
 
-    /// Record why this terminal could not get its own host. Call it before
-    /// the surface is published; a later call keeps the first reason.
+    /// Record why this terminal could not get a host that outlives the
+    /// daemon and its starter. Call it before the surface is published; a
+    /// later call keeps the first reason.
     // Called by the Windows host spawn (terminal_host_runtime/windows, cx-ko2e).
     #[allow(dead_code)]
     pub(crate) fn mark_terminal_host_fallback(&self, reason: TerminalHostFallback) {
