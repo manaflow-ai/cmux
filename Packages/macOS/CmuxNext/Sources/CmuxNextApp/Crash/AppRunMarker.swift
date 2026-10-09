@@ -57,6 +57,7 @@ final class AppRunMarker {
     let recovery: LaunchRecovery
 
     private var signalFile: URL { directory.appending(path: "run.signal") }
+    private var exceptionFile: URL { directory.appending(path: "run.exception") }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -70,7 +71,8 @@ final class AppRunMarker {
     init(directory root: URL, now: Date = Date()) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
-        let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"))
+        let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
+                                         exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: recovery.isRestart, survived: false, signal: nil)
         start()
@@ -85,6 +87,9 @@ final class AppRunMarker {
             return
         }
         writeMarker()
+        // The previous run's exception was read in init; this run records its own.
+        unlink(exceptionFile.path)
+        UncaughtExceptionRecorder.install(writingTo: exceptionFile)
         // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
@@ -150,6 +155,8 @@ final class AppRunMarker {
         let descriptor = fatalSignalDescriptor
         fatalSignalDescriptor = -1
         if descriptor >= 0 { close(descriptor) }
+        UncaughtExceptionRecorder.uninstall()
+        unlink(exceptionFile.path)
         file.close()
     }
 
@@ -163,7 +170,7 @@ final class AppRunMarker {
         }
     }
 
-    nonisolated static func readPrevious(marker: URL, signal: URL) -> PreviousRun? {
+    nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
         // concurrency-allow: once at launch before the first window, a file of about 150 bytes in Application Support.
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
@@ -175,6 +182,7 @@ final class AppRunMarker {
            let number = Int32(first.trimmingCharacters(in: .whitespaces)), number > 0 {
             run.signal = number
         }
+        if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
         return run
     }
 }

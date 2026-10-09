@@ -523,7 +523,7 @@ final class LongTextLayout: @unchecked Sendable {
                 let total = first + counts.reduce(0) { $0 + $1.1 }
                 var line = first
                 for (b, c) in counts {
-                    // cmux: every block in `counts` has its layout; no force unwrap (crash ratchet).
+                    // Every block in `counts` has its layout; guard anyway (no force unwrap in vendored code).
                     guard let layout = layouts[b] else { line += c; continue }
                     let from = b == blocks.lowerBound ? max(0, oldFirst - 1) / n : 0
                     for chunk in from..<max(from, (c + n - 1) / n) where line + chunk * n + n > total - 80 {

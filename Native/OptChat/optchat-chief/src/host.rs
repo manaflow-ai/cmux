@@ -116,6 +116,14 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    if family == Family::Claude && isolate {
+        // The preset's system prompt carries the instructions: no CLAUDE.md
+        // file reaches a turn (the user's own ~/.claude/CLAUDE.md included).
+        env.insert(
+            "CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(),
+            "1".to_owned(),
+        );
+    }
     if family == Family::Claude {
         // claude-sr (when chosen): every turn of this Chief on one sticky
         // subrouter account. Other Claude routes ignore the variable.

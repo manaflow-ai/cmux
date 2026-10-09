@@ -336,8 +336,9 @@ pub struct AcpmuxCompactor {
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
-    /// breakpoint of its own): later nodes go without it.
-    marker_refused: AtomicBool,
+    /// breakpoint of its own): the next `MARK_RETRY_AFTER` nodes go without
+    /// it, then it is tried again.
+    marker_refused: crate::prompt::MarkLatch,
     /// The turns' cache TTL on this route (`with_cache_ttl`).
     cache_ttl: SharedTtl,
     /// The model sessions start with: `spec.model`, until the account
@@ -368,7 +369,7 @@ impl AcpmuxCompactor {
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
-            marker_refused: AtomicBool::new(false),
+            marker_refused: crate::prompt::MarkLatch::default(),
             cache_ttl: SharedTtl::default(),
             model,
             model_fallback: None,
@@ -870,7 +871,7 @@ impl AcpmuxCompactor {
         started: &dyn Fn(),
     ) -> Result<Reply, ModelError> {
         let node = request.node;
-        let marker = !self.marker_refused.load(Ordering::SeqCst);
+        let marker = self.marker_refused.take();
         // The turns' TTL on this route, read once: the mark, the slot's
         // Claude Code settings and the warm session key agree.
         let ttl = self.cache_ttl.get();
@@ -882,11 +883,12 @@ impl AcpmuxCompactor {
             .any(|b| b.get("cache_control").is_some());
         match self.prompt(node, &session, layout.blocks, started) {
             Err(e) if has_marker && is_marker_limit_error(&e.message) => {
-                self.marker_refused.store(true, Ordering::SeqCst);
+                self.marker_refused.refused();
                 self.say(&format!(
-                    "compactor node {}: Claude Code refused the cache_control marker ({}); retrying without it, and later nodes go without it",
+                    "compactor node {}: Claude Code refused the cache_control marker ({}); retrying without it, and the next {} nodes go without it",
                     node.name(),
-                    e.message
+                    e.message,
+                    crate::prompt::MARK_RETRY_AFTER
                 ));
                 // A fresh session: the refused prompt may sit in the old one's history.
                 self.end(request);

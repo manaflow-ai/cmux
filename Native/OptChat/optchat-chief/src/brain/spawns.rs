@@ -77,10 +77,7 @@ impl Brain {
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
         // The turns' TTL for a Claude subagent's mark; none once a route
         // refused our marks.
-        let ttl = (!self
-            .marker_refused
-            .load(std::sync::atomic::Ordering::SeqCst))
-        .then(|| self.turn_cache_ttl());
+        let ttl = (!self.marker_refused.is_off()).then(|| self.turn_cache_ttl());
         Ok(SpawnPlan {
             spawn,
             ids,

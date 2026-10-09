@@ -420,3 +420,45 @@ fn the_host_env_picks_the_ttl_and_a_forced_five_minute_harness_wins() {
         Some(CacheTtl::FiveMinutes)
     );
 }
+
+/// A refused mark is not refused for good: after 10 turns without it the
+/// next turn carries it again (a 400 costs one fast rerun; a lost mark costs
+/// the view on every turn).
+#[test]
+fn a_refused_marker_comes_back_after_ten_turns() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": MARKER_LIMIT}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::configured(dir, script, owner(), s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    for i in 0..12 {
+        h.say("user_local", &format!("turn {i}"));
+        h.settle();
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    // Turn 0 twice (refused, then unmarked), then turns 1..=11.
+    assert_eq!(inner.prompts.len(), 13);
+    for k in 1..=11 {
+        assert!(markers(&inner.prompts[k]).is_empty(), "prompt {k}");
+    }
+    assert_eq!(
+        markers(&inner.prompts[12]).len(),
+        1,
+        "turn 11 tries the mark again"
+    );
+}
