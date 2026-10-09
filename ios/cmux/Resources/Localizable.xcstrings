@@ -106900,6 +106900,360 @@
           }
         }
       }
+    },
+    "mobile.terminal.sizing.mode.latest.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the device that most recently sends input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後に入力したデバイスを使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet das Gerät, das zuletzt Eingaben sendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise l’appareil qui envoie des entrées le plus récemment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم الجهاز الذي أرسل إدخالًا مؤخرًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el dispositivo que envía entradas más recientemente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用最近傳送輸入的裝置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用最近发送输入的设备。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 최근에 입력한 기기를 사용합니다."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.mode.smallest.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the smallest grid that fits every connected device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されているすべてのデバイスに収まる最小グリッドを使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet das kleinste Raster, das auf jedes verbundene Gerät passt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise la plus petite grille adaptée à tous les appareils connectés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم أصغر شبكة تلائم جميع الأجهزة المتصلة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la cuadrícula más pequeña que cabe en todos los dispositivos conectados."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用能容納所有已連接裝置的最小網格。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用能容纳所有已连接设备的最小网格。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 모든 기기에 맞는 가장 작은 격자를 사용합니다."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.mode.largest.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the largest grid reported by connected devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続されているデバイスが報告した最大グリッドを使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendet das größte von den verbundenen Geräten gemeldete Raster."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise la plus grande grille signalée par les appareils connectés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم أكبر شبكة أبلغت عنها الأجهزة المتصلة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la cuadrícula más grande indicada por los dispositivos conectados."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已連接裝置回報的最大網格。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已连接设备报告的最大网格。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 기기가 보고한 가장 큰 격자를 사용합니다."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.mode.priority.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first available device in the list sets the grid. Drag to reorder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストの最初にある利用可能なデバイスがグリッドを設定します。ドラッグして並べ替えます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das erste verfügbare Gerät in der Liste legt das Raster fest. Ziehen zum Sortieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le premier appareil disponible de la liste définit la grille. Faites glisser pour réorganiser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد أول جهاز متاح في القائمة الشبكة. اسحب لإعادة الترتيب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El primer dispositivo disponible de la lista define la cuadrícula. Arrastra para reordenar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清單中第一個可用的裝置會設定網格。拖曳即可重新排序。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表中第一个可用设备会设置网格。拖动即可重新排序。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목록에서 사용 가능한 첫 번째 기기가 격자를 설정합니다. 드래그하여 순서를 바꾸세요."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.mode.fixed.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps every device at the fixed grid you enter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力した固定グリッドをすべてのデバイスで使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hält jedes Gerät auf dem eingegebenen festen Raster."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garde chaque appareil sur la grille fixe que vous saisissez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقي كل جهاز على الشبكة الثابتة التي تدخلها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene todos los dispositivos en la cuadrícula fija que introduzcas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓所有裝置使用你輸入的固定網格。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让所有设备使用你输入的固定网格。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 기기를 입력한 고정 격자로 유지합니다."
+          }
+        }
+      }
+    },
+    "mobile.terminal.sizing.sheet.priorityOrder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priority order"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先順位"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritätsreihenfolge"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordre de priorité"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترتيب الأولوية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orden de prioridad"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先順序"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先顺序"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 순서"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

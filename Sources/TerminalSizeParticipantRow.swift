@@ -4,25 +4,26 @@ import CmuxTerminalSizing
 import SwiftUI
 
 /// One participant row of the size panel: a neutral avatar
-/// (``TerminalSizingChromeColor/panelColor(_:)``), name, `sets size`
-/// for the owner or `not counted` for an ignored row, and on hover a "…" menu
-/// with Counts toward size and Disconnect.
-/// In priority mode a leading drag handle shows the row can be reordered.
+/// (``TerminalSizingChromeColor/panelColor(_:)``), name, and an optional
+/// priority rank. A hover menu remains for disconnecting another participant.
 struct TerminalSizeParticipantRow: View {
     let row: TerminalSizingParticipantState
     let initials: String
     let label: String
     let isOwner: Bool
     let statusLabel: String?
-    let showsDragHandle: Bool
-    let onCountsChange: (Bool) -> Void
+    let priorityRank: Int?
     let onDisconnect: (() -> Void)?
 
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if showsDragHandle {
+            if let priorityRank {
+                Text(verbatim: "\(priorityRank)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, alignment: .trailing)
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
@@ -70,32 +71,28 @@ struct TerminalSizeParticipantRow: View {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private var optionsMenu: some View {
-        Menu {
-            Toggle(
-                String(localized: "terminalSharing.panel.counts", defaultValue: "Counts toward size"),
-                isOn: Binding(get: { row.counts }, set: onCountsChange)
-            )
-            if let onDisconnect {
-                Divider()
+        if let onDisconnect {
+            Menu {
                 Button(String(localized: "terminalSharing.panel.disconnect", defaultValue: "Disconnect"), role: .destructive) {
                     onDisconnect()
                 }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
             }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel(String(
+                format: String(localized: "terminalSharing.panel.rowOptions", defaultValue: "Options for %@"),
+                label
+            ))
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel(String(
-            format: String(localized: "terminalSharing.panel.rowOptions", defaultValue: "Options for %@"),
-            label
-        ))
     }
 }

@@ -48,6 +48,10 @@ struct TerminalSizePanelView: View {
         return VStack(alignment: .leading, spacing: 8) {
             header(presentation)
             modeRow(snapshot.state.policy.mode)
+            Text(TerminalSharingDisplay.modeDescription(snapshot.state.policy.mode))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if snapshot.state.policy.mode == .fixed {
                 fixedSizeEditor(snapshot.state.policy.fixed ?? snapshot.state.size)
             }
@@ -138,6 +142,12 @@ struct TerminalSizePanelView: View {
         let isPriority = presentation.state.policy.mode == .priority
         let snapshot = presentation.snapshot
         return VStack(spacing: 2) {
+            if isPriority {
+                Text(TerminalSharingDisplay.priorityOrderTitle())
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 2)
+            }
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                 let isSelf = row.id == snapshot.selfParticipantID
                 let rowView = TerminalSizeParticipantRow(
@@ -146,8 +156,7 @@ struct TerminalSizePanelView: View {
                     label: presentation.participantLabel(for: row.participant),
                     isOwner: row.id == presentation.ownerID,
                     statusLabel: TerminalSharingDisplay.rowStatusLabel(presentation.rowStatus(for: row)),
-                    showsDragHandle: isPriority,
-                    onCountsChange: { setCounts($0, participantID: row.id) },
+                    priorityRank: isPriority ? index + 1 : nil,
                     onDisconnect: isSelf ? nil : {
                         _ = store.disconnect(participantID: row.id, surfaceID: surfaceID)
                     }
@@ -168,22 +177,24 @@ struct TerminalSizePanelView: View {
         }
     }
 
-    /// `true` clears any viewer override (automatic rule); if the automatic
-    /// rule still excludes the participant, forces it to count.
-    private func setCounts(_ counts: Bool, participantID: String) {
-        _ = store.setCountsOverride(counts ? nil : false, participantID: participantID, surfaceID: surfaceID)
-        if counts, store.snapshot(for: surfaceID)?.state.participant(participantID)?.counts == false {
-            _ = store.setCountsOverride(true, participantID: participantID, surfaceID: surfaceID)
-        }
-    }
-
     private func movePriority(_ rows: [TerminalSizingParticipantState], from: Int, to: Int) {
         guard from != to, rows.indices.contains(from), rows.indices.contains(to) else { return }
         var keys = rows.map(\.priorityKey)
         let key = keys.remove(at: from)
         keys.insert(key, at: to)
         var seen = Set<String>()
-        _ = store.setPriority(keys.filter { seen.insert($0).inserted }, surfaceID: surfaceID)
+        let ranked = keys.filter { seen.insert($0).inserted }
+        // Keep saved keys for devices that are temporarily detached. They are
+        // not visible in this panel, but should regain their stored slot when
+        // they reconnect.
+        let detached = store.snapshot(for: surfaceID)
+            .map { snapshot in
+                snapshot.state.policy
+                    .migratingLegacyPriorityKeys(snapshot.state.participants.map(\.participant))
+                    .priority
+                    .filter { !seen.contains($0) }
+            } ?? []
+        _ = store.setPriority(ranked + detached, surfaceID: surfaceID)
     }
 
     @ViewBuilder

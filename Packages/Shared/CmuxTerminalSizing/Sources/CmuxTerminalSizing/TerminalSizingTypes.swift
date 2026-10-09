@@ -322,4 +322,20 @@ extension TerminalSizingPolicy {
         }
         return TerminalSizingPolicy(mode: mode, priority: keys, fixed: fixed)
     }
+
+    /// Completes a priority list for the currently attached participants.
+    ///
+    /// Stored keys keep their order, legacy keys are expanded to their
+    /// per-device keys, and attached participants missing from the list are
+    /// appended in host order. Detached keys remain in place so a reconnect
+    /// returns to its saved rank.
+    ///
+    /// - Parameter participants: the attached participants, in host order.
+    /// - Returns: A policy with every attached participant ranked exactly once.
+    public func withCompletePriority(for participants: [TerminalSizingParticipant]) -> TerminalSizingPolicy {
+        var completed = migratingLegacyPriorityKeys(participants)
+        var seen = Set(completed.priority)
+        completed.priority.append(contentsOf: participants.map(\.priorityKey).filter { seen.insert($0).inserted })
+        return completed
+    }
 }
