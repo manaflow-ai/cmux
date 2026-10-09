@@ -17,6 +17,7 @@ mkdir -p "$TMP/bin" "$TMP/steptmp" "$TMP/dev"
 cat > "$TMP/bin/xcodebuild" <<EOF
 #!/bin/bash
 if [[ "\$1" == "-version" ]]; then echo "Xcode 26.6"; exit 0; fi
+args="\$*"
 while [[ \$# -gt 0 ]]; do
   if [[ "\$1" == "-derivedDataPath" ]]; then
     printf '%s\n' "\$2" >> "$TMP/paths"
@@ -25,6 +26,7 @@ while [[ \$# -gt 0 ]]; do
   fi
   shift
 done
+printf '%s\n' "\$args" >> "$TMP/args"
 if [[ -n "\${STUB_STALE_ONCE:-}" && ! -e "$TMP/stale-done" ]]; then
   touch "$TMP/stale-done"
   echo "error: file '/x/include/CCmuxRdFFI/cmux_rd_ffi.h' has been modified since the module file '/x/CCmuxRdFFI-1.pcm' was built"
@@ -41,7 +43,7 @@ run() {
     /bin/bash "$ROOT/scripts/cmux-next/check-cmux-scheme-compile.sh" ${SC_ARG:+"$SC_ARG"} >"$TMP/out" 2>&1
 }
 fail() { printf 'FAIL: %s\n' "$1"; cat "$TMP/out"; exit 1; }
-reset() { rm -f "$TMP/paths" "$TMP/existed" "$TMP/stale-done"; }
+reset() { rm -f "$TMP/paths" "$TMP/args" "$TMP/existed" "$TMP/stale-done"; }
 
 # 1. With no argument, two runs get two fresh DerivedData paths in the step
 #    TMPDIR (not the old shared /tmp/cmux-scheme-compile) and remove them.
@@ -72,5 +74,21 @@ SC_ARG="$TMP/kept-dd" run STUB_STALE_ONCE=1 || fail "kept-path retry run exited 
 [[ $(wc -l < "$TMP/paths") -eq 2 ]] || fail "kept path built $(wc -l < "$TMP/paths") times (want 2: build + retry)"
 [[ $(sort -u "$TMP/paths") == "$TMP/kept-dd" ]] || fail "kept DerivedData not used"
 [[ -d "$TMP/kept-dd" ]] || fail "kept DerivedData was removed"
+
+# 4. The daily channel can request a Release product identity without changing
+# the default Debug dogfood invocation.
+reset
+SC_ARG="$TMP/release-dd" run \
+  CMUX_NEXT_CONFIGURATION=Release \
+  CMUX_NEXT_PRODUCT_NAME='cmux NEXT DEV' \
+  CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next \
+  CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements \
+  CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev \
+  CMUX_NEXT_TUI_MODE=tree || fail "Release override run exited $?"
+grep -F -- '-configuration Release' "$TMP/args" >/dev/null || fail "Release configuration was not passed"
+grep -F -- 'PRODUCT_NAME=cmux NEXT DEV' "$TMP/args" >/dev/null || fail "Release product name was not passed"
+grep -F -- 'PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app.debug.next' "$TMP/args" >/dev/null || fail "Release bundle id was not passed"
+grep -F -- 'CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements' "$TMP/args" >/dev/null || fail "Release entitlements were not passed"
+grep -F -- 'CMUX_AUTH_CALLBACK_SCHEME=cmux-next-dev' "$TMP/args" >/dev/null || fail "Release auth callback scheme was not passed"
 
 printf 'scheme compile DerivedData tests: ok\n'
