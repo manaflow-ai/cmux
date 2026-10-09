@@ -35,6 +35,7 @@ These override the text below where they differ.
 - A7 S2 reuses the accept-first design of https://github.com/manaflow-ai/cmux/pull/11784 and ports
   only what split and new-tab need.
 - A8 Each slice reports its numbers against the budgets B1 to B6.
+- A9 (coordinator, 2026-10-09): the federation daemon half is not superseded by this design; it is slice S9, after S1.
 - Process: CORE slices land one at a time; the coordinator requests each token from a gated SHA.
   Before S6 the coordinator sends this doc to Leo. This doc lands with the first slice.
 
@@ -358,7 +359,7 @@ ACPMUX = acpmux (Leo's lane). CATALOG and SETTINGS are not needed by any slice b
 | Slice | Content | Areas / tokens | Tests | Depends |
 | --- | --- | --- | --- | --- |
 | S0 | Bench scripts into `scripts/cmux-next/` (split_bench, app_bench with signpost parse); fix `action.run` wait to cover the split task | none (scripts); Swift ControlRouter fix: no token | T12, red: wait race | none |
-| S1 | Daemon: client-minted `pane_key`/`tab_key` on `split`/`new-pane` (capability `split-client-keys-v1`), even-ratio param in the op, split adopts spare host | CORE | T3 (keys), T4 (spare) | none |
+| S1 | Daemon: client-minted, per-client-namespaced (A2) pane and tab ids on `split`/`new-pane` (capability `split-client-keys-v1`; S9 applies the same ids to `new-remote-terminal-tab` and detached create), even-ratio param in the op, split adopts spare host | CORE | T3 (keys), T4 (spare) | none |
 | S2 | Daemon: accept-first for split/new-tab (reply at acceptance, `launching` in tree, effects after reply); attach waits for a launching terminal | CORE (overlaps zero-wait IX2/IX3; reuse #11784's design, do not fork it) | T4, T5, T7 | S1 |
 | S3 | App: `Intent.splitPane` with provisional pane via `cmux-layout-reducer-ffi`, local focus, typeahead per terminal id, "starting" surface state, no resync on transaction-tagged delta | Swift CmuxNext (no frozen file if the FFI target exists; else Package.swift token) | T1, T2, T7 | S1 (keys); works before S2 with a slower confirm |
 | S4 | Attach channel: pre-opened stream pool, then multiplexed attaches | LINK + CORE (`cmux-remote` bridge) | T6 | S2 |
@@ -366,6 +367,7 @@ ACPMUX = acpmux (Leo's lane). CATALOG and SETTINGS are not needed by any slice b
 | S6 | acpmux TUI colors from the terminal's answered background | ACPMUX (Leo review) | acpmux unit test | S5 |
 | S7 | Remote agent chat: daemon supervises acpmux on its machine; `agent-session-new`, harness/model catalog, `draft_set`, mode/config over the G2 wire; daemon-side `check_frame`; app routes by pane machine; remote folder picker via `fs.*` | CORE + ACPMUX (Leo review) + Swift | T10, T11 | D10 decision |
 | S8 | Cloud: run T12 and T10 against a Freestyle machine on an own-tag dev stack | none | T12 | S3, S7 |
+| S9 | Federation daemon half (cx-wb5.2, branch feat-cmux-next-federation-tui-r22): `new-remote-terminal-tab` / `update-remote-terminal-tab` / `remote-terminal-snapshot` (remote-terminal-tabs-v1), `create-terminal {detached:true}` (detached-terminals-v1), terminal.project/move tree-changed. A port of its 15 commits onto the tip, red tests first; the Swift half is already on feat-cmux-next. Uses S1's namespaced client ids for the tab and the detached terminal | CORE | its own red tests + T3 | S1 |
 
 Leo must review for acpmux: S6 (theme detection), S7 (acpmux started by the daemon: home, socket,
 lifetime, upgrade; new session-create path through the daemon; `draft_set` from a relayed client;
