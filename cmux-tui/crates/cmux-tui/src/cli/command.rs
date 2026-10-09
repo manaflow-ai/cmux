@@ -17,7 +17,7 @@ mod browser;
 pub(in crate::cli) mod cases;
 mod conversation;
 mod flags;
-mod git;
+pub(super) mod git;
 mod plan;
 mod screen;
 mod server_ensure;

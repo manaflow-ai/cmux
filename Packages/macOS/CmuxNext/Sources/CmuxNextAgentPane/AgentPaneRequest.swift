@@ -107,8 +107,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
-    /// `git.diff` or `git.status` whose params the bridge refused (no
-    /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
+    /// `git.commit` or `git.push` with `{session_id, …, idempotency_key}`: the
+    /// changes view's Commit and Push, which the App runs on the session host.
+    case gitWrite(AgentPaneGitWrite)
+    /// A git read or write whose params the bridge refused (no absolute
+    /// `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
     /// Reads the selected local session's GitHub `origin` for Markdown reference links.
     case githubRepository(cwd: String)

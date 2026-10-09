@@ -7,12 +7,12 @@
 
 mod capture;
 mod compare;
-mod ledger;
+pub(super) mod ledger;
 mod reads;
 mod record;
 mod refs;
 mod scan;
-mod store;
+pub(super) mod store;
 
 /// Test seams for failures a test cannot otherwise time.
 #[cfg(test)]
@@ -139,7 +139,7 @@ fn fingerprint(request: &ParsedResourceRequest, target: &Target) -> Value {
     ledger::fingerprint(operation, &selectors, &fields, &target.identity())
 }
 
-fn mutation_key(request: &ParsedResourceRequest) -> String {
+pub(super) fn mutation_key(request: &ParsedResourceRequest) -> String {
     request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
 }
 

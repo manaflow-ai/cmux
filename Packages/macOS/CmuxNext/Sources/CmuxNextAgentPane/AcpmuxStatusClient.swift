@@ -79,18 +79,30 @@ nonisolated enum AcpmuxStatusClient {
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                     deadline: Duration, detailed: Bool = false) async throws -> [String: Any] {
+                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed))
+            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed, limit: limit))
         }
         return box.value
     }
 
+    /// The folder of the daemon's session `sessionId` from its session list
+    /// (`_acpmux/watch`, whose reply carries `sessions` with `hostKind` and
+    /// `peer`; the subscription ends with this one-shot connection), nil when the daemon has no such session or names
+    /// no folder. The agent pane's commits and pushes run here, never in a
+    /// folder the page names.
+    @concurrent static func sessionFolder(socketPath: String, sessionId: String,
+                                          deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/watch", params: ["enabled": true],
+                                    deadline: deadline, limit: 16 << 20)
+        return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
+    }
+
     /// `initialize`, then `method`; returns its result.
     private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
-                                 detailed: Bool) async throws -> [String: Any] {
+                                 detailed: Bool, limit: Int) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -114,7 +126,7 @@ nonisolated enum AcpmuxStatusClient {
                 let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
                 if let parsed { return parsed }
             }
-            if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
+            if buffer.count > limit { throw Failure.rpc("\(method) reply too large") }
         }
     }
 
