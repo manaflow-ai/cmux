@@ -170,6 +170,10 @@ nonisolated enum MachineBrowserStrings {
     static var openLocally: String {
         String(localized: "remote.machineBrowser.openLocally", defaultValue: "Open Locally Instead", table: "Remote", bundle: .module)
     }
+    /// The omnibar chip of a tab of another machine that runs on this Mac.
+    static var thisMac: String {
+        String(localized: "remote.machineBrowser.thisMac", defaultValue: "This Mac", table: "Remote", bundle: .module)
+    }
     static var retry: String {
         String(localized: "remote.machineBrowser.retry", defaultValue: "Retry", table: "Remote", bundle: .module)
     }
