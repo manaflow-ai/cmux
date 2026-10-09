@@ -152,6 +152,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
       },
     },
+    "context-breakdown": {
+      note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
+      snapshot: chat(finished, {
+        summary: {
+          sessionId: "gallery-context",
+          harness: "codex",
+          model: "gpt-5.5",
+          cwd: CWD,
+          turnCount: 1,
+          usage: { used: 25_300, size: 258_400 },
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.acpmux-context-ring" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-part"));
+      },
+    },
     "slash-menu": {
       note: "Play: type / in the prompt; the agent's command menu opens.",
       snapshot: chat(finished, {
