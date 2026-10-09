@@ -60,8 +60,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
     /// The sidebar is hidden (WindowController follows the sidebar model).
-    /// The traffic lights and the toggle stay shown either way, so the
-    /// toggle is one fixed target (Leo, T3 Code ref); its glyph follows.
+    /// The toggle's glyph follows; the band's width follows the sidebar's
+    /// on-screen width instead (`toolbarBandPresence`).
     var sidebarHidden = false {
         didSet { toolbarBand.showSidebarState(hidden: sidebarHidden) }
     }
@@ -206,6 +206,20 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
 
     var onHintGeometryChange: (() -> Void)?
+    /// Called from layout when the band's presence changed, so strips under
+    /// the top row recompute their inset in the same layout pass.
+    var onToolbarBandPresenceChange: (() -> Void)?
+
+    /// How much of the toolbar band shows: the sidebar's on-screen share of
+    /// its width (cx-uxdr). The sidebar's width animation is the one driver:
+    /// each of its frames lays this view out, so the band collapses and the
+    /// strip after it slides in step, a toggle mid-animation retargets from
+    /// what is on screen, and Reduce Motion (an instant sidebar) snaps it.
+    var toolbarBandPresence: CGFloat {
+        let width = sidebar.model.width
+        guard width > 0 else { return sidebar.model.isHidden ? 0 : 1 }
+        return min(1, max(0, sidebar.frame.width / width))
+    }
 
     override func layout() {
         defer { onHintGeometryChange?() }
@@ -218,21 +232,31 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             WindowOverlayHost.existingHost(for: window)?.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
         }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        // The band depends only on the window's traffic lights and top row,
-        // never on the sidebar, so the toggle keeps one frame (R68).
+        // The band starts after the traffic lights (which never move) and is
+        // as wide as the sidebar's on-screen share: 0 wide, with no gap
+        // after the lights, while the sidebar is hidden (cx-uxdr).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        var x = Metrics.space3
+        var lightsMaxX: CGFloat = 0
         var midY = bounds.maxY - rowHeight / 2
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             let local = convert(lights, from: nil)
-            x = local.maxX + Metrics.space3
+            lightsMaxX = local.maxX
             midY = local.midY
         }
+        let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
-        toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
+        let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
+        let presenceChanged = toolbarBand.presence != presence
+        toolbarBand.presence = presence
+        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
+                                   width: bandWidth, height: bandHeight)
         // A right sidebar's header is clear of the traffic lights and the band.
+        // The reserve is the full band, so the header does not reflow while
+        // the sidebar slides out.
+        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
-        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
+        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
+        if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
