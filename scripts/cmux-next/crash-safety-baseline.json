@@ -99,7 +99,7 @@
    "CmuxNextTabs": 4,
    "CmuxNextTerminal": 1,
    "MessagesLabHome": 47,
-   "MessagesLabSidebar": 16
+   "MessagesLabSidebar": 9
   },
   "iuo": {
    "CmuxNextAgentPane": 1,
@@ -114,6 +114,11 @@
   },
   "precondition": {
    "CmuxNextSidebar": 1
+  },
+  "render_font": {
+   "CmuxHomeRender": 4,
+   "MessagesLabHome": 23,
+   "MessagesLabSidebar": 4
   },
   "unchecked": {
    "CMUXAuthCore": 3,
