@@ -402,6 +402,22 @@ When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.
 
 Cmd+Shift+A opens Search Tabs: every tab in every window, workspace, pane and connected machine, with recently closed tabs below. Type to match a tab's title, URL, folder or the agent running in it. Return focuses and reveals the tab (or reopens a closed one), and Cmd+W closes the selected tab, or removes a closed one from the list, without closing the search. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["tab.search"]`, for example `"tab.search": "cmd+shift+f"` or `"tab.search": null`. A focused Simulator keeps Cmd+Shift+A for its own Toggle Appearance. Focus TextBox moved to Cmd+Option+A so a terminal does not take the chord.
 
+## Start Agent and `app.startAgentGlobalHotKey`
+
+Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
+
+The panel can also open while another app is in front. This system-wide key is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "startAgentGlobalHotKey": true
+  }
+}
+```
+
+Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
 ## `palette.scopes.<scope>.prefix`
 
 The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.
