@@ -42,7 +42,10 @@ fn delta() -> Value {
 fn script() -> Script {
     Box::new(|_, _| {
         vec![
-            at(json!({"dir": "mux", "kind": "turn_started", "msg": {}}), 990),
+            at(
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                990,
+            ),
             at(
                 json!({"dir": "out", "kind": "claude.stdin", "msg": {"type": "user"}}),
                 1_000,
