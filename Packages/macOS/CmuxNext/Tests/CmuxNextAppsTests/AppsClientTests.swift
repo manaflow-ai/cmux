@@ -155,4 +155,19 @@ struct AppsClientTests {
         #expect(mount.model.scene.root != nil)
         #expect(mount.model.status == .ready)
     }
+
+    /// An administrator turns apps off: every mount ends on the supervisor and
+    /// shows the reason; turning them back on mounts them again.
+    @Test func turningAppsOffEndsEveryMountAndBackOnRemounts() async throws {
+        let (client, transport) = await TestClient.make()
+        let record = try #require(client.app("cmux/agent-status"))
+        let mount = client.mount(record.id, implementation: try #require(record.manifest.implementations.first), surface: "sidebarSection")
+        #expect(await eventually { await MainActor.run { mount.model.status == .ready } })
+        client.suspendMounts()
+        transport.setAvailable(false, reason: .turnedOff("Turned off by your organization"))
+        #expect(await eventually { await MainActor.run { transport.mounted.isEmpty } })
+        #expect(mount.model.status == .disconnected("Turned off by your organization"))
+        transport.setAvailable(true)
+        #expect(await eventually { await MainActor.run { transport.mounted[mount.id] != nil && mount.model.status == .ready } })
+    }
 }
