@@ -22,6 +22,7 @@ import SwiftUI
 @MainActor
 final class CloudSheetWindow {
     let window: NSWindow
+    private let initialContentSize: NSSize
     private var isOpening = false
     private var pendingContentSize: NSSize?
     private var isResizeScheduled = false
@@ -34,8 +35,9 @@ final class CloudSheetWindow {
         controller.sizingOptions = []
         window = NSWindow(contentViewController: controller)
         let initialSize = controller.view.fittingSize
+        initialContentSize = Self.rounded(initialSize)
         if initialSize.width > 0, initialSize.height > 0 {
-            window.setContentSize(Self.rounded(initialSize))
+            window.setContentSize(initialContentSize)
         }
         reporter.owner = self
     }
@@ -46,6 +48,13 @@ final class CloudSheetWindow {
         isOpening = true
         host.beginSheet(window, completionHandler: completionHandler)
         isOpening = false
+        // Some AppKit versions reset a newly attached sheet to a 1×0 content
+        // rect while the host is inactive. Restore the measured first layout
+        // before applying any later geometry report.
+        let current = window.contentRect(forFrameRect: window.frame).size
+        if (current.width <= 1 || current.height <= 1), initialContentSize.width > 0, initialContentSize.height > 0 {
+            window.setContentSize(initialContentSize)
+        }
         applyPendingContentSize()
     }
 
