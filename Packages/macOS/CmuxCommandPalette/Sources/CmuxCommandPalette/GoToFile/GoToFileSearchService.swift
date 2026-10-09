@@ -22,12 +22,22 @@ public struct GoToFileSearchService: Sendable {
     }
 
     /// Lists and ranks files under `rootPath` using one workspace snapshot.
-    public func search(rootPath: String, query: String) async -> [GoToFileMatch] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    public nonisolated func search(rootPath: String, query: String) async -> [GoToFileMatch] {
         await search(paths: snapshot(rootPath: rootPath), query: query)
     }
 
     /// Lists tracked and non-ignored files under `rootPath`.
-    public func snapshot(rootPath: String) async -> [String] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    public nonisolated func snapshot(rootPath: String) async -> [String] {
         let git = await commandRunner.run(
             directory: rootPath,
             executable: "/usr/bin/git",
@@ -52,7 +62,12 @@ public struct GoToFileSearchService: Sendable {
     }
 
     /// Ranks a previously enumerated snapshot without touching the filesystem.
-    public func search(paths: [String], query: String) async -> [GoToFileMatch] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    public nonisolated func search(paths: [String], query: String) async -> [GoToFileMatch] {
         let maximumResults = maximumResults
         let worker = Task.detached(priority: .userInitiated) {
             Self.rank(paths: paths, query: query, limit: maximumResults, shouldCancel: { Task.isCancelled })
@@ -78,30 +93,28 @@ public struct GoToFileSearchService: Sendable {
         guard limit > 0 else { return [] }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedQuery.isEmpty {
-            var best: [String] = []
-            best.reserveCapacity(min(limit, paths.count))
+            var best = WorstFirstHeap<String>(isBetter: {
+                $0.localizedStandardCompare($1) == .orderedAscending
+            })
             for (index, path) in paths.enumerated() {
                 if index.isMultiple(of: 16), shouldCancel() { return [] }
-                insertBounded(path, into: &best, limit: limit) {
-                    $0.localizedStandardCompare($1) == .orderedAscending
-                }
+                best.insert(path, limit: limit)
             }
-            return best.sorted {
+            return best.elements.sorted {
                 $0.localizedStandardCompare($1) == .orderedAscending
             }
         }
         let matcher = CommandPaletteFuzzyMatcher(query: trimmedQuery)
-        var best: [(String, Int)] = []
-        best.reserveCapacity(min(limit, paths.count))
+        var best = WorstFirstHeap<(String, Int)>(isBetter: {
+            if $0.1 != $1.1 { return $0.1 > $1.1 }
+            return $0.0.localizedStandardCompare($1.0) == .orderedAscending
+        })
         for (index, path) in paths.enumerated() {
             if index.isMultiple(of: 16), shouldCancel() { return [] }
             guard let score = matcher.score(candidate: path) else { continue }
-            insertBounded((path, score), into: &best, limit: limit) {
-                if $0.1 != $1.1 { return $0.1 > $1.1 }
-                return $0.0.localizedStandardCompare($1.0) == .orderedAscending
-            }
+            best.insert((path, score), limit: limit)
         }
-        return best.sorted {
+        return best.elements.sorted {
             if $0.1 != $1.1 { return $0.1 > $1.1 }
             return $0.0.localizedStandardCompare($1.0) == .orderedAscending
         }.map(\.0)
@@ -111,20 +124,54 @@ public struct GoToFileSearchService: Sendable {
         data.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
     }
 
-    private static func insertBounded<Element>(
-        _ element: Element,
-        into best: inout [Element],
-        limit: Int,
-        by isBetter: (Element, Element) -> Bool
-    ) {
-        guard limit > 0 else { return }
-        guard best.count < limit else {
-            var worstIndex = best.startIndex
-            for index in best.indices.dropFirst() where isBetter(best[worstIndex], best[index]) { worstIndex = index }
-            guard isBetter(element, best[worstIndex]) else { return }
-            best[worstIndex] = element
-            return
+    private struct WorstFirstHeap<Element> {
+        private(set) var elements: [Element] = []
+        private let isBetter: (Element, Element) -> Bool
+
+        init(isBetter: @escaping (Element, Element) -> Bool) {
+            self.isBetter = isBetter
         }
-        best.append(element)
+
+        mutating func insert(_ element: Element, limit: Int) {
+            guard limit > 0 else { return }
+            if elements.count < limit {
+                elements.append(element)
+                siftUp(from: elements.index(before: elements.endIndex))
+                return
+            }
+            guard let worst = elements.first, isBetter(element, worst) else { return }
+            elements[0] = element
+            siftDown(from: 0)
+        }
+
+        private func isWorse(_ lhs: Element, than rhs: Element) -> Bool {
+            isBetter(rhs, lhs)
+        }
+
+        private mutating func siftUp(from start: Int) {
+            var child = start
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard isWorse(elements[child], than: elements[parent]) else { return }
+                elements.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        private mutating func siftDown(from start: Int) {
+            var parent = start
+            while true {
+                let left = parent * 2 + 1
+                guard left < elements.count else { return }
+                var worstChild = left
+                let right = left + 1
+                if right < elements.count, isWorse(elements[right], than: elements[left]) {
+                    worstChild = right
+                }
+                guard isWorse(elements[worstChild], than: elements[parent]) else { return }
+                elements.swapAt(parent, worstChild)
+                parent = worstChild
+            }
+        }
     }
 }

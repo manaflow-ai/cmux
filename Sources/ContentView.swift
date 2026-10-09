@@ -997,6 +997,8 @@ struct ContentView: View {
     @State private var goToFilePaths: [String] = []
     @State private var goToFileRootPath: String?
     @State private var goToFileSnapshotRootPath: String?
+    @State private var goToFileResultsQuery: String?
+    @State private var goToFileResultsRootPath: String?
     @State private var goToFileSearchGeneration: UInt64 = 0
     @State private var isGoToFileSearchPending = false
     @State private var commandPaletteRenameDraft: String = ""
@@ -10169,6 +10171,8 @@ struct ContentView: View {
         goToFilePaths = []
         goToFileRootPath = workspace.currentDirectory
         goToFileSnapshotRootPath = nil
+        goToFileResultsQuery = nil
+        goToFileResultsRootPath = nil
         scheduleGoToFileSearch()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -10180,6 +10184,10 @@ struct ContentView: View {
         let generation = goToFileSearchGeneration
         let query = commandPaletteQuery
         let cachedPaths = goToFileSnapshotRootPath == rootPath ? goToFilePaths : nil
+        goToFileResults = []
+        goToFileResultsQuery = nil
+        goToFileResultsRootPath = nil
+        commandPaletteSelectedResultIndex = 0
         if cachedPaths == nil {
             goToFilePaths = []
             goToFileSnapshotRootPath = nil
@@ -10207,6 +10215,8 @@ struct ContentView: View {
                 goToFileSnapshotRootPath = rootPath
             }
             goToFileResults = results
+            goToFileResultsQuery = query
+            goToFileResultsRootPath = rootPath
             commandPaletteSelectedResultIndex = 0
             isGoToFileSearchPending = false
         }
@@ -10221,7 +10231,9 @@ struct ContentView: View {
     }
 
     private func runSelectedGoToFileResult() {
-        guard goToFileResults.indices.contains(goToFileSelectedIndex) else {
+        guard goToFileResultsQuery == commandPaletteQuery,
+              goToFileResultsRootPath == goToFileRootPath,
+              goToFileResults.indices.contains(goToFileSelectedIndex) else {
             NSSound.beep()
             return
         }
@@ -10610,6 +10622,8 @@ struct ContentView: View {
         goToFilePaths = []
         goToFileRootPath = nil
         goToFileSnapshotRootPath = nil
+        goToFileResultsQuery = nil
+        goToFileResultsRootPath = nil
         isGoToFileSearchPending = false
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""

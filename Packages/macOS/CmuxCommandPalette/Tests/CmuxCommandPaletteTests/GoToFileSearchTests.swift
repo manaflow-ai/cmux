@@ -12,6 +12,12 @@ struct GoToFileSearchTests {
     }
 
     @Test
+    func boundedRankingKeepsBestMatchesAfterTheLimitIsFull() {
+        let paths = ["z.txt", "m.txt", "a.txt"]
+        #expect(GoToFileSearchService.rank(paths: paths, query: "", limit: 1) == ["a.txt"])
+    }
+
+    @Test
     func listingRespectsGitExcludesAndWorkspaceRoot() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
