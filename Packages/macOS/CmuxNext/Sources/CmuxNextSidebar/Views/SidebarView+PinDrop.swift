@@ -10,6 +10,9 @@ import AppKit
     static func install(_ sidebar: SidebarView) {
         sidebar.aboveRegion.dropToListProbe = { [weak sidebar] windowPoint in sidebar.map { isOverList($0, windowPoint) } ?? false }
         sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
+        // A drop's preview or landing changed a band's height: the bands lay
+        // out again, so no gap stays above the list (cx-odqn).
+        for region in sidebar.bandRegions { region.onHeightChange = { [weak sidebar] in sidebar?.needsLayout = true } }
     }
 
     /// The top section under `windowPoint` that would take a workspace row,

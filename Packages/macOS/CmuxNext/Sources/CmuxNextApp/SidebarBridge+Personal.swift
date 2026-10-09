@@ -19,13 +19,9 @@ extension SidebarBridge {
     func handlePersonal(_ intent: SidebarIntent) -> Bool {
         guard let state else { return false }
         switch intent {
-        // A drag's edit shows as a pending edit until the store holds its
-        // result, so no recompute in between shows the old order (cx-odqn).
         case .reorder(let ids, let position):
             let before = model.sections
-            let edit = pendingEdits.add(intent)
-            showRows()
-            placePersonal(ids, at: position, in: before, edit: edit)
+            placePersonal(ids, at: position, in: before, edit: rows.add(intent)) // pending until the store holds it (cx-odqn)
         case .move(let ids, let group):
             groupFlow.move(ids, into: group, intent)
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
@@ -62,8 +58,7 @@ extension SidebarBridge {
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, _):
-            let edit = pendingEdits.add(intent)
-            showRows()
+            let edit = rows.add(intent)
             // The intent's index counts section nodes; the daemon wants a
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
@@ -90,20 +85,12 @@ extension SidebarBridge {
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
                        edit: SidebarPendingEdits.Token? = nil) {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else {
-            if let edit { pendingEdits.settle(edit) }
-            return resync()
-        }
+        let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
+        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
         let regroup = statePersonal ? plan.regroup : []
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
         let ending = life.emptied(by: moving, into: group)
-        let failed: @MainActor () -> Void = { [weak self] in
-            if let edit { self?.pendingEdits.settle(edit) }
-            self?.resync()
-        }
-        var applied: (@MainActor () -> Void)?
-        if let edit { applied = { [weak self] in self?.settle(edit) } }
         life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
                     applied: applied) { connection in
             for step in plan.steps {
@@ -130,22 +117,9 @@ extension SidebarBridge {
     }
 
     /// Sends one personal-state command to the home daemon; a failure
-    /// re-syncs the sidebar. A pending `edit` settles once the store holds
-    /// the command's result (read-your-writes), or on the failure.
+    /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
     private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
                           _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        let home = services.machines.local
-        let transaction = ClientTransactionID.generate()
-        // task-owner: one personal command; settles its edit
-        Task { [weak self] in
-            let ok = await home.request(label, transaction: transaction) { connection, _ in try await body(connection) } != nil
-            guard let self else { return }
-            guard ok else {
-                if let edit { self.pendingEdits.settle(edit) }
-                return self.resync()
-            }
-            guard let edit else { return }
-            home.whenApplied(transaction) { [weak self] in self?.settle(edit) }
-        }
+        rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
     }
 }

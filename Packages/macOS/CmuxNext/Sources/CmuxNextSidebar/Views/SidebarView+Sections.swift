@@ -29,7 +29,6 @@ extension SidebarView {
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
-            region.onHeightChange = { [weak self] in self?.needsLayout = true }
             // A drop gives the layout the order the band showed (R77).
             region.onReorder = { [weak self] subject, shown in
                 guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }

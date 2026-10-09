@@ -86,10 +86,9 @@ struct SidebarGroupFlow {
         let id = WorkspaceGroupID(rawValue: group.rawValue), members = bridge.placements(ids)
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
-        let edit = bridge.pendingEdits.add(intent)
-        bridge.showRows()
+        let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
         life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) },
-                    failed: { bridge.pendingEdits.settle(edit); bridge.resync() }, applied: { bridge.settle(edit) }) { connection in
+                    failed: failed, applied: applied) { connection in
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                   group: .set(id))

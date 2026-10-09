@@ -29,11 +29,8 @@ final class SidebarBridge {
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
     private var seed = SidebarSeed()
-    /// The live rows (store and seed), before the pending edits (cx-odqn).
-    private var live: [SidebarRowSection] = []
-    /// Sidebar edits sent and not yet shown by the store: the rows shown
-    /// are `live` with these applied (`showRows`), never a second list.
-    var pendingEdits = SidebarPendingEdits()
+    /// The one writer of the rows: live rows plus pending edits (cx-odqn).
+    lazy var rows = SidebarRows(model: model)
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
@@ -109,7 +106,7 @@ final class SidebarBridge {
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue))
                 return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
-                        Self.visibleLayout(layout.document))
+                        SidebarRows.visibleLayout(layout.document))
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
@@ -174,12 +171,7 @@ final class SidebarBridge {
                                                               newTabPages: services.agentTabs.pageTabs.ids,
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue))
-        show(sections, layout: Self.visibleLayout(services.sidebarLayout.document), launching: launching, failed: failed)
-    }
-
-    /// The layout the sidebar draws: the store's with the Chats setting.
-    static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.chatsLayout(enabled: DesignSettings.shared.sidebarSections.showChats)
+        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
@@ -188,7 +180,7 @@ final class SidebarBridge {
         let sections = seed.merge(live, launching: launching, failed: failed)
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
-        showRows(sections)
+        rows.show(sections)
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
@@ -205,18 +197,6 @@ final class SidebarBridge {
         if model.profiles != profiles { model.profiles = profiles }
         if model.activeProfileID != active { model.activeProfileID = active }
         // `show` records the snapshot right after, with the new space's rows.
-    }
-
-    /// The one writer of the rows: `live` (when given) with the pending edits applied.
-    func showRows(_ live: [SidebarRowSection]? = nil) {
-        if let live { self.live = live }
-        model.setSections(pendingEdits.apply(to: self.live))
-    }
-
-    /// A pending edit's commands replied and the store holds their result, or they failed.
-    func settle(_ edit: SidebarPendingEdits.Token) {
-        pendingEdits.settle(edit)
-        showRows()
     }
 
     func recordSnapshot() {
