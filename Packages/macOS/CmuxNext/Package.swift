@@ -190,6 +190,11 @@ let package = Package(
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
+                // AppControl+Mobile.swift uses MobileUsableSession directly
+                // for the control-socket readiness event. Keep this package
+                // product explicit instead of relying on CmuxNextMobile's
+                // transitive CMUXMobileCore dependency.
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxNextMobileConnect",
                 "CmuxNextMobileHostUI",
                 "CmuxNextUpdater",
@@ -992,7 +997,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextDaemon", "CmuxNextHome", "CmuxNextMobile", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
             swiftSettings: uiSwiftSettings,
