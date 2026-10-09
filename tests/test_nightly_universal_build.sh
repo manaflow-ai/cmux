@@ -476,21 +476,21 @@ prepare_recovery = step("Prepare pending notarization recovery artifact")
 assert "steps.notarize-nightly.outputs.submission_pending == 'true'" in prepare_recovery
 assert "submission_id" in prepare_recovery and "dmg_sha256" in prepare_recovery
 assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in recovery
-assert "NIGHTLY_DMG_RELEASE" in recovery
-assert ".notarization.state" in recovery
-assert ".notarization.log" in recovery
+assert "cmux-nightly-notarization-recovery-staging/*" in recovery
 assert "CHANNEL_APP_PATH" in prepare_recovery
+assert "NIGHTLY_DMG_RELEASE" in prepare_recovery
+assert ".notarization.state" in prepare_recovery
+assert ".notarization.log" in prepare_recovery
 assert "computer-use-helper" in prepare_recovery
 assert "helper_state_path" in prepare_recovery
+assert "recovery-staging" in prepare_recovery
 assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
-assert "cmux-nightly-notarization-recovery.json" in recovery
 assert "if-no-files-found: error" in recovery
 assert "compression-level: 0" in recovery
 metadata = step("Upload notarization polling metadata")
-assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in metadata
+assert "steps.prepare-notarization-recovery.outcome == 'success'" in metadata
 assert "-notarization-metadata-" in metadata
-assert ".notarization.state" in metadata
-assert "cmux-nightly-notarization-recovery.json" in metadata
+assert "cmux-nightly-notarization-metadata-staging/*" in metadata
 assert "tar.gz" not in metadata and "NIGHTLY_DMG_RELEASE }}\n" not in metadata
 assert "retention-days: 14" in metadata
 
@@ -516,7 +516,8 @@ assert "if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.sh
 
 resume = Path(sys.argv[1]).with_name("resume-nightly-notarization.yml").read_text(encoding="utf-8")
 assert "workflow_dispatch:" in resume
-assert "gh run download \"$SOURCE_RUN_ID\"" in resume
+assert "gh run download \"$artifact_run_id\"" in resume
+assert "ARTIFACT_RUN_ID" in resume
 assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
 assert "resolve-notarization-recovery.py" in resume
@@ -527,6 +528,8 @@ assert "verify_computer_use_helper" in resume_script
 assert "standalone_helper" in resume_script
 assert "notarytool submit" not in resume_script
 assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
+assert "run_with_timeout.py" in resume_script
+assert "CMUX_NOTARY_LOG_TIMEOUT_SECONDS" in resume_script
 assert "SYSPOLICY_TOOL" in resume_script
 assert "refusing to staple or publish" in resume_script
 resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-recovery.py").read_text(encoding="utf-8")
@@ -534,6 +537,12 @@ assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
 assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
 auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
 assert "resume-helper-notarization.sh" in auto
+assert "Install recovered DMG packaging tools" in auto
+assert "Import signing certificate for recovered DMG" in auto
+assert "Prepare outer DMG recovery after bounded wait" in auto
+assert "poll-outer:" in auto and "staple-outer:" in auto
+assert "outer-notarization-metadata-" in auto
+assert "fromJSON(needs.poll-outer.outputs.outer_variants)" in auto
 generate_deltas = re.search(
     r"^  generate-deltas:\n(.*?)(?=^  republish-deltas:)",
     auto,
@@ -555,6 +564,7 @@ assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
+assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m" in auto
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto
@@ -563,6 +573,7 @@ assert "publish-release-assets.py" in auto
 assert "--replace-feeds" in auto
 assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
+assert "fetch-depth: 0" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
 # nightly-next continues on its own track (tests/test_nightly_resume_tracks.py).

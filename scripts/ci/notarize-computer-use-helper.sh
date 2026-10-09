@@ -231,6 +231,27 @@ print(status)' <<<"$wait_json" 2>/dev/null || true)"
     } > "$state_tmp"
     /bin/mv "$state_tmp" "$SUBMISSION_FILE"
     /bin/cp "$wait_output" "$wait_evidence"
+    # Any non-zero wait is a recoverable, unaccepted submission. Do not make
+    # unbounded info/log calls here: this is the last step before the nightly
+    # job uploads the exact state and signed app. Ubuntu continuation will
+    # query Apple again and distinguish a pending submission from a terminal
+    # rejection. Preserve the useful status that notarytool reported when the
+    # timeout diagnostic does not include JSON.
+    if [ "$wait_status" -ne 0 ]; then
+      if grep -Eiq 'timeout|timed out' "$wait_evidence"; then
+        python3 - "$SUBMISSION_FILE" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+path.write_text("\n".join(("status=In Progress" if line.startswith("status=") else line) for line in lines) + "\n", encoding="utf-8")
+PY
+      fi
+      printf 'pending=true\n' >> "$SUBMISSION_FILE"
+      echo "Computer Use helper notarization remains pending; state retained at $SUBMISSION_FILE" >&2
+      cat "$wait_evidence" >&2
+      exit 75
+    fi
     {
       printf '\n--- notarytool info for submission %s ---\n' "$submit_id"
       "$XCRUN_TOOL" notarytool info "$submit_id" \
@@ -267,16 +288,58 @@ PYSTATE
     fi
     cat "$wait_evidence" >&2
     echo "Computer Use helper notarization failed with status: $submit_status (wait exit $wait_status)" >&2
-    if [ "$info_status" = "In Progress" ] || [ "$info_status" = "Submitted" ] || [ "$info_status" = "Waiting for Upload" ] || { [ "$info_status" = unknown ] && [ "$wait_status" -ne 0 ]; }; then
-      printf 'pending=true\n' >> "$SUBMISSION_FILE"
-      echo "Computer Use helper notarization remains pending; state retained at $SUBMISSION_FILE" >&2
-      exit 75
-    fi
     exit 1
   fi
 
-  "$XCRUN_TOOL" notarytool log "$submit_id" \
-    "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/notary-log.json"
+  # Persist the accepted wait result before any ticket, stapling, or host
+  # re-signing work. If one of those local gates fails, the nightly job can
+  # still upload this exact helper submission and signed app for a later
+  # continuation instead of losing the Apple submission ID.
+  state_tmp="$SUBMISSION_FILE.tmp.$$"
+  umask 077
+  {
+    printf 'submission_id=%s\n' "$submit_id"
+    printf 'cdhashes=%s\n' "$submitted_cdhash"
+    printf 'status=Accepted\n'
+    printf 'wait_exit=0\n'
+    printf 'post_wait_pending=true\n'
+    printf 'output_file=%s\n' "$wait_evidence"
+  } > "$state_tmp"
+  /bin/mv "$state_tmp" "$SUBMISSION_FILE"
+  /bin/cp "$wait_output" "$wait_evidence"
+
+  # Apple can acknowledge an Accepted submission before the ticket log
+  # endpoint is ready. Keep this diagnostics request bounded so a transient
+  # log stall still leaves the accepted helper state available to recovery.
+  log_timeout_seconds="${CMUX_HELPER_LOG_TIMEOUT_SECONDS:-300}"
+  case "$log_timeout_seconds" in
+    ''|*[!0-9]*)
+      echo "CMUX_HELPER_LOG_TIMEOUT_SECONDS must be a positive integer" >&2
+      exit 2
+      ;;
+  esac
+  if [ "$log_timeout_seconds" -le 0 ]; then
+    echo "CMUX_HELPER_LOG_TIMEOUT_SECONDS must be a positive integer" >&2
+    exit 2
+  fi
+  set +e
+  python3 "$ROOT_DIR/scripts/ci/run_with_timeout.py" \
+    --timeout-seconds "$log_timeout_seconds" -- \
+    "$XCRUN_TOOL" notarytool log "$submit_id" \
+    "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/notary-log.json" 2> "$TMP_DIR/notary-log.stderr"
+  log_status=$?
+  set -e
+  if [ "$log_status" -ne 0 ]; then
+    {
+      printf '\n--- bounded notarytool log for submission %s (exit %s) ---\n' "$submit_id" "$log_status"
+      cat "$TMP_DIR/notary-log.stderr"
+      cat "$TMP_DIR/notary-log.json"
+    } >> "$wait_evidence"
+    printf 'pending=true\n' >> "$SUBMISSION_FILE"
+    echo "Computer Use helper ticket log is not ready; state retained at $SUBMISSION_FILE" >&2
+    cat "$wait_evidence" >&2
+    exit 75
+  fi
   cat "$TMP_DIR/notary-log.json"
   verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"

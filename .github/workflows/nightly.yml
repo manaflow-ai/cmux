@@ -2090,12 +2090,19 @@ jobs:
           recovery_app_archive="cmux-nightly-notarization-recovery-app.tar.gz"
           rm -f "$recovery_app_archive"
           tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf "$recovery_app_archive" "$(basename "$CHANNEL_APP_PATH")"
+          recovery_staging="cmux-nightly-notarization-recovery-staging"
+          rm -rf "$recovery_staging"
+          mkdir -p "$recovery_staging"
+          metadata_staging="cmux-nightly-notarization-metadata-staging"
+          rm -rf "$metadata_staging"
+          mkdir -p "$metadata_staging"
           echo "kind=$recovery_kind" >> "$GITHUB_OUTPUT"
           if [ "$recovery_kind" = computer-use-helper ]; then
             python3 - \
               "$recovery_state" \
               "$recovery_log" \
               "$CHANNEL_APP_PATH" \
+              "$CHANNEL_ENTITLEMENTS" \
               "$CHANNEL" \
               "$NIGHTLY_VARIANT" \
               "$CHANNEL_RELEASE_TAG" \
@@ -2103,10 +2110,11 @@ jobs:
               "${{ needs.decide.outputs.head_sha }}" \
               "${{ needs.decide.outputs.short_sha }}" <<'PY'
           import json
+          import hashlib
           import pathlib
           import sys
 
-          state_path, log_path, app_path, channel, variant, release_tag, build, head_sha, short_sha = sys.argv[1:]
+          state_path, log_path, app_path, entitlements_path, channel, variant, release_tag, build, head_sha, short_sha = sys.argv[1:]
           state = {}
           for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
               if not line:
@@ -2119,9 +2127,9 @@ jobs:
           cdhashes = state.get("cdhashes", "")
           if not submission_id or not all(character.isalnum() or character in "._-" for character in submission_id):
               raise SystemExit("helper state has no valid Apple submission id")
-          if not cdhashes or any(not all(character in "0123456789abcdefABCDEF" for character in value) for value in cdhashes.split(",")):
+          if not cdhashes or any("=" not in value or len(value.split("=", 1)[1]) != 40 or not all(character in "0123456789abcdefABCDEF" for character in value.split("=", 1)[1]) for value in cdhashes.split(",")):
               raise SystemExit("helper state has invalid CDHash evidence")
-          if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted":
+          if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted" and state.get("post_wait_pending") != "true":
               raise SystemExit("accepted helper must not be uploaded as pending recovery")
           pathlib.Path("cmux-nightly-notarization-recovery.json").write_text(
               json.dumps({
@@ -2139,6 +2147,8 @@ jobs:
                   "dmg_path": f"cmux-{channel}-macos-{variant}.dmg",
                   "app_path": f"cmux-nightly-notarization-recovery-app/{pathlib.Path(app_path).name}",
                   "app_archive_path": "cmux-nightly-notarization-recovery-app.tar.gz",
+                  "app_entitlements_path": pathlib.Path(entitlements_path).name,
+                  "app_entitlements_sha256": hashlib.sha256(pathlib.Path(entitlements_path).read_bytes()).hexdigest(),
                   "helper_state_path": pathlib.Path(state_path).name,
                   "helper_log_path": pathlib.Path(log_path).name,
                   "immutable_path": f"cmux-{channel}-macos-{variant}-{build}.dmg",
@@ -2219,18 +2229,26 @@ jobs:
           )
           PY
           fi
+          cp "$recovery_state" "$metadata_staging/"
+          cp cmux-nightly-notarization-recovery.json "$metadata_staging/"
+          if [ "$recovery_kind" = computer-use-helper ]; then
+            cp "$recovery_state" "$recovery_staging/cmux-computer-use-notarization.state"
+            cp "$recovery_log" "$recovery_staging/cmux-computer-use-notarization.state.log"
+            cp "$CHANNEL_ENTITLEMENTS" "$recovery_staging/$(basename "$CHANNEL_ENTITLEMENTS")"
+          else
+            cp "$NIGHTLY_DMG_RELEASE" "$recovery_staging/$(basename "$NIGHTLY_DMG_RELEASE")"
+            cp "$recovery_state" "$recovery_staging/$(basename "$recovery_state")"
+            cp "$recovery_log" "$recovery_staging/$(basename "$recovery_log")"
+          fi
+          cp "$recovery_app_archive" "$recovery_staging/"
+          cp cmux-nightly-notarization-recovery.json "$recovery_staging/"
 
       - name: Upload pending notarization recovery artifact
         if: always() && steps.prepare-notarization-recovery.outcome == 'success' && steps.prepare-notarization-recovery.outputs.kind == 'dmg'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
-          path: |
-            ${{ env.NIGHTLY_DMG_RELEASE }}
-            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
-            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.log
-            cmux-nightly-notarization-recovery-app.tar.gz
-            cmux-nightly-notarization-recovery.json
+          path: cmux-nightly-notarization-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
@@ -2240,11 +2258,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
-          path: |
-            ${{ runner.temp }}/cmux-computer-use-notarization.state
-            ${{ runner.temp }}/cmux-computer-use-notarization.state.log
-            cmux-nightly-notarization-recovery-app.tar.gz
-            cmux-nightly-notarization-recovery.json
+          path: cmux-nightly-notarization-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
@@ -2254,9 +2268,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-metadata-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
-          path: |
-            ${{ env.NIGHTLY_DMG_RELEASE }}.notarization.state
-            cmux-nightly-notarization-recovery.json
+          path: cmux-nightly-notarization-metadata-staging/*
           if-no-files-found: error
           retention-days: 14
 
@@ -2265,9 +2277,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-notarization-metadata-${{ matrix.variant }}-${{ needs.decide.outputs.short_sha }}
-          path: |
-            ${{ runner.temp }}/cmux-computer-use-notarization.state
-            cmux-nightly-notarization-recovery.json
+          path: cmux-nightly-notarization-metadata-staging/*
           if-no-files-found: error
           retention-days: 14
 

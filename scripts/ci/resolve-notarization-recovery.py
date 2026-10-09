@@ -100,6 +100,11 @@ def validate_manifest(
         hashes = str(manifest["helper_cdhashes"]).split(",")
         if not hashes or any(not re.fullmatch(r"[A-Za-z0-9_=-]+=[0-9a-fA-F]{40}", value) for value in hashes):
             raise ValueError("invalid helper CDHash evidence")
+        if "app_entitlements_path" in manifest or "app_entitlements_sha256" in manifest:
+            if not manifest.get("app_entitlements_path") or not HEX_SHA256.fullmatch(str(manifest.get("app_entitlements_sha256", ""))):
+                raise ValueError("invalid helper app entitlements evidence")
+            if Path(str(manifest["app_entitlements_path"])).name != str(manifest["app_entitlements_path"]):
+                raise ValueError("helper app entitlements path must be a file name")
     if not SUBMISSION_ID.fullmatch(str(manifest["submission_id"])):
         raise ValueError("invalid recovery submission id")
     short_sha = str(manifest.get("short_sha", ""))
@@ -195,7 +200,7 @@ def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
     if kind == "computer-use-helper":
         if state.get("cdhashes") != manifest["helper_cdhashes"]:
             raise ValueError("helper state CDHashes do not match recovery manifest")
-        if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted":
+        if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted" and state.get("post_wait_pending") != "true":
             raise ValueError("accepted helper state is not pending recovery")
     else:
         if state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
@@ -215,10 +220,16 @@ def resolve_files(manifest: Mapping[str, Any], manifest_path: Path, *, extract_a
         if extract_app:
             extract_app_archive(root, archive, str(manifest["app_path"]))
         app = safe_path(root, str(manifest["app_path"]), "app_path", directory=True)
+        entitlements = None
+        if manifest.get("app_entitlements_path"):
+            entitlements = safe_path(root, str(manifest["app_entitlements_path"]), "app_entitlements_path")
+            digest = hashlib.sha256(entitlements.read_bytes()).hexdigest()
+            if digest.lower() != str(manifest["app_entitlements_sha256"]).lower():
+                raise ValueError("helper app entitlements SHA-256 mismatch")
         if not (app / "Contents").is_dir():
             raise ValueError("recovery app is not a bundle")
         resolve_state(manifest, manifest_path)
-        return {
+        values = {
             "RECOVERY_KIND": kind, "HELPER_STATE_FILE": state_file,
             "HELPER_EVIDENCE_FILE": evidence_file, "APP_PATH": app,
             "DMG_RELEASE": root / Path(Path(str(manifest["dmg_path"])).name),
@@ -227,6 +238,9 @@ def resolve_files(manifest: Mapping[str, Any], manifest_path: Path, *, extract_a
             "DMG_PREFIX": manifest["dmg_prefix"], "RELEASE_TAG": manifest["release_tag"],
             "BUILD": manifest["build"],
         }
+        if entitlements is not None:
+            values["APP_ENTITLEMENTS"] = entitlements
+        return values
     files = {key: safe_path(root, str(manifest[key]), key) for key in ("state_path", "dmg_path", "log_path", "app_archive_path")}
     if extract_app:
         extract_app_archive(root, files["app_archive_path"], str(manifest["app_path"]))

@@ -74,6 +74,9 @@ elif name == 'xcrun':
     elif args[:2] == ['notarytool', 'info']:
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_INFO_STATUS', 'In Progress')}))
     elif args[:2] == ['notarytool', 'log']:
+        if os.environ.get('FIXTURE_LOG_TIMEOUT'):
+            import time
+            time.sleep(float(os.environ['FIXTURE_LOG_TIMEOUT']))
         entries = json.loads((root / 'submitted.json').read_text())
         entries = [e for e in entries if e['arch'] != os.environ.get('FIXTURE_LOG_OMIT')]
         print(json.dumps({'status': 'Accepted', 'ticketContents': entries}))
@@ -209,6 +212,24 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertIn('pending=true', self.state.read_text())
         self.assertEqual(result.returncode, 75)
         self.assertIn('wait_exit=124', self.state.read_text())
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
+    def test_helper_log_timeout_retains_accepted_state_for_recovery(self):
+        self.run_helper('--start', self.state)
+        result = self.run_helper(
+            '--finish', self.state,
+            success=False,
+            FIXTURE_LOG_TIMEOUT='2',
+            CMUX_HELPER_LOG_TIMEOUT_SECONDS='1',
+        )
+        self.assertEqual(result.returncode, 75)
+        self.assertTrue(self.state.exists())
+        state = self.state.read_text()
+        self.assertIn('status=Accepted', state)
+        self.assertIn('post_wait_pending=true', state)
+        self.assertIn('pending=true', state)
+        self.assertIn('command timed out after 1s', (self.state.with_suffix('.state.log')).read_text())
         self.assertFalse(self.calls('xcrun', 'stapler'))
         self.assertFalse(self.calls('sign-bundle'))
 

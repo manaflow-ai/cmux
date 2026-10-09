@@ -35,10 +35,22 @@ SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-60m}"
+NOTARY_LOG_TIMEOUT_SECONDS="${CMUX_NOTARY_LOG_TIMEOUT_SECONDS:-300}"
 EVIDENCE_FILE="${CMUX_NOTARY_EVIDENCE_FILE:-${DMG_RELEASE}.notarization.log}"
 NOTARY_OUTPUT_FILE="${CMUX_NOTARY_OUTPUT_FILE:-${DMG_RELEASE}.resume-notarization.log}"
 GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
+
+case "$NOTARY_LOG_TIMEOUT_SECONDS" in
+  ''|*[!0-9]*)
+    echo "CMUX_NOTARY_LOG_TIMEOUT_SECONDS must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$NOTARY_LOG_TIMEOUT_SECONDS" -le 0 ]; then
+  echo "CMUX_NOTARY_LOG_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
 
 # shellcheck source=lib/gatekeeper-assessment.sh
 source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
@@ -204,9 +216,22 @@ set +e
   --timeout "$NOTARY_WAIT_TIMEOUT" --output-format json \
   >"$WAIT_OUTPUT" 2>&1
 WAIT_EXIT=$?
-"$XCRUN_TOOL" notarytool log "$SUBMISSION_ID" "${NOTARY_AUTH_ARGS[@]}" \
-  >"$LOG_OUTPUT" 2>&1
-LOG_EXIT=$?
+if [ "$WAIT_EXIT" -ne 0 ]; then
+  # The wait timeout is the bounded handoff point. Do not make recovery depend
+  # on a second unbounded diagnostics request; the Ubuntu poller will query
+  # Apple again and a later accepted run will fetch the ticket log.
+  cp "$WAIT_OUTPUT" "$LOG_OUTPUT"
+  LOG_EXIT=0
+else
+  python3 "$ROOT_DIR/scripts/ci/run_with_timeout.py" \
+    --timeout-seconds "$NOTARY_LOG_TIMEOUT_SECONDS" -- \
+    "$XCRUN_TOOL" notarytool log "$SUBMISSION_ID" "${NOTARY_AUTH_ARGS[@]}" \
+    >"$LOG_OUTPUT" 2>"$TMP_DIR/notary-log.stderr"
+  LOG_EXIT=$?
+  if [ "$LOG_EXIT" -ne 0 ] && [ -s "$TMP_DIR/notary-log.stderr" ]; then
+    cat "$TMP_DIR/notary-log.stderr" >> "$LOG_OUTPUT"
+  fi
+fi
 set -e
 WAIT_STATUS="$(extract_notary_value "$WAIT_OUTPUT" status || true)"
 LOG_STATUS="$(extract_notary_value "$LOG_OUTPUT" status || true)"

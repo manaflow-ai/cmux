@@ -204,7 +204,7 @@ save_notary_output() {
   # evidence needed to resume the exact Apple submission in a follow-up job.
   umask 077
   /bin/cp "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_OUTPUT_FILE"
-  if [ -n "$DMG_SUBMIT_ID" ]; then
+  if [ -n "$DMG_SUBMIT_ID" ] && [ "${CMUX_SKIP_NOTARY_LOG:-false}" != true ]; then
     {
       printf '\n--- notarytool log for submission %s ---\n' "$DMG_SUBMIT_ID"
       "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
