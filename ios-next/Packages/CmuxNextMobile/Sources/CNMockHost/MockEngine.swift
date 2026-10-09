@@ -98,6 +98,13 @@ actor MockEngine {
         session.sendFrame(frame)
     }
 
+    /// Sends an event to one link only.
+    func send(_ topic: HostTopic, _ payload: some Encodable, to sessionId: UUID) {
+        let envelope = ControlEnvelope.event(topic: topic.rawValue, payload: (try? JSONValue(encoding: payload)) ?? .null)
+        guard let data = try? JSONEncoder().encode(envelope), let session = sessions[sessionId] else { return }
+        session.sendEvent(data)
+    }
+
     func broadcast(_ topic: HostTopic, _ payload: some Encodable) {
         let envelope = ControlEnvelope.event(topic: topic.rawValue, payload: (try? JSONValue(encoding: payload)) ?? .null)
         guard let data = try? JSONEncoder().encode(envelope) else { return }

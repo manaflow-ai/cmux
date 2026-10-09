@@ -25,5 +25,5 @@ public enum HostTopic: String, Sendable, CaseIterable {
     case convMessage = "conv.message", convUpdated = "conv.updated", convTyping = "conv.typing", convRemoved = "conv.removed"
     case agentSession = "agent.session", agentItem = "agent.item", agentRemoved = "agent.removed"
     case termUpdated = "term.updated", termExited = "term.exited"
-    case browserTab = "browser.tab", browserClosed = "browser.closed"
+    case browserTab = "browser.tab", browserClosed = "browser.closed", browserDetached = "browser.detached"
 }

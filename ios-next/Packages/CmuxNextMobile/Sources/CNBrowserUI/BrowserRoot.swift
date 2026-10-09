@@ -34,8 +34,18 @@ public struct BrowserRoot: View {
             .ignoresSafeArea(.keyboard)
         }
         .task(id: connection.generation) { await model.reload() }
+        #if DEBUG
+        .onChange(of: model.activeFrame != nil) { _, hasFrame in
+            if hasFrame { Task { await model.simulateDisplacementIfRequested() } }
+        }
+        #endif
         .task {
             for await push in connection.pushes() { model.handle(push) }
+        }
+        .task {
+            for await event in connection.events(topic: HostTopic.browserDetached.rawValue) {
+                if let detached = try? event.decode(BrowserDetachedEvent.self) { model.handleDetached(detached) }
+            }
         }
         .onDisappear { model.detachAll() }
     }
@@ -79,6 +89,8 @@ struct BrowserScreen: View {
     private let style = BrowserStyle.shared
     private var motion: BrowserMotion { style.motion }
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
+
+    private var displaced: Bool { model.displacedTabId != nil && model.displacedTabId == model.activeTabId }
 
     private var showsStartPage: Bool { creatingTab || model.showsStartPage(model.activeTabId) }
 
@@ -177,7 +189,11 @@ struct BrowserScreen: View {
                         onDrag: { chrome.pageDragged($0) },
                         onKeyboardDismissed: { chrome.pageKeyboard = false; pushGeometry() })
                 .opacity(chrome.swiping || showsStartPage ? 0 : 1)
-                .allowsHitTesting(!chrome.swiping && !showsStartPage)
+                .allowsHitTesting(!chrome.swiping && !showsStartPage && !displaced)
+            if displaced && !showsStartPage && !chrome.swiping {
+                DisplacedOverlay(safeTop: safeTop, onViewHere: model.reattachDisplaced)
+                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
+            }
             if showsStartPage && !chrome.swiping {
                 StartPageView(tabs: model.tabs, safeTop: safeTop, onOpen: { model.navigate($0) })
             }
@@ -473,6 +489,42 @@ struct BrowserScreen: View {
                 chrome.swipeOffset = 0
                 chrome.swiping = false
             }
+        }
+    }
+}
+
+/// Shown when another phone took over this tab's screencast: the last
+/// frame stays, dimmed, under a small glass banner with "View here".
+struct DisplacedOverlay: View {
+    var safeTop: CGFloat
+    var onViewHere: () -> Void
+    private let style = BrowserStyle.shared
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.35)
+                .contentShape(.rect)
+                .accessibilityHidden(true)
+            HStack(spacing: 10) {
+                Image(systemName: "iphone.gen3.radiowaves.left.and.right")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Viewing on another device")
+                    .font(.system(size: 15, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button("View here", action: onViewHere)
+                    .font(.system(size: 15, weight: .semibold))
+                    .buttonStyle(.glass)
+            }
+            .foregroundStyle(style.colors.label)
+            .padding(.leading, 16)
+            .padding(.trailing, 6)
+            .frame(height: 48)
+            .glassEffect(.regular, in: .capsule)
+            .padding(.horizontal, 16)
+            .padding(.top, safeTop + 8)
+            .accessibilityElement(children: .contain)
         }
     }
 }

@@ -48,6 +48,9 @@ final class BrowserModel {
     private(set) var desktopTabs: Set<String> = []
     private(set) var loaded = false
     private(set) var errorText: String?
+    /// Tab whose screencast another phone took over (`browser.detached`,
+    /// reason `displaced`). Its last frame stays on screen, dimmed.
+    private(set) var displacedTabId: String?
 
     // Viewport inputs (points).
     @ObservationIgnored private var viewSize: CGSize = .zero
@@ -179,6 +182,7 @@ final class BrowserModel {
 
     func attach(_ tabId: String) async {
         attachToken += 1
+        displacedTabId = nil
         let token = attachToken
         await detachStream()
         guard let client = connection.client, let vp = viewport(for: tabId) else {
@@ -233,6 +237,27 @@ final class BrowserModel {
         sentViewport = nil
     }
 
+    /// `browser.detached`: the host already ended the stream, so drop it
+    /// locally without a `browser.detach` and stop sending input to it.
+    func handleDetached(_ event: BrowserDetachedEvent) {
+        guard event.streamId == streamId else { return }
+        streamTask?.cancel()
+        streamTask = nil
+        streamClient?.closeStream(id: event.streamId)
+        streamId = nil
+        streamTabId = nil
+        streamClient = nil
+        sentViewport = nil
+        input.reset()
+        displacedTabId = event.tabId
+    }
+
+    /// "View here": take the tab back from the other device.
+    func reattachDisplaced() {
+        guard let tabId = displacedTabId else { return }
+        Task { await attach(tabId) }
+    }
+
     func detachAll() {
         attachToken += 1
         Task { await detachStream() }
@@ -267,6 +292,27 @@ final class BrowserModel {
         for i in 0..<16 { r += Int(px[i * 4]); g += Int(px[i * 4 + 1]); b += Int(px[i * 4 + 2]) }
         return UIColor(red: CGFloat(r) / 16 / 255, green: CGFloat(g) / 16 / 255, blue: CGFloat(b) / 16 / 255, alpha: 1)
     }
+
+    #if DEBUG
+    @ObservationIgnored private var debugSecondPhone: HostClient?
+
+    /// DEBUG (`CMUX_NEXT_BROWSER_DISPLACE=1`): opens a second link through
+    /// the same connector, as another phone would, and attaches the active
+    /// tab so the host displaces this phone's stream.
+    func simulateDisplacementIfRequested() async {
+        guard ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_DISPLACE"] == "1", debugSecondPhone == nil,
+              let hostId = connection.hostId, let tabId = activeTabId, let vp = viewport(for: tabId) else { return }
+        do {
+            let transport = try await connection.connector.connect(hostId: hostId)
+            let other = HostClient(transport: transport)
+            debugSecondPhone = other
+            _ = try await other.hello(connection.clientInfo)
+            _ = try await other.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height, scale: vp.scale))
+        } catch {
+            debugSecondPhone = nil
+        }
+    }
+    #endif
 
     // MARK: Tabs
 

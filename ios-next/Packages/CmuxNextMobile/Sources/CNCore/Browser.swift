@@ -107,5 +107,24 @@ public struct BrowserScreenshot: Codable, Sendable, Hashable {
     public var data: Data? { Data(base64Encoded: dataBase64) }
 }
 
+/// Why the host ended a browser stream on its own.
+public enum BrowserDetachReason: String, OpenStringEnum {
+    /// Another phone attached to the same tab and took over its screencast.
+    case displaced
+    case unknown
+    public static var unknownFallback: Self { .unknown }
+}
+
+/// `browser.detached` event: the host stopped `streamId` without a
+/// `browser.detach` from this phone.
+public struct BrowserDetachedEvent: Codable, Sendable, Hashable {
+    public var streamId: UInt32
+    public var tabId: String
+    public var reason: BrowserDetachReason
+    public init(streamId: UInt32, tabId: String, reason: BrowserDetachReason) {
+        self.streamId = streamId; self.tabId = tabId; self.reason = reason
+    }
+}
+
 /// `browser.closed` event.
 public struct BrowserClosedEvent: Codable, Sendable, Hashable { public var tabId: String; public init(tabId: String) { self.tabId = tabId } }

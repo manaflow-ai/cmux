@@ -77,6 +77,15 @@ extension MockEngine {
 
     func attachTab(_ p: BrowserAttachParams, session: MockServerSession) throws -> BrowserAttachResult {
         let tab = try tabOrThrow(p.tabId)
+        // One screencast per tab, as on the real host: a new attachment takes
+        // over and the displaced phone hears `browser.detached`.
+        for (oldId, old) in browserStreams where old.tabId == p.tabId {
+            let owner = streamOwners[oldId]
+            releaseStream(oldId)
+            if let owner, owner != session.id {
+                send(.browserDetached, BrowserDetachedEvent(streamId: oldId, tabId: p.tabId, reason: .displaced), to: owner)
+            }
+        }
         let streamId = allocateStream(for: session)
         var stream = MockBrowserStream(tabId: p.tabId, width: p.width, height: p.height, scale: p.scale)
         stream.task = Task { await self.browserLoop(streamId) }

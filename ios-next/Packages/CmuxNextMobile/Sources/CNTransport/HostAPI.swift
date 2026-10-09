@@ -34,6 +34,11 @@ public enum HostPush: Sendable, Hashable {
             self = .terminalExited(terminalId: e.terminalId, code: e.code)
         case .browserTab: self = .browserTab(try event.decode(BrowserTabResult.self).tab)
         case .browserClosed: self = .browserClosed(tabId: try event.decode(BrowserClosedEvent.self).tabId)
+        // Delivered as `.other`: adding a case would break exhaustive
+        // switches in other modules. Subscribe with
+        // `events(topic: HostTopic.browserDetached.rawValue)` and decode
+        // `BrowserDetachedEvent` instead.
+        case .browserDetached: self = .other(topic: event.topic)
         case nil: self = .other(topic: event.topic)
         }
     }

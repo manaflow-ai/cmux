@@ -135,3 +135,31 @@ Changes made from these comparisons:
   shows only the highlight.
 - **Scroll-up expand:** the timing was not measured because the label track was
   too noisy. The spring uses the spec values.
+
+## Displaced stream (`browser.detached`)
+
+The host sends `browser.detached {streamId, tabId, reason:"displaced"}` when
+another phone takes over a tab's screencast. `BrowserModel.handleDetached`
+then does the following:
+
+- Ignores the event unless it names the current stream.
+- Cancels the frame task and calls `closeStream` locally. It does not send a
+  `browser.detach` RPC, because the host has already ended the stream.
+- Stops sending input to the stream.
+- Keeps the last frame on screen, dimmed (black at 35%), under a glass banner
+  that reads "Viewing on another device" with a "View here" button. The button
+  calls `attach` again.
+
+Every other detach path sends the `browser.detach` RPC first and calls
+`closeStream` afterwards, as introduced in d345f6003e9.
+
+The mock host now enforces one screencast per tab. A new attachment displaces
+the old one and sends `browser.detached` to the displaced link only.
+
+For testing, launching with `CMUX_NEXT_BROWSER_DISPLACE=1` (DEBUG builds only)
+makes the app open a second link through the same connector once the first
+frame arrives. That link attaches to the active tab, as a second phone would.
+
+`displaced.png` shows two screenshots. On the left is the banner over the
+dimmed last frame. On the right is the page after "View here": the stream is
+live again, and scrolling collapses the toolbar.
