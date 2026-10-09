@@ -5,6 +5,9 @@
 use super::*;
 use serde_json::{Value, json};
 
+#[path = "chief_autostart.rs"]
+mod autostart;
+
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.
 struct Conn {

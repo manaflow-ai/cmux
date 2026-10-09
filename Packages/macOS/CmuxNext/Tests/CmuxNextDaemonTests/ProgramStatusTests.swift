@@ -29,7 +29,7 @@ import Testing
         // `clear` is never stored; an unknown kind is nil; progress is clamped.
         #expect(records.map(\.id) == ["", "build", "y"])
         #expect(records[0] == ProgramStatusRecord(id: "", state: .blocked, progress: 100, kind: .permission, app: "terraform",
-                                                  title: "Plan", msg: "Apply?", updatedSeq: 17))
+                                                  title: "Plan", msg: "Apply?", updatedSeq: 17, updatedAtMs: 1))
         #expect(records[2].kind == nil)
         // Two blocked records: the newer report (updated_seq 17) wins.
         #expect(ProgramStatusRecord.strongest(records)?.id == "")
@@ -57,7 +57,7 @@ import Testing
         #expect(tab.programStatus.isEmpty)
         let working = Self.terminalUpsert(#","extra":{"program_status":[{"id":"","state":"working","progress":40,"updated_seq":"1","updated_at_ms":"1"}]}"#)
         store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: event(working))])
-        #expect(tab.programStatus == [ProgramStatusRecord(state: .working, progress: 40, updatedSeq: 1)])
+        #expect(tab.programStatus == [ProgramStatusRecord(state: .working, progress: 40, updatedSeq: 1, updatedAtMs: 1)])
         store.apply(batch: [DaemonEventEnvelope(sequence: 3, event: event(Self.terminalUpsert("")))])
         #expect(tab.programStatus.isEmpty)
     }

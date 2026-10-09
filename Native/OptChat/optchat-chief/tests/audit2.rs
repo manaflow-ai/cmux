@@ -417,7 +417,10 @@ fn a_human_message_stops_a_running_acpmux_turn_and_the_next_turn_answers() {
     assert_eq!(h.agents.inner.lock().unwrap().cancels, vec!["s1"]);
     assert_eq!(new_messages(&h), vec!["edit repo A", "stop, wrong repo"]);
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
-    let view = prompts[1][0]["text"].as_str().unwrap();
+    let view: String = prompts[1][..prompts[1].len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
     assert!(
         view.contains("Let me check."),
         "the stopped turn's steps are in the view: {view}"
