@@ -114,10 +114,15 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
  */
 export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
   const text = fs.readFileSync(script, "utf8");
-  const files = [...text.matchAll(/"\$SRC\/([^"$]+\.css)"/g)].map((match) => path.join(SESSION, match[1]!));
+  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
+  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
+  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
+    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
+  );
   if (!files.some((file) => file.endsWith("shared/styles.css")))
     throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  return [path.join(webviewsRoot, "src/pages/shared/desktop.css"), ...files];
+  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
+  return [desktop, ...files.filter((file) => file !== desktop)];
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };

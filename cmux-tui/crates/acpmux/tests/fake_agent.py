@@ -8,6 +8,10 @@ Behaviour per prompt text:
   "slow"       -> streams three chunks with delays, honours session/cancel
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
+
+FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
+advertises steering; a prompt while a turn runs joins that turn, and when
+the turn ends only the last prompt gets an answer (the earlier ones never).
 """
 import json
 import sys
@@ -47,6 +51,36 @@ def request(method, params):
 
 def update(sid, upd):
     send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": upd}})
+
+
+# FAKE_CODEX_STEER: the running turn's prompt ids per session.
+codex_turns = {}
+
+
+def codex_prompt(rid, params):
+    """codex-acp: the first prompt runs the turn; a prompt during it joins it.
+    At the turn's end only the last joined prompt is answered."""
+    sid = params["sessionId"]
+    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    with lock:
+        running = codex_turns.get(sid)
+        if running is not None:
+            running.append(rid)
+            return
+        codex_turns[sid] = [rid]
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # The turn runs until a joined prompt arrives (bounded), then a moment.
+    for _ in range(300):
+        with lock:
+            joined = len(codex_turns[sid]) > 1
+        if joined:
+            break
+        time.sleep(0.01)
+    time.sleep(0.2)
+    with lock:
+        ids = codex_turns.pop(sid)
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"answered {len(ids)}"}})
+    send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
 
 
 def handle_prompt(rid, params):
@@ -377,6 +411,7 @@ def main():
                 pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
+                "_meta": {"steering": {"supported": os.environ.get("FAKE_CODEX_STEER") == "1"}},
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
@@ -430,7 +465,8 @@ def main():
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
-            threading.Thread(target=handle_prompt, args=(rid, params), daemon=True).start()
+            target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            threading.Thread(target=target, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:
