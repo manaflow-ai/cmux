@@ -731,7 +731,10 @@ export function VirtualTranscript({
   // change an estimate.
   const estimated = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) =>
+    // Keep the session in this memo's inputs: its cache is cleared synchronously above even
+    // when a host reuses the same rows array for a newly selected chat.
+    const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const layout = layoutConversation(rows, transcriptRowWidth(width), cache, (row, rowWidth) =>
       registry[rowKind(row)]?.measure?.(row, rowWidth),
     );
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
