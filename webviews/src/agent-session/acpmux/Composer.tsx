@@ -1,7 +1,24 @@
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
-import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  dragHasFiles,
+  filesFrom,
+  readAttachments,
+  thumbnail,
+  type AttachmentError,
+  type ComposerAttachment,
+} from "./attachments";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
@@ -46,6 +63,7 @@ export const COMPOSER_LABELS = {
   noMatchingCommands: "composer.noMatchingCommands",
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
+  openAttachment: "composer.openAttachment",
   dropFiles: "composer.dropFiles",
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
@@ -858,8 +876,25 @@ export function Composer({
   );
 }
 
+/// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
+/// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
 function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
   const t = useT();
+  const openImage = useContext(ImageViewerContext);
+  const [broken, setBroken] = useState(false);
+  const [thumb, setThumb] = useState<string>();
+  const image = attachment.kind === "image" && attachment.data && !broken;
+  const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
+  useEffect(() => {
+    if (!image || !attachment.data) return;
+    let live = true;
+    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
+      if (live) setThumb(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, [attachment.data, attachment.mimeType, image]);
   const remove = (
     <button
       type="button"
@@ -867,16 +902,31 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
       aria-label={t(COMPOSER_LABELS.removeAttachment, { name: attachment.name })}
       onClick={() => onRemove(attachment.id)}
     >
-      ×
+      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
+        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
     </button>
   );
-  if (attachment.kind === "image")
+  if (image && source) {
+    const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
     return (
       <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
-        <img alt={attachment.name} src={`data:${attachment.mimeType};base64,${attachment.data}`} />
+        {openImage ? (
+          <button
+            type="button"
+            className="acpmux-attachment-open"
+            aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
+            onClick={() => openImage(source, attachment.name)}
+          >
+            {img}
+          </button>
+        ) : (
+          img
+        )}
         {remove}
       </div>
     );
+  }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>

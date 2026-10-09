@@ -50,6 +50,15 @@
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
          RowCell.transitionDepth += 1
          defer { RowCell.transitionDepth -= 1 }
+@@ -406,7 +414,7 @@
+             MessagesWindowView.createdInCommits += RowCell.created - created0
+             MessagesWindowView.destroyedInCommits += RowCell.destroyed - destroyed0
+             if MessagesWindowView.logCells, RowCell.destroyed - destroyed0 > 0 {
+-                FileHandle.standardError.write("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".data(using: .utf8)!)
++                FileHandle.standardError.write(Data("commit \(String(describing: action).prefix(30)) destroyed \(RowCell.destroyed - destroyed0)\n".utf8)) // cmux: no force unwrap
+             }
+         }
+         let t0 = CACurrentMediaTime()
 @@ -567,13 +575,13 @@
          let msgs = state.conversation.messages
          let now = store.date(at: t)
@@ -119,7 +128,17 @@
              return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
          default:
              return nil
-@@ -1051,7 +1060,8 @@
+@@ -758,7 +767,8 @@
+         for i in band {
+             let key = model.rows[i].spec.key
+             let newWin = layout.contentTop(i) - newOffset
+-            if let ot = oldSnap.contentTop(key), oldSnap.row(oldSnap.index(key)!).ghost == model.rows[i].ghost || model.rows[i].ghost {
++            // cmux: no force unwrap; contentTop(key) found the key, so index(key) does too.
++            if let ot = oldSnap.contentTop(key), let oi = oldSnap.index(key), oldSnap.row(oi).ghost == model.rows[i].ghost || model.rows[i].ghost {
+                 let d = (ot + oldRowsTop - oldOffset) - newWin
+                 deltas[key] = d
+                 for j in pendingNew { deltas[model.rows[j].spec.key] = d }
+@@ -1051,7 +1061,8 @@
      func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { model.count }
  
      func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
@@ -129,7 +148,7 @@
          decorate(cell, ip.item)
          return cell
      }
-@@ -1304,7 +1314,7 @@
+@@ -1304,7 +1315,7 @@
              return
          }
          let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }

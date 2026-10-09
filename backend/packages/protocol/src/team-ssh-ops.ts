@@ -248,8 +248,8 @@ export const teamSshInternalOps: ReadonlyArray<CloudOpDef> = [
   internal(
     "team_vm.taint_audit",
     Schema.Struct({
-      /** cert_issued_while_tainted, taint_accepted, rebuild, retired_deleted. */
-      action: Schema.Literals(["cert_issued_while_tainted", "taint_accepted", "rebuild", "retired_deleted"]),
+      /** cert_issued_while_tainted, taint_accepted, rebuild, retired_deleted, retired_exported. */
+      action: Schema.Literals(["cert_issued_while_tainted", "taint_accepted", "rebuild", "retired_deleted", "retired_exported"]),
       by: Schema.String,
       epoch: Schema.Int,
       /** The removed members whose certificates tainted the VM. */

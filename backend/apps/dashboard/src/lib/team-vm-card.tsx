@@ -13,6 +13,8 @@ export interface TeamVmCardProps {
   readonly onCancel: () => void
   readonly onFilesCopied: (value: boolean) => void
   readonly onConfirm: () => void
+  /** Export a paused retired VM's /srv/team (team_vm.retired.export) and start the browser download. */
+  readonly onDownload: (vm: string) => void
 }
 
 const pill = (color: string): CSSProperties => ({ display: "inline-block", padding: "0 8px", borderRadius: 999, border: `1px solid ${color}`, color, fontSize: 12, lineHeight: "20px", whiteSpace: "nowrap" })
@@ -25,7 +27,7 @@ const accentButton: CSSProperties = { borderColor: "var(--accent)", color: "var(
 const dim = (disabled: boolean, style?: CSSProperties): CSSProperties | undefined => (disabled ? { ...style, opacity: 0.45, cursor: "not-allowed" } : style)
 
 /** The team VM: state, taint badge (every member), owner/admin actions and the retired VMs. */
-export function TeamVmCard({ view, role, locale, state, onOpen, onCancel, onFilesCopied, onConfirm }: TeamVmCardProps) {
+export function TeamVmCard({ view, role, locale, state, onOpen, onCancel, onFilesCopied, onConfirm, onDownload }: TeamVmCardProps) {
   const t = (key: TeamVmTextKey, vars?: Record<string, string>) => teamVmText(locale, key, vars)
   const badge = taintBadge(view)
   const manage = canManageTeamVm(role)
@@ -77,15 +79,47 @@ export function TeamVmCard({ view, role, locale, state, onOpen, onCancel, onFile
           {full ? <span className="muted">{t("rebuild.full")}</span> : null}
         </div>
       ) : null}
-      {state.dialog && state.dialog.kind !== "delete" ? <Confirm view={view} locale={locale} state={state} onCancel={onCancel} onFilesCopied={onFilesCopied} onConfirm={onConfirm} /> : null}
-      {view.retired.length > 0 ? <Retired view={view} manage={manage} locale={locale} state={state} onOpen={onOpen} onCancel={onCancel} onFilesCopied={onFilesCopied} onConfirm={onConfirm} /> : null}
+      {state.dialog && state.dialog.kind !== "delete" ? <Confirm view={view} locale={locale} state={state} onCancel={onCancel} onFilesCopied={onFilesCopied} onConfirm={onConfirm} onDownload={onDownload} /> : null}
+      {view.retired.length > 0 ? <Retired view={view} manage={manage} locale={locale} state={state} onOpen={onOpen} onCancel={onCancel} onFilesCopied={onFilesCopied} onConfirm={onConfirm} onDownload={onDownload} /> : null}
     </div>
   )
 }
 
-type ConfirmProps = Pick<TeamVmCardProps, "view" | "locale" | "state" | "onCancel" | "onFilesCopied" | "onConfirm">
+type ConfirmProps = Pick<TeamVmCardProps, "view" | "locale" | "state" | "onCancel" | "onFilesCopied" | "onConfirm" | "onDownload">
+
+/** The Download button of one paused retired VM; off while any download is being prepared or an op runs. */
+function DownloadButton({ vm, locale, state, onDownload }: { readonly vm: string } & Pick<TeamVmCardProps, "locale" | "state" | "onDownload">) {
+  const off = state.busy || state.download?.phase === "busy"
+  return (
+    <button data-download={vm} disabled={off} onClick={() => onDownload(vm)} style={dim(off, accentButton)}>
+      {teamVmText(locale, "action.download")}
+    </button>
+  )
+}
+
+/** What the last download of this VM did: preparing, started (with the skipped count), or the error. */
+function DownloadStatus({ vm, locale, state }: { readonly vm: string } & Pick<TeamVmCardProps, "locale" | "state">) {
+  const d = state.download
+  if (!d || d.vm !== vm) return null
+  const t = (key: TeamVmTextKey, vars?: Record<string, string>) => teamVmText(locale, key, vars)
+  if (d.phase === "busy") return <p className="muted" style={{ margin: "4px 0" }}>{t("download.busy", { vm })}</p>
+  if (d.phase === "failed" && d.error) {
+    return (
+      <p className="error" data-download-error={d.error.code} style={{ margin: "4px 0" }}>
+        {t("download.failed", { code: d.error.code, text: teamVmErrorText(locale, d.error.code) })}
+      </p>
+    )
+  }
+  return (
+    <p style={{ margin: "4px 0" }} data-download-started={vm}>
+      {t("download.started")}
+      {d.skipped > 0 ? ` ${t("download.skipped", { count: String(d.skipped) })}` : null}
+    </p>
+  )
+}
 
 function Retired({ view, manage, locale, state, onOpen, ...confirm }: ConfirmProps & Pick<TeamVmCardProps, "onOpen"> & { readonly manage: boolean }) {
+  const onDownload = confirm.onDownload
   const t = (key: TeamVmTextKey, vars?: Record<string, string>) => teamVmText(locale, key, vars)
   const deleting = state.dialog?.kind === "delete" ? state.dialog.vm : null
   return (
@@ -117,10 +151,14 @@ function Retired({ view, manage, locale, state, onOpen, ...confirm }: ConfirmPro
               <td className="muted">{t("retired.by", { who: r.by, when: absoluteTime(locale, r.at) })}</td>
               <td style={{ textAlign: "right" }}>
                 {manage && r.state === "paused" ? (
-                  <button className="danger" data-delete={r.vm} disabled={state.busy || deleting === r.vm} onClick={() => onOpen("delete", r.vm)} style={dim(state.busy || deleting === r.vm)}>
-                    {t("action.delete")}
-                  </button>
+                  <span style={{ display: "inline-flex", gap: 8 }}>
+                    <DownloadButton vm={r.vm} locale={locale} state={state} onDownload={onDownload} />
+                    <button className="danger" data-delete={r.vm} disabled={state.busy || deleting === r.vm} onClick={() => onOpen("delete", r.vm)} style={dim(state.busy || deleting === r.vm)}>
+                      {t("action.delete")}
+                    </button>
+                  </span>
                 ) : null}
+                {manage && deleting !== r.vm ? <DownloadStatus vm={r.vm} locale={locale} state={state} /> : null}
               </td>
             </tr>
           ))}
@@ -132,7 +170,7 @@ function Retired({ view, manage, locale, state, onOpen, ...confirm }: ConfirmPro
 }
 
 /** The confirm panel of the open dialog: what the op does, and for Delete the required files-copied checkbox. */
-function Confirm({ view, locale, state, onCancel, onFilesCopied, onConfirm }: ConfirmProps) {
+function Confirm({ view, locale, state, onCancel, onFilesCopied, onConfirm, onDownload }: ConfirmProps) {
   const t = (key: TeamVmTextKey, vars?: Record<string, string>) => teamVmText(locale, key, vars)
   const dialog = state.dialog
   if (!dialog) return null
@@ -151,6 +189,13 @@ function Confirm({ view, locale, state, onCancel, onFilesCopied, onConfirm }: Co
       ) : (
         <p style={{ margin: "6px 0" }}>{t(`confirm.${dialog.kind}.body`)}</p>
       )}
+      {dialog.kind === "delete" ? (
+        <div style={{ margin: "6px 0" }}>
+          <p style={{ margin: "4px 0", fontWeight: 600 }}>{t("confirm.download_first")}</p>
+          <DownloadButton vm={dialog.vm} locale={locale} state={state} onDownload={onDownload} />
+          <DownloadStatus vm={dialog.vm} locale={locale} state={state} />
+        </div>
+      ) : null}
       {dialog.kind === "delete" ? (
         <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "6px 0" }}>
           <input type="checkbox" checked={dialog.filesCopied} disabled={state.busy} onChange={(e) => onFilesCopied(e.currentTarget.checked)} />

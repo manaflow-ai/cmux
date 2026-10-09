@@ -54,7 +54,7 @@ final class FooterActionBrowserStatus: BrowserClaimView {
 /// "2 of 4" on the left; Skip, Make Default and Continue on the right.
 final class FooterActionBrowserFooter: BrowserClaimView {
     private let context: OnboardingStepContext
-    private var make: NSButton!
+    private lazy var make: NSButton = OnboardingControl.button(BrowserVariantStrings.makeDefault, target: self, action: #selector(requestClaim))  // no IUO (crash program)
 
     init(context: OnboardingStepContext) {
         self.context = context
@@ -63,7 +63,7 @@ final class FooterActionBrowserFooter: BrowserClaimView {
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
         counter.isHidden = !OnboardingFooter.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
-        make = OnboardingControl.button(BrowserVariantStrings.makeDefault, target: self, action: #selector(requestClaim))
+        _ = make  // built here, as before
         let next = OnboardingControl.button(context.isLast ? OnboardingStrings.done : OnboardingStrings.continueButton,
                                             prominent: true, target: self, action: #selector(nextPressed))
         let actions = NSStackView(views: [skip, make, next])

@@ -32,7 +32,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
     @discardableResult
     public static func showIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         guard let engineName = environment["CMUX_NEXT_DEBUG_BROWSER"], !engineName.isEmpty else { return nil }
-        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com")!
+        let url = environment["CMUX_NEXT_DEBUG_BROWSER_URL"].flatMap(URL.init(string:)) ?? URL(string: "https://example.com") ?? URL(fileURLWithPath: "/dev/null")
         let report = environment["CMUX_NEXT_DEBUG_BROWSER_REPORT"].map { URL(filePath: $0) }
         let configuration = BrowserTabConfiguration(initialURL: url, pane: BrowserPaneID(rawValue: "debug-window"))
         do {
