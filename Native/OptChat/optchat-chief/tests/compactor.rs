@@ -144,34 +144,6 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
 }
 
 #[test]
-fn the_size_loop_continues_in_the_same_session() {
-    let dir = tempfile::tempdir().unwrap();
-    let agents = FakeAgents::new(Box::new(|turn, _| {
-        if turn == 0 {
-            answer(&"long".repeat(175))
-        } else {
-            answer("user: short now")
-        }
-    }));
-    let compactor = compactor(&agents, dir.path());
-    assert_eq!(
-        run_node(&compactor, &request(3)).unwrap(),
-        "user: short now"
-    );
-    let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.specs.len(), 1, "one session for the node");
-    assert_eq!(inner.prompts.len(), 2);
-    let retry = texts(&inner.prompts[1]);
-    assert_eq!(retry.len(), 1, "a retry sends only the size message");
-    assert!(
-        retry[0].starts_with("Too long: your line is 700 bytes"),
-        "{retry:?}"
-    );
-    assert_eq!(inner.ended, vec!["s1"]);
-    assert_ne!(inner.prompt_ids[0], inner.prompt_ids[1]);
-}
-
-#[test]
 fn a_failed_node_kills_its_session_and_a_refusal_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("")));
@@ -1791,22 +1763,17 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
     }
 }
 
-/// Dogfood fc34083d7bfa: a node whose first prompt carries our mark runs
-/// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
-/// long" retries in the same session read nothing from the cache (node
-/// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
-/// ends with our own 5-minute mark, so it reads the previous
-/// request from the cache; the session never holds more than the API's 4
-/// marks (the view mark and at most 3 retry marks; a 4th retry reads the
-/// 3rd's entry unmarked).
+/// Dogfood fc34083d7bfa: a marked node's size retries read nothing from
+/// the cache when they continued the session. A retry is now a fresh call
+/// with the node's first prompt (its view mark, read from the cache) and
+/// the note (no mark): every request carries one mark, within the API's 4.
 #[test]
-fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
+fn size_retries_of_a_marked_node_reread_the_view_mark() {
     let dir = tempfile::tempdir().unwrap();
     let long = "x".repeat(700);
     let agents = FakeAgents::new(Box::new(move |_, _| answer(&long)));
     agents.inner.lock().unwrap().system_prompts = true;
     let compactor = compactor(&agents, dir.path());
-    // A view with whole 4-line blocks, so the first prompt carries our mark.
     let mut context = String::from("<chat>\n");
     for k in 0..12 {
         context.push_str(&format!("{k}+1|user: line {k} {}\n", "y".repeat(80)));
@@ -1820,34 +1787,24 @@ fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
     run_node(&compactor, &request).unwrap();
     let prompts = agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), optchat_core::TRIES, "the size loop ran out");
-    let marks = |blocks: &[Value]| {
-        blocks
+    for p in &prompts {
+        let marks = p
             .iter()
             .filter(|b| b.get("cache_control").is_some())
-            .count()
-    };
-    assert_eq!(marks(&prompts[0]), 1, "the view mark");
-    let mut total = 1;
-    for (k, p) in prompts.iter().enumerate().skip(1) {
-        let m = marks(p);
-        if k <= 3 {
-            assert_eq!(m, 1, "retry {k} ends with our mark: {p:?}");
-            assert!(
-                p.last().unwrap().get("cache_control").is_some(),
-                "on its last block"
-            );
-            // 5 minutes whatever the node's TTL: a retry chain lasts seconds,
-            // a 5m write costs 1.25x the input price against 2x for 1h, and
-            // the API takes a 5m mark after a 1h one (not the reverse).
-            assert_eq!(
-                p.last().unwrap()["cache_control"],
-                json!({"type": "ephemeral"}),
-                "a 5m retry mark"
-            );
-        }
-        total += m;
+            .count();
+        assert_eq!(marks, 1, "the view mark only: {p:?}");
     }
-    assert!(total <= 4, "{total} marks in one session");
+    for p in &prompts[1..] {
+        assert!(
+            p.last().unwrap().get("cache_control").is_none(),
+            "the note has no mark"
+        );
+        assert_eq!(
+            &p[..prompts[0].len()],
+            &prompts[0][..],
+            "the first prompt again"
+        );
+    }
 }
 
 /// E2 (hq-6d): an exhausted compactor route (the subrouter's 503 with
@@ -2010,11 +1967,20 @@ fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
 fn a_codex_compactor_slot_sets_its_own_service_tier() {
     use optchat_chief::compactor::codex_compactor_config_at;
     let user = "model = \"gpt-6-astra\"\nservice_tier = \"fast\"\n";
-    let off: toml::Table = codex_compactor_config_at(Some(user), false).unwrap().parse().unwrap();
+    let off: toml::Table = codex_compactor_config_at(Some(user), false)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert!(off.get("service_tier").is_none(), "{off:?}");
-    let on: toml::Table = codex_compactor_config_at(Some(user), true).unwrap().parse().unwrap();
+    let on: toml::Table = codex_compactor_config_at(Some(user), true)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(on["service_tier"].as_str(), Some("fast"));
-    let bare: toml::Table = codex_compactor_config_at(None, true).unwrap().parse().unwrap();
+    let bare: toml::Table = codex_compactor_config_at(None, true)
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(bare["service_tier"].as_str(), Some("fast"));
 }
 
@@ -2032,4 +1998,35 @@ fn a_fast_compactor_starts_fast_sessions() {
     let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
     run_node(&compactor, &request(1)).unwrap();
     assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
+}
+
+/// hq-6d: a size retry is a fresh call, as the reference client makes it:
+/// a new session with the node's first prompt and the retry note, so the
+/// model does not see (and anchor on) its long line; the first prompt's
+/// cached prefix is read again.
+#[test]
+fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&"long".repeat(175))
+        } else {
+            answer("user: short now")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path());
+    assert_eq!(
+        run_node(&compactor, &request(3)).unwrap(),
+        "user: short now"
+    );
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.specs.len(), 2, "a new session for the retry");
+    let (first, retry) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(&retry[..first.len()], &first[..], "the first prompt again");
+    assert_eq!(retry.len(), first.len() + 1);
+    assert!(
+        retry[first.len()].starts_with("Too long: your last line"),
+        "{retry:?}"
+    );
+    assert_eq!(inner.ended, vec!["s1", "s2"]);
 }

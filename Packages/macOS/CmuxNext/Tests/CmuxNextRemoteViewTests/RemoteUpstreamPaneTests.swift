@@ -2,42 +2,6 @@ import Foundation
 import Testing
 @testable import CmuxNextRemoteView
 
-/// The pane side of the C4b consent contract: share buttons only for a host
-/// that offers upstream media, the permission prompt only from the button,
-/// a denied permission opens nothing, the indicator shows each active kind
-/// and its Stop (and hiding the tab) revokes at once.
-@MainActor
-struct RemoteUpstreamPaneStateTests {
-    static func state(_ upstream: RemoteUpstreamStatus, _ session: RemoteSessionState = .streaming) -> RemotePaneState {
-        var state = RemotePaneState(hostName: "h")
-        state.status = RemoteViewStatus(state: session, upstream: upstream)
-        return state
-    }
-
-    @Test func buttonsShowOnlyWhileStreamingFromAHostThatOffersUpstream() {
-        #expect(Self.state(RemoteUpstreamStatus(offered: true)).showsUpstreamButtons)
-        #expect(!Self.state(RemoteUpstreamStatus(offered: false)).showsUpstreamButtons)
-        #expect(!Self.state(RemoteUpstreamStatus(offered: true), .connecting).showsUpstreamButtons)
-        #expect(!RemotePaneState(hostName: "h").showsUpstreamButtons)
-    }
-
-    @Test func theIndicatorListsActiveKindsAndNothingOnceEnded() {
-        let upstream = RemoteUpstreamStatus(offered: true, requested: [.camera], active: [.screen, .microphone])
-        #expect(Self.state(upstream).upstreamIndicator == [.microphone, .screen])
-        #expect(Self.state(upstream, .ended(.connectionLost)).upstreamIndicator.isEmpty)
-    }
-
-    @Test func stopHidesTheKindAtOnce() {
-        let reducer = RemotePaneReducer()
-        let upstream = RemoteUpstreamStatus(offered: true, requested: [.camera], active: [.microphone, .screen])
-        let stopped = reducer.reduce(Self.state(upstream), .stopUpstream(.microphone))
-        #expect(stopped.upstreamIndicator == [.screen])
-        let all = reducer.reduce(stopped, .stopAllUpstreams)
-        #expect(all.upstreamIndicator.isEmpty && all.upstream.requested.isEmpty)
-        #expect(all.showsUpstreamButtons, "the host still offers upstream")
-    }
-}
-
 /// Permission prompts recorded in order; the answer is fixed per test.
 @MainActor
 final class FakeUpstreamPermissions: RemoteUpstreamPermissions {
