@@ -145,13 +145,14 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: STUB_PLAN.max_active })
   })
 
-  it("refuses an install for create and delete even when its grant has money and destructive (user principal only until ORIGIN)", async () => {
+  it("never runs an install's create or delete directly, even when its grant has money and destructive: both wait for the person's approval (G8, cx-wb5.65)", async () => {
     const { team, alice, stub } = people()
     const inst = `inst_${"b".repeat(20)}`
     const install: Principal = { identity: `install:${inst}`, user: alice.user, team, kind: "install", install: inst, grant_classes: ["read", "mutate-own", "mutate-shared", "money", "destructive"] }
-    expect(await create(stub, team, install)).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(await create(stub, team, install)).toMatchObject({ t: "reject", code: "approval.pending" })
     const m = (await create(stub, team, alice)).value.machine
-    expect(reply(await stub.submit(team, install, frame("cloud.machine.delete", { machine: m.id })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await stub.submit(team, install, frame("cloud.machine.delete", { machine: m.id })))).toMatchObject({ t: "reject", code: "approval.pending" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, deletes: 0 })
     // Reads and non-person mutations stay open to the install.
     expect(await stub.readOp(team, install, "cloud.machine.get", { machine: m.id })).toMatchObject({ ok: true, value: { id: m.id } })
   })

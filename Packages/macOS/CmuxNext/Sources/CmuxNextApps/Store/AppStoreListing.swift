@@ -76,6 +76,16 @@ public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
         self.bundle = bundle
     }
 
+    /// Apps that are part of cmux itself (the sidebar's top items, wired to
+    /// native pages): removing one would break cmux, and a sandbox would
+    /// mean nothing, so the store offers neither.
+    public static let builtInIDs: Set<String> = ["cmux/home", "cmux/app-store"]
+
+    public var isBuiltIn: Bool { tier == .firstParty && Self.builtInIDs.contains(id) }
+
+    /// Whether the store has any permission to show (requested or optional).
+    public var requestsScopes: Bool { !scopes.isEmpty || !optionalScopes.isEmpty }
+
     /// Matches a store search: name, id, description, categories, keywords.
     public func matches(_ query: String) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -84,4 +94,9 @@ public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
             + (bundle?.manifest.keywords ?? [])).joined(separator: " ").lowercased()
         return needle.split(separator: " ").allSatisfy { haystack.contains($0) }
     }
+}
+
+extension InstalledApp {
+    /// Part of cmux itself (``AppStoreListing/builtInIDs``).
+    public var isBuiltIn: Bool { tier == .firstParty && AppStoreListing.builtInIDs.contains(id) }
 }

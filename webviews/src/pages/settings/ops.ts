@@ -85,10 +85,24 @@ export type HostLists = {
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
   settings_file?: string | null;
+  /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
+  computer_use?: ComputerUseState | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+};
+
+/** `ComputerUseSetup.Phase` in the app. */
+export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+
+/** The Computer Use card's state: the grants of the helper that runs (or would run). */
+export type ComputerUseState = {
+  phase: ComputerUsePhase;
+  accessibility: boolean | null;
+  screen_recording: boolean | null;
+  /** The helper app's name, null when this build has no signed helper. */
+  helper: string | null;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -167,6 +181,8 @@ export type SettingsOps = {
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
   "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
+  /** Native: write text to the pasteboard (react-pages.md 1.3). */
+  "cmux.app.clipboard.write": [{ text: string }, unknown];
 };
 
 export type SettingsOpName = keyof SettingsOps;
@@ -245,6 +261,9 @@ export const settingsPageActions = [
   "browserProfile.manageExtensions",
   "browserProfile.delete",
   "reloadConfiguration",
+  "palette.computerUse.setup",
+  "palette.computerUse.accessibility",
+  "palette.computerUse.screenRecording",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];
