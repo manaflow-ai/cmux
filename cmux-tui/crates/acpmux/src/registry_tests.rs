@@ -207,3 +207,14 @@ fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     let own = r#"{"id": "fast-agent", "name": "F", "version": "1.0.0", "distribution": {"uvx": {"package": "f==1.0.0", "env": {"FAST_AGENT_MODEL": "m", "F_DISABLE_AUTO_UPDATE": "1"}}}}"#;
     assert_eq!(one(own).agents.len(), 1);
 }
+
+#[test]
+fn an_installed_antigravity_acp_server_is_the_antigravity_harness() {
+    let reg = one(
+        r#"{"id": "antigravity-acp", "name": "Google Antigravity", "version": "1.3.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://dl.google.com/agy.zip", "cmd": "./agy_acp_server.par"}}}}"#,
+    );
+    let found =
+        discovered(&reg, Some("linux-x86_64"), &on_path(&["agy_acp_server.par"]), &|_| false);
+    assert_eq!(found["antigravity"].argv, vec!["/u/bin/agy_acp_server.par".to_owned()]);
+    assert_eq!(found["antigravity"].family.as_deref(), Some("antigravity"));
+}
