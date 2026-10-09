@@ -11,7 +11,7 @@ ACPMUX_HOME and XDG_CONFIG_HOME with a fake ACP harness), and builds:
   a workspace "tabs" with one terminal tab per state (the tab strip, focused last);
   three ACP chats on the fake agent (cmux-tui/crates/acpmux/tests/fake_agent.py): a running
   turn ("gate: <fifo>"), a pending permission ("ask: x"), and a turn that completes while no
-  client is attached (the agent tab hibernated, then the gate released: acpmux `unread`).
+  client is watching (the chat tab is hidden behind a terminal tab; done until seen is client state).
 
 Checks: each terminal's daemon records (`cmux terminal <id> status --json`); a banner per
 blocked/error record with the daemon's title ("<title> needs approval|asks a question|needs
@@ -516,14 +516,10 @@ class Run:
                    (ask.get("pendingPermissions") or 0) > 0 or ask.get("status") == "waiting",
                    {k: ask.get(k) for k in ("status", "pendingPermissions", "unread")})
         detail = {k: (done or sessions.get(sid_done, {})).get(k) for k in ("status", "unread", "lastTurn")}
-        if before.get("attached", 0) > 0:
-            # No app path detached the chat (hibernate refuses the agent tab; a hidden workspace's
-            # agent page stays attached), so acpmux cannot mark the turn unread: not shown, not failed.
-            note = f"acp done UNVERIFIED: the agent tab stayed attached ({before.get('attached')} clients), so no unread turn"
-            self.notes.append(note)
-            say(f"[{self.set}] note {note}: {json.dumps(detail)[:300]}")
-        else:
-            self.check("acp done: completed while detached (unread)", bool(done), detail)
+        # Done until seen is client view state (the chat tab stays attached in the background), so
+        # the turn only has to complete; the sidebar row check after the "tabs" switch proves the mark.
+        completed = (sessions.get(sid_done, {}).get("lastTurn") or {}).get("status") == "completed"
+        self.check("acp done: turn completed", completed, detail)
 
     def quit(self):
         for fifo in self.fifos:  # a gate still closed: release it so the turn ends
@@ -575,6 +571,10 @@ class Run:
             rows_report = rpc("debug.sidebar_rows")
             with open(os.path.join(self.dir, "sidebar-rows.json"), "w") as f:
                 json.dump(rows_report, f, indent=1)
+            rows = [row for window in (rows_report or {}).get("windows", []) for row in window.get("rows", [])]
+            acp_done = next((row for row in rows if row.get("title") == "acp done"), {})
+            self.check("acp done: row shows done until seen", acp_done.get("activity") == "success",
+                       {"activity": acp_done.get("activity")})
             for theme in opts.themes.split(","):
                 if theme != "light":
                     self.write_config(theme)
