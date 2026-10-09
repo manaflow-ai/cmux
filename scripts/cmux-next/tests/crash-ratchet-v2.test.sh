@@ -273,4 +273,10 @@ if out="$(ratchet)"; then fail "an index on a file-local non-dictionary passed: 
 g reset -q
 reset
 
+# 15. A string parse with radix: returns nil, so it does not count; Int(x) still does.
+printf 'let a = Int(text, radix: 10) ?? 0\nlet b = UInt8(s, radix: 16)\nlet c = Int(x)\n' > "$shared/Sources/MessagesLabHome/F.swift"
+if out="$(ratchet)"; then fail "Int(x) passed next to radix parses: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "radix parses counted or Int(x) was missed: $out"
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"

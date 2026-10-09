@@ -70,7 +70,7 @@
    "CmuxNextMobile": 1
   },
   "int_conversion": {
-   "CMUXMobileCore": 18,
+   "CMUXMobileCore": 17,
    "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 10,
    "CmuxNextControl": 5,
