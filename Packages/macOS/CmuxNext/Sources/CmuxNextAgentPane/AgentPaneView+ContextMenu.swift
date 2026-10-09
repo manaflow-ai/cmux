@@ -81,9 +81,26 @@ extension AgentPaneView {
     func editContextMenu(_ menu: NSMenu) {
         let target = messageMenuTarget
         messageMenuTarget = nil
-        AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, actions: .init(
+        let chatMenu = target == nil ? model.chatMenuItems?() ?? [] : []
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
-            fork: { [weak self] seq in self?.fork(through: seq) }))
+            fork: { [weak self] seq in self?.fork(through: seq) },
+            retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
+            edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
+            open: { [weak self] url in self?.openLink(url) }))
+    }
+
+    /// Retry and Edit and Resend: the page's own actions, with the menu choice as the gesture.
+    private func runMessageAction(_ name: String, _ params: [String: String]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
+        model.transport.gestures.record()
+        evaluateScript("window.cmuxAcpmuxActions?.['\(name)']?.(\(String(decoding: data, as: UTF8.self)));")
+    }
+
+    /// Open Link: outside the pane, on the rule a click on the link follows.
+    private func openLink(_ url: URL) {
+        model.transport.gestures.record()
+        _ = AgentPaneNavigation.openOutside(url, gestures: model.transport.gestures, open: openURL)
     }
 
     /// Fork from Here: the turn footer's fork, through the page's own action. The menu choice is

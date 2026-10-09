@@ -3,13 +3,21 @@
 // reports that message (its text, an agent reply's Markdown, and its turn's fork point) to the
 // host's `cmuxAgentContextMenu` handler, or null when the pointer is not on a message. The host
 // uses one report for one menu.
-import { lexer, type Token } from "marked";
+import { lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
-export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: number };
+export type MessageMenuTarget = {
+  text: string;
+  markdown?: string;
+  forkSeq?: number;
+  /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
+  retryRowId?: string;
+  /// The message's web links and images, each once, for Open Link.
+  links?: string[];
+};
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
@@ -41,8 +49,25 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
     ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
     : undefined;
   const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
-  const base = row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
-  return forkSeq === undefined ? base : { ...base, forkSeq };
+  const target: MessageMenuTarget =
+    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+  if (forkSeq !== undefined) target.forkSeq = forkSeq;
+  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  const links = webLinks(row.text);
+  if (links.length > 0) target.links = links;
+  return target;
+}
+
+/// The http(s) links and images in a message's Markdown (bare URLs too), each once, in reading
+/// order. Anything else (javascript:, file:, relative paths) is not offered.
+export function webLinks(markdown: string): string[] {
+  const links: string[] = [];
+  void walkTokens(lexer(markdown), (token) => {
+    if (token.type !== "link" && token.type !== "image") return;
+    const href = String(token.href);
+    if (/^https?:\/\//i.test(href) && !links.includes(href)) links.push(href);
+  });
+  return links;
 }
 
 /// Markdown as a person reads it: the words, code and links' text without the syntax, one block

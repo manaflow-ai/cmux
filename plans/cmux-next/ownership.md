@@ -23,6 +23,7 @@ adapted for one laptop, many Mac minis and many Cloud VMs.
 
 ## 0. Agreements and related plans
 
+- layer-ownership.md (binding, 2026-10-09) says which language layer owns each kind of state and rule (Rust daemon, Swift presentation, TS views, codegen for shared rules) and holds the cross-layer violation inventory.
 - PR 16174 (`feat-cmux-next-acpmux`, session feat-cmux-next-99; plans `cli.md` and
   `state-ownership.md`) makes the Rust cmux-tui binary the `cmux` CLI, deletes the Swift
   CLI and `CmuxNextControl/Compat`, and puts 51 typed v2 state operations behind

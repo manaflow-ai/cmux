@@ -558,3 +558,24 @@ describe("rails-hardening-1: owner checks, bootstrap and the environment (P3)", 
     await s.end()
   })
 })
+
+describe("rails-hardening-2 (fifth review follow-up)", () => {
+  it("(3) a production adopt refuses runtime injection", async () => {
+    const w = await world()
+    landed(w)
+    w.setEnv("NODE_OPTIONS", "--require /tmp/x.js")
+    expect(await w.run("adopt", "--tree", "cmux-vm", "--target", "production", "--url-env", "PROD_URL", "--through", "0008", "--confirm-production")).toBe(1)
+    expect(w.errors.at(-1)).toContain("NODE_OPTIONS")
+  })
+  it("(4) a DROP INDEX CONCURRENTLY rerun after the index is already gone records the file", async () => {
+    const w = await world()
+    expect(await w.run("apply", ...S)).toBe(0)
+    const s = await w.owner(w.staging)
+    await s.query("DROP INDEX cmux_vm.resources_labels_idx")
+    await s.end()
+    addMigration(w.root, "cmux-vm", "0010_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0010" }')
+    expect(await w.run("apply", ...S, "--allow-contract", "0010_drop_idx.sql")).toBe(0)
+    expect((await rows(w, w.staging)).at(-1)).toBe("0010_drop_idx.sql")
+  })
+})

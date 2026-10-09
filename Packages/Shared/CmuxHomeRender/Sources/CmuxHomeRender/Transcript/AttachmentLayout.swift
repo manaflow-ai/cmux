@@ -40,7 +40,7 @@ enum AttachmentLayout {
         if let media = media(ref) { return (.media(media), mediaSize(ref, metrics: metrics)) }
         let maxWidth = min(FileChip.maxWidth, metrics.maxTextWidth + 2 * Style.bubblePadX)
         let kind = fileKind(ref)
-        let size = ByteCountFormatter.string(fromByteCount: Int64(ref.byteCount), countStyle: .file)
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: ref.byteCount), countStyle: .file)
         let detail = kind + " \u{00B7} " + size
         let textRoom = maxWidth - FileChip.textLeft - FileChip.padRight
         let name = truncateMiddle(ref.name, font: FileChip.nameFont, width: textRoom)
@@ -75,7 +75,7 @@ enum AttachmentLayout {
         while chars.count > 3 {
             let cut = chars.count / 2
             chars.remove(at: cut)
-            let candidate = String(chars[..<cut]) + "\u{2026}" + String(chars[cut...])
+            let candidate = String(chars.prefix(cut)) + "\u{2026}" + String(chars.dropFirst(cut))
             if TextDraw.width(candidate, font: font) <= width { return candidate }
         }
         return String(chars)

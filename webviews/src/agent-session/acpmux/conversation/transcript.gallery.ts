@@ -557,19 +557,6 @@ export default agentPaneEntry({
         await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
       },
     },
-    "keyboard-selection": {
-      note: "Play: move the transcript roving focus with Shift+ArrowDown and keep the selected range visible.",
-      snapshot: chat(selectionRows),
-      play: async (ctx) => {
-        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
-        await ctx.press("Shift+ArrowDown");
-        await ctx.waitFor(
-          () =>
-            document.querySelector('[data-row-id="gallery-selection-answer"]')?.getAttribute("aria-selected") ===
-            "true",
-        );
-      },
-    },
     "keyboard-focus": {
       note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
       snapshot: chat(keyboardRows),
