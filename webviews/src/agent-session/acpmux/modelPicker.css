@@ -5,6 +5,51 @@
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
 }
+/* Picker v2: sized to its content, the shared popup surface (ui/popupSurface.css; the fallbacks
+   match it until it loads everywhere). The harness column and its search sit on the chip's side;
+   the models branch out beside the hovered harness, bottom-anchored to its row. */
+.acpmux-menu.acpmux-mp-t3 {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  padding: var(--ui-popup-padding, 4px);
+  border-radius: var(--ui-popup-radius, 8px);
+  box-shadow:
+    inset 0 0 0 0.5px var(--acpmux-composer-edge),
+    var(--ui-popup-shadow, 0 4px 14px rgb(0 0 0 / 0.12));
+}
+.acpmux-mp-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-mp-harness-list {
+  max-height: 240px;
+  overflow: auto;
+}
+.acpmux-mp-harness-name {
+  flex: 1;
+  white-space: nowrap;
+}
+.acpmux-mp-models {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-height: 280px;
+  overflow: auto;
+  border-left: 0.5px solid var(--acpmux-composer-edge);
+  padding-left: 4px;
+}
+.acpmux-mp-current {
+  font-weight: 500;
+}
+.acpmux-mp-more svg {
+  transform: rotate(-90deg);
+  color: var(--agent-muted);
+}
 .acpmux-mp .acpmux-menu-search {
   font-size: 13px;
 }

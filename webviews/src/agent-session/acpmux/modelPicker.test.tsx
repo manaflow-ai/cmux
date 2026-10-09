@@ -264,7 +264,8 @@ describe("T3 model picker", () => {
     const codex = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].find(
       (row) => row.textContent === "Codex",
     )!;
-    await act(async () => codex.dispatchEvent(new dom.window.Event("pointerenter")));
+    // React derives onPointerEnter from a bubbling pointerover.
+    await act(async () => codex.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true })));
     expect(doc.querySelector(".acpmux-mp-models")!.getAttribute("aria-label")).toBe("Codex");
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
       "o3",

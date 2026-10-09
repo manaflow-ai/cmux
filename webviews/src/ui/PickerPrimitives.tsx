@@ -19,14 +19,17 @@ export const PickerComboboxInput = forwardRef<HTMLInputElement, KeyboardInputPro
   return <input {...props} ref={ref} role="combobox" onKeyDown={keyboard} />;
 });
 
-export function PickerOptionList({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
+export const PickerOptionList = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function PickerOptionList(
+  { children, ...props },
+  ref,
+) {
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich option rows need a listbox container.
-    <div {...props} role="listbox">
+    <div {...props} ref={ref} role="listbox">
       {children}
     </div>
   );
-}
+});
 
 export interface PickerOptionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   active: boolean;

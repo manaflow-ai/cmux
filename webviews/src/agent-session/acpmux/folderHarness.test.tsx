@@ -281,11 +281,12 @@ test("the picker groups the folder's profiles by state; a needs-enable pick send
     );
     await waitFor(() => chip() !== null);
     await open();
-    // The folder's profiles stand after the harnesses, under their own heading, each with its state.
+    // The menu grows up from the chip: the folder's profiles stand furthest up, above the
+    // harnesses, each row naming its own state (no section headings).
     const names = [...doc.querySelectorAll(".acpmux-mp-harness")].map((row) => row.querySelector("span")?.textContent);
-    expect(names.slice(-3)).toEqual(["Acme Agent", "Lint Bot", "Broken Agent"]);
+    expect(names.slice(0, 3)).toEqual(["Acme Agent", "Lint Bot", "Broken Agent"]);
     expect(names).toContain("Codex");
-    expect(menu()?.querySelector(".acpmux-mp-section")?.textContent).toBe("This folder");
+    expect(menu()?.querySelector(".acpmux-mp-section")).toBeNull();
     expect(harnessRow("Acme Agent")?.textContent).toContain("Enable…");
     expect(harnessRow("Lint Bot")?.textContent).toContain("Needs trust");
     expect(harnessRow("Broken Agent")?.textContent).toContain("Unavailable");
