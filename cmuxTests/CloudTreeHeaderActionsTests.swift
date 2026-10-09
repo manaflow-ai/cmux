@@ -130,13 +130,29 @@ struct CloudTreeHeaderActionsTests {
         #expect(controls?.isHidden ?? true)
     }
 
-    @Test("A sibling hit target cannot retain a Cloud tree row's hover")
-    func hoverClearsWhenPointerIsOwnedBySibling() throws {
+    /// Hover follows the actual target through both AppKit and flipped SwiftUI hosts.
+    @Test("A sibling hit target cannot retain a Cloud tree row's hover", arguments: [false, true])
+    func hoverClearsWhenPointerIsOwnedBySibling(flippedHost: Bool) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+
+        // The app's content view is a flipped SwiftUI host; the original
+        // fixture was an unflipped view at the window origin. Keep the tree
+        // off-center so a vertically mirrored hit cannot land in it by chance.
+        let host: NSView = flippedHost ? NSHostingView(rootView: Color.clear) : NSView()
+        fixture.window.contentView = host
+        #expect(host.isFlipped == flippedHost)
+        fixture.container.autoresizingMask = []
+        fixture.container.frame = NSRect(x: 19, y: 37, width: 340, height: 220)
+        host.addSubview(fixture.container)
+        host.layoutSubtreeIfNeeded()
+        fixture.container.layoutSubtreeIfNeeded()
+
         let row = tree.devicesSection
+        let rowIndex = tree.outline.row(forItem: row)
         let menu = try Self.controls(in: tree.cell(for: row))
+        tree.outline.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
 
         tree.move(to: row)
         #expect(menu.alphaValue == 1)
@@ -145,16 +161,22 @@ struct CloudTreeHeaderActionsTests {
         // its AppKit hit target over the row to ensure the outline does not
         // keep the last tree row hovered when another view owns the pointer.
         let sibling = NSView(frame: tree.outline.convert(
-            tree.outline.rect(ofRow: tree.outline.row(forItem: row)),
-            to: fixture.container
+            tree.outline.rect(ofRow: rowIndex),
+            to: host
         ))
-        fixture.container.addSubview(sibling, positioned: .above, relativeTo: nil)
+        host.addSubview(sibling, positioned: .above, relativeTo: nil)
         defer { sibling.removeFromSuperview() }
 
         tree.move(toWindowPoint: sibling.convert(
             NSPoint(x: sibling.bounds.midX, y: sibling.bounds.midY), to: nil
         ))
         #expect(menu.alphaValue == 0)
+        #expect(tree.outline.selectedRow == rowIndex)
+
+        sibling.removeFromSuperview()
+        tree.move(to: row)
+        #expect(menu.alphaValue == 1)
+        #expect(tree.outline.selectedRow == rowIndex)
     }
 
     /// Hovered header actions stay in the accessibility tree with their roles.
@@ -397,6 +419,7 @@ struct CloudTreeHeaderActionsTests {
             move(toWindowPoint: outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil))
         }
 
+        /// Delivers a tracking-area move at a point in the window's coordinate space.
         func move(toWindowPoint location: NSPoint) {
             let event = NSEvent.mouseEvent(
                 with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
