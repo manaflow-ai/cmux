@@ -686,7 +686,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None):
+                 raw_content=None, app_workflow_body=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -706,6 +706,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'comment']:
+                    pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
@@ -731,7 +733,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -760,6 +762,18 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_vercel_override_waives_only_the_named_external_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 

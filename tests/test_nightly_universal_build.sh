@@ -530,6 +530,18 @@ resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-reco
 assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
 assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
 auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
+generate_deltas = re.search(
+    r"^  generate-deltas:\n(.*?)(?=^  republish-deltas:)",
+    auto,
+    re.MULTILINE | re.DOTALL,
+)
+assert generate_deltas, "missing continuation delta job"
+for key in (
+    "NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}",
+    "SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}",
+    "NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}",
+):
+    assert key in generate_deltas.group(1), f"continuation delta job must provide {key}"
 assert "workflow_run:" in auto
 assert "workflow_dispatch:" in auto
 assert "source_run_id:" in auto and "source_run_attempt:" in auto
@@ -549,11 +561,14 @@ assert "resolve-notarization-recovery.py" in auto
 assert "Reject stale continuation before publication" in auto
 assert "cmux-published-build" in auto
 assert "final_dmg_sha256" in auto
-assert 'branch not in {"main", "nightly-next"}' in auto
+# nightly-next continues on its own track (tests/test_nightly_resume_tracks.py).
+assert 'if branch == "nightly-next":' in auto and "nightly-next-continues-on-its-own-track" in auto
 assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto
-assert "SOURCE_HEAD_SHA.toLowerCase()" in auto
+assert "const label = `${process.env.CHANNEL}-failure`;" in auto
+assert "Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}" in auto
+assert "if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;" not in auto
 assert "--draft=false" in auto
 assert "prune_nightly_release_assets.py" in auto
 assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow

@@ -2223,7 +2223,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
-            || hasSudoApprovalRuntime
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
@@ -2248,7 +2247,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // server to say it heard us. Everything after this stops transports, which is
                 // what would otherwise swallow the goodbye.
                 await self.remoteTmuxController.detachAllAwaitingExit()
-                await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
@@ -2267,8 +2265,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 self.terminateCleanupPhase = .freshSnapshot
                 let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
-                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
-                    ttyDeviceBindings: ttyDeviceBindings
+                // A complete census is useful when it is already warm, but it is
+                // not worth holding AppKit's terminate-later run loop for a slow
+                // process table. The cached shared index is still checked by the
+                // exact PID-generation and ownership validation before any agent
+                // receives a signal.
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: ttyDeviceBindings,
+                    processSnapshotService: self.processSnapshotService,
+                    deadline: .milliseconds(750)
+                )
+                let indexesForQuit = resumeIndexes ?? ProcessDetectedResumeIndexes.cached(
+                    restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+                )
+                StartupBreadcrumbLog.append(
+                    "appDelegate.shouldTerminate.freshSnapshot",
+                    fields: [
+                        "source": resumeIndexes == nil ? "cached" : "fresh",
+                        "deadline_ms": "750",
+                    ]
                 )
                 guard !Task.isCancelled else { return }
                 self.mainWindowLifecycleCoordinator
@@ -2276,13 +2291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let savedForQuit = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
-                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                    restorableAgentIndex: indexesForQuit.restorableAgentIndex,
+                    surfaceResumeBindingIndex: indexesForQuit.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
                 self.terminateCleanupPhase = .agentTermination
                 if savedForQuit {
-                    await self.terminateAgentProcessesBeforeQuit(index: resumeIndexes.restorableAgentIndex)
+                    await self.terminateAgentProcessesBeforeQuit(index: indexesForQuit.restorableAgentIndex)
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
@@ -2384,6 +2399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         computerUseUXCoordinator.teardownForTermination()
+        // Sudo broker observation and recovery must be released, but a slow
+        // recovery join must not delay session persistence or AppKit termination.
+        sudoApprovalCoordinator?.stopInBackgroundForTermination()
         // The terminate-later cleanup loads the authoritative agent index off-main and
         // persists it immediately before replying to AppKit.
         // The hard AppKit watchdog is armed immediately before the terminate
@@ -2446,9 +2464,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let buildFlavor = BuildFlavor.current
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
-        let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
         let quitReason: QuitRequestReason = isRelaunchingForUpdate ? .updateRelaunch : Self.currentQuitRequestReason()
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode,
+            quitReason: quitReason
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2456,6 +2482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
+                "dirtyWorkspaceScan": shouldEvaluateDirtyWorkspaces ? "performed" : "skipped",
                 "quitReason": Self.breadcrumbName(for: quitReason),
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
@@ -14789,10 +14816,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        let buildFlavor = BuildFlavor.current
+        let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
+        let confirmQuitMode = quitConfirmationStore.confirmQuitMode
+        let shouldEvaluateDirtyWorkspaces = Self.shouldEvaluateQuitConfirmationDirtyWorkspaces(
             isQuitWarningConfirmed: false,
-            hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            isDevBuild: BuildFlavor.current == .dev
+            buildFlavor: buildFlavor,
+            confirmQuitMode: confirmQuitMode
+        )
+        let hasDirtyWorkspaces = shouldEvaluateDirtyWorkspaces
+            ? hasQuitConfirmationDirtyWorkspaces()
+            : false
+        if !quitConfirmationStore.shouldShowConfirmation(
+            isQuitWarningConfirmed: false,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            isDevBuild: buildFlavor == .dev
         ) {
             Self.requestApplicationTermination()
             return true
