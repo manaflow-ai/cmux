@@ -9,7 +9,9 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 400208246643 refactor-mux-rs: mux.rs ProviderWorkspaceAuthority, status, update error, ProviderWorkspaceState, constant_time_eq, validate_mux_generation -> mux/provider_authority.rs (leaf, std + zeroize only); mux.rs 18577 (after W2) -> 18469; Testbox fmt, clippy, lib 2633 passed, Windows check, about 6 min.
 - 2026-10-09 afdfc2a58ce5 refactor-mux-rs: mux.rs now_ms -> mux/time.rs, NotificationLevel -> mux/notification_level.rs (leaf, for the terminal_host_runtime crate split); mux.rs -> 18449; gated together with the previous line.
 - 2026-10-09 7671cf088b31 refactor-mux-rs: mux.rs MuxEvent, GraphicsStatus, MachineUsage, TreeDelta(Kind) -> mux/events.rs; NotificationSource/Event, ResourceNotification, SurfaceNotification -> mux/notification_types.rs; mux.rs 18449 -> 18158; Testbox fmt, clippy, lib 2634 passed, Windows check, about 8 min.
-- 2026-10-09 PENDING refactor-mux-rs: mux.rs agent status types, roster host, report origin/target and hook helpers -> mux/agent_types.rs; mux.rs 18158 -> 17952; Testbox fmt, clippy, lib 2634 passed, Windows check, about 4 min.
+- 2026-10-09 00dae5e213a3 refactor-mux-rs: mux.rs agent status types, roster host, report origin/target and hook helpers -> mux/agent_types.rs; mux.rs 18158 -> 17952; Testbox fmt, clippy, lib 2634 passed, Windows check, about 4 min.
+- 2026-10-09 7c787c5b0454 refactor-mux-rs: mux.rs layout specs, Direction, ZoomMode/State, applied pane results, layout undo and viewport width errors -> mux/layout_types.rs (leaf); mux.rs -> 17831; Testbox fmt, clippy, lib 2634 passed, Windows check, about 6 min.
+- 2026-10-09 PENDING refactor-mux-rs: mux.rs constructors -> mux/construct.rs (474), startup terminal adoption -> mux/terminal_adoption.rs (950); mux.rs 17831 -> 16425; Testbox fmt, clippy, lib 2634 passed, Windows check, about 6 min.
 
 ## Module map
 

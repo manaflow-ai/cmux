@@ -1740,6 +1740,11 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
+        // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
+        client.onTrustRefused = (refusal, again) => {
+          trustRefused.current?.(refusal, again);
+        };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
         catalogClientId.current += 1;
@@ -1919,7 +1924,9 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            const sessionId = await client.startSession(harness, cwd).catch((error: unknown) => {
+            // After a Trust answer the switch runs again (the trust route, direct.ts).
+            const again = () => void harnessSwitch.switchTo(harness, cwd);
+            const sessionId = await client.startSession(harness, cwd, undefined, again).catch((error: unknown) => {
               setBlockedHarness(harnessBlock(error));
               throw error;
             });

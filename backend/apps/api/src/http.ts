@@ -39,6 +39,7 @@ import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSessio
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
+import { personalPrincipal, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -73,12 +74,7 @@ interface OwnerStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
 }
 
-/**
- * Owner routing: which object owns an op for this principal. UserDO is keyed by
- * the user; TeamDO and SchedulerDO by the principal's team (phase 1: the
- * personal team from the token; Stack teams will need a TeamDO membership check
- * before routing to a team other than the token's).
- */
+/** Owner routing: UserDO by the user; TeamDO and the team owners by the principal's team (membership checked in team-select.ts). */
 const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: string; stream: string } => {
   switch (owner) {
     case "cloud:UserDO":
@@ -344,7 +340,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
-        const { frames } = yield* submitTo(def.owner, submitter, frame)
+        const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
@@ -364,7 +360,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
           // Keyed by the user.ensure transaction: a retry of that request replays, a new ensure re-applies.
-          const team = yield* submitTo("cloud:TeamDO", principal, {
+          const team = yield* submitTo("cloud:TeamDO", personalPrincipal(principal), {
             op: "team.ensure_personal",
             params: {},
             idempotency_key: `ensure-personal:${response.transaction}`,
@@ -462,8 +458,12 @@ const AuthorizationLive = Layer.succeed(Authorization)(
   Authorization.of({
     bearer: (httpEffect, { credential }) =>
       Effect.gen(function* () {
-        const authed = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
-        if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const token = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
+        if (!token || !token.user || !token.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const named = { ...token, user: token.user, team: token.team }, header = (yield* HttpServerRequest.HttpServerRequest).headers[TEAM_HEADER]
+        const selected = yield* Effect.promise(() => selectTeam(env, named, header))
+        if (!selected.ok) return yield* selected.code === "auth.forbidden" ? new Forbidden({ code: selected.code, message: selected.message }) : new OwnerUnreachable({ code: selected.code, message: selected.message, retryable: true })
+        const authed = selected.principal
         // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
         // sessions and installs not from their SSO.
         // A TeamDO or UserDO the gate asks can be briefly unreachable: retryable 503, never a 500 (cx-44j.51).
