@@ -43,8 +43,6 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     public var onOpenInTerminal: ((String) -> Void)?
     /// The header's right-click menu (Hide Section); the App builds it from the registry.
     public var headerMenu: (() -> NSMenu?)?
-    /// Rows shown before the list scrolls inside; nil follows `sidebar.allChatsRows`.
-    public var rowLimit: Int? { didSet { if oldValue != rowLimit { refilter() } } }
     public private(set) var rows: [Row] = []
     /// The header row: hidden (faded out, no clicks) unless revealed.
     let header = SidebarChatsHeader()
@@ -169,12 +167,9 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         needsLayout = true
     }
 
-    /// The section's height: the header row and up to `maxVisibleRows` rows
-    /// (then the list scrolls inside, so the bottom band keeps room for the footer).
-    public var preferredHeight: CGFloat {
-        guard isExpanded else { return Metrics.sidebarRowHeight }
-        return Metrics.sidebarRowHeight * CGFloat(1 + min(max(items.count, 1), maxVisibleRows))
-    }
+    /// The section's height when minimized: its header row. Open, it takes ``sidebarShare`` of
+    /// the sidebar instead.
+    public var preferredHeight: CGFloat { Metrics.sidebarRowHeight }
 
     /// Open, the section is a fixed third of the sidebar's height and its list scrolls inside.
     var sidebarShare: CGFloat? { isExpanded ? 1.0 / 3.0 : nil }
@@ -191,12 +186,6 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         applyHeaderReveal(animated: false)
         needsLayout = true
         onLayoutChange?()
-    }
-
-    /// The most chat rows the section shows before it scrolls inside (`sidebar.allChatsRows`).
-    var maxVisibleRows: Int {
-        let range = SidebarSectionsPreferences.allChatsRowsRange
-        return min(max(rowLimit ?? DesignSettings.shared.sidebarSections.allChatsRows, range.lowerBound), range.upperBound)
     }
 
     // MARK: Hover header
