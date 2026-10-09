@@ -10,6 +10,11 @@ on:
 
 permissions: {}
 
+env:
+  # workflow_run matches a display name; pin the source file so renaming it
+  # fails the workflow-source guard instead of silently stopping publication.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml
+
 concurrency:
   group: cmux-next-dev-daily
   cancel-in-progress: false
@@ -61,6 +66,10 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Select Xcode
+        if: steps.source-artifact.outputs.archive != ''
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Unpack and verify channel identity
         if: steps.source-artifact.outputs.archive != ''
