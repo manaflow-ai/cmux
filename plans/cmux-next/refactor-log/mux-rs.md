@@ -23,7 +23,8 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 73c6dbc03542 refactor-mux-rs: mux.rs free state helpers -> mux/{terminal_exit_snapshot,terminal_records,terminal_host_records,terminal_runtime_index,restore,tree_edit}.rs; mux.rs 3617 -> 1968; Testbox fmt, clippy, lib 2602 passed, Windows check, about 6 min.
 - 2026-10-09 22a41b82bed8 refactor-mux-rs: mux.rs private state types -> mux/{kitty_budget_state,cell_pixel_state,client_sizing_state,terminal_exit_waiters}.rs; mux.rs 1970 -> 1301; Testbox fmt, clippy, lib 2603 passed, Windows check, about 6 min.
 - 2026-10-09 a2e7e5efab61 refactor-mux-rs: resource_topology.rs part 1 -> mux/resource_topology/{topology_test_hooks,rename_focus,layout_ops,topology_operation}.rs; resource_topology.rs 6636 -> 5296; Testbox fmt, clippy, lib 2604 passed, Windows check, about 5 min.
-- 2026-10-09 PENDING refactor-mux-rs: resource_topology.rs part 2 -> mux/resource_topology/{pane_tab_moves,tab_workspace_move,effectful_operation,close_effects}.rs; resource_topology.rs 5296 -> 3237; Testbox fmt, clippy, lib 2604 passed, Windows check, about 5 min.
+- 2026-10-09 99d4c42175ea refactor-mux-rs: resource_topology.rs part 2 -> mux/resource_topology/{pane_tab_moves,tab_workspace_move,effectful_operation,close_effects}.rs; resource_topology.rs 5296 -> 3237; Testbox fmt, clippy, lib 2604 passed, Windows check, about 5 min.
+- 2026-10-09 PENDING refactor-mux-rs: resource_topology.rs part 3 -> mux/resource_topology/{creation_settlement,effect_execution}.rs; resource_topology.rs 3237 -> 1887; Testbox fmt, clippy, lib 2604 passed, Windows check, about 4 min.
 
 ## Module map
 
