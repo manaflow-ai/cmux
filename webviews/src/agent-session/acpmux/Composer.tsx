@@ -757,7 +757,6 @@ export function Composer({
             type="file"
             multiple
             hidden
-            tabIndex={-1}
             aria-hidden="true"
             onChange={(event) => {
               const files = [...(event.currentTarget.files ?? [])];
