@@ -45,6 +45,8 @@ final class BrowserTabService {
     /// A notice to show on a new tab's page once it exists (Move Tab to
     /// Browser Profile: session state stayed behind), by machine and surface.
     private var pendingNotices: [SurfaceKey: String] = [:]
+    /// The same, by tab id once the store shows the tab.
+    private var pendingTabNotices: [String: String] = [:]
     /// `update-frontend-browser-tab` on the tab's daemon. Returns false when the command failed.
     var update: @MainActor (DaemonService, SurfaceID, BrowserRecordUpdate) async -> Bool
     /// `tab.update` (zoom, back/forward) on the tab's public id, on its
@@ -246,7 +248,11 @@ final class BrowserTabService {
         if offTheRecord { incognitoURLs[key] = url }
         // The tab's page may exist already (the store echoed the tab before
         // the reply): it shows the notice now; else its page takes it.
-        if let notice, !showNotice(daemon, surface, notice) { pendingNotices[key] = notice }
+        if let notice, !showNotice(daemon, surface, notice) {
+            // By tab id when the store already has the tab (ids are unique
+            // across machines, and a page looks its notice up by its tab).
+            if let tab = daemon.store.tab(surface: surface) { pendingTabNotices[tab.id] = notice } else { pendingNotices[key] = notice }
+        }
         openedSurfaces.insert(key)
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, machine: daemon.machineID, surface: surface)
@@ -255,7 +261,9 @@ final class BrowserTabService {
     }
 
     /// The notice to show on the page of `tab`, once.
-    func takeNotice(for tab: TabModel) -> String? { pendingNotices.removeValue(forKey: key(daemonForTab(tab), tab.surface)) }
+    func takeNotice(for tab: TabModel) -> String? {
+        pendingTabNotices.removeValue(forKey: tab.id) ?? pendingNotices.removeValue(forKey: key(daemonForTab(tab), tab.surface))
+    }
 
     /// Starts writing `page` back to the daemon record of `tab` (keyed by
     /// tab id; one writer per live page).

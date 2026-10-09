@@ -95,6 +95,18 @@ struct RemotePaneBrowserTabTests {
         withExtendedLifetime(f.services) {}
     }
 
+    /// The page made for the tab later shows the notice on its chrome.
+    @Test func theTabsPageShowsTheNoticeOnItsChrome() async throws {
+        let f = try Self.fixture()
+        let browserTabs = f.services.cache.browserTabs
+        browserTabs.create = { _, _, _, _, _, _, _ in SurfaceID(rawValue: 19) }
+        _ = try await browserTabs.open(BrowserEngineChoice(engine: .webkit), in: f.remotePane, url: "https://google.com/")
+        let remoteTab = try #require(f.remotePane.tabs.first)
+        let entry = try #require(f.services.cache.browser(for: remoteTab))
+        #expect(entry.chrome.noticeText == RemoteStrings.browserRunsOnThisMac(f.machine.host.label))
+        withExtendedLifetime(f.services) {}
+    }
+
     @Test func aDisconnectedMachineRefusesWithItsNameInsteadOfDoingNothing() throws {
         let f = try Self.fixture()
         let refusal = try #require(f.services.cache.browserTabs.refusal(in: f.remotePane))

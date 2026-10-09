@@ -319,6 +319,9 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
+        // Every page of a tab (web, app page, a late Chromium start) shows
+        // the tab's pending notice once.
+        if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
