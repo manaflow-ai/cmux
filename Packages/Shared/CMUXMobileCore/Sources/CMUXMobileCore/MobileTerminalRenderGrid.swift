@@ -3,6 +3,9 @@ import Foundation
 public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidFormat(String)
     case invalidDimensions(columns: Int, rows: Int)
+    /// Past the replay's bounds (`maximumDimension`, `maximumScrollbackRows`,
+    /// `maximumReplayCells`), or more rows scrolled than the frame holds.
+    case invalidSize(columns: Int, rows: Int, scrollbackRows: Int, scrolledRows: Int)
     case invalidRow(Int)
     case invalidColumn(Int)
     case invalidCursor(row: Int, column: Int)
@@ -12,11 +15,17 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
 
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
-    /// Largest column or row count a frame may carry (a terminal's size is 16-bit).
-    public static let maximumDimension = Int(UInt16.max)
-    /// Largest scrollback row count a frame may carry, far above the phone's
-    /// 20000-row preference (`MobileTerminalScrollbackPreference.maximumRows`).
-    public static let maximumScrollbackRows = 1_000_000
+    /// Largest column or row count a frame may carry: the Mac producer clamps
+    /// to the same 4096 (`DaemonRenderGridState.maxDimension`).
+    public static let maximumDimension = 4_096
+    /// Largest scrollback row count a frame may carry: Macs clamp requested
+    /// scrollback to `MobileTerminalScrollbackPreference.maximumRows`, and a
+    /// burst delta carries at most 2000 rows.
+    public static let maximumScrollbackRows = MobileTerminalScrollbackPreference.maximumRows
+    /// Largest `columns * (rows + scrollbackRows)` a frame may carry. A full
+    /// replay pads every line to `columns`, so this bounds the bytes a frame
+    /// makes the phone build (about 32 MB of cells).
+    public static let maximumReplayCells = 32 * 1_024 * 1_024
 
     public var format: String
     public var surfaceID: String
@@ -150,13 +159,19 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
         }
-        // A terminal's columns and rows are 16-bit (Ghostty), and no host sends
-        // scrollback near `maximumScrollbackRows`: a frame past them is
-        // malformed, and replaying it would build an unbounded byte stream on
-        // the phone (crash program phase 3, MobileProtocolFuzzTests).
-        guard (1...Self.maximumDimension).contains(columns), (1...Self.maximumDimension).contains(rows),
-              scrollbackRows <= Self.maximumScrollbackRows else {
+        guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
+        }
+        // A frame past what any Mac sends would make the phone's replay build
+        // an unbounded byte stream (crash program phase 3,
+        // MobileProtocolFuzzTests): reject it as malformed. Every product
+        // below is of values already bounded, so nothing overflows.
+        guard columns <= Self.maximumDimension, rows <= Self.maximumDimension,
+              scrollbackRows <= Self.maximumScrollbackRows,
+              columns * (rows + max(0, scrollbackRows)) <= Self.maximumReplayCells,
+              scrolledRows <= rows + max(0, scrollbackRows) else {
+            throw MobileTerminalRenderGridError.invalidSize(
+                columns: columns, rows: rows, scrollbackRows: scrollbackRows, scrolledRows: scrolledRows)
         }
         if let cursor,
            !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {

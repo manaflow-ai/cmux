@@ -67,26 +67,67 @@ import Testing
      "row_spans":[{"row":0,"column":0,"style_id":0,"cell_width":4,"text":"test"},{"row":1,"column":1,"style_id":0,"cell_width":2,"text":"日"}]}
     """#.utf8)
 
-    @Test func renderGridFramesFromMutatedJSONDecodeAndReplayOrThrow() throws {
-        let object = try #require(try JSONSerialization.jsonObject(with: Self.grid) as? [String: Any])
-        let extremes: [Any] = [Int.max, Int.min, -1, 0, 65_536, 1e300, "", "#", "#GGGGGG", NSNull(), [Any](), [String: Any]()]
+    /// A screen-anchored delta that scrolled and carries scrollback, so the
+    /// mutations reach scrolled_rows, scrollback_rows and the cursor.
+    static let scrolledDelta = Data(#"""
+    {"format":"cmux.render-grid.v1","surface_id":"fuzz","state_seq":2,"columns":4,"rows":2,"full":false,"anchor":"screen",
+     "scrolled_rows":1,"scrollback_rows":1,"cleared_rows":[0],"cursor":{"row":1,"column":2},
+     "styles":[{"id":0,"foreground":"#FDFFF1","background":"#272822","foreground_source":"default","background_source":"default"}],
+     "row_spans":[{"row":0,"column":0,"style_id":0,"cell_width":4,"text":"test"}],
+     "scrollback_spans":[{"row":0,"column":0,"style_id":0,"cell_width":2,"text":"ab"}]}
+    """#.utf8)
+
+    @Test(arguments: [grid, scrolledDelta])
+    func renderGridFramesFromMutatedJSONDecodeAndReplayOrThrow(_ base: Data) throws {
+        _ = try MobileTerminalRenderGridFrame.decode(base)  // the base itself decodes
+        let object = try #require(try JSONSerialization.jsonObject(with: base) as? [String: Any])
+        let extremes: [Any] = [Int.max, Int.min, -1, 0, 1, 4_097, 20_001, 65_536, 1e300, "", "#", "#GGGGGG", NSNull(), [Any](), [String: Any]()]
         var rng = Rng(state: 0x53)
+        var decoded = 0
         for _ in 0..<3_000 {
             var copy = object
-            for key in copy.keys.sorted() where rng.below(3) == 0 { copy[key] = extremes[rng.below(extremes.count)] }
-            if var spans = copy["row_spans"] as? [[String: Any]] {
+            for key in copy.keys.sorted() where rng.below(4) == 0 { copy[key] = extremes[rng.below(extremes.count)] }
+            for spansKey in ["row_spans", "scrollback_spans"] {
+                guard var spans = copy[spansKey] as? [[String: Any]] else { continue }
                 for i in spans.indices {
                     for key in spans[i].keys.sorted() where rng.below(3) == 0 { spans[i][key] = extremes[rng.below(extremes.count)] }
                 }
-                copy["row_spans"] = spans
+                copy[spansKey] = spans
             }
             guard let data = try? JSONSerialization.data(withJSONObject: copy) else { continue }
             for input in [data, Self.mutate(data, &rng)] {
                 if let frame = try? MobileTerminalRenderGridFrame.decode(input) {
+                    decoded += 1
                     _ = frame.vtPatchBytes()
                     _ = frame.vtReplacementBytes()
                 }
             }
+        }
+        #expect(decoded > 100, "the mutations must also produce frames that decode")
+    }
+
+    @Test func renderGridSizeLimitsAcceptTheMaximumAndRefuseOnePast() throws {
+        func frame(_ fields: String) -> Data {
+            Data(#"{"format":"cmux.render-grid.v1","surface_id":"l","state_seq":1,"full":true,"row_spans":[],\#(fields)}"#.utf8)
+        }
+        let max = MobileTerminalRenderGridFrame.maximumDimension
+        _ = try MobileTerminalRenderGridFrame.decode(frame(#""columns":\#(max),"rows":2"#))
+        #expect(throws: MobileTerminalRenderGridError.self) {
+            try MobileTerminalRenderGridFrame.decode(frame(#""columns":\#(max + 1),"rows":2"#))
+        }
+        let scrollback = MobileTerminalRenderGridFrame.maximumScrollbackRows
+        _ = try MobileTerminalRenderGridFrame.decode(frame(#""columns":80,"rows":24,"scrollback_rows":\#(scrollback)"#))
+        #expect(throws: MobileTerminalRenderGridError.self) {
+            try MobileTerminalRenderGridFrame.decode(frame(#""columns":80,"rows":24,"scrollback_rows":\#(scrollback + 1)"#))
+        }
+        // Wide and tall within each limit, but past the replay's cell budget.
+        #expect(throws: MobileTerminalRenderGridError.self) {
+            try MobileTerminalRenderGridFrame.decode(frame(#""columns":\#(max),"rows":\#(max),"scrollback_rows":\#(scrollback)"#))
+        }
+        let delta = #"{"format":"cmux.render-grid.v1","surface_id":"l","state_seq":1,"full":false,"anchor":"screen","columns":4,"rows":2,"row_spans":[],"scrollback_rows":1,"scrolled_rows":"#
+        _ = try MobileTerminalRenderGridFrame.decode(Data((delta + "3}").utf8))
+        #expect(throws: MobileTerminalRenderGridError.self) {
+            try MobileTerminalRenderGridFrame.decode(Data((delta + "\(Int.max)}").utf8))
         }
     }
 
