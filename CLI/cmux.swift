@@ -34906,7 +34906,10 @@ export const CMUXSessionRestore = async (ctx) => {
 
 export default {
   id: "cmux.server",
-  // V2 loads the per-TUI bridge through the package's ./tui export.
+  // Keep the legacy server entry inert in V2. Session hooks run from the
+  // per-TUI ./tui entrypoint so a shared service never reuses one TUI's IDs.
+  server() { return {}; },
+  // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };
 """#

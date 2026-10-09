@@ -138,6 +138,10 @@ def main() -> int:
                 print(f"exit={debug.returncode}")
                 print(debug_output[-4000:])
                 return 1
+            if "failed to load plugin" in debug_output.lower() or "must default export" in debug_output.lower():
+                print("FAIL: opencode rejected an installed cmux plugin entrypoint")
+                print(debug_output[-4000:])
+                return 1
             if "path=cmux-session loading plugin" in debug_output:
                 print("FAIL: opencode tried to resolve cmux-session as a package")
                 print(debug_output[-4000:])
@@ -192,8 +196,8 @@ const duplicateMod = await import(pluginCopyPath);
 if (typeof mod.CMUXSessionRestore !== "function") {
   throw new Error("missing CMUXSessionRestore export");
 }
-if (!mod.default || typeof mod.default.server !== "function") {
-  throw new Error("missing V2 default server export");
+if (!mod.default || (typeof mod.default.server !== "function" && typeof mod.default.setup !== "function")) {
+  throw new Error("missing V2 default server/setup export");
 }
 const idleContext = {
   directory: "/tmp/opencode-project",
