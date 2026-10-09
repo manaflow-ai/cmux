@@ -16,9 +16,9 @@ use serde_json::{Map, Value};
 /// own items (an item id or prompt), and each value is a string, a list of at
 /// most `maximum_list_strings` strings, or Codex's `{answers: [string]}` with
 /// that one key. Each key and each string is at most `maximum_value_bytes`
-/// UTF-8 bytes, and the strings of one list are bounded together by the same
-/// limit. A policy that did not parse (an empty `method`) refuses every frame
-/// that carries `answers`.
+/// UTF-8 bytes (per string: a list's strings are not counted together). A
+/// policy that did not parse (an empty `method`) refuses every frame that
+/// carries `answers`.
 pub fn breaks_answers_rule(object: &Map<String, Value>, options: &PermissionOptions) -> bool {
     let rule = &policy().question_answers;
     if rule.method.is_empty() {
@@ -55,13 +55,11 @@ fn fits_answer(rule: &QuestionAnswers, value: &Value) -> bool {
     }
 }
 
-/// A list of at most `maximum_list_strings` strings of at most
-/// `maximum_value_bytes` UTF-8 bytes together.
+/// A list of at most `maximum_list_strings` strings, each at most
+/// `maximum_value_bytes` UTF-8 bytes.
 fn fits_list(rule: &QuestionAnswers, value: &Value) -> bool {
-    let Some(list) = value.as_array() else { return false };
-    if list.len() > rule.maximum_list_strings {
-        return false;
-    }
-    let bytes: Option<usize> = list.iter().map(|s| s.as_str().map(str::len)).sum();
-    bytes.is_some_and(|total| total <= rule.maximum_value_bytes)
+    value.as_array().is_some_and(|list| {
+        list.len() <= rule.maximum_list_strings
+            && list.iter().all(|s| s.as_str().is_some_and(|t| t.len() <= rule.maximum_value_bytes))
+    })
 }
