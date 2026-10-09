@@ -99,9 +99,11 @@ import Testing
         await helper.apply(enabled: false)
         #expect(helper.state == .off)
         #expect(access(helper.endpointPath, F_OK) != 0, "the endpoint goes away with the helper")
-        // stdin closed: the fake helper's read end sees EOF.
+        // stdin closed: the fake helper's read end sees EOF (bounded wait, never a hang).
+        var poller = pollfd(fd: spawn.helperInput, events: Int16(POLLIN), revents: 0)
+        #expect(poll(&poller, 1, 2000) == 1, "stdin was not closed")
         var byte: UInt8 = 0
-        #expect(read(spawn.helperInput, &byte, 1) == 0)
+        if poller.revents != 0 { #expect(read(spawn.helperInput, &byte, 1) == 0) }
     }
 
     @Test func offSpawnsNothing() async {
