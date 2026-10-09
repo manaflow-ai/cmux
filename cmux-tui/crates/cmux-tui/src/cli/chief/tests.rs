@@ -320,7 +320,7 @@ fn engine_and_stop_are_one_call_each() {
         parsed.control,
         Some(Control::Engine(vec![("model".into(), "m".into()), ("effort".into(), "high".into())]))
     );
-    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop));
+    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
     let homed = parse_args(&strings(&["--chief-home", "/tmp/h", "engine"])).unwrap();
     assert_eq!(homed.control, Some(Control::Engine(vec![])), "a global flag may come first");
     assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
@@ -437,4 +437,24 @@ fn a_message_steered_into_a_running_turn_ends_with_that_turn() {
     assert!(watch.on(&UiEvent::Message(message(6, "agent_mux", "both answered", "t"))).is_some());
     watch.on(&typing(false));
     assert!(watch.done);
+}
+
+#[test]
+fn stop_takes_a_subagent_and_engine_takes_speeds() {
+    use super::control::{Control, engine_line};
+    assert_eq!(
+        parse_args(&strings(&["stop", "a3"])).unwrap().control,
+        Some(Control::Stop(Some("a3".into())))
+    );
+    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
+    let parsed = parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
+    assert_eq!(
+        parsed.control,
+        Some(Control::Engine(vec![
+            ("speed".into(), "fast".into()),
+            ("compactor_speed".into(), "default".into())
+        ]))
+    );
+    let report = json!({"engine": {"harness": "codex", "model": "gpt-6-sol", "effort": "high", "speed": "fast"}});
+    assert_eq!(engine_line(&report), "codex · gpt-6-sol · high · fast");
 }

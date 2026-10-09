@@ -15,7 +15,8 @@ use crate::cli::OutputMode;
 pub(in crate::cli) enum Control {
     /// Show the engine, or set the given fields (harness, model, effort).
     Engine(Vec<(String, String)>),
-    Stop,
+    /// Stop the turn and every subagent, or only the named subagent.
+    Stop(Option<String>),
 }
 
 impl Session {
@@ -98,7 +99,7 @@ pub(super) fn run(
     };
     let answer = match control {
         Control::Engine(changes) => engine(&mut link, changes),
-        Control::Stop => stop(&mut link).map(|stopped| json!({"stopped": stopped})),
+        Control::Stop(_) => stop(&mut link).map(|stopped| json!({"stopped": stopped})),
     };
     match answer {
         Ok(value) if super::json_output(output) => {
@@ -109,8 +110,8 @@ pub(super) fn run(
             let m = messages();
             match control {
                 Control::Engine(_) => println!("{}", engine_line(&value)),
-                Control::Stop if value["stopped"] == true => println!("{}", m.stop_sent),
-                Control::Stop => println!("{}", m.stop_idle),
+                Control::Stop(_) if value["stopped"] == true => println!("{}", m.stop_sent),
+                Control::Stop(_) => println!("{}", m.stop_idle),
             }
             0
         }

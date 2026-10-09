@@ -87,7 +87,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         };
         match flag {
             "engine" if first => parsed.control = Some(control::Control::Engine(Vec::new())),
-            "stop" if first => parsed.control = Some(control::Control::Stop),
+            "stop" if first => parsed.control = Some(control::Control::Stop(None)),
             "--harness" | "--model" | "--effort" => {
                 let key = flag.trim_start_matches("--").to_owned();
                 let value = value()?;
