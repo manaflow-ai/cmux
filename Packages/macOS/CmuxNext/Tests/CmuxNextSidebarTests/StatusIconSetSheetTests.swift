@@ -1,21 +1,24 @@
 import AppKit
-import CmuxNextDesign
 import Foundation
 import ImageIO
 import Metal
 import QuartzCore
 import Testing
 import UniformTypeIdentifiers
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 
-/// The current status and loading marks as the app draws them (cx-kxa2):
-/// every `StatusIndicatorState` in every `StatusIndicatorStyle` at real slot
-/// sizes, and real sidebar rows, in Ghostty's default dark theme and GitHub
-/// Light Default. Frames come from `CARenderer` (the Core Animation
-/// compositor itself), so running animations, replicators and masks render
-/// as on screen; each animated table is a GIF. Writes one self-contained
-/// HTML file, `<package>/.build/status-states/current-states.html`.
-@MainActor @Suite struct StatusStatesSheetTests {
+/// The status icon candidate sets side by side (cx-kxa2, Lawrence
+/// 2026-10-08: "make sure i can try a bunch of different icons so we can
+/// search for the best one together"): rows = sets, columns = states, at
+/// 10, 12, 16 and 32 pt, in Ghostty's default dark theme and GitHub Light
+/// Default, plus real sidebar rows per set. Frames come from `CARenderer`
+/// (the Core Animation compositor), so animations, replicators and masks
+/// render as on screen. Writes one self-contained HTML file,
+/// `<package>/.build/status-icons/contact-sheet.html` (and
+/// `$NX_ARTIFACTS/status-icons-contact-sheet.html`). Renderer helpers follow
+/// StatusStatesSheetTests (feat-cmux-next-status-icons).
+@MainActor @Suite(.serialized) struct StatusIconSetSheetTests {
     struct Look {
         let name: String
         let tokens: ThemeTokens
@@ -34,25 +37,15 @@ import UniformTypeIdentifiers
         Look(name: "Light (GitHub Light Default)", tokens: ThemeTokens.derive(from: light), input: light),
     ]
 
-    /// Every state, labelled with who reports it today (StatusMapping,
-    /// plans/cmux-next/status-indicators.md sections 3 and 10).
-    static let states: [(String, String, StatusIndicatorState)] = [
-        ("idle", "nothing to show", .idle),
-        ("busy", "page loading, command running (status.inferCommandBusy), status set --state busy, OSC 9;4 indeterminate", .busy),
-        ("busy 40%", "OSC 9;4 / status set --progress", .busy(progress: 0.4)),
-        ("paused 60%", "OSC 9;4 state 4", .paused(progress: 0.6)),
-        ("working", "agent works: ACP turn running, hook working, detector working, OSC 7501 working", .working),
-        ("working 40%", "OSC 7501 working with progress", .working(progress: 0.4)),
-        ("waiting", "needs you: hook blocked, ACP permission, OSC 7501 blocked (permission / question / auth, all the same mark today)", .waiting),
-        ("error", "OSC 7501 error (until seen), ACP last turn failed, status error", .error),
-        ("done", "OSC 7501 done (until seen), status run success badge", .success),
+    static let states: [(String, StatusIndicatorState)] = [
+        ("working", .working), ("blocked: permission", .waiting(kind: .permission)), ("blocked: question", .waiting(kind: .question)),
+        ("blocked: auth", .waiting(kind: .auth)), ("blocked", .waiting), ("done", .success), ("error", .error), ("idle", .idle),
+        ("working 40%", .working(progress: 0.4)),
     ]
 
-    static let slots: [CGFloat] = [12, 16, 32]
+    static let slots: [CGFloat] = [10, 12, 16, 32]
     static let fps = 15.0
     static let seconds = 2.4
-
-    final class Flipped: NSView { override var isFlipped: Bool { true } }
 
     static func colors(_ tokens: ThemeTokens) -> StatusIndicatorLayer.Colors {
         StatusIndicatorLayer.Colors(
@@ -74,24 +67,25 @@ import UniformTypeIdentifiers
         return layer
     }
 
-    /// One table: rows = styles, columns = states, one slot size.
+    /// One table: rows = sets, columns = states, one slot size.
     static func matrix(_ look: Look, slot: CGFloat) -> CALayer {
-        let colWidth = max(78, slot + 40)
-        let rowHeight = max(30, slot + 18)
-        let labelWidth: CGFloat = 70
+        let colWidth = max(92, slot + 40)
+        let rowHeight = max(28, slot + 16)
+        let labelWidth: CGFloat = 150
         let width = labelWidth + CGFloat(states.count) * colWidth + 12
-        let height = 26 + CGFloat(StatusIndicatorStyle.allCases.count) * rowHeight + 8
+        let height = 26 + CGFloat(StatusIconSet.allCases.count) * rowHeight + 8
         let root = CALayer()
         root.isGeometryFlipped = true
         root.frame = CGRect(x: 0, y: 0, width: width, height: height)
         root.backgroundColor = look.tokens.surfaceBackground.withAlpha(1).nsColor.cgColor
         let label = look.tokens.textSecondary.nsColor.cgColor
         for (c, state) in states.enumerated() {
-            root.addSublayer(text(state.0, label, size: 11, frame: CGRect(x: labelWidth + CGFloat(c) * colWidth, y: 6, width: colWidth - 4, height: 16)))
+            root.addSublayer(text(state.0, label, size: 10, frame: CGRect(x: labelWidth + CGFloat(c) * colWidth, y: 6, width: colWidth - 4, height: 16)))
         }
-        for (r, style) in StatusIndicatorStyle.allCases.enumerated() {
+        for (r, set) in StatusIconSet.allCases.enumerated() {
             let y = 26 + CGFloat(r) * rowHeight
-            root.addSublayer(text(style.rawValue, label, size: 11, frame: CGRect(x: 8, y: y + (rowHeight - 14) / 2, width: labelWidth - 8, height: 16)))
+            root.addSublayer(text(set.tunableTitle, label, size: 11, frame: CGRect(x: 8, y: y + (rowHeight - 14) / 2, width: labelWidth - 8, height: 16)))
+            let config = StatusIndicatorConfig(iconSet: set)
             for (c, state) in states.enumerated() {
                 let indicator = StatusIndicatorLayer()
                 root.addSublayer(indicator.layer)
@@ -99,38 +93,33 @@ import UniformTypeIdentifiers
                 indicator.hostIsFlipped = true
                 indicator.colors = colors(look.tokens)
                 indicator.frame = CGRect(x: labelWidth + CGFloat(c) * colWidth + 6, y: y + (rowHeight - slot) / 2, width: slot, height: slot)
-                indicator.apply(.make(state.2, style: style, animates: true), config: StatusIndicatorConfig())
+                indicator.apply(.make(state.1, style: .arc, animates: true, set: set), config: config)
                 keep.append(indicator)
             }
         }
         return root
     }
 
-    /// Real sidebar rows, one per state, in `look`'s theme.
+    /// Real sidebar rows in `look`'s theme, drawn with the shared config's set.
     static func sidebar(_ look: Look) -> NSView {
         func ws(_ n: Int, _ title: String, _ status: String?, _ activity: StatusIndicatorState, unread: UnreadState = .none) -> SidebarWorkspace {
-            SidebarWorkspace(id: WorkspaceID("sheet-\(n)"), title: title, directory: "~/fun/cmux", status: status,
+            SidebarWorkspace(id: WorkspaceID("icons-\(n)"), title: title, directory: "~/fun/cmux", status: status,
                              icon: nil, unread: unread, activity: activity)
         }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let sections = [SidebarSection(kind: .machine(machine), nodes: [
-            .workspace(ws(1, "idle", nil, .idle)),
-            .workspace(ws(2, "command running", "make test", .busy)),
-            .workspace(ws(3, "tests 40%", "Tests · 40%", .busy(progress: 0.4))),
-            .workspace(ws(4, "agent working", "Claude: working", .working)),
-            .workspace(ws(5, "agent working 40%", "Build · 40%", .working(progress: 0.4))),
-            .workspace(ws(6, "needs approval", "Codex: waiting for approval", .waiting, unread: .dot)),
-            .workspace(ws(7, "error", "Migration failed (exit 1)", .error, unread: .count(1))),
-            .workspace(ws(8, "done, unseen", "zig build done in 2m 14s", .success)),
-            .group(SidebarGroup(id: GroupID("sheet-g"), name: "collapsed group rollup", color: .purple, workspaces: [
-                ws(9, "a", nil, .working), ws(10, "b", nil, .waiting),
-            ])),
+            .workspace(ws(1, "agent working", "Claude: working", .working)),
+            .workspace(ws(2, "needs permission", "Codex: run rm -rf build?", .waiting(kind: .permission), unread: .dot)),
+            .workspace(ws(3, "asks a question", "Which branch?", .waiting(kind: .question))),
+            .workspace(ws(4, "needs sign-in", "gh auth login", .waiting(kind: .auth))),
+            .workspace(ws(5, "done, unseen", "zig build done in 2m 14s", .success)),
+            .workspace(ws(6, "error", "Migration failed (exit 1)", .error, unread: .count(1))),
         ])]
-        let model = SidebarModel(sections: sections, activeWorkspaceID: WorkspaceID("sheet-1"))
+        let model = SidebarModel(sections: sections, activeWorkspaceID: WorkspaceID("icons-0"))
         let scope = ThemeScope(level: .room)
         scope.setOverride(nil, input: look.input, animated: false)
         let sidebar = SidebarView(model: model)
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 420)
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 250)
         sidebar.wantsLayer = true
         sidebar.appearance = scope.appearance
         // An offscreen window (never ordered front) makes AppKit draw the
@@ -152,15 +141,13 @@ import UniformTypeIdentifiers
     }
 
     static var keep: [StatusIndicatorLayer] = []
-    static var windows: [NSWindow] = []
     static var scopes: [ThemeScope] = []
+    static var windows: [NSWindow] = []
 
     /// Renders `layer` with the Core Animation compositor at `count` times,
     /// `1 / fps` apart, starting now.
     static func frames(of layer: CALayer, count: Int) throws -> [CGImage] {
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else {
-            throw SheetError.noMetal
-        }
+        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw SheetError.noMetal }
         let scale: CGFloat = 2
         let width = Int(layer.bounds.width * scale), height = Int(layer.bounds.height * scale)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
@@ -171,7 +158,6 @@ import UniformTypeIdentifiers
             kCARendererColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
             kCARendererMetalCommandQueue: queue,
         ])
-        // A scale transform renders the tree at 2x into the texture.
         let host = CALayer()
         host.frame = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         let holder = CALayer()
@@ -185,7 +171,7 @@ import UniformTypeIdentifiers
         holder.addSublayer(layer)
         renderer.layer = host
         renderer.bounds = host.bounds
-        // Commit the tree: animations get their begin time at commit.
+        // Animations get their begin time when the transaction commits.
         CATransaction.flush()
         let start = CACurrentMediaTime()
         var images: [CGImage] = []
@@ -242,12 +228,17 @@ import UniformTypeIdentifiers
         "<img style=\"width:\(width)px\" src=\"data:\(mime);base64,\(data.base64EncodedString())\">"
     }
 
-    /// Pixels differ between two frames: something moved.
-    static func differ(_ a: CGImage, _ b: CGImage) -> Bool { png(a) != png(b) }
-
-    @Test func writesTheCurrentStatesSheet() throws {
+    @Test func writesTheContactSheet() throws {
         Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
+        let previous = StatusIndicatorAppearance.shared.config
+        defer {
+            Motion.reduceMotionOverride = nil
+            StatusIndicatorAppearance.shared.apply(previous)
+            Self.keep.removeAll()
+            Self.scopes.removeAll()
+            Self.windows.forEach { $0.close() }
+            Self.windows.removeAll()
+        }
         let count = Int(Self.seconds * Self.fps)
         var body = ""
         var anyMotion = false
@@ -257,47 +248,73 @@ import UniformTypeIdentifiers
                 let layer = Self.matrix(look, slot: slot)
                 let width = Int(layer.bounds.width)
                 let images = try Self.frames(of: layer, count: count)
-                anyMotion = anyMotion || images.dropFirst().contains { Self.differ(images[0], $0) }
-                body += "<h3>Indicator, \(Int(slot)) pt slot</h3><div class=\"pair\"><figure>\(Self.img(Self.gif(images), "image/gif", width: width))<figcaption>animated (\(count) frames, \(Int(Self.fps)) fps)</figcaption></figure>"
-                body += "<figure>\(Self.img(Self.png(images[0]), "image/png", width: width))<figcaption>first frame (also the still, Reduce Motion look for working: three still dots)</figcaption></figure></div>"
+                // Any frame: one offset can equal a whole spinner period.
+                let first = Self.png(images[0])
+                anyMotion = anyMotion || images.dropFirst().contains { Self.png($0) != first }
+                body += "<h3>\(Int(slot)) pt slot</h3><div class=\"pair\"><figure>\(Self.img(Self.gif(images), "image/gif", width: width))<figcaption>animated (\(count) frames, \(Int(Self.fps)) fps)</figcaption></figure>"
+                body += "<figure>\(Self.img(Self.png(images[0]), "image/png", width: width))<figcaption>first frame (the still look under Reduce Motion)</figcaption></figure></div>"
             }
-            let sidebar = Self.sidebar(look)
-            if let layer = sidebar.layer {
+            body += "<h3>Sidebar rows (real SidebarView), one per set</h3><div class=\"pair\">"
+            for set in StatusIconSet.allCases {
+                var config = previous
+                config.iconSet = set
+                StatusIndicatorAppearance.shared.apply(config)
+                let sidebar = Self.sidebar(look)
+                guard let layer = sidebar.layer else { continue }
                 let images = try Self.frames(of: layer, count: count)
-                body += "<h3>Sidebar rows (real SidebarView)</h3><div class=\"pair\"><figure>\(Self.img(Self.gif(images), "image/gif", width: 260))<figcaption>animated</figcaption></figure>"
-                body += "<figure>\(Self.img(Self.png(images[0]), "image/png", width: 260))<figcaption>first frame</figcaption></figure></div>"
+                body += "<figure>\(Self.img(Self.gif(images), "image/gif", width: 240))<figcaption>\(set.tunableTitle) (<code>\(set.rawValue)</code>)</figcaption></figure>"
             }
+            body += "</div>"
+        }
+        // The export path (StatusIconSet.image, for notification attachments):
+        // the same marks drawn still by Core Graphics, 16 pt, in each look.
+        body += "<h2>Exported still images (StatusIconSet.image, 16 pt)</h2>"
+        for look in Self.looks {
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(nil, input: look.input, animated: false)
+            var rows = "<tr><th></th>" + Self.states.map { "<th>\($0.0)</th>" }.joined() + "</tr>"
+            for set in StatusIconSet.allCases {
+                rows += "<tr><td>\(set.tunableTitle)</td>"
+                for state in Self.states {
+                    let image = scope.perform { set.image(state: state.1, pointSize: 16, appearance: scope.appearance) }
+                    let data = image.flatMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }.map(Self.png) ?? Data()
+                    rows += "<td>" + (data.isEmpty ? "" : Self.img(data, "image/png", width: 16)) + "</td>"
+                }
+                rows += "</tr>"
+            }
+            let background = look.tokens.surfaceBackground.withAlpha(1).nsColor.usingColorSpace(.sRGB) ?? .black
+            let hex = String(format: "#%02x%02x%02x", Int(background.redComponent * 255), Int(background.greenComponent * 255), Int(background.blueComponent * 255))
+            body += "<h3>\(look.name)</h3><table style=\"background:\(hex);color:#888\">\(rows)</table>"
+            Self.scopes.append(scope)
         }
         var legend = ""
-        for state in Self.states {
-            legend += "<tr><td><code>\(state.0)</code></td><td>\(state.1)</td></tr>"
+        for set in StatusIconSet.allCases {
+            legend += "<tr><td><code>\(set.rawValue)</code></td><td>\(set.tunableTitle)</td><td>\(set.summary)</td></tr>"
         }
         let html = """
-        <!doctype html><html><head><meta charset="utf-8"><title>cmux-next status and loading marks (current)</title>
+        <!doctype html><html><head><meta charset="utf-8"><title>cmux-next status icon candidates</title>
         <style>body{font:13px -apple-system,system-ui,sans-serif;background:#1d1f21;color:#c5c8c6;margin:24px}
         h2{margin-top:32px}figure{margin:0 16px 12px 0}figcaption{color:#969896;font-size:11px}.pair{display:flex;flex-wrap:wrap;align-items:flex-start}
-        img{display:block;border-radius:6px;image-rendering:auto}table{border-collapse:collapse}td{padding:4px 10px;border-bottom:1px solid #373b41;vertical-align:top}code{color:#b5bd68}</style></head><body>
-        <h1>Status and loading marks on the feat-cmux-next tip (cx-kxa2)</h1>
+        img{display:block;border-radius:6px}table{border-collapse:collapse}td{padding:4px 10px;border-bottom:1px solid #373b41;vertical-align:top}code{color:#b5bd68}</style></head><body>
+        <h1>Status icon candidates (cx-kxa2)</h1>
         <p>Rendered by the app's own StatusIndicatorLayer and SidebarView, frames from the Core Animation compositor (CARenderer), 2x pixels shown at real size.
-        Default style is <code>arc</code>; <code>none</code> hides loading only. Tabs draw the same indicator in the icon slot for loading and working;
-        waiting, error and done stay on the tab badge.</p>
-        <p>Animation captured by the compositor: \(anyMotion ? "yes" : "NO (frames are stills)").</p>
+        Blocked kinds come from OSC 7501 <code>kind</code> (permission, question, auth). Colors are the theme's attention, danger, success and foreground roles.
+        Pick one in DEV/NIGHTLY: Debug menu &gt; Status Icons, or Debug Settings &gt; Status Indicators &gt; Status icons. The default stays <code>current</code> until one is picked.</p>
+        <p>Motion captured by the compositor: \(anyMotion ? "yes" : "no (stills only on this host)").</p>
         <table>\(legend)</table>
         \(body)
         </body></html>
         """
         let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let folder = package.appending(path: ".build/status-states")
+        let folder = package.appending(path: ".build/status-icons")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try Data(html.utf8).write(to: folder.appending(path: "current-states.html"))
+        try Data(html.utf8).write(to: folder.appending(path: "contact-sheet.html"))
         if let artifacts = ProcessInfo.processInfo.environment["NX_ARTIFACTS"] {
-            try Data(html.utf8).write(to: URL(fileURLWithPath: artifacts).appending(path: "current-states.html"))
+            try Data(html.utf8).write(to: URL(fileURLWithPath: artifacts).appending(path: "status-icons-contact-sheet.html"))
         }
-        // Every table rendered; whether frames moved is reported in the sheet.
+        // Motion is reported in the sheet, not asserted: the step returns the
+        // artifact only when green, and some hosts render stills.
         #expect(html.contains("image/gif"))
-        Self.keep.removeAll()
-        Self.scopes.removeAll()
-        Self.windows.forEach { $0.close() }
-        Self.windows.removeAll()
+        #expect(html.contains("badges"))
     }
 }
