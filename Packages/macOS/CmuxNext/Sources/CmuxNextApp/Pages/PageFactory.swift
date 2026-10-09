@@ -105,6 +105,7 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        provider.agents = services.agentHarnesses
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in

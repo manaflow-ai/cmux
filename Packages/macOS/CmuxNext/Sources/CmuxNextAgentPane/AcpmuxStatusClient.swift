@@ -76,18 +76,21 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPaneHarnessEnablePrompt(result: result)
     }
 
-    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                             deadline: Duration) async throws -> [String: Any] {
+    /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
+    /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
+    static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+                     deadline: Duration, detailed: Bool = false) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection))
+            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed))
         }
         return box.value
     }
 
     /// `initialize`, then `method`; returns its result.
-    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection) async throws -> [String: Any] {
+    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
+                                 detailed: Bool) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -108,7 +111,8 @@ nonisolated enum AcpmuxStatusClient {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let reply = try reply(to: 2, in: Data(line)) { return reply }
+                let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
+                if let parsed { return parsed }
             }
             if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
         }
@@ -124,7 +128,15 @@ nonisolated enum AcpmuxStatusClient {
         return object["result"] as? [String: Any] ?? [:]
     }
 
-    private static func start(_ connection: NWConnection) async throws {
+    /// `reply(to:in:)` that keeps the error's JSON-RPC code and data (``AcpmuxRPCError``).
+    static func detailedReply(to id: Int, in line: Data) throws -> [String: Any]? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              (object["id"] as? NSNumber)?.intValue == id else { return nil }
+        if let error = object["error"] as? [String: Any] { throw AcpmuxRPCError(error) }
+        return object["result"] as? [String: Any] ?? [:]
+    }
+
+    static func start(_ connection: NWConnection) async throws {
         let gate = AgentPaneResumeOnce()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.stateUpdateHandler = { state in
@@ -143,7 +155,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func send(_ data: Data, on connection: NWConnection) async throws {
+    static func send(_ data: Data, on connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
@@ -151,7 +163,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func receive(on connection: NWConnection) async throws -> Data? {
+    static func receive(on connection: NWConnection) async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
                 if let data, !data.isEmpty {

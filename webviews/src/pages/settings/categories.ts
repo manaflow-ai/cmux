@@ -15,6 +15,7 @@ export type CategoryCard =
   | "browserProfiles"
   | "machines"
   | "accounts"
+  | "agentHarnesses"
   | "advancedInfo"
   | "advancedActions"
   | "backdrops";
@@ -112,6 +113,8 @@ const SPECS: CategorySpec[] = [
       { group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"] },
       { group: "settings.group.computerUse" },
     ],
+    // The harnesses a chat can run (BRING-YOUR-OWN-HARNESS): list, add, check, remove.
+    lead: ["agentHarnesses"],
     trail: ["computerUse"],
   },
   {

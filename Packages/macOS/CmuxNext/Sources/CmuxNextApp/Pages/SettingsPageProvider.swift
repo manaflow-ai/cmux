@@ -24,6 +24,9 @@ final class SettingsPageProvider: PageProvider {
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests
+    /// without an app.
+    var agents: AgentHarnessCenter?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -95,6 +98,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.accounts.run":
             guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
             return try await accountsRun(params)
+        case "cmux.settings.agents.state":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return agents.pageState
+        case "cmux.settings.agents.run":
+            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
+            return try await agents.runPage(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -165,6 +174,15 @@ final class SettingsPageProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         if stream == "cmux.settings.accounts.changed", let accountsState {
             return Self.watch(accountsState, onEvent: onEvent)
+        }
+        if stream == "cmux.settings.agents.changed", let agents {
+            // The daemon's harness events reach the list only while a page shows it.
+            agents.beginWatching()
+            let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
+            return PageSubscription {
+                watch.cancel()
+                Task { @MainActor in agents.endWatching() }
+            }
         }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
