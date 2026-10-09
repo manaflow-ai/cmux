@@ -55,7 +55,10 @@ permissions: {}
 jobs:
   build:
     name: build xcframework
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    # Manual dispatches are also used for a feature branch whose FFI inputs
+    # must be published before the branch can merge. Pushes remain restricted
+    # to the integration branch above.
+    if: github.ref == 'refs/heads/feat-cmux-next' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
@@ -186,7 +189,7 @@ jobs:
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next'
+    if: github.ref == 'refs/heads/feat-cmux-next' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     continue-on-error: true
@@ -297,7 +300,7 @@ jobs:
   publish:
     name: publish release
     needs: build
-    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: (github.ref == 'refs/heads/feat-cmux-next' || github.event_name == 'workflow_dispatch') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
