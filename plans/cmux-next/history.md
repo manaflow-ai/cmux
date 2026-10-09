@@ -320,7 +320,7 @@ Commands (this terminal), Resume Agent Session (this terminal).
 | Capability | Change | Status |
 | --- | --- | --- |
 | `session-journal-v1` | agent sessions: already journaled; the app reads `session.journal.subscribe {start:"beginning", follow:false, kinds:["agent.session.*"]}` on a short-lived connection, then re-reads from its cursor after each `agent-changed` event (event driven, no polling) | exists |
-| `terminal-command-history-v1` | the daemon parses OSC 133 marks in the output it mirrors and stores `{id, terminal_id, command (≤ 1 KiB, Ghostty's input cells), cwd, exit_code, started_at_ms, duration_ms}` rows in the workspace registry; `set-terminal-command-history {enabled, retention_days}`, `list-terminal-commands {after_id, limit}`, `delete-terminal-commands {ids | started_since_ms | all}`; rows expire at daemon start, on every store, list and retention change, and at the oldest row's expiry time (one deadline, no polling) | implemented |
+| `terminal-command-history-v1` | the daemon parses OSC 133 marks in the output it mirrors and stores `{id, terminal_id, command (≤ 1 KiB, Ghostty's input cells), cwd, exit_code, started_at_ms, duration_ms}` rows in the workspace registry; `set-terminal-command-history {enabled, retention_days}`, `list-terminal-commands {after_id, limit}`, `delete-terminal-commands {ids | started_since_ms | all}`; lists never return an expired row; the worker deletes expired rows at daemon start, on every store and retention change, and at the oldest row's expiry time (one deadline, no polling); commands still queued when recording is turned off are dropped, and a working directory over 4 KiB is not kept | implemented |
 | `layout-undo-v1` | Undo Layout Change calls `undo-layout {pane}` and confirms when the daemon answers `confirmation_required` | exists |
 | `closed-history-v1` | a daemon list of closed tabs and workspaces (so the TUI, the phone and a relaunched app can reopen them), and a close grace for workspaces like tabs have | proposed |
 
@@ -388,6 +388,14 @@ Existing History. The capability is in the app's `optional` list; builds
 bundle the same-tree daemon, which serves it. Closed-tab records for Reopen
 Closed Tab are separate state (the workspace store's closed history), not
 touched by command deletion.
+
+Open gaps (2026-10-09, orphan audit lane A): command lines that dev builds
+journaled under `terminal-command-journal-v1` (kind `shell.command.finished`)
+stay in those journals; only `session delete` or the journal's
+export-and-forget policy removes them. The `cmux-history` crate's
+`TerminalCommandFold` still folds that journal kind; the daemon history module
+(H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
+when it wires commands into the merged read model.
 
 Not built: mouse side buttons and swipe for either axis; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

@@ -28,6 +28,8 @@ pub(crate) const SHELL_PRODUCER_ID: &str = "cmux_shell";
 
 /// Longest command line kept, in UTF-8 bytes (cut at a character boundary).
 pub(crate) const MAX_COMMAND_BYTES: usize = 1024;
+/// Longest working directory kept, in UTF-8 bytes; a longer one is dropped.
+pub(crate) const MAX_CWD_BYTES: usize = 4096;
 /// Marks waiting for the owner to take them; a reader that never drains
 /// keeps only the newest.
 pub(crate) const MAX_PENDING_MARKS: usize = 32;
@@ -150,10 +152,12 @@ impl CommandTracker {
 }
 
 /// The local path of an OSC 7 report (`file://host/path`), or `None` for
-/// another host's directory or an unreadable report.
+/// another host's directory, an unreadable report, or a path longer than
+/// [`MAX_CWD_BYTES`] (no store keeps an unbounded program-supplied string).
 pub(crate) fn command_cwd(report: &str) -> Option<String> {
     crate::platform::terminal_pwd_to_local_path(report)
         .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path.len() <= MAX_CWD_BYTES)
 }
 
 /// A command line as stored: trimmed, without control characters, cut to
@@ -237,6 +241,10 @@ mod tests {
         }
         assert_eq!(command_cwd("file://some-other-host.invalid/srv/app"), None);
         assert_eq!(command_cwd("not a url"), None);
+        if cfg!(unix) {
+            let long = format!("file://localhost/{}", "a".repeat(MAX_CWD_BYTES));
+            assert_eq!(command_cwd(&long), None, "a directory over the cap is not kept");
+        }
     }
 
     #[test]

@@ -477,7 +477,8 @@ the stored value is kept). Result: `{enabled: bool, retention_days: u32}`.
 | since | protocol 12, capability `terminal-command-history-v1` |
 
 Returns stored terminal commands, whether recording is on or off. Expired
-rows are deleted first, so none is returned. Trusted local connections only.
+rows are never returned (the worker deletes them at their expiry time).
+Trusted local connections only.
 
 Params: `{after_id?: decimal string, limit?: 1..1000}` (default limit 1000).
 Result: `{commands: [{id, terminal_id, command, cwd, exit_code,

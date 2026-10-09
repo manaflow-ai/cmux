@@ -210,6 +210,15 @@ impl Worker {
                             Err(_) => break,
                         }
                     }
+                    // Commands queued before recording was turned off are
+                    // not stored: the switch is read again here.
+                    let recording = self
+                        .mux
+                        .upgrade()
+                        .is_some_and(|mux| mux.terminal_command_history_enabled());
+                    if !recording {
+                        batch.clear();
+                    }
                     let next =
                         self.pass(|registry, now| registry.append_terminal_commands(&batch, now));
                     if deletes.is_empty() { next } else { self.delete(deletes) }
