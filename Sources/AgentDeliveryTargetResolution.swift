@@ -40,6 +40,7 @@ struct AgentDeliveryProcessEvidence: Sendable {
     let isLive: Bool
     let ttyDevice: Int64?
     let scope: CmuxTopProcessScope?
+    let scopeCacheKey: CmuxTopProcessScopeCacheKey?
 }
 /// Resolves live pid evidence under the requested trust policy.
 ///
@@ -93,10 +94,20 @@ nonisolated func agentDeliveryProcessEvidence(
     resolution: AgentProcessBindingResolution
 ) -> AgentDeliveryProcessEvidence {
     guard let identity = agentLiveProcessIdentity(pid: pid) else {
-        return AgentDeliveryProcessEvidence(isLive: false, ttyDevice: nil, scope: nil)
+        return AgentDeliveryProcessEvidence(
+            isLive: false,
+            ttyDevice: nil,
+            scope: nil,
+            scopeCacheKey: nil
+        )
     }
     guard resolution == .corroborated else {
-        return AgentDeliveryProcessEvidence(isLive: true, ttyDevice: identity.ttyDevice, scope: nil)
+        return AgentDeliveryProcessEvidence(
+            isLive: true,
+            ttyDevice: identity.ttyDevice,
+            scope: nil,
+            scopeCacheKey: identity.scopeCacheKey
+        )
     }
     let scope: CmuxTopProcessScope?
     switch CmuxTopProcessSnapshot.cmuxScopeProbe(
@@ -106,7 +117,12 @@ nonisolated func agentDeliveryProcessEvidence(
     case .resolved(let resolvedScope): scope = resolvedScope
     case .unavailable: scope = nil
     }
-    return AgentDeliveryProcessEvidence(isLive: true, ttyDevice: identity.ttyDevice, scope: scope)
+    return AgentDeliveryProcessEvidence(
+        isLive: true,
+        ttyDevice: identity.ttyDevice,
+        scope: scope,
+        scopeCacheKey: identity.scopeCacheKey
+    )
 }
 @MainActor
 extension Workspace {
@@ -278,7 +294,10 @@ extension AppDelegate {
         for evidence: AgentDeliveryProcessEvidence,
         resolution: AgentProcessBindingResolution
     ) -> AgentDeliveryTargetCandidate? {
-        guard evidence.isLive else { return nil }
+        guard evidence.isLive,
+              let scopeCacheKey = evidence.scopeCacheKey,
+              CmuxTopProcessSnapshot.processMatchesKey(scopeCacheKey.pid, scopeCacheKey)
+        else { return nil }
         var ttyTarget: AgentDeliveryTargetCandidate?
         if let ttyDevice = evidence.ttyDevice {
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(

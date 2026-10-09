@@ -10,6 +10,32 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("Socket PID evidence is revalidated after the MainActor hop")
+    func staleSocketPIDEvidenceIsRejected() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let identity = try #require(agentLiveProcessIdentity(pid: Darwin.getpid()))
+        let staleKey = CmuxTopProcessScopeCacheKey(
+            pid: identity.scopeCacheKey.pid,
+            startSeconds: identity.scopeCacheKey.startSeconds &+ 1,
+            startMicroseconds: identity.scopeCacheKey.startMicroseconds
+        )
+        let evidence = AgentDeliveryProcessEvidence(
+            isLive: true,
+            ttyDevice: identity.ttyDevice,
+            scope: nil,
+            scopeCacheKey: staleKey
+        )
+
+        #expect(
+            fixture.appDelegate.liveAgentDeliveryTarget(
+                for: evidence,
+                resolution: .controllingTTY
+            ) == nil,
+            "A PID reused while the socket request waited must fail closed"
+        )
+    }
+
     // Allow loaded CI runners time for subprocess spawning and signal delivery.
     func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout

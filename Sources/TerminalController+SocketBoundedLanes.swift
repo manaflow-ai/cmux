@@ -52,18 +52,9 @@ extension TerminalController {
             } else {
                 resolution = .corroborated
             }
-            guard let resolution else {
-                return try await v2MainAsync {
-                    let result = self.v2AgentResolveDeliveryTarget(
-                        params: request.params.mapValues(\.foundationObject)
-                    )
-                    return Self.v2Encoder.response(id: request.id, result)
-                }
+            precomputedEvidence = resolution.map {
+                agentDeliveryProcessEvidence(pid: pid, resolution: $0)
             }
-            precomputedEvidence = agentDeliveryProcessEvidence(
-                pid: pid,
-                resolution: resolution
-            )
         } else if foundationParams["pid"] != nil {
             // Keep invalid PID/resolution handling and the default
             // `corroborated` behavior in the canonical MainActor validator.
@@ -72,13 +63,21 @@ extension TerminalController {
             precomputedEvidence = nil
         }
 
-        return try await v2MainAsync {
+        let response = try await v2MainAsync {
+            // Keep this specialized worker path in lockstep with the normal
+            // main-lane dispatch preamble. The process probes are already
+            // off-actor; known refs remain a main-actor publication step.
+            self.v2RefreshKnownRefs()
             let result = self.v2AgentResolveDeliveryTarget(
                 params: request.params.mapValues(\.foundationObject),
                 precomputedProcessEvidence: precomputedEvidence
             )
             return Self.v2Encoder.response(id: request.id, result)
         }
+        Task { @MainActor [weak self] in
+            self?.scheduleSocketReadSnapshotRefresh()
+        }
+        return response
     }
 
     private nonisolated static func strictPositivePID(_ value: Any) -> pid_t? {
