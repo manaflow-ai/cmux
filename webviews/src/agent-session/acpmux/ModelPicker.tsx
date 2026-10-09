@@ -524,7 +524,7 @@ export function ModelPicker(props: ModelPickerProps) {
         >
           {/* The rail: Starred, then one icon per harness; hovering a tab shows its models. */}
           <PickerOptionList
-            className="flex w-11 flex-none flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r-[0.5px] border-edge py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex w-11 flex-none flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r-[0.5px] border-edge py-1.5"
             aria-label={harnessText}
           >
             <PickerOption
