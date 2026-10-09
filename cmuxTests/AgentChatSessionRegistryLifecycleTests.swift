@@ -102,7 +102,7 @@ struct AgentChatSessionRegistryLifecycleTests {
                 surfaceId: surfaceID,
                 receivedAt: times.idle
             ))
-            #expect(resumedPrompt.state == .working)
+            #expect(resumedPrompt.state == .working(since: times.idle))
             let lateAfterResume = resumed.noteHookEvent(WorkstreamEvent(
                 sessionId: resumedSessionID,
                 hookEventName: .notification,
@@ -112,7 +112,7 @@ struct AgentChatSessionRegistryLifecycleTests {
                 extraFieldsJSON: extraFields,
                 isIdleReminder: true
             ))
-            #expect(lateAfterResume.state == .working)
+            #expect(lateAfterResume.state == .working(since: times.idle))
         }
     }
 
