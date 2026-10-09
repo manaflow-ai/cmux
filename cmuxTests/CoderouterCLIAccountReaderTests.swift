@@ -9,9 +9,8 @@ import Testing
 
 @Suite("CodeRouter CLI account reader")
 struct CoderouterCLIAccountReaderTests {
-    /// The cmux team ID never equals the CodeRouter organization ID; the reader
-    /// maps "Austin Wang's Team" to the "Austin Wang" organization by name.
-    private static let cmuxTeamID = "fa8d2c52-5c8b-4ee5-97c4-f123e320f08f"
+    /// CodeRouter's team-scoped API uses the Stack team UUID directly.
+    private static let cmuxTeamID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
     private static let austinOrganizationID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
     private static let cmuxOrganizationID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
@@ -91,7 +90,7 @@ struct CoderouterCLIAccountReaderTests {
         #expect(accounts.map(\.remainingPercent) == [93, nil])
     }
 
-    @Test("Refresh leaves the terminal's CodeRouter organization alone when it already matches")
+    @Test("Refresh leaves the terminal's CodeRouter organization alone")
     func matchingOrganizationIsNotSwitched() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
 
@@ -99,11 +98,11 @@ struct CoderouterCLIAccountReaderTests {
             for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
         )
 
-        #expect(await cli.commands.allSatisfy { $0.prefix(2) != ["org", "switch"] })
+        #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
-    @Test("Selected team switches the CLI away from another organization")
-    func otherOrganizationIsSwitched() async throws {
+    @Test("Selected team reads directly without switching another organization")
+    func otherOrganizationIsNotSwitched() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.cmuxOrganizationID)
 
         let accounts = try await CoderouterCLIAccountReader.accounts(
@@ -111,24 +110,22 @@ struct CoderouterCLIAccountReaderTests {
         )
 
         #expect(accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
-        #expect(await cli.commands.contains(["org", "switch", Self.austinOrganizationID]))
+        #expect(await cli.commands == [["accounts", "--json", "--team", Self.austinOrganizationID]])
     }
 
     @Test("Accounts from another organization never reach the sidebar")
-    func concurrentSwitchIsRejected() async throws {
-        let cli = FakeCoderouterCLI(
-            activeOrganizationID: Self.cmuxOrganizationID,
-            switchOverride: Self.cmuxOrganizationID
-        )
-
+    func wrongScopedPayloadIsRejected() async throws {
         await #expect(throws: NSError.self) {
             try await CoderouterCLIAccountReader.accounts(
-                for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+                for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { arguments in
+                    #expect(arguments == ["accounts", "--json", "--team", Self.austinOrganizationID])
+                    return Data("{\"teamId\":\"\(Self.cmuxOrganizationID)\",\"accounts\":[]}".utf8)
+                }
             )
         }
     }
 
-    @Test("Removing an account selects the team's organization before the CLI removes it")
+    @Test("Removing an account carries its team without a redundant account read")
     func removeRunsOnSelectedOrganization() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.cmuxOrganizationID)
         let accountID = "a10a7f6a-27b5-4e36-9a71-005d2c0539df"
@@ -138,9 +135,87 @@ struct CoderouterCLIAccountReaderTests {
         )
 
         let commands = await cli.commands
-        let switchIndex = try #require(commands.firstIndex(of: ["org", "switch", Self.austinOrganizationID]))
-        let removeIndex = try #require(commands.firstIndex(of: ["remove", accountID, "--yes"]))
-        #expect(switchIndex < removeIndex)
+        #expect(commands == [["remove", accountID, "--yes", "--team", Self.austinOrganizationID]])
+    }
+
+    @Test("A snapshot retains the organization and command scope for account creation")
+    func snapshotRetainsDestination() async throws {
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: nil,
+            run: { arguments in
+                #expect(arguments == ["accounts", "--json", "--team", Self.cmuxTeamID])
+                return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+            }
+        )
+
+        #expect(snapshot.organizationID == Self.cmuxTeamID)
+        #expect(snapshot.scope == .teamOption)
+    }
+
+    @Test("An unsupported team option uses a private legacy sequence")
+    func unsupportedTeamOptionUsesLegacyFallback() async throws {
+        let commands = CommandRecorder()
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: nil,
+            run: { arguments in
+                await commands.append(arguments)
+                if arguments == ["accounts", "--json", "--team", Self.cmuxTeamID] {
+                    throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "coderouter: usage: coderouter accounts [--watch | --json]",
+                    ])
+                }
+                if arguments == ["org", "switch", Self.cmuxTeamID] { return Data() }
+                if arguments == ["accounts", "--json"] {
+                    return Data("{\"teamId\":\"\(Self.cmuxTeamID)\",\"accounts\":[]}".utf8)
+                }
+                throw NSError(domain: "UnexpectedCLICommand", code: 1)
+            }
+        )
+
+        #expect(snapshot.scope == .isolatedConfiguration)
+        #expect(await commands.value == [
+            ["accounts", "--json", "--team", Self.cmuxTeamID],
+            ["org", "switch", Self.cmuxTeamID],
+            ["accounts", "--json"],
+        ])
+    }
+
+    @Test("Runtime errors do not trigger an unscoped fallback")
+    func runtimeFailureDoesNotFallback() async {
+        let commands = CommandRecorder()
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.snapshot(
+                for: Self.cmuxTeamID,
+                name: nil,
+                run: { arguments in
+                    await commands.append(arguments)
+                    throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "coderouter: server returned HTTP 503",
+                    ])
+                }
+            )
+        }
+        #expect(await commands.value == [["accounts", "--json", "--team", Self.cmuxTeamID]])
+    }
+
+    @Test("Legacy organization matching prefers exact IDs and rejects ambiguous names")
+    func legacyOrganizationMatchingRules() throws {
+        let catalog = "Example\t\(Self.cmuxOrganizationID)\nExample's Team\t\(Self.austinOrganizationID)\n"
+        #expect(try CoderouterCLIAccountReader.organizationID(
+            matching: Self.austinOrganizationID,
+            name: nil,
+            inCatalog: catalog
+        ) == Self.austinOrganizationID)
+        #expect(try CoderouterCLIAccountReader.organizationID(
+            matching: "legacy-team",
+            name: "Solo's Team",
+            inCatalog: "Solo\te220a9b9-64f7-4005-a8c3-3f5f34a25b2c\n"
+        ) == "e220a9b9-64f7-4005-a8c3-3f5f34a25b2c")
+        #expect(throws: NSError.self) {
+            try CoderouterCLIAccountReader.organizationID(matching: "legacy-team", name: "Example", inCatalog: catalog)
+        }
     }
 
     @Test("The sidebar runs the same CodeRouter CLI as cmux cr: bundled, then PATH, then the installer's")
@@ -222,8 +297,21 @@ private actor FakeCoderouterCLI {
             return Data("Switched organization.\n".utf8)
         case _ where arguments.count == 3 && arguments[0] == "remove" && arguments[2] == "--yes":
             return Data("Removed.\n".utf8)
+        case _ where arguments.count == 5 && arguments[0] == "remove" && arguments[2] == "--yes" && arguments[3] == "--team":
+            return Data("Removed.\n".utf8)
+        case _ where arguments.count == 4 && arguments[0] == "accounts" && arguments[1] == "--json" && arguments[2] == "--team":
+            return try accountPayload(for: arguments[3])
         case ["accounts", "--json"]:
-            let accounts = (Self.accountLabels[activeOrganizationID] ?? []).enumerated().map { index, label in
+            return try accountPayload(for: activeOrganizationID)
+        default:
+            throw NSError(domain: "FakeCoderouterCLI", code: 64, userInfo: [
+                NSLocalizedDescriptionKey: "coderouter: unexpected arguments \(arguments)",
+            ])
+        }
+    }
+
+    private func accountPayload(for organizationID: String) throws -> Data {
+        let accounts = (Self.accountLabels[organizationID] ?? []).enumerated().map { index, label in
                 var account: [String: Any] = ["id": "account-\(index)", "provider": "codex", "label": label, "state": "active"]
                 // The first account reports a rate-limit window, as Codex does.
                 if index == 0 {
@@ -231,13 +319,8 @@ private actor FakeCoderouterCLI {
                 }
                 return account
             }
-            let payload: [String: Any] = ["teamId": activeOrganizationID, "accounts": accounts]
-            return try JSONSerialization.data(withJSONObject: payload) + Data("\n".utf8)
-        default:
-            throw NSError(domain: "FakeCoderouterCLI", code: 64, userInfo: [
-                NSLocalizedDescriptionKey: "coderouter: unexpected arguments \(arguments)",
-            ])
-        }
+        let payload: [String: Any] = ["teamId": organizationID, "accounts": accounts]
+        return try JSONSerialization.data(withJSONObject: payload) + Data("\n".utf8)
     }
 }
 
@@ -290,6 +373,8 @@ struct CoderouterSidebarSectionTests {
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
+        #expect(CoderouterProvider.claude.addCommand(for: "team's-id", scope: .teamOption) == "cmux cr add claude --team 'team'\\''s-id'")
+        #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOption) == "cmux cr add codex --team 'team-a'")
     }
 
     @Test("New Account launches a dedicated focused terminal")
@@ -316,5 +401,132 @@ struct CoderouterSidebarSectionTests {
         #expect(CloudTreeRowContentView.usageDetail(for: account("a", .codex, remaining: 93)) == "93% left")
         #expect(CloudTreeRowContentView.usageDetail(for: account("a", .codex, state: "cooldown", remaining: 93)) == "Cooldown")
         #expect(CloudTreeRowContentView.usageDetail(for: account("a", .claude)) == nil)
+    }
+}
+
+@Suite("CodeRouter sidebar account state")
+struct CoderouterAccountStateTests {
+    private static let teamA = CoderouterAccountScope(teamID: "team-a", identityID: "user-1")!
+    private static let teamB = CoderouterAccountScope(teamID: "team-b", identityID: "user-1")!
+
+    private func account(_ id: String) -> CloudTreeNode.CoderouterAccount {
+        CloudTreeNode.CoderouterAccount(id: id, provider: .codex, label: "\(id)@example.com", state: "active")
+    }
+
+    private func loaded(_ scope: CoderouterAccountScope, _ ids: [String]) -> CoderouterAccountState {
+        var state = CoderouterAccountState()
+        state.select(scope)
+        state.apply(
+            accounts: ids.map(account),
+            organizationID: "org-\(scope.teamID)",
+            teamScope: .teamOption,
+            for: scope
+        )
+        return state
+    }
+
+    @Test("Selecting a different team clears rows and requires a new read")
+    func teamChangeClearsRows() {
+        var state = loaded(Self.teamA, ["a1", "a2"])
+        state.select(Self.teamB)
+
+        #expect(state.accounts.isEmpty)
+        #expect(state.isLoadingScope)
+        #expect(state.destination(for: Self.teamB) == nil)
+        #expect(state.knownOrganizationID == nil)
+    }
+
+    @Test("Changing the signed-in identity clears rows even when the team is unchanged")
+    func identityChangeClearsRows() {
+        var state = loaded(Self.teamA, ["a1"])
+        state.select(CoderouterAccountScope(teamID: "team-a", identityID: "user-2"))
+        #expect(state.accounts.isEmpty)
+    }
+
+    @Test("A late read for an old team cannot repopulate the new team")
+    func staleResultsAreDropped() {
+        var state = loaded(Self.teamA, ["a1"])
+        state.select(Self.teamB)
+
+        let applied = state.apply(
+            accounts: [account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA
+        )
+
+        #expect(!applied)
+        #expect(state.accounts.isEmpty)
+        #expect(state.isLoadingScope)
+    }
+
+    @Test("A same-team failure keeps rows but disables account creation")
+    func failureKeepsRowsWithoutDestination() {
+        var state = loaded(Self.teamA, ["a1"])
+        state.beginRefresh(for: Self.teamA)
+        state.fail(for: Self.teamA)
+
+        #expect(state.accounts.map(\.id) == ["a1"])
+        #expect(state.destination(for: Self.teamA) == nil)
+        #expect(!state.isLoadingScope)
+    }
+
+    @Test("An optimistic removal stays hidden from an earlier refresh")
+    func pendingRemovalWinsOverEarlierRead() {
+        var state = loaded(Self.teamA, ["a1", "a2"])
+        let index = state.removeOptimistically(accountID: "a2", for: Self.teamA)
+        #expect(index == 1)
+
+        _ = state.apply(
+            accounts: [account("a1"), account("a2")],
+            organizationID: "org-team-a",
+            teamScope: .teamOption,
+            for: Self.teamA
+        )
+        #expect(state.accounts.map(\.id) == ["a1"])
+    }
+}
+
+@MainActor
+@Suite("CodeRouter CLI operation lane")
+struct CoderouterCLIOperationLaneTests {
+    @MainActor
+    private final class Log {
+        var events: [String] = []
+        var running = 0
+        var maxRunning = 0
+    }
+
+    @Test("Operations run in order and never overlap")
+    func operationsAreSerial() async {
+        let lane = CoderouterCLIOperationLane()
+        let log = Log()
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (gate, openGate) = AsyncStream<Void>.makeStream()
+
+        let first = lane.enqueue {
+            log.running += 1
+            log.maxRunning = max(log.maxRunning, log.running)
+            log.events.append("start")
+            startedContinuation.yield()
+            for await _ in gate { break }
+            log.events.append("end")
+            log.running -= 1
+        }
+        let second = lane.enqueue {
+            log.running += 1
+            log.maxRunning = max(log.maxRunning, log.running)
+            log.events.append("second")
+            log.running -= 1
+        }
+
+        for await _ in started { break }
+        openGate.yield()
+        openGate.finish()
+        await first.value
+        await second.value
+
+        #expect(log.events == ["start", "end", "second"])
+        #expect(log.maxRunning == 1)
     }
 }
