@@ -2441,6 +2441,9 @@ fn ensure_daemon(
         }
         let log = open_private_daemon_file(&log_path, true)
             .with_context(|| format!("could not open daemon log {}", log_path.display()))?;
+        if let Some(state_root) = state_root {
+            import_default_root_session(session, state_root, &log);
+        }
         let mut mux_owner = Command::new(&executable);
         mux_owner
             .args(mux_owner_args(session, &mux_socket, mux_socket_is_derived, state_root))
@@ -2474,6 +2477,24 @@ fn ensure_daemon(
     configure_detached_process(&mut command);
     let mut child = command.spawn().context("could not start remote daemon")?;
     wait_for_detached_socket(&mut child, link, Duration::from_secs(20), "remote daemon", &log_path)
+}
+
+/// Before an explicit `--state-dir` reached the mux owner, the owner kept
+/// this link's workspaces in the default state root. The first start with an
+/// empty `<state-dir>/workspace` copies that registry once (cx-0b8z). A
+/// failed import is logged and the owner starts on its own store.
+fn import_default_root_session(session: &str, state_root: &Path, mut log: &fs::File) {
+    use cmux_tui_core::session_state_import::{SessionStateImport, import_default_root_session};
+    let Some(default_root) = cmux_tui_core::platform::workspace_state_dir() else { return };
+    let target = remote_link_mux::mux_state_root(state_root);
+    let line = match import_default_root_session(&default_root, &target, session) {
+        Ok(SessionStateImport::Imported { from, to }) => {
+            format!("imported session registry {} into {}", from.display(), to.display())
+        }
+        Ok(SessionStateImport::Skipped) => return,
+        Err(error) => format!("default-root session import failed: {error:#}"),
+    };
+    let _ = writeln!(log, "cmux-tui: {line}");
 }
 
 /// Connect to a socket this daemon's own user serves. The daemon only starts
