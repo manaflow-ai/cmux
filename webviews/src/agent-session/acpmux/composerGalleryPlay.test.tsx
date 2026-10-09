@@ -119,6 +119,13 @@ for (const language of ["en", "ja"]) {
 test("keyboard gallery play checks that the highlighted model actually changes", async () => {
   const variant = composerGallery.variants["model-menu-keyboard"]!;
   const root = createRoot(doc.getElementById("root")!);
+  const focus = dom.window.HTMLInputElement.prototype.focus;
+  // JSDOM focuses visibility:hidden inputs; browsers reject them. Match that browser rule
+  // so opening an anchored menu must wait for it to become visible before focusing search.
+  dom.window.HTMLInputElement.prototype.focus = function (options) {
+    if (dom.window.getComputedStyle(this).visibility === "hidden") return;
+    focus.call(this, options);
+  };
   try {
     await act(async () => {
       root.render(
@@ -136,6 +143,7 @@ test("keyboard gallery play checks that the highlighted model actually changes",
     await ctx.press("Escape");
     await variant.play!(ctx);
   } finally {
+    dom.window.HTMLInputElement.prototype.focus = focus;
     await act(async () => root.unmount());
   }
 });
