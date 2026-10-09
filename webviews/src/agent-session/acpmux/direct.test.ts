@@ -1847,7 +1847,10 @@ describe("direct client session state", () => {
       kind: "agent_message_chunk",
       msg: {
         method: "session/update",
-        params: { sessionId: "a", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } } },
+        params: {
+          sessionId: "a",
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "pong" } },
+        },
       },
     });
     await settle();
