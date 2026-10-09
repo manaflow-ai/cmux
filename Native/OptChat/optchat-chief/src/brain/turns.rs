@@ -341,6 +341,11 @@ impl Brain {
             .collect();
         self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // Per-turn state goes after the view, never in the system prompt:
+        // the subagents at work now (the reference client's line), before
+        // the new messages. Never logged.
+        let at_work = self.at_work_line();
+        let prompt_texts: Vec<String> = at_work.iter().chain(texts.iter()).cloned().collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
         let engine = self.turn_engine_choice();
@@ -379,12 +384,12 @@ impl Brain {
                 let layout = cached_layout_marked(
                     &self.settings.system_text,
                     &view.text,
-                    &texts.join("\n\n"),
+                    &prompt_texts.join("\n\n"),
                     mark,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &texts), None, plain_preset),
+            None => (turn_blocks(&view.text, &prompt_texts), None, plain_preset),
         };
         let image_count = image_blocks.len();
         let blocks = with_images(blocks, image_blocks);
@@ -412,6 +417,9 @@ impl Brain {
             serde_json::json!({"kind": "blocks"})
         };
         layout["images"] = serde_json::json!(image_count);
+        if let Some(line) = &at_work {
+            layout["at_work"] = serde_json::json!(line);
+        }
         self.trace_start(
             &key,
             first,

@@ -425,6 +425,20 @@ impl Brain {
 }
 
 impl Brain {
+    /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
+    /// the view); None when none does.
+    pub(super) fn at_work_line(&self) -> Option<String> {
+        let ids: Vec<&str> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .map(|s| s.id.as_str())
+            .collect();
+        (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
+    }
+
     /// A running subagent spawned under the spawn floor: the floor stays
     /// `ask` while one lives (`spawn_policy`).
     pub(super) fn ask_subagent_live(&self) -> bool {

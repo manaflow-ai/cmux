@@ -95,9 +95,11 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 .to_owned(),
         );
     }
-    let tail = messages
-        .iter()
-        .map(|m| m.2.as_str())
+    // The turn's subagents-at-work line went before its messages.
+    let at_work = start["layout"]["at_work"].as_str();
+    let tail = at_work
+        .into_iter()
+        .chain(messages.iter().map(|m| m.2.as_str()))
         .collect::<Vec<_>>()
         .join("\n\n");
     let layout = start["layout"]["kind"]
