@@ -274,8 +274,8 @@ fn up_to_ahead_message_nodes_run_and_merges_start_when_both_halves_are_built() {
         })
         .collect();
     assert_eq!(first, (0..a).map(|i| NodeId::new(0, i)).collect::<Vec<_>>());
-    // 1..AHEAD finish while 0 runs: one unbuilt line before AHEAD..2*AHEAD-1,
-    // so they start (AHEAD - 1 slots), and the merges of built pairs too.
+    // 1..AHEAD finish while 0 runs: one unbuilt line before the next leaves,
+    // so they may start, and the merges of built pairs too.
     for i in 1..a {
         let n = NodeId::new(0, i);
         store.nodes.borrow_mut().insert(n, summary(n));
@@ -289,12 +289,16 @@ fn up_to_ahead_message_nodes_run_and_merges_start_when_both_halves_are_built() {
             Work::Free { .. } => None,
         })
         .collect();
-    assert_eq!(
-        models,
-        (a..2 * a - 1)
-            .map(|i| NodeId::new(0, i))
-            .collect::<Vec<_>>()
-    );
+    // The reference client's order: by position (a merge at its end), so
+    // the level-2 merges of the built region (2+1 .. 2+a/4-1; 2+0 waits for
+    // message 0) go before the next leaves, which take the slots left.
+    let merges: Vec<NodeId> = (1..a / 4).map(|i| NodeId::new(2, i)).collect();
+    let leaves = (JOBS - 1 - merges.len()) as u64;
+    let expected: Vec<NodeId> = merges
+        .into_iter()
+        .chain((a..a + leaves).map(|i| NodeId::new(0, i)))
+        .collect();
+    assert_eq!(models, expected);
     let free: Vec<NodeId> = work
         .iter()
         .filter_map(|w| match w {
