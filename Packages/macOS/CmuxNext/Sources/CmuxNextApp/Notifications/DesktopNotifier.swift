@@ -13,6 +13,7 @@ final class DesktopNotifier: NSObject {
     struct Posted: Hashable {
         var id: String
         var title: String
+        var subtitle: String?
         var body: String
         var surface: UInt64?
         var sound: String?
@@ -32,13 +33,21 @@ final class DesktopNotifier: NSObject {
     /// Posts a banner. `sound == "default"` uses the notification's own
     /// sound (Focus and the per-app sound setting apply); other sounds are
     /// played by `NotificationSounds`.
-    func post(id: String, title: String, body: String, surface: UInt64?, workspace: String?, defaultSound: Bool) {
-        posted.append(Posted(id: id, title: title, body: body, surface: surface, sound: defaultSound ? "default" : nil))
+    /// `subtitle` is a status reason line and `attachment` a badge image
+    /// file (OSC 7501 notifications); the center takes the file.
+    func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
+              defaultSound: Bool, attachment: URL? = nil) {
+        posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
+                             sound: defaultSound ? "default" : nil))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
+        if let subtitle { content.subtitle = subtitle }
         content.body = body
+        if let attachment, let item = try? UNNotificationAttachment(identifier: "status", url: attachment) {
+            content.attachments = [item]
+        }
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
