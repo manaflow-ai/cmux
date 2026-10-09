@@ -34,7 +34,7 @@ public final class RemoteBrowserSurfaces {
 
     public func apply(_ message: RbSurfaceMessage) {
         switch message {
-        case let .show(surface, stream, _, anchor, _, _):
+        case let .show(surface, stream, kind, anchor, _, _):
             // A show of an open surface (a new size) replaces it: its stream changed.
             remove(surface)
             let pane = RemoteBrowserPane(source: source(stream))
@@ -43,7 +43,7 @@ public final class RemoteBrowserSurfaces {
             pane.view.eventTarget = input
             pane.view.frame = anchor
             page.addSubview(pane.view)
-            open[surface] = Surface(pane: pane, input: input)
+            open[surface] = Surface(pane: pane, input: input, kind: kind)
             pane.start()
         case let .update(surface, anchor, _, _):
             if let view = open[surface]?.pane.view { view.frame = anchor }
@@ -59,6 +59,12 @@ public final class RemoteBrowserSurfaces {
 
     package func view(of surface: UInt32) -> RemoteBrowserContentView? {
         open[surface]?.pane.view
+    }
+
+    /// The host's kind string of an open surface (`page_popup`, `autofill`,
+    /// `extension_popup`, `bubble`).
+    package func kind(of surface: UInt32) -> String? {
+        open[surface]?.kind
     }
 
     /// Sends a pointer event at `point` (the surface's CSS pixels) to
@@ -80,6 +86,7 @@ public final class RemoteBrowserSurfaces {
     private struct Surface {
         let pane: RemoteBrowserPane
         let input: SurfaceInput
+        let kind: String
     }
 }
 
