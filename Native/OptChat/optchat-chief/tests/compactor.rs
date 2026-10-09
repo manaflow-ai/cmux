@@ -2030,3 +2030,35 @@ fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
     );
     assert_eq!(inner.ended, vec!["s1", "s2"]);
 }
+
+/// Hard test (build 7bf60bcf938a): the network was cut while the start-up
+/// probe ran, and the probe posted "cannot build summaries" for Claude
+/// Code's "Network error. Please check your internet connection.". A
+/// transient error (the network, a lost connection, a timeout) posts no
+/// notice: the probe tries again after a backoff (1 s doubled, at most
+/// 120 s), as node retries do; a capacity wait waits its retry-after.
+#[test]
+fn a_transient_probe_error_posts_no_notice_and_is_retried() {
+    use optchat_chief::compactor::CompactRoute;
+    use optchat_chief::host::{probe_notice, probe_retry_wait};
+    use std::time::Duration;
+    let network = r#"the compactor model: starting a compactor session: session/new: model "claude-haiku-5-5" for claude: Network error. Please check your internet connection."#;
+    assert_eq!(probe_notice(CompactRoute::Acpmux, network), None);
+    assert_eq!(probe_retry_wait(network, 0), Some(Duration::from_secs(1)));
+    assert_eq!(probe_retry_wait(network, 3), Some(Duration::from_secs(8)));
+    assert_eq!(
+        probe_retry_wait(network, 20),
+        Some(Duration::from_secs(120))
+    );
+    let exhausted = "API error: 503 no non-exhausted claude accounts available (retry after 300s)";
+    assert_eq!(
+        probe_retry_wait(exhausted, 0),
+        Some(Duration::from_secs(120))
+    );
+    let lost = "the acpmux connection was lost during a compactor call";
+    assert!(probe_retry_wait(lost, 0).is_some());
+    let login =
+        "the compactor model: Unable to validate model: Could not resolve authentication method";
+    assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
+    assert_eq!(probe_retry_wait(login, 0), None);
+}
