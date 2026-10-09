@@ -34,6 +34,7 @@ blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
+blob schemas/chief-cmux-target/vectors.json
 blob schemas/automation-input/vectors.json
 blob schemas/automation-lease/vectors.json
 blob schemas/chief-home/vectors.json
