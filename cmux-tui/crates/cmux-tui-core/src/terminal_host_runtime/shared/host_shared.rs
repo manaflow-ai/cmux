@@ -86,7 +86,7 @@ pub(crate) struct HostShared {
     #[cfg(unix)]
     pub(crate) group_escalation_failed: AtomicBool,
     #[cfg(unix)]
-    pub(crate) session_cleanup: crate::terminal_host_runtime::unix::session_cleanup::SessionCleanup,
+    pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
     #[cfg(test)]
