@@ -24,7 +24,9 @@ struct MDPalette {
     static func make(outgoing: Bool) -> MDPalette {
         let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
         var white: CGFloat = 0, alpha: CGFloat = 0
-        text.getWhite(&white, alpha: &alpha)
+        // cmux: AppKit's getWhite raises for a colour outside a grey space (a
+        // theme's sRGB text; UIKit returns false): read the grey conversion.
+        text.usingColorSpace(.genericGamma22Gray)?.getWhite(&white, alpha: &alpha)
         let darkBubble = white > 0.5
         func t(_ a: CGFloat) -> UIColor { text.withAlphaComponent(a) }
         let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)

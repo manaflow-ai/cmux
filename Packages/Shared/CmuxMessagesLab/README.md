@@ -54,6 +54,7 @@ and render-server field animation, blurred header and native scrolling.
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
 | WindowView, Compose | rows and field lines follow the view's own width (several Home tabs), not the process-wide `Metrics.current` |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
+| MarkdownDraw | a themed bubble's text is sRGB, and AppKit's `getWhite` raises outside a grey space (UIKit returns false): the palette reads the grey conversion. The raise inside a main-actor task crashed launch at the next main-actor check (MainThreadWatchdog, 2026-10-07) |
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
