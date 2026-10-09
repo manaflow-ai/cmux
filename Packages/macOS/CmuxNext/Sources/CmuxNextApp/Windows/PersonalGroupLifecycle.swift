@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -106,19 +107,22 @@ struct PersonalGroupLife {
     /// `failed` runs when a command fails (the caller re-syncs).
     /// `applied` runs once the home store holds the command's result
     /// (read-your-writes): a sidebar pending edit settles there (cx-odqn).
-    func commit(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
-                failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
-                _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    /// `landed` gets the command's value as soon as it replied.
+    func commit<Value: Sendable>(_ label: String, ending: [WorkspaceGroupID], recheck: @escaping @MainActor () -> [WorkspaceGroupID] = { [] },
+                                 failed: @escaping @MainActor () -> Void, applied: (@MainActor () -> Void)? = nil,
+                                 landed: @escaping @MainActor (Value) -> Void = { _ in },
+                                 _ body: @escaping @Sendable (DaemonConnection) async throws -> Value) {
         let home = machines.local, personal = personal, v2 = home.store.servesStateResources
         let transaction = ClientTransactionID.generate()
         personal.endingGroups.formUnion(ending)
         Task {
             // Shown again before a failure re-syncs, so a kept group never stays hidden.
             @MainActor func end() { personal.endingGroups.subtract(ending) }
-            guard await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) != nil else {
+            guard let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) }) else {
                 end()
                 return failed()
             }
+            landed(value)
             if let applied { home.whenApplied(transaction, applied) }
             let still = Set(recheck())
             let doomed = ending.filter(still.contains)
@@ -137,7 +141,7 @@ struct PersonalGroupLife {
     func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
         guard isEmptyUnpinned(group) else { return }
         let life = self
-        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ in }
+        commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
 }
 
@@ -148,4 +152,9 @@ struct PersonalGroupLife {
 final class PersonalGroupEditorState {
     var pending: WorkspaceGroupID?
     var explicit: Set<WorkspaceGroupID> = []
+    /// Groups the sidebar made that the daemon is still creating: name and
+    /// color edits made meanwhile (the editor is open on the new group).
+    var creating: [WorkspaceGroupID: (name: String?, color: GroupColor?)] = [:]
+    /// The daemon's id for a group the sidebar made under its own id.
+    var created: [WorkspaceGroupID: WorkspaceGroupID] = [:]
 }
