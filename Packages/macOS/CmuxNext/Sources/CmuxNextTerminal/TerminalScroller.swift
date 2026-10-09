@@ -41,13 +41,23 @@ final class TerminalScroller: NSScrollView {
             self?.apply(style)
             self?.onStyleChange?()
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved(_:)),
-                                               name: NSView.boundsDidChangeNotification, object: contentView)
+        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
+        clipObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    private var clipObserver: (any NSObjectProtocol)?
+
+    isolated deinit {
+        if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
     }
 
     private func apply(_ style: NSScroller.Style) {
@@ -96,7 +106,7 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    @objc private func clipMoved(_ note: Notification) {
+    private func clipMoved() {
         guard !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)

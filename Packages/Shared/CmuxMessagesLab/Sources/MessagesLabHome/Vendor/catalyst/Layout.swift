@@ -448,7 +448,7 @@ enum VectorAsset {
     }
 
     static func parse(_ text: String) -> (CGSize, [(CGPath, UIColor)])? {
-        guard let svg = text.range(of: "<svg").map({ String(text[$0.lowerBound...].prefix(while: { $0 != ">" })) }),
+        guard let svg = text.range(of: "<svg").map({ String(text.suffix(from: $0.lowerBound).prefix(while: { $0 != ">" })) /* cmux: no range subscript */ }),
               let w = attr(svg, "width").flatMap(Double.init), let h = attr(svg, "height").flatMap(Double.init) else { return nil }
         var shapes: [(CGPath, UIColor)] = []
         var rest = Substring(text)
@@ -640,8 +640,8 @@ enum RowBuilder {
         let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // cmux: a range from an older window stays inside
         var replyCount: [ID: Int] = [:]
         if !threadMode {
-            for idx in span {
-                if let r = messages[idx].replyTo { replyCount[r.messageId] = 0 } else { replyCount[messages[idx].id] = 0 }
+            for m in messages.slice(span.lowerBound, span.upperBound) { // cmux: no index math
+                if let r = m.replyTo { replyCount.updateValue(0, forKey: r.messageId) } else { replyCount.updateValue(0, forKey: m.id) }
             }
             for m in s.conversation.messages {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
@@ -756,7 +756,7 @@ enum RowBuilder {
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
-        for i in rows.indices { rows[i].width = width } // crash-allow: (cmux) i from rows.indices
+        rows = rows.map { var r = $0; r.width = width; return r } // cmux: no index writes
         return rows
     }
 
@@ -792,8 +792,8 @@ enum RowBuilder {
             }
         }
         var out: [ID: (String, String)] = [:]
-        if let r = lastRead { out[r.1.id] = (Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))) }
-        if let d = lastDelivered, d.0 > (lastRead?.0 ?? -1) { out[d.1.id] = (Strings.delivered, "") }
+        if let r = lastRead { out.updateValue((Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))), forKey: r.1.id) } // cmux
+        if let d = lastDelivered, d.0 > (lastRead?.0 ?? -1) { out.updateValue((Strings.delivered, ""), forKey: d.1.id) } // cmux
         return out
     }
 }

@@ -214,3 +214,102 @@ fn a_record_takes_the_actor_of_its_own_origins_row() {
     drop(registry);
     let _ = fs::remove_dir_all(root);
 }
+
+/// A journal row as a daemon without actors writes it.
+fn insert_actorless_journal_row(connection: &Connection, sequence: i64, event_id: &str) {
+    connection
+        .execute(
+            "INSERT INTO session_journal(
+               sequence, event_id, schema_version, kind, class, replay_policy,
+               occurred_at_ms, committed_at_ms, producer_json, causation_depth,
+               subjects_json, sensitivity, payload_json
+             ) VALUES(?1, ?2, 1, 'test.legacy', 'observation', 'advisory', 1, 1,
+                      '{\"kind\":\"test\",\"id\":\"legacy\"}', 0, '[]', 'metadata', '{}')",
+            params![sequence, event_id],
+        )
+        .unwrap();
+}
+
+/// cx-0b8z: a schema-14 store whose `session_journal` predates the actor
+/// column and has no v9 migration record yet (a store created fresh at 14).
+/// The upgrade to the current schema writes that record before the open-time
+/// actor migration ran, and failed with "table session_journal has no column
+/// named actor". The open must add the column in place: existing rows, their
+/// sequences and the AUTOINCREMENT high-water mark stay as they were, so
+/// external journal cursors stay valid.
+#[test]
+fn a_schema_14_journal_without_actor_opens_and_keeps_its_sequences() {
+    const MIGRATION_EVENT: &str = "event_session_journal_v9_migration";
+    let root = temp_root("journal-v14");
+    {
+        let registry = WorkspaceRegistry::open(&root, "journal-v14").unwrap();
+        let connection = &registry.connection;
+        let marker: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM session_journal WHERE event_id = ?1",
+                [MIGRATION_EVENT],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(marker, 0, "a fresh store carries no v9 migration record");
+        let rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "a fresh store has an empty journal");
+        connection
+            .execute_batch(
+                "ALTER TABLE session_journal DROP COLUMN actor;
+                 ALTER TABLE journal_segments DROP COLUMN actors_json;",
+            )
+            .unwrap();
+        insert_actorless_journal_row(connection, 3, "event_legacy_three");
+        insert_actorless_journal_row(connection, 5, "event_legacy_five");
+        // A cursor-visible gap: the high-water mark is above the newest row.
+        connection
+            .execute_batch(
+                "UPDATE sqlite_sequence SET seq = 9 WHERE name = 'session_journal';
+                 UPDATE meta SET value = '14' WHERE key = 'schema_version';",
+            )
+            .unwrap();
+    }
+    let registry = WorkspaceRegistry::open(&root, "journal-v14")
+        .expect("a schema-14 store without journal actors must open");
+    let connection = &registry.connection;
+    assert!(has_actor_column(connection, "session_journal"));
+    let rows = connection
+        .prepare("SELECT sequence, event_id, actor FROM session_journal ORDER BY sequence")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            (3, "event_legacy_three".to_string(), None),
+            (5, "event_legacy_five".to_string(), None),
+            (10, MIGRATION_EVENT.to_string(), None),
+        ],
+        "old rows keep their sequences; the new record follows the high-water mark"
+    );
+    let segment_columns = connection
+        .prepare("PRAGMA table_info(journal_segments)")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+    assert!(segment_columns.iter().any(|column| column == "actors_json"));
+    drop(registry);
+    // A second open is a no-op on the migrated store.
+    let registry = WorkspaceRegistry::open(&root, "journal-v14").unwrap();
+    let count: i64 = registry
+        .connection
+        .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 3);
+    drop(registry);
+    let _ = fs::remove_dir_all(root);
+}

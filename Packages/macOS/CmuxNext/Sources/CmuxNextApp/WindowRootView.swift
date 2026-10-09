@@ -39,6 +39,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
+    private var displayOptionsObserver: (any NSObjectProtocol)?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -121,12 +122,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             }
         }
         placementObservation = observePlacement()
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
-                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        themeDidChange()
-    }
-
-    @objc private func displayOptionsChanged() {
+        // queue: .main: the workspace center may post off main; a selector
+        // into this main-actor view trapped there.
+        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.themeDidChange() } // main-proof: observer on queue: .main
+        }
         themeDidChange()
     }
 
@@ -136,6 +138,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     isolated deinit {
         tokenObservation?.cancel()
         placementObservation?.cancel()
+        if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }

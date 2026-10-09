@@ -80,19 +80,19 @@ public struct IrxListeningPortScanner: Sendable {
     func listeners() -> [Listener] {
         var pids = [pid_t](repeating: 0, count: maximumProcesses)
         let pidBytes = pids.withUnsafeMutableBytes { buffer in
-            proc_listallpids(buffer.baseAddress, Int32(buffer.count))
+            proc_listallpids(buffer.baseAddress, Int32(clamping: buffer.count))
         }
         guard pidBytes > 0 else { return [] }
-        let pidCount = min(Int(pidBytes), maximumProcesses)
+        let pidCount = min(Int(clamping: pidBytes), maximumProcesses)
         var result: [Listener] = []
         var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: maximumDescriptorsPerProcess)
         let descriptorStride = MemoryLayout<proc_fdinfo>.stride
         for pid in pids.prefix(pidCount) where pid > 0 {
             let bytes = descriptors.withUnsafeMutableBytes { buffer in
-                proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+                proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(clamping: buffer.count))
             }
             guard bytes > 0 else { continue }
-            let count = min(Int(bytes) / descriptorStride, maximumDescriptorsPerProcess)
+            let count = min(Int(clamping: bytes) / descriptorStride, maximumDescriptorsPerProcess)
             for descriptor in descriptors.prefix(count) where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
                 if let listener = Self.listener(pid: pid, fd: descriptor.proc_fd) {
                     result.append(listener)
@@ -104,7 +104,7 @@ public struct IrxListeningPortScanner: Sendable {
 
     private static func listener(pid: pid_t, fd: Int32) -> Listener? {
         var info = socket_fdinfo()
-        let size = Int32(MemoryLayout<socket_fdinfo>.size)
+        let size = Int32(clamping: MemoryLayout<socket_fdinfo>.size)
         guard proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, size) == size else { return nil }
         guard info.psi.soi_kind == Int32(SOCKINFO_TCP) else { return nil }
         let tcp = info.psi.soi_proto.pri_tcp

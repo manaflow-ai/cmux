@@ -66,7 +66,7 @@ extension SettingsController {
 
     /// `shortcuts.bindings` merged over the legacy `shortcuts.<id>` keys, as
     /// `CmuxConfigSnapshot` reads them.
-    private func shortcutBindings() async throws -> [String: JSONValue] {
+    func shortcutBindings() async throws -> [String: JSONValue] {
         guard case .object(let section)? = try await file.value(at: ["shortcuts"]) else { return [:] }
         var bindings = section.filter { !CmuxConfigSnapshot.reservedShortcutKeys.contains($0.key) }
         if case .object(let entries)? = section["bindings"] {

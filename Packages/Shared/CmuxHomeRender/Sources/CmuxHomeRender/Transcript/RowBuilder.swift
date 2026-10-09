@@ -144,8 +144,8 @@ final class RowBuilder {
             if let read = readByOthers, seq <= read { lastRead = (i, item.key) }
         }
         var out: [IdempotencyKey: String] = [:]
-        if let r = lastRead { out[r.key] = HomeStrings.read }
-        if let d = lastCommitted, d.index > (lastRead?.index ?? -1) { out[d.key] = HomeStrings.delivered }
+        if let r = lastRead { out.updateValue(HomeStrings.read, forKey: r.key) }
+        if let d = lastCommitted, d.index > (lastRead?.index ?? -1) { out.updateValue(HomeStrings.delivered, forKey: d.key) }
         return out
     }
 }

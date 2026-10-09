@@ -204,7 +204,7 @@ enum FieldAnimation: String {
 
     static let mode: FieldAnimation = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--field-anim").flatMap { $0 + 1 < a.count ? FieldAnimation(rawValue: a[$0 + 1]) : nil } ?? .`internal`
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } /* cmux */ ?? .`internal`
     }()
 
     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
