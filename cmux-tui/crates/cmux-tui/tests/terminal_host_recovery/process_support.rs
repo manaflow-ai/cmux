@@ -27,6 +27,22 @@ pub(crate) fn process_exists(pid: libc::pid_t) -> bool {
         || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied
 }
 
+/// A signal-0 hit can be a zombie that is still waiting for its parent to
+/// reap it. Cleanup assertions care about a live process, so filter that
+/// state on Linux while retaining the portable signal-0 probe elsewhere.
+pub(crate) fn process_running(pid: libc::pid_t) -> bool {
+    if !process_exists(pid) {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat"))
+        && stat.rsplit_once(')').is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+    {
+        return false;
+    }
+    true
+}
+
 pub(crate) fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

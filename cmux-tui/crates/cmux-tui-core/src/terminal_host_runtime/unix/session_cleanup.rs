@@ -19,7 +19,19 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub(super) struct SessionCleanup {
-    captured: Mutex<Option<CapturedSession>>,
+    captured: Mutex<CaptureState>,
+}
+
+#[derive(Debug, Clone)]
+enum CaptureState {
+    /// No identity-safe session capture was attempted.
+    NotCaptured,
+    /// The session was enumerated successfully. An empty group list is a
+    /// successful observation that there is nothing to clean up.
+    Captured(CapturedSession),
+    /// The session identity was valid, but enumeration failed. Treat this as
+    /// unknown rather than claiming that the session is gone.
+    ScanFailed,
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +42,7 @@ struct CapturedSession {
 
 impl SessionCleanup {
     pub(super) fn new() -> Self {
-        Self { captured: Mutex::new(None) }
+        Self { captured: Mutex::new(CaptureState::NotCaptured) }
     }
 
     pub(super) fn signal(
@@ -39,39 +51,49 @@ impl SessionCleanup {
         pid: Option<u32>,
         signal: libc::c_int,
         host_group: libc::pid_t,
+        capture_allowed: bool,
     ) {
         let mut captured = self.captured.lock().unwrap();
-        if signal == libc::SIGHUP {
+        if signal == libc::SIGHUP && capture_allowed {
             let session =
                 adopted_session.or_else(|| pid.and_then(|pid| libc::pid_t::try_from(pid).ok()));
             *captured = CapturedSession::capture(session, host_group);
         }
-        if let Some(cleanup) = captured.as_ref() {
+        if let CaptureState::Captured(cleanup) = &*captured {
             cleanup.signal(signal, host_group);
         }
     }
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
-        let captured = self.captured.lock().unwrap().clone();
-        captured.is_none_or(|captured| captured.wait_for_exit(timeout))
+        match self.captured.lock().unwrap().clone() {
+            CaptureState::NotCaptured => true,
+            CaptureState::ScanFailed => false,
+            CaptureState::Captured(captured) => captured.wait_for_exit(timeout),
+        }
     }
 }
 
 impl CapturedSession {
-    fn capture(session: Option<libc::pid_t>, host_group: libc::pid_t) -> Option<Self> {
-        let session = session?;
+    fn capture(session: Option<libc::pid_t>, host_group: libc::pid_t) -> CaptureState {
+        let Some(session) = session else { return CaptureState::NotCaptured };
         if session <= 0 || session == current_session() {
-            return None;
+            return CaptureState::NotCaptured;
         }
-        let groups = session_groups(session)
-            .into_iter()
-            .filter(|group| *group > 0 && *group != host_group)
-            .collect::<Vec<_>>();
-        (!groups.is_empty()).then_some(Self { session, groups })
+        let groups = match session_groups(session) {
+            Ok(groups) => groups,
+            Err(()) => return CaptureState::ScanFailed,
+        };
+        CaptureState::Captured(Self {
+            session,
+            groups: groups.into_iter().filter(|group| *group > 0 && *group != host_group).collect(),
+        })
     }
 
     fn signal(&self, signal: libc::c_int, host_group: libc::pid_t) {
-        let live_groups = session_groups(self.session)
+        let Ok(live_groups) = session_groups(self.session) else {
+            return;
+        };
+        let live_groups = live_groups
             .into_iter()
             .filter(|group| *group > 0 && *group != host_group)
             .collect::<HashSet<_>>();
@@ -83,10 +105,15 @@ impl CapturedSession {
     }
 
     fn wait_for_exit(&self, timeout: Duration) -> bool {
+        if self.groups.is_empty() {
+            return true;
+        }
         let deadline = Instant::now() + timeout;
         loop {
-            let live =
-                session_groups(self.session).into_iter().any(|group| self.groups.contains(&group));
+            let Ok(live_groups) = session_groups(self.session) else {
+                return false;
+            };
+            let live = live_groups.into_iter().any(|group| self.groups.contains(&group));
             if !live {
                 return true;
             }
@@ -104,8 +131,8 @@ fn current_session() -> libc::pid_t {
 }
 
 #[cfg(target_os = "linux")]
-fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
-    let Ok(entries) = fs::read_dir("/proc") else { return Vec::new() };
+fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
+    let entries = fs::read_dir("/proc").map_err(|_| ())?;
     let mut groups = HashSet::new();
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -126,18 +153,16 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
             groups.insert(pgid);
         }
     }
-    groups.into_iter().collect()
+    Ok(groups.into_iter().collect())
 }
 
 #[cfg(not(target_os = "linux"))]
-fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
+fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
     // Darwin ps does not expose a numeric session ID. Use it only to list
     // non-zombie PIDs, then query their session and group through libc.
-    let Ok(output) = Command::new("/bin/ps").args(["-axo", "pid=,stat="]).output() else {
-        return Vec::new();
-    };
+    let output = Command::new("/bin/ps").args(["-axo", "pid=,stat="]).output().map_err(|_| ())?;
     if !output.status.success() {
-        return Vec::new();
+        return Err(());
     }
     let mut groups = HashSet::new();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
@@ -158,7 +183,7 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
             groups.insert(pgid);
         }
     }
-    groups.into_iter().collect()
+    Ok(groups.into_iter().collect())
 }
 
 impl HostShared {
@@ -172,7 +197,13 @@ impl HostShared {
         let child_reserved = !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
         // SAFETY: getpgrp has no preconditions.
         let host_group = unsafe { libc::getpgrp() };
-        self.session_cleanup.signal(self.adopted_session, self.pid, signal, host_group);
+        self.session_cleanup.signal(
+            self.adopted_session,
+            self.pid,
+            signal,
+            host_group,
+            child_reserved,
+        );
         if child_reserved
             && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
         {
@@ -197,7 +228,8 @@ impl HostShared {
     }
 
     pub(super) fn finish_group_escalation(&self) {
-        let _ = self.session_cleanup.wait_for_exit(HOST_KILL_WAIT);
-        self.publish_child_wait_predicate(&self.group_escalation_complete);
+        if self.session_cleanup.wait_for_exit(HOST_KILL_WAIT) {
+            self.publish_child_wait_predicate(&self.group_escalation_complete);
+        }
     }
 }
