@@ -3,7 +3,11 @@
 //! visible, is watched until its host proves it ended, and is ended only with
 //! proof that the recorded PID is its host.
 
-use super::*;
+use std::fs::{self, File};
+
+use super::super::sys::{self, PrivateOpen};
+use super::super::*;
+use super::records::validate_terminal_host_record;
 
 /// A discovery record this build cannot adopt: it does not decode or does
 /// not validate, for example a newer `record_version` left by a host of a
@@ -103,16 +107,8 @@ pub fn load_unadoptable_terminal_host_records(
 /// Open an unadoptable host's live marker when a live process holds it.
 fn held_unadoptable_marker(record: &UnadoptableTerminalHostRecord) -> Option<File> {
     let marker = record.marker.as_ref()?;
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(marker)
-        .ok()?;
-    // SAFETY: flock only probes the advisory lock of this owned fd.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        // SAFETY: same descriptor; release the probe lock at once.
-        let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    let file = sys::open_private(marker, PrivateOpen::ExistingNoFollow).ok()?;
+    if sys::lease_was_free(&file) {
         return None;
     }
     Some(file)
@@ -131,24 +127,10 @@ pub fn wait_for_unadoptable_terminal_host_exit(
         .marker
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("record names no live marker; host state unknown"))?;
-    match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-        .open(marker)
-    {
-        Ok(file) => loop {
-            // SAFETY: a blocking exclusive lock on an owned descriptor.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-                break;
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error.into());
-            }
-        },
+    match sys::open_private(marker, PrivateOpen::ExistingNoFollow) {
+        Ok(file) => sys::wait_lease_exclusive(&file)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let gone = record.host_pid.is_some_and(process_definitely_absent);
+            let gone = record.host_pid.is_some_and(sys::process_definitely_gone);
             anyhow::ensure!(
                 gone,
                 "live marker missing and host {:?} not proven gone",
@@ -158,12 +140,10 @@ pub fn wait_for_unadoptable_terminal_host_exit(
         Err(error) => return Err(error.into()),
     }
     let Some(parent) = record.record_path.parent() else { return Ok(()) };
-    let endpoint = PathBuf::from("/tmp")
-        .join(format!("cmux-th-{}", fs::metadata(parent)?.uid()))
-        .join(format!("{}.sock", record.terminal_id));
+    let endpoint = sys::canonical_endpoint(sys::file_owner(parent)?, &record.terminal_id);
     let _ = fs::remove_file(&record.record_path);
     let _ = fs::remove_file(marker);
-    if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+    if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
         let _ = fs::remove_file(endpoint);
     }
     Ok(())
@@ -180,23 +160,10 @@ pub fn terminate_unadoptable_terminal_host(
     let (Some(_held), Some(pid)) = (held_unadoptable_marker(record), record.host_pid) else {
         return Ok(false);
     };
-    let pid = libc::pid_t::try_from(pid)?;
-    // SAFETY: the host is a session leader (`setsid` at spawn), so its
-    // process group is its PID, and its held marker proves it runs.
-    if unsafe { libc::killpg(pid, libc::SIGKILL) } != 0 {
+    // The host is a session leader (`setsid` at spawn), so its process
+    // group is its PID, and its held marker proves it runs.
+    if !sys::kill_process_group(pid)? {
         return Ok(false);
     }
     Ok(true)
-}
-
-/// Positive proof that no process has `pid` (ESRCH). Permission errors and
-/// live processes are not proof.
-pub(crate) fn process_definitely_absent(pid: u32) -> bool {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
-    // SAFETY: signal zero performs a liveness/permission probe and does not
-    // deliver a signal to the target process.
-    if unsafe { libc::kill(pid, 0) } == 0 {
-        return false;
-    }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }
