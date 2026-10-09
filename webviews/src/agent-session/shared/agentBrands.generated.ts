@@ -317,6 +317,7 @@ export const AGENT_BRAND_LOOKUP: Readonly<Record<string, AgentBrandId | null>> =
   "gemini": "gemini",
   "gemini-cli": "gemini",
   "github-copilot": "copilot",
+  "github-copilot-cli": "copilot",
   "goose": "goose",
   "grok": "grok",
   "grok-cli": "grok",
