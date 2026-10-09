@@ -120,6 +120,12 @@
 .acpmux-context-bar span{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 55%,transparent)}
 .acpmux-context-pop.acpmux-context-full .acpmux-context-bar span{background:var(--acpmux-warning)}
 .acpmux-context-tokens{margin-top:8px;font-size:12px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+/* The details' split: the agent's setup (with what it holds under it), then the conversation. */
+.acpmux-context-parts{display:grid;gap:6px;margin-top:10px;font-size:12px}
+.acpmux-context-part{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:baseline}
+.acpmux-context-part-name{color:var(--agent-text)}
+.acpmux-context-part-tokens{color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-context-part-detail{grid-column:1/-1;color:var(--agent-muted);font-size:11px;line-height:15px}
 .acpmux-context-compact{width:100%;height:28px;margin-top:12px;border:0;border-radius:8px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
 .acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
 .acpmux-context-compact:disabled{opacity:.5}
