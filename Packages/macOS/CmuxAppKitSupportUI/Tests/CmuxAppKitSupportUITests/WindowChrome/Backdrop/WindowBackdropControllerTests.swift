@@ -107,6 +107,7 @@ private final class FakeBackdropDependencies: WindowBackdropControllerDependenci
     let glass = FakeGlassEffect()
     var resetBlurWindowNumbers: [Int] = []
     var appliedBlurWindows: [NSWindow] = []
+    var setBlurRadii: [(windowNumber: Int, radius: Int)] = []
 
     var glassEffect: any WindowGlassEffectManaging {
         glass
@@ -114,6 +115,10 @@ private final class FakeBackdropDependencies: WindowBackdropControllerDependenci
 
     func resetCompositorBackgroundBlur(windowNumber: Int) {
         resetBlurWindowNumbers.append(windowNumber)
+    }
+
+    func setCompositorBackgroundBlur(windowNumber: Int, radius: Int) {
+        setBlurRadii.append((windowNumber, radius))
     }
 
     func applyGhosttyCompositorBlurIfNeeded(to window: NSWindow) {

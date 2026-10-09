@@ -356,7 +356,7 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
         return parsed
     }
     if activeTabIndicatorStyle == .solidFill || !subtleSelection {
-        return accent.nsColor(for: colorScheme)
+        return SidebarGlassSelection.fill(for: colorScheme)
     }
     let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
     let fill = CmuxSelectionFill.resolve(
@@ -379,6 +379,7 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     opacity: CGFloat
 ) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
+    if let glass = SidebarGlassSelection.foreground(on: backgroundColor, opacity: clampedOpacity) { return glass }
     let whiteContrast = cmuxContrastRatio(foreground: .white, background: backgroundColor)
     guard whiteContrast < 2.75 else {
         return NSColor.white.withAlphaComponent(clampedOpacity)
@@ -459,9 +460,6 @@ func sidebarWorkspaceRowBackgroundStyle(
     increaseContrast: Bool = false,
     accent: CmuxAccentColor = CmuxAccentColor()
 ) -> SidebarWorkspaceRowBackgroundStyle {
-    // Increase Contrast: the multi-selection wash is otherwise too faint to
-    // read against the sidebar material.
-    let multiSelectionOpacity = increaseContrast ? 0.45 : 0.25
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex,
@@ -471,7 +469,11 @@ func sidebarWorkspaceRowBackgroundStyle(
         increaseContrast: increaseContrast,
         accent: accent
     )
-    let accentBackground = accent.nsColor(for: colorScheme)
+    // Multi-selection members wear the same glass at roughly half strength so
+    // the active row stays the anchor; Increase Contrast keeps them readable.
+    let multiSelectionOpacity = increaseContrast ? 0.8 : 0.55
+    let glassEdge = NSColor(hex: sidebarSelectionColorHex ?? "") == nil ? SidebarGlassSelection.edge(for: colorScheme) : nil
+    let multiSelectionEdge = glassEdge.map { $0.withAlphaComponent($0.alphaComponent * multiSelectionOpacity) }
     let usesSubtleSelection = sidebarUsesSubtleSelection(
         activeTabIndicatorStyle: activeTabIndicatorStyle,
         subtleSelection: subtleSelection,
@@ -499,23 +501,17 @@ func sidebarWorkspaceRowBackgroundStyle(
     case .leftRail:
         if isActive {
             if usesSubtleSelection { return calmFill(isSecondary: false) }
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedBackground,
-                opacity: 1
-            )
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1, edgeColor: glassEdge)
         }
         if isMultiSelected {
             if usesSubtleSelection { return calmFill(isSecondary: true) }
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: multiSelectionOpacity, edgeColor: multiSelectionEdge)
         }
         return .clear
 
     case .solidFill:
         if isActive {
-            return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedBackground,
-                opacity: 1
-            )
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: 1, edgeColor: glassEdge)
         }
         if let customBackground {
             return SidebarWorkspaceRowBackgroundStyle(
@@ -524,7 +520,7 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
+            return SidebarWorkspaceRowBackgroundStyle(color: selectedBackground, opacity: multiSelectionOpacity, edgeColor: multiSelectionEdge)
         }
         return .clear
     }

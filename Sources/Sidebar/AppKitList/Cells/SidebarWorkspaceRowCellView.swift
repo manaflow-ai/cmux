@@ -15,7 +15,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceRowTableCellView")
 
     // Chrome
-    private let backgroundView = NSView()
+    let backgroundView = NSView()
+    /// Row hover wash; see `SidebarRowHover.swift`.
+    let hoverLayer = CAGradientLayer()
     private let railView = NSView()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
@@ -62,11 +64,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let statusPopoverPresenter = SidebarRowSwiftUIPopoverPresenter()
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
-    private var model: SidebarWorkspaceRowModel?
+    private(set) var model: SidebarWorkspaceRowModel?
     private var selectionChromeObservers: [NSObjectProtocol] = []
     private var workspaceSelectionChromeObserver: NSObjectProtocol?
     private var actions: SidebarAppKitRowActions?
-    private var isPointerHovering = false
+    var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
@@ -76,7 +78,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var pumpCancellables: [AnyCancellable] = []
     private weak var pumpWorkspace: Workspace?
     private var pumpRebuild: (@MainActor () -> Void)?
-    private var isPresentationActive = true
+    private(set) var isPresentationActive = true
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,
@@ -127,7 +129,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// preview bailout), a different workspace, or reuse.
     private var optimisticSelection: (isActive: Bool, isMultiSelected: Bool)?
 
-    private func paintedModel(_ model: SidebarWorkspaceRowModel) -> SidebarWorkspaceRowModel {
+    func paintedModel(_ model: SidebarWorkspaceRowModel) -> SidebarWorkspaceRowModel {
         guard let optimisticSelection else { return model }
         var painted = model
         painted.isActive = optimisticSelection.isActive
@@ -243,6 +245,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         } else {
             backgroundView.layer?.borderWidth = 0
         }
+        updateHoverFill(colorScheme: palette.colorScheme)
     }
 
     private func repaintSelectionChrome() {
@@ -319,6 +322,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         backgroundView.layer?.cornerCurve = .continuous
         backgroundView.layer?.borderWidth = 0
         addSubview(backgroundView)
+        SidebarGlassSelection.installHoverLayer(hoverLayer, in: backgroundView)
         railView.wantsLayer = true
         addSubview(railView)
         addSubview(contentContainer)
@@ -343,7 +347,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
         contentContainer.addSubview(closeButton)
-
         contentContainer.addSubview(descriptionView)
         descriptionView.onOpenLink = { [weak self] url in
             guard let self else { return }
@@ -391,6 +394,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // closed). Snap its close button hidden so it cannot fade out on
         // whichever row AppKit hands this cell to next.
         isPointerHovering = false
+        hoverLayer.isHidden = true
         closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
         hintPill.resetForReuse()
@@ -505,7 +509,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
-    private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
+    func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
         SidebarRowPalette(
             model: model,
             isSelectionEmphasized: NSApp.isActive && (window.map { $0.isKeyWindow || $0.isMainWindow } ?? true),
@@ -513,7 +517,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         )
     }
 
-    private func applyModel(_ model: SidebarWorkspaceRowModel) {
+    func applyModel(_ model: SidebarWorkspaceRowModel) {
 #if DEBUG
         applyModelProbeForTesting?(model)
 #endif
@@ -638,7 +642,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         closeButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
             systemName: "xmark", pointSize: model.scaled(9), weight: .medium
         )
-        closeButton.contentTintColor = palette.secondary(0.7)
+        closeButton.contentTintColor = palette.semantic(.secondaryLabelColor)
+        closeButton.hoverFillColor = palette.semantic(.labelColor)
         let closeButtonTooltip = snapshot.isPinned
             ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
             : String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")
@@ -741,7 +746,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         bottomDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
-        alphaValue = model.isBeingDragged ? 0.6 : 1
+        alphaValue = 1
         // Done rows read as settled (legacy parity): dim the row CONTENT to
         // ~60% — never the selection background, rail, or drop chrome.
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
@@ -865,27 +870,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             && !(model.showsShortcutHints || model.settings.alwaysShowShortcutHints)
     }
 
-    private func updateCloseVisibility() {
+    func updateCloseVisibility() {
         let revealed = showsCloseNow
         closeButton.setRevealed(revealed)
         closeButton.setAccessibilityElement(revealed)
-    }
-
-    /// Authoritative hover enforcement: the controller sweeps visible cells
-    /// so hover-revealed chrome cannot strand on rows the pointer left
-    /// (row-index/id races during churn made per-transition repaints miss).
-    func enforcePointerHovering(_ hovering: Bool) {
-        guard isPointerHovering != hovering else { return }
-        isPointerHovering = hovering
-        // Full re-apply: hover gates more than the close button (the
-        // trailing badge and spinner hide while the close button shows), and
-        // re-deriving that subset here would drift from applyModel.
-        if let model {
-            applyModel(paintedModel(model))
-            needsLayout = true
-        } else {
-            updateCloseVisibility()
-        }
     }
 
     private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
@@ -922,7 +910,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 isDark: palette.colorScheme == .dark
             )
             let entryColor: NSColor
-            if model.isActive {
+            if palette.usesSelectedText {
                 entryColor = explicitColor != nil
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
@@ -1271,7 +1259,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let leading = outerPad + contentPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let trailing = width - outerPad - contentPad
         let contentWidth = max(10, trailing - leading)
-        var y: CGFloat = 8
+        var y: CGFloat = model.settings.rowDensity.rowVerticalPadding
         let spacing: CGFloat = 4
 
         // Title line
@@ -1523,7 +1511,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        y += 8
+        y += model.settings.rowDensity.rowVerticalPadding
 
         if apply {
             contentContainer.frame = NSRect(x: 0, y: 0, width: width, height: y)
@@ -1534,6 +1522,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // nesting ("can't tell when a workspace is in a group").
             let bgX = outerPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
+            SidebarGlassSelection.fitOverlay(hoverLayer)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
             let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)

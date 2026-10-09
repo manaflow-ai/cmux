@@ -103,16 +103,21 @@ struct WindowOverlayChromeTests {
         // mount removes the native glass root on macOS 26, where
         // `NSGlassEffectView` exists. Configure glass in settings so the
         // surface keeps the glass root the test installed. That leaves the
-        // portals as the only thing that could replace it.
+        // portals as the only thing that could replace it. Compositor glass
+        // (on by default) clears the window instead of keeping a native glass
+        // root, so it is turned off to keep the native root under test.
         let defaults = UserDefaults.standard
         let savedBlendMode = defaults.object(forKey: "sidebarBlendMode")
         let savedGlassEnabled = defaults.object(forKey: "bgGlassEnabled")
+        let savedCompositorGlass = defaults.object(forKey: "sidebarCompositorGlass")
         defer {
             defaults.set(savedBlendMode, forKey: "sidebarBlendMode")
             defaults.set(savedGlassEnabled, forKey: "bgGlassEnabled")
+            defaults.set(savedCompositorGlass, forKey: "sidebarCompositorGlass")
         }
         defaults.set(useGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
         defaults.set(useGlass, forKey: "bgGlassEnabled")
+        defaults.set(false, forKey: "sidebarCompositorGlass")
 
         let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }

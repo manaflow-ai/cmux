@@ -6,11 +6,13 @@ public struct SidebarSection: View {
     private let catalog: SettingCatalog
     let hostActions: SettingsHostActions
     @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
-    private let rightSidebarWidthSettings = RightSidebarWidthSettings()
+    let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var tasks = MainActorTaskStore<String>()
-    @State private var matchTerminal: DefaultsValueModel<Bool>
+    // Not `private`: the customization rows debounce their slider writes
+    // through the same store.
+    @State var tasks = MainActorTaskStore<String>()
+    @State var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
@@ -36,8 +38,20 @@ public struct SidebarSection: View {
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
-    @State private var rightMaxWidth: DefaultsValueModel<Double>
-    @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State var rightMaxWidth: DefaultsValueModel<Double>
+    @State var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State var glassTint: DefaultsValueModel<Double>
+    @State var glassBlur: DefaultsValueModel<Double>
+    @State var liquidGlass: DefaultsValueModel<Bool>
+    @State var glassTintHex: DefaultsValueModel<String>
+    /// In-flight slider values while the thumb is moving. The stored value
+    /// is written debounced, so the window is not re-rendered per pixel.
+    @State var glassTintDraft: Double?
+    @State var glassBlurDraft: Double?
+    @State var peekReveal: DefaultsValueModel<SidebarPeekRevealPreset>
+    @State var peekDisabled: DefaultsValueModel<Bool>
+    @State var rowDensity: DefaultsValueModel<SidebarRowDensity>
+    @State var dragSwitchDisabled: DefaultsValueModel<Bool>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -71,6 +85,14 @@ public struct SidebarSection: View {
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
+        _glassTint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.tintOpacity))
+        _glassBlur = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.glassBlurRadius))
+        _liquidGlass = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.compositorGlass))
+        _glassTintHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.tintColorHex))
+        _peekReveal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekReveal))
+        _peekDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekDisabled))
+        _rowDensity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rowDensity))
+        _dragSwitchDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.dragSwitchDisabled))
     }
     /// The rendered sidebar settings section.
     public var body: some View {
@@ -110,6 +132,14 @@ public struct SidebarSection: View {
             compactAgentStatus,
             rightMaxWidth,
             rememberedRightMaxWidth,
+            glassTint,
+            glassBlur,
+            liquidGlass,
+            glassTintHex,
+            peekReveal,
+            peekDisabled,
+            rowDensity,
+            dragSwitchDisabled,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -122,72 +152,10 @@ public struct SidebarSection: View {
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
-    private var rightMaxWidthOverrideEnabled: Bool {
-        rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
-    }
-    private var rightMaxWidthOverrideBinding: Binding<Bool> {
-        Binding(
-            get: { rightMaxWidthOverrideEnabled },
-            set: { enabled in
-                if enabled {
-                    let restored = rightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
-                        rememberedStoredValue: rememberedRightMaxWidth.current
-                    )
-                    rememberedRightMaxWidth.set(restored)
-                    rightMaxWidth.set(restored)
-                } else {
-                    rememberedRightMaxWidth.set(
-                        rightSidebarWidthSettings.storedRememberedMaximumWidth(
-                            activeStoredValue: rightMaxWidth.current,
-                            rememberedStoredValue: rememberedRightMaxWidth.current
-                        )
-                    )
-                    rightMaxWidth.set(RightSidebarWidthSettings.noOverrideValue)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthEditorBinding: Binding<Double> {
-        Binding(
-            get: {
-                rightSidebarWidthSettings.editorMaximumWidth(
-                    activeStoredValue: rightMaxWidth.current,
-                    rememberedStoredValue: rememberedRightMaxWidth.current
-                )
-            },
-            set: {
-                let clamped = clampedRightMaxWidth($0)
-                rememberedRightMaxWidth.set(clamped)
-                if rightMaxWidthOverrideEnabled {
-                    rightMaxWidth.set(clamped)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthSubtitle: String {
-        String(localized: "settings.sidebar.rightMaxWidth.subtitle", defaultValue: "Lets the Dock in the right sidebar grow up to this width while leaving room for terminals.")
-    }
-
-    private func clampedRightMaxWidth(_ value: Double) -> Double {
-        rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
-    }
-
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("sidebarAppearance.matchTerminalBackground"),
-                String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"),
-                subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
-            ) {
-                Toggle("", isOn: Binding(get: { matchTerminal.current }, set: { matchTerminal.set($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
+            customizationRows
 
             SettingsCardRow(
                 configurationReview: .settingsOnly,

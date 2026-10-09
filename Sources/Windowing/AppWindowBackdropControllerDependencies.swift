@@ -14,6 +14,10 @@ final class AppWindowBackdropControllerDependencies: WindowBackdropControllerDep
         WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: windowNumber)
     }
 
+    func setCompositorBackgroundBlur(windowNumber: Int, radius: Int) {
+        WindowBackgroundComposition.blurController.setBackgroundBlur(windowNumber: windowNumber, radius: radius)
+    }
+
     func applyGhosttyCompositorBlurIfNeeded(to window: NSWindow) {
         GhosttyApp.shared.applyWindowBlurIfNeeded(window)
     }

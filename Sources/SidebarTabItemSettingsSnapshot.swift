@@ -40,6 +40,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     /// The resolved cmux accent. Rows draw selection, progress, drop
     /// indicators and agent status with it, and reconfigure when it changes.
     let accentColor: CmuxAccentColor
+    let rowDensity: SidebarRowDensity
 
     var usesLastSegmentPath: Bool { branchDirectory.usesLastSegmentPath }
     var showsSSH: Bool { details.showSSH }
@@ -109,6 +110,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
         workspaceTodoChecklistStyle = settings.value(for: betaFeatures.workspaceTodosChecklistStyle)
         self.accentColor = accentColor
+        rowDensity = settings.value(for: sidebar.rowDensity)
     }
 
     private static func bool(

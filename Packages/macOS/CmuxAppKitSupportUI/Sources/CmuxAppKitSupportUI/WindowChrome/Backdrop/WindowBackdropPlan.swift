@@ -21,6 +21,11 @@ public struct WindowBackdropPlan {
     /// Whether Ghostty compositor blur should be applied.
     public let shouldApplyGhosttyCompositorBlur: Bool
 
+    /// Explicit compositor blur radius (points) for the sidebar glass ground,
+    /// when `hostingPhase` is `.transparentRootBackdrop` and the sidebar owns
+    /// the blur instead of Ghostty's config.
+    public let compositorBlurRadius: Int?
+
     /// Creates a window backdrop plan.
     public init(
         hostingPhase: WindowBackdropHostingPhase,
@@ -28,7 +33,8 @@ public struct WindowBackdropPlan {
         windowIsOpaque: Bool,
         rootPolicy: WindowBackdropPolicy,
         glass: WindowBackdropGlassPlan?,
-        shouldApplyGhosttyCompositorBlur: Bool
+        shouldApplyGhosttyCompositorBlur: Bool,
+        compositorBlurRadius: Int? = nil
     ) {
         self.hostingPhase = hostingPhase
         self.windowBackgroundColor = windowBackgroundColor
@@ -36,6 +42,7 @@ public struct WindowBackdropPlan {
         self.rootPolicy = rootPolicy
         self.glass = glass
         self.shouldApplyGhosttyCompositorBlur = shouldApplyGhosttyCompositorBlur
+        self.compositorBlurRadius = compositorBlurRadius
     }
 
     /// Whether the window should be transparent.
@@ -58,6 +65,7 @@ public struct WindowBackdropPlan {
             glass?.tintColor.hexString(includeAlpha: true) ?? "nil",
             glass.map { String(describing: $0.style) } ?? "nil",
             String(shouldApplyGhosttyCompositorBlur),
+            compositorBlurRadius.map(String.init) ?? "nil",
         ].joined(separator: "|")
     }
 }

@@ -576,7 +576,7 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
-        actions.notificationState = resolveNotificationState
+        actions.bindLiveState(groupId: groupId, tabManager: tabManager, notificationState: resolveNotificationState)
         return actions
     }
 

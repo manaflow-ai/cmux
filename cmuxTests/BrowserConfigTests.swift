@@ -2002,6 +2002,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() throws {
+        pinWindowGlass(enabled: false)
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
@@ -2082,9 +2083,9 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertNil(panel.webView.appearance)
     }
 
-    /// Same refresh, but with the opacity boxed as `NSNumber` the way the
-    /// Ghostty notification carries it.
+    /// Same refresh, with the opacity boxed as `NSNumber` like the notification.
     func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() throws {
+        pinWindowGlass(enabled: false)
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
@@ -2105,7 +2106,6 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         assertColorsMatch(actual, expected)
     }
 }
-
 
 @MainActor
 final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {

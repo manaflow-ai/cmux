@@ -1782,7 +1782,7 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
-    private func flushStagedTableMutations() async {
+    func flushStagedTableMutations() async {
         await withCheckedContinuation { continuation in
             RunLoop.main.perform(inModes: [.common]) {
                 continuation.resume()
@@ -1815,7 +1815,7 @@ struct SidebarWorkspaceTableTests {
     }
 
     @MainActor
-    private func makeTableActions(
+    func makeTableActions(
         updateWorkspaceDrag: @escaping (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
         beginWorkspaceDrag: @escaping (UUID) -> Void = { _ in },
         movingWorkspaceCount: ((UUID) -> Int)? = { _ in 1 },
@@ -1898,7 +1898,7 @@ struct SidebarWorkspaceTableTests {
     }
 #endif
 
-    private struct TestRowContent: View, Equatable {
+    struct TestRowContent: View, Equatable {
         let token: Int
         let fixedHeight: CGFloat?
 
