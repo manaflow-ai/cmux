@@ -19,8 +19,10 @@ interface FakeBackendOptions {
   iceDelayMs?: number;
   /** Tokens the backend rejects with 401. */
   revokedTokens?: Set<string>;
-  /** Stamp offers with this session family, like the real backend. */
+  /** Stamp phone frames with this session family (else from "user-token:<family>"). */
   family?: string;
+  /** Sent to hosts in welcome.revokedFamilies. */
+  revokedFamilies?: string[];
 }
 
 async function fakeBackend(opts: FakeBackendOptions = {}) {
@@ -66,14 +68,22 @@ async function fakeBackend(opts: FakeBackendOptions = {}) {
   wss.on("connection", (ws: WebSocket, token: string) => {
     const isHost = token.startsWith("host");
     const address = isHost ? "h_1" : `p_${++n}`;
+    const family = isHost ? undefined : (opts.family ?? (token.split(":")[1] || null));
     sockets.set(address, ws);
-    ws.send(JSON.stringify({ type: "welcome", peerId: `p_${address}`, hosts: [{ hostId: "h_1", online: sockets.has("h_1") }] }));
+    ws.send(
+      JSON.stringify({
+        type: "welcome",
+        peerId: `p_${address}`,
+        hosts: [{ hostId: "h_1", online: sockets.has("h_1") }],
+        ...(isHost && opts.revokedFamilies ? { revokedFamilies: opts.revokedFamilies } : {}),
+      }),
+    );
     ws.on("message", (raw) => {
       const f = JSON.parse(raw.toString());
       if (f.type === "ping") return ws.send('{"type":"pong"}');
       const target = sockets.get(f.to);
       if (!target) return ws.send(JSON.stringify({ type: "error", code: "host_offline", sessionId: f.sessionId }));
-      target.send(JSON.stringify({ ...f, from: address, ...(f.type === "offer" && opts.family ? { family: opts.family } : {}) }));
+      target.send(JSON.stringify({ ...f, from: address, ...(isHost ? {} : { family }) }));
     });
     ws.on("close", () => sockets.delete(address));
   });
@@ -234,30 +244,52 @@ describe("signaling credentials", () => {
   });
 });
 
-describe("phone session families and peer routing", () => {
-  async function linkedPhone(backend: Awaited<ReturnType<typeof fakeBackend>>, sessionId: string) {
-    const api = new ApiClient(backend.base, "user-token");
-    const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
-    const welcome = signaling.waitWelcome();
-    signaling.start();
-    await welcome;
-    const peer = new WebRtcPeer({
-      role: "offerer",
-      iceServers: [],
-      onSignal: (s) => {
-        if (s.type === "description") signaling.send({ type: "offer", to: "h_1", sessionId, sdp: s.sdp });
-        else signaling.send({ type: "candidate", to: "h_1", sessionId, candidate: s.candidate, sdpMid: s.sdpMid, sdpMLineIndex: 0 });
-      },
-    });
-    signaling.on("frame", (f: any) => {
-      if (f.sessionId !== sessionId) return;
-      if (f.type === "answer") peer.setRemoteDescription(f.sdp, "answer");
-      if (f.type === "candidate") peer.addRemoteCandidate(f.candidate, f.sdpMid);
-    });
-    await new Promise<void>((r) => peer.link.on("state", (s) => s === "open" && r()));
-    return { api, signaling, peer };
-  }
+async function phoneSignaling(backend: Awaited<ReturnType<typeof fakeBackend>>, token = "user-token") {
+  const api = new ApiClient(backend.base, token);
+  const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
+  const frames: any[] = [];
+  signaling.on("frame", (f) => frames.push(f));
+  const welcome = signaling.waitWelcome();
+  signaling.start();
+  await welcome;
+  return { signaling, frames };
+}
 
+async function startAgent(backend: Awaited<ReturnType<typeof fakeBackend>>) {
+  const { core } = await connectedCore();
+  const logs: string[] = [];
+  const agent = new HostAgent({ api: new ApiClient(backend.base, "host-token"), core, log: (m) => logs.push(m) });
+  const open = new Promise<void>((r) => agent.signaling.once("open", () => r()));
+  agent.start();
+  await open;
+  return { core, agent, logs };
+}
+
+async function linkedPhone(backend: Awaited<ReturnType<typeof fakeBackend>>, sessionId: string, token = "user-token") {
+  const api = new ApiClient(backend.base, token);
+  const signaling = new SignalingClient({ url: () => api.signalUrl(), token: () => api.bearer });
+  const welcome = signaling.waitWelcome();
+  signaling.start();
+  await welcome;
+  const peer = new WebRtcPeer({
+    role: "offerer",
+    iceServers: [],
+    onSignal: (s) => {
+      if (s.type === "description") signaling.send({ type: "offer", to: "h_1", sessionId, sdp: s.sdp });
+      else signaling.send({ type: "candidate", to: "h_1", sessionId, candidate: s.candidate, sdpMid: s.sdpMid, sdpMLineIndex: 0 });
+    },
+  });
+  signaling.on("frame", (f: any) => {
+    if (f.sessionId !== sessionId) return;
+    if (f.type === "answer") peer.setRemoteDescription(f.sdp, "answer");
+    if (f.type === "candidate") peer.addRemoteCandidate(f.candidate, f.sdpMid);
+  });
+  await new Promise<void>((r) => peer.link.on("state", (s) => s === "open" && r()));
+  return { api, signaling, peer };
+}
+
+
+describe("phone session families and peer routing", () => {
   it("drops every link of a revoked family and follows a phone's new peerId", async () => {
     const backend = await fakeBackend({ family: "fam_1" });
     const { core } = await connectedCore();
@@ -287,6 +319,66 @@ describe("phone session families and peer routing", () => {
       x.peer.close();
       x.signaling.stop();
     }
+    agent.stop();
+    core.shutdown();
+    backend.close();
+  });
+});
+
+describe("revoked families and family-scoped frames", () => {
+  const until = async (cond: () => boolean) => {
+    const deadline = Date.now() + 3000;
+    while (!cond() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  };
+
+  it("refuses offers from a revoked family (frame or welcome list) for a while", async () => {
+    const backend = await fakeBackend({ revokedFamilies: ["fam_old"] });
+    const { core, agent, logs } = await startAgent(backend);
+    const old = await phoneSignaling(backend, "user-token:fam_old");
+    old.signaling.send({ type: "offer", to: "h_1", sessionId: "s_old", sdp: "v=0" });
+    await until(() => old.frames.some((f) => f.type === "bye" && f.sessionId === "s_old"));
+    expect(old.frames.some((f) => f.type === "bye" && f.sessionId === "s_old")).toBe(true);
+    expect(agent.peerCount).toBe(0);
+
+    const live = await linkedPhone(backend, "s_live", "user-token:fam_live");
+    await until(() => agent.sessions()[0]?.open === true);
+    backend.sockets.get("h_1")!.send(JSON.stringify({ type: "revoked", family: "fam_live" }));
+    await until(() => agent.peerCount === 0);
+    expect(agent.peerCount).toBe(0);
+    const retry = await phoneSignaling(backend, "user-token:fam_live");
+    retry.signaling.send({ type: "offer", to: "h_1", sessionId: "s_again", sdp: "v=0" });
+    await until(() => retry.frames.some((f) => f.type === "bye"));
+    expect(agent.peerCount).toBe(0);
+    expect(logs.some((l) => /refusing offer from revoked session family fam_live/.test(l))).toBe(true);
+    for (const x of [old, retry, live]) x.signaling.stop();
+    live.peer.close();
+    agent.stop();
+    core.shutdown();
+    backend.close();
+  });
+
+  it("ignores bye, candidates and peer moves from a different family; legacy offers log a warning", async () => {
+    const backend = await fakeBackend();
+    const { core, agent, logs } = await startAgent(backend);
+    const owner = await linkedPhone(backend, "s_x", "user-token:fam_a");
+    await until(() => agent.sessions()[0]?.open === true);
+    const ownerPeer = agent.sessions()[0]!.remotePeerId;
+    const other = await phoneSignaling(backend, "user-token:fam_b");
+    other.signaling.send({ type: "candidate", to: "h_1", sessionId: "s_x", candidate: "candidate:1 1 UDP 1 192.0.2.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 });
+    other.signaling.send({ type: "bye", to: "h_1", sessionId: "s_x" });
+    other.signaling.send({ type: "offer", to: "h_1", sessionId: "s_x", sdp: "v=0" });
+    await until(() => logs.filter((l) => /different session family|another family/.test(l)).length >= 3);
+    expect(agent.peerCount).toBe(1);
+    expect(agent.sessions()[0]).toMatchObject({ sessionId: "s_x", family: "fam_a", open: true, remotePeerId: ownerPeer });
+
+    const legacy = await linkedPhone(backend, "s_legacy", "user-token");
+    await until(() => agent.sessions().find((x) => x.sessionId === "s_legacy")?.open === true);
+    expect(logs.some((l) => /\[s_legacy\] token without session family/.test(l))).toBe(true);
+    for (const x of [owner, legacy]) {
+      x.peer.close();
+      x.signaling.stop();
+    }
+    other.signaling.stop();
     agent.stop();
     core.shutdown();
     backend.close();

@@ -4,14 +4,17 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 
+/** Backend-stamped phone session family (null for legacy tokens without one). */
+type Family = { family?: string | null };
+
 export type SignalFrame =
-  | { type: "welcome"; peerId: string; hosts?: { hostId: string; online: boolean }[] }
+  | { type: "welcome"; peerId: string; hosts?: { hostId: string; online: boolean }[]; revokedFamilies?: string[] }
   | { type: "presence"; hostId: string; online: boolean }
-  | { type: "offer"; to?: string; from?: string; sessionId: string; sdp: string; policy?: "all" | "relay"; family?: string }
+  | ({ type: "offer"; to?: string; from?: string; sessionId: string; sdp: string; policy?: "all" | "relay" } & Family)
+  | ({ type: "answer"; to?: string; from?: string; sessionId: string; sdp: string } & Family)
+  | ({ type: "candidate"; to?: string; from?: string; sessionId: string; candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null } & Family)
+  | ({ type: "bye"; to?: string; from?: string; sessionId: string } & Family)
   | { type: "revoked"; family: string }
-  | { type: "answer"; to?: string; from?: string; sessionId: string; sdp: string }
-  | { type: "candidate"; to?: string; from?: string; sessionId: string; candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }
-  | { type: "bye"; to?: string; from?: string; sessionId: string }
   | { type: "error"; code: string; sessionId?: string; message?: string };
 
 export interface SignalingEvents {

@@ -7,6 +7,13 @@ import type { Logger } from "../util.ts";
 import { ApiClient, ApiError, IceCache } from "./api.ts";
 import { SignalingClient, type SignalFrame } from "./signaling.ts";
 
+/** How long a revoked phone session family stays refused. */
+export const REVOKED_FAMILY_TTL_MS = 20 * 60_000;
+
+function frameFamily(f: { family?: string | null }): string | undefined {
+  return typeof f.family === "string" && f.family ? f.family : undefined;
+}
+
 interface PeerEntry {
   /** Set once ICE servers are known; candidates before that are buffered. */
   peer?: WebRtcPeer;
@@ -37,6 +44,8 @@ export class HostAgent {
   private readonly ice: IceCache;
   private readonly peers = new Map<string, PeerEntry>();
   private validateTimer: NodeJS.Timeout | null = null;
+  /** family -> refuse until (ms). */
+  private readonly revokedFamilies = new Map<string, number>();
   private revoked = false;
 
   constructor(private readonly opts: HostAgentOptions) {
@@ -100,37 +109,37 @@ export class HostAgent {
 
   private async onFrame(f: SignalFrame): Promise<void> {
     const log = this.opts.log;
-    // A phone whose signaling reconnected has a new peerId: follow it.
-    if ("sessionId" in f && f.sessionId && "from" in f && f.from && f.type !== "offer") {
-      const e = this.peers.get(f.sessionId);
-      if (e && e.remotePeerId !== f.from) {
-        log(`[${f.sessionId}] phone signaling moved ${e.remotePeerId} -> ${f.from}`);
-        e.remotePeerId = f.from;
-      }
-    }
     switch (f.type) {
-      case "revoked": {
-        const doomed = [...this.peers.entries()].filter(([, e]) => e.family !== undefined && e.family === f.family);
-        log(`phone session family ${f.family} revoked; dropping ${doomed.length} link(s)`);
-        for (const [sessionId] of doomed) this.dropPeer(sessionId, false);
+      case "revoked":
+        this.revokeFamily(f.family);
         return;
-      }
       case "welcome":
         log(`signaling welcome as ${f.peerId}`);
+        for (const family of f.revokedFamilies ?? []) this.revokeFamily(family);
         return;
       case "offer": {
         if (!f.from || !f.sessionId || !f.sdp) return;
         const sessionId = f.sessionId;
         const remotePeerId = f.from;
-        if (this.peers.has(sessionId)) this.dropPeer(sessionId, false);
+        const family = frameFamily(f);
+        if (family && this.isRevoked(family)) {
+          log(`[${sessionId}] refusing offer from revoked session family ${family}`);
+          this.signaling.send({ type: "bye", to: remotePeerId, sessionId });
+          return;
+        }
+        const existing = this.peers.get(sessionId);
+        if (existing && existing.family !== family) {
+          log(`[${sessionId}] ignoring offer for a session owned by another family`);
+          return;
+        }
+        if (existing) this.dropPeer(sessionId, false);
         if (this.peers.size >= (this.opts.maxPeers ?? 16)) {
           const oldest = [...this.peers.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
           if (oldest) this.dropPeer(oldest[0], true);
         }
         // Register before awaiting ICE servers so trickled candidates that
         // arrive meanwhile are buffered instead of dropped.
-        const family = typeof f.family === "string" && f.family ? f.family : undefined;
-        if (!family) log(`[${sessionId}] offer without a session family (older app build); allowing for now`);
+        if (!family) log(`[${sessionId}] token without session family; allowing for now`);
         const entry: PeerEntry = { pendingCandidates: [], remotePeerId, family, createdAt: Date.now(), closed: false };
         this.peers.set(sessionId, entry);
         const iceServers = await this.ice.get();
@@ -178,14 +187,14 @@ export class HostAgent {
         return;
       }
       case "candidate": {
-        const e = this.peers.get(f.sessionId);
+        const e = this.sessionFor(f);
         if (!e || !f.candidate) return;
         if (e.peer) e.peer.addRemoteCandidate(f.candidate, f.sdpMid ?? "0");
         else e.pendingCandidates.push({ candidate: f.candidate, mid: f.sdpMid ?? "0" });
         return;
       }
       case "bye":
-        this.dropPeer(f.sessionId, false);
+        if (this.sessionFor(f)) this.dropPeer(f.sessionId, false);
         return;
       case "error":
         log(`signaling error frame: ${f.code}${f.message ? ` ${f.message}` : ""}`);
@@ -193,6 +202,44 @@ export class HostAgent {
       default:
         return;
     }
+  }
+
+  /**
+   * The session a phone frame belongs to, only if the frame's backend-stamped
+   * family matches the session's. Follows the phone's latest peerId (its
+   * signaling may have reconnected).
+   */
+  private sessionFor(f: { sessionId: string; from?: string; family?: string | null }): PeerEntry | undefined {
+    const e = this.peers.get(f.sessionId);
+    if (!e) return undefined;
+    if (e.family !== frameFamily(f)) {
+      this.opts.log(`[${f.sessionId}] ignoring a frame from a different session family`);
+      return undefined;
+    }
+    if (f.from && e.remotePeerId !== f.from) {
+      this.opts.log(`[${f.sessionId}] phone signaling moved ${e.remotePeerId} -> ${f.from}`);
+      e.remotePeerId = f.from;
+    }
+    return e;
+  }
+
+  private isRevoked(family: string): boolean {
+    const until = this.revokedFamilies.get(family);
+    if (until === undefined) return false;
+    if (until > Date.now()) return true;
+    this.revokedFamilies.delete(family);
+    return false;
+  }
+
+  /** Refuses the family for 20 minutes and drops its live links now. */
+  revokeFamily(family: string): void {
+    if (!family) return;
+    const now = Date.now();
+    for (const [f, until] of this.revokedFamilies) if (until <= now) this.revokedFamilies.delete(f);
+    this.revokedFamilies.set(family, now + REVOKED_FAMILY_TTL_MS);
+    const doomed = [...this.peers.entries()].filter(([, e]) => e.family === family);
+    this.opts.log(`phone session family ${family} revoked; dropping ${doomed.length} link(s)`);
+    for (const [sessionId] of doomed) this.dropPeer(sessionId, false);
   }
 
   private dropPeer(sessionId: string, sendBye: boolean): void {
