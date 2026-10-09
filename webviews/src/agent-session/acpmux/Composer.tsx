@@ -118,8 +118,6 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
-  /// Opens the host's file and image picker; the + menu offers it only when set.
-  onAttach?(): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -151,6 +149,8 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// The location row heads the card instead of closing it (Start Agent's panel, cx-hkat).
+  contextFirst?: boolean;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -172,7 +172,6 @@ export function Composer({
   leading,
   accessory,
   prompt,
-  onAttach,
   onCmuxCommand,
   onImportFile,
   searchFiles,
@@ -188,6 +187,7 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
+  contextFirst = false,
   handle,
   sessionId,
   blocked,
@@ -247,6 +247,8 @@ export function Composer({
   const held = useRef(0);
   held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  // + then Attach files clicks this input: the system file chooser (an open panel in the app).
+  const chooser = useRef<HTMLInputElement>(null);
   const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
   attach.current = async (files: File[]) => {
     if (files.length === 0) return;
@@ -655,6 +657,38 @@ export function Composer({
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
   };
+  // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
+  // where `contextFirst` is set (Start Agent).
+  const context = (
+    <ComposerContext
+      projectChoices={projectChoices}
+      onBrowseProject={onBrowseProject}
+      onBrowseFolder={onBrowseFolder}
+      onConnect={onConnect}
+      summary={snapshot.summary}
+      sessions={snapshot.sessions}
+      peers={snapshot.peers}
+      started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
+      onProject={
+        onProject &&
+        ((cwd, peer) => {
+          onProject(cwd, peer);
+          field.current?.focus();
+        })
+      }
+      localName={localName}
+      movedTo={movedTo}
+      busy={snapshot.isWorking}
+      onMove={
+        onMove &&
+        ((cwd) => {
+          const move = onMove(cwd);
+          setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
+          field.current?.focus();
+        })
+      }
+    />
+  );
   return (
     <form
       ref={form}
@@ -706,7 +740,8 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box">
+      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
+        {contextFirst && context}
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -800,6 +835,20 @@ export function Composer({
           </div>
         )}
         <div className="acpmux-composer-bar">
+          <input
+            ref={chooser}
+            className="acpmux-attach-input"
+            type="file"
+            multiple
+            hidden
+            aria-label={t(COMPOSER_LABELS.attach)}
+            onChange={(event) => {
+              const files = [...(event.currentTarget.files ?? [])];
+              // Cleared, choosing the same file again still fires change.
+              event.currentTarget.value = "";
+              void attach.current(files);
+            }}
+          />
           {leading !== undefined ? (
             leading
           ) : (
@@ -812,7 +861,7 @@ export function Composer({
               sections={[
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
+                    { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
                     { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
@@ -833,7 +882,7 @@ export function Composer({
                           planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
                         )
                       : id === "attach"
-                        ? onAttach?.()
+                        ? chooser.current?.click()
                         : id === "mention"
                           ? mention()
                           : id === "files"
@@ -873,35 +922,7 @@ export function Composer({
             ) : null}
           </span>
         </div>
-        {/* The location row is the card's footer: one fill, one edge, a hairline above it. */}
-        <ComposerContext
-          projectChoices={projectChoices}
-          onBrowseProject={onBrowseProject}
-          onBrowseFolder={onBrowseFolder}
-          onConnect={onConnect}
-          summary={snapshot.summary}
-          sessions={snapshot.sessions}
-          peers={snapshot.peers}
-          started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
-          onProject={
-            onProject &&
-            ((cwd, peer) => {
-              onProject(cwd, peer);
-              field.current?.focus();
-            })
-          }
-          localName={localName}
-          movedTo={movedTo}
-          busy={snapshot.isWorking}
-          onMove={
-            onMove &&
-            ((cwd) => {
-              const move = onMove(cwd);
-              setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-              field.current?.focus();
-            })
-          }
-        />
+        {!contextFirst && context}
       </div>
     </form>
   );

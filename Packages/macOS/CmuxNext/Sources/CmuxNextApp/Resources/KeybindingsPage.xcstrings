@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "keybindings.page.heldElsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not take this key system-wide: another app or another cmux global key holds it. It works only inside cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このキーはほかのアプリまたは cmux の別のグローバルキーが使用しているため、システム全体では使えません。cmux の中でのみ動作します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux حجز هذا المفتاح على مستوى النظام: يستخدمه تطبيق آخر أو مفتاح عام آخر في cmux. يعمل داخل cmux فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao preuzeti ovu prečicu za cijeli sistem: drži je druga aplikacija ili druga globalna prečica cmuxa. Radi samo unutar cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke tage denne tast for hele systemet: en anden app eller en anden global cmux-tast bruger den. Den virker kun i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte diese Taste nicht systemweit belegen: Eine andere App oder ein anderer globaler cmux-Kurzbefehl nutzt sie. Sie wirkt nur in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo usar este atajo en todo el sistema: otra app u otro atajo global de cmux lo ocupa. Solo funciona dentro de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu réserver ce raccourci pour tout le système : une autre app ou un autre raccourci global de cmux l’utilise. Il ne fonctionne que dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non ha potuto prendere questo tasto per tutto il sistema: lo usa un’altra app o un altro tasto globale di cmux. Funziona solo dentro cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចយកគ្រាប់ចុចនេះសម្រាប់ប្រព័ន្ធទាំងមូលបានទេ៖ កម្មវិធីផ្សេង ឬគ្រាប់ចុចសកលផ្សេងរបស់ cmux កំពុងប្រើវា។ វាដំណើរការតែក្នុង cmux ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이나 다른 cmux 전역 키가 이 키를 사용 중이어서 cmux가 시스템 전체에서 이 키를 쓸 수 없습니다. cmux 안에서만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke ta denne tasten for hele systemet: en annen app eller en annen global cmux-tast bruker den. Den virker bare i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł zająć tego klawisza w całym systemie: używa go inna aplikacja lub inny globalny skrót cmux. Działa tylko w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu usar esta tecla no sistema todo: outro app ou outra tecla global do cmux a ocupa. Ela só funciona dentro do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не смог занять эту клавишу во всей системе: её использует другое приложение или другая глобальная клавиша cmux. Она работает только в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ใช้ปุ่มนี้ทั้งระบบไม่ได้ เพราะแอปอื่นหรือปุ่มลัดส่วนกลางอื่นของ cmux ใช้อยู่ ใช้ได้เฉพาะใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux bu tuşu sistem genelinde alamadı: başka bir uygulama veya başka bir cmux genel tuşu kullanıyor. Yalnızca cmux içinde çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не зміг зайняти цю клавішу в усій системі: її використовує інша програма або інша глобальна клавіша cmux. Вона працює лише в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể giữ phím này cho toàn hệ thống: một ứng dụng khác hoặc một phím toàn cục khác của cmux đang dùng nó. Phím chỉ hoạt động trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法在全系统占用此按键：另一个应用或 cmux 的另一个全局按键正在使用它。它只在 cmux 内起作用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法在全系統佔用此按鍵：另一個 App 或 cmux 的另一個全域按鍵正在使用它。它只在 cmux 內起作用。"
+          }
+        }
+      }
+    },
     "keybindings.page.change": {
       "extractionState": "manual",
       "localizations": {

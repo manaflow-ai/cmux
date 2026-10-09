@@ -23,20 +23,30 @@ enum AgentSessionWorkspace {
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let services = context.services
         let session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
+        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let given = invocation["key"]?.stringValue?.lowercased()
+        let key = given.flatMap { UUID(uuidString: $0) == nil ? nil : WorkspaceKey(rawValue: $0) } ?? .generate()
+        let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try open(session: session, name: name, key: key, cwd: cwd, services: context.services)
+        context.services.registry.track(task)
+    }
+
+    /// Starts the new workspace for `session` (see the type) and returns its
+    /// work. Start Agent's Return (cx-hkat) puts its started chat in the
+    /// sidebar this way too. Throws when this build has no agent page or the
+    /// daemon is offline.
+    @discardableResult
+    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?,
+                     services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let given = invocation["key"]?.stringValue?.lowercased()
-        let key = given.flatMap { UUID(uuidString: $0) == nil ? nil : WorkspaceKey(rawValue: $0) } ?? .generate()
-        let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let logger = daemon.logger
-        let task: ActionWork = Task { @MainActor in
+        return Task { @MainActor in
             do {
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
                     try await connection.createTerminal(in: workspace, cwd: cwd)
@@ -64,7 +74,6 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
-        services.registry.track(task)
     }
 
     /// The first pane of workspace `key` once the store mirrors it (10 s at most).
