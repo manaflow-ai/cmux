@@ -505,7 +505,11 @@ impl AcpmuxCompactor {
         // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
         // not), and the ones that take denied tools off the model's list.
         std::fs::create_dir_all(dir.join(".claude"))?;
-        write_settings_for(&dir.join(".claude").join("settings.json"), ttl)?;
+        write_settings_for(
+            &dir.join(".claude").join("settings.json"),
+            ttl,
+            &self.spec.user_env,
+        )?;
         std::fs::canonicalize(&dir)
     }
 
@@ -1309,15 +1313,33 @@ pub fn prepare_config(dir: &Path) -> io::Result<()> {
 }
 
 fn write_settings(path: &Path) -> io::Result<()> {
-    write_settings_for(path, CacheTtl::OneHour)
+    write_settings_for(path, CacheTtl::OneHour, &BTreeMap::new())
 }
 
-fn write_settings_for(path: &Path, ttl: CacheTtl) -> io::Result<()> {
+/// The slot settings at `ttl`, with `user_env` (the user's Claude Code
+/// settings env: the slot loads no user setting source) under the slot's
+/// own env.
+fn write_settings_for(
+    path: &Path,
+    ttl: CacheTtl,
+    user_env: &BTreeMap<String, String>,
+) -> io::Result<()> {
+    let mut settings = compactor_settings_for(ttl);
+    if !user_env.is_empty() {
+        let mut env: serde_json::Map<String, Value> = user_env
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect();
+        if let Some(own) = settings.get("env").and_then(Value::as_object) {
+            env.extend(own.clone());
+        }
+        settings["env"] = Value::Object(env);
+    }
     crate::session_dir::write_if_changed(
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&compactor_settings_for(ttl)).map_err(io::Error::other)?
+            serde_json::to_string_pretty(&settings).map_err(io::Error::other)?
         )
         .as_bytes(),
     )

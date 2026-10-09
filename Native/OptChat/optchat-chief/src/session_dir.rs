@@ -111,9 +111,12 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Valu
     if setup.cmux_mcp.is_some() {
         names.push("cmux");
     }
+    // The user's settings env first (a session that loads no user setting
+    // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
-        .env
+        .user_env
         .iter()
+        .chain(setup.env.iter())
         .map(|(k, v)| (k.clone(), Value::String(v.clone())))
         .collect();
     let path = setup
