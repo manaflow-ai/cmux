@@ -3310,6 +3310,7 @@
 		AABBCC000000000000000202 /* SidebarInlineRenameKeyResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000201 /* SidebarInlineRenameKeyResolver.swift */; };
 		AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */; };
 		AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */; };
+		08B2E74AC649055197D35CF1 /* SidebarJumpToUnreadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C4138AAEF61A3B7DFE1CCE /* SidebarJumpToUnreadButton.swift */; };
 		B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0290000000000000029 /* SidebarLayoutModel.swift */; };
 		5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */; };
 		5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */; };
@@ -7771,6 +7772,7 @@
 		AABBCC000000000000000201 /* SidebarInlineRenameKeyResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameKeyResolver.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarInlineRenameKeyResolverTests.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameTextField.swift; sourceTree = "<group>"; };
+		56C4138AAEF61A3B7DFE1CCE /* SidebarJumpToUnreadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarJumpToUnreadButton.swift; sourceTree = "<group>"; };
 		B804B0290000000000000029 /* SidebarLayoutModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarLayoutModel.swift; sourceTree = "<group>"; };
 		5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/SidebarLazyContractProbe.swift; sourceTree = "<group>"; };
 		5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/SidebarLazyContractProbeKey.swift"; sourceTree = "<group>"; };
@@ -12082,6 +12084,7 @@
 				D43248ADAF07D461A74E625A /* Workspace+ProgramStatus.swift */,
 				793999D5B081E3EA9B3A6BFB /* AppDelegate+WorkspaceMerge.swift */,
 				D2372CBDBDF42F138982364F /* WorkspaceMergeDragRegistry.swift */,
+				56C4138AAEF61A3B7DFE1CCE /* SidebarJumpToUnreadButton.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16206,6 +16209,7 @@
 				AABBCC000000000000000204 /* SidebarInlineRenameField.swift in Sources */,
 				AABBCC000000000000000202 /* SidebarInlineRenameKeyResolver.swift in Sources */,
 				AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */,
+				08B2E74AC649055197D35CF1 /* SidebarJumpToUnreadButton.swift in Sources */,
 				B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */,
 				5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */,
 				5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */,
