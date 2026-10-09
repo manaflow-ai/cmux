@@ -31,6 +31,9 @@ pub struct SessionSpec {
     /// Per-session env (acpmux `_meta.acpmux.env`, unix socket only, an
     /// allowlist: CMUX_WORKSPACE_ID); empty for none.
     pub env: BTreeMap<String, String>,
+    /// The fast service tier (codex-acp's `fast-mode` config option, set
+    /// right after session/new); false: the harness's default speed.
+    pub fast: bool,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its

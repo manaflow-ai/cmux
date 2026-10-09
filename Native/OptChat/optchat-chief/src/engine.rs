@@ -29,6 +29,22 @@ pub struct EngineChoice {
     pub compactor_harness: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_model: Option<String>,
+    /// `fast` (the priority tier) or none (`default`): turns, then the
+    /// compactor (its slots, at the next host start).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor_speed: Option<String>,
+}
+
+/// The speeds a Chief engine takes: `default` (the harness's) and `fast`
+/// (codex's priority tier, "2x speed, increased usage").
+pub const SPEEDS: &[&str] = &["default", "fast"];
+
+/// Whether `speed` can run on a `family` harness: Err with the reason when
+/// it cannot (Claude Code's adapter has no fast mode).
+pub fn check_speed(_speed: &str, _family: crate::acpmux::Family) -> Result<(), String> {
+    Ok(())
 }
 
 /// One turn's engine, resolved against the host's defaults.

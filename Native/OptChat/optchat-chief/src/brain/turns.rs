@@ -520,6 +520,7 @@ impl Brain {
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
                 env: Default::default(),
+                fast: false,
             },
             blocks,
             system_prompt,

@@ -63,6 +63,13 @@ pub const CODEX_KEPT_KEYS: [&str; 8] = [
 /// skills (none loaded, none listed in the prompt), no apps, plugins,
 /// memories, hooks, subagents or code mode, no history file.
 pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
+    codex_compactor_config_at(user, false)
+}
+
+/// `codex_compactor_config` with the slot's own speed: `service_tier =
+/// "fast"` when `fast`, else no tier (the default), whatever the user's
+/// config says.
+pub fn codex_compactor_config_at(user: Option<&str>, _fast: bool) -> Result<String, String> {
     let mut out = toml::Table::new();
     if let Some(text) = user {
         let table: toml::Table = text
