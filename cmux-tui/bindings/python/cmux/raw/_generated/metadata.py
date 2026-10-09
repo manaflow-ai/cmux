@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c'
+IR_SHA256 = 'ee8911bb122cc4217efe02ed666d5703204fda43cf525fcfe5cf6a4aa6aaf18b'
 
 
 @dataclass(frozen=True)
@@ -1066,6 +1066,19 @@ COMMANDS = {
             'saved': CommandFieldMetadata(None, None),
         },
     ),
+    'delete-terminal-commands': CommandMetadata(
+        'delete-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'all': CommandFieldMetadata(None, None),
+            'ids': CommandFieldMetadata(None, None),
+            'started_since_ms': CommandFieldMetadata(None, None),
+        },
+    ),
     'delete-workspace-group': CommandMetadata(
         'delete-workspace-group',
         'control',
@@ -1349,6 +1362,18 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'list-terminal-commands': CommandMetadata(
+        'list-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_id': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
         },
     ),
     'list-terminals': CommandMetadata(
@@ -2661,11 +2686,12 @@ COMMANDS = {
         'set-terminal-command-history',
         'local-admin',
         12,
-        'terminal-command-journal-v1',
+        'terminal-command-history-v1',
         ('local-admin',),
         None,
         {
             'enabled': CommandFieldMetadata(None, None),
+            'retention_days': CommandFieldMetadata(None, None),
         },
     ),
     'set-terminal-idle-policy': CommandMetadata(

@@ -26,7 +26,7 @@ final class HistoryService {
         self.services = services
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
-        commands = CommandHistory(services: services, hidden: hidden)
+        commands = CommandHistory(services: services)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -204,7 +204,7 @@ final class HistoryService {
             services.closedWorkspaces.clear(since: since)
         }
         if wants(.agent) { agents.hide(since: since) }
-        if wants(.command) { commands.hide(since: since) }
+        if wants(.command) { commands.delete(since: since) }
         onChange?()
     }
 
@@ -235,7 +235,7 @@ final class HistoryService {
         case .agent(let session):
             agents.hide(session)
         case .command(let command):
-            commands.hide(command)
+            commands.delete(command)
         }
         onChange?()
     }

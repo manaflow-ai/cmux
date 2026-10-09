@@ -104,9 +104,9 @@ the adapter payload, not in `kind`. The initial agent vocabulary is:
 - `agent.state.changed`
 - `agent.session.ended`
 
-Terminal command history (`terminal-command-journal-v1`, opt-in per daemon
-with `set-terminal-command-history`) adds `shell.command.finished` from the
-reserved producer `cmux_shell`; see `commands.md`.
+Terminal command history (`terminal-command-history-v1`) is not journaled:
+commands are deletable registry rows with a retention (see `commands.md`).
+The producer id `cmux_shell` is reserved.
 
 `blocked` is a derived projection over approval, question, plan-review, and
 error events. It is not the only durable fact.

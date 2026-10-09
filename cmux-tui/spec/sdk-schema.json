@@ -6270,6 +6270,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "retention_days": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false
@@ -8067,6 +8075,131 @@
      "type": {
       "kind": "ref",
       "name": "ActivitySnapshot"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "exit_code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "started_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandList": {
+   "kind": "object",
+   "fields": {
+    "commands": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TerminalCommandRecord"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "deletions": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "registry_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "retention_days": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalCommandDeleteResult": {
+   "kind": "object",
+   "fields": {
+    "deleted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
      },
      "presence": "required",
      "nullable": false
@@ -19102,7 +19235,7 @@
   "set-terminal-command-history": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "terminal-command-journal-v1",
+   "capability": "terminal-command-history-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -19113,9 +19246,21 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "retention_days": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
-    "additional_properties": false
+    "additional_properties": false,
+    "constraints": [
+     "retention_days is 1 to 3650; when absent the stored retention (default 30) is kept."
+    ]
    },
    "result": {
     "kind": "ref",
@@ -19124,7 +19269,8 @@
    "stream": null,
    "constraints": [
     "Off by default and after a daemon restart.",
-    "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
+    "When on, finished OSC 133 shell commands are stored as deletable rows, read with list-terminal-commands.",
+    "Lists hide rows older than retention_days at once; the daemon deletes them when it starts, on every store and retention change, and at the oldest row's expiry time."
    ]
   },
   "conversation-list": {
@@ -20983,6 +21129,102 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+   ]
+  },
+  "list-terminal-commands": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "terminal-command-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "after_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "after_id is a decimal string.",
+     "limit is 1 to 1000 (default 1000)."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalCommandList"
+   },
+   "stream": null,
+   "constraints": [
+    "Returns the newest limit unexpired rows with an id above after_id, oldest first; truncated is true when older rows after after_id were left out.",
+    "deletions counts client deletes (not expiry); a reader that saw another deletions or registry_id reads again from the start and drops rows older than retention_days itself."
+   ]
+  },
+  "delete-terminal-commands": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "terminal-command-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "min_items": 1
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "started_since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "all": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of ids, started_since_ms or all.",
+     "ids holds 1 to 1000 decimal strings; started_since_ms is a decimal string."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalCommandDeleteResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
    ]
   }
  },

@@ -240,6 +240,9 @@ class GeneratedClientMixin:
     def delete_saved_tab_group(self, saved: str) -> DeleteSavedTabGroupResult:
         return self._invoke_command('delete-saved-tab-group', DeleteSavedTabGroupRequest(saved=saved))
 
+    def delete_terminal_commands(self, *, all: Union[bool, MissingType] = MISSING, ids: Union[List[str], None, MissingType] = MISSING, started_since_ms: Union[str, None, MissingType] = MISSING) -> TerminalCommandDeleteResult:
+        return self._invoke_command('delete-terminal-commands', DeleteTerminalCommandsRequest(all=all, ids=ids, started_since_ms=started_since_ms))
+
     def delete_workspace_group(self, group: str) -> JsonValue:
         return self._invoke_command('delete-workspace-group', DeleteWorkspaceGroupRequest(group=group))
 
@@ -314,6 +317,9 @@ class GeneratedClientMixin:
 
     def list_tab_groups(self) -> ListTabGroupsResult:
         return self._invoke_command('list-tab-groups', ListTabGroupsRequest())
+
+    def list_terminal_commands(self, *, after_id: Union[str, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> TerminalCommandList:
+        return self._invoke_command('list-terminal-commands', ListTerminalCommandsRequest(after_id=after_id, limit=limit))
 
     def list_terminals(self) -> ListTerminalsResult:
         return self._invoke_command('list-terminals', ListTerminalsRequest())
@@ -597,8 +603,8 @@ class GeneratedClientMixin:
     def set_tab_pinned(self, surface: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-tab-pinned', SetTabPinnedRequest(surface=surface, pinned=pinned))
 
-    def set_terminal_command_history(self, enabled: bool) -> TerminalCommandHistoryResult:
-        return self._invoke_command('set-terminal-command-history', SetTerminalCommandHistoryRequest(enabled=enabled))
+    def set_terminal_command_history(self, enabled: bool, *, retention_days: Union[int, None, MissingType] = MISSING) -> TerminalCommandHistoryResult:
+        return self._invoke_command('set-terminal-command-history', SetTerminalCommandHistoryRequest(enabled=enabled, retention_days=retention_days))
 
     def set_terminal_idle_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, idle_close_seconds: Union[int, None, MissingType] = MISSING) -> SetTerminalIdlePolicyResult:
         return self._invoke_command('set-terminal-idle-policy', SetTerminalIdlePolicyRequest(surface=surface, terminal_id=terminal_id, idle_close_seconds=idle_close_seconds))
@@ -797,6 +803,7 @@ GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-p
 GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
 GeneratedClientMixin.delete_saved_screen_group.__cmux_command__ = COMMANDS['delete-saved-screen-group']
 GeneratedClientMixin.delete_saved_tab_group.__cmux_command__ = COMMANDS['delete-saved-tab-group']
+GeneratedClientMixin.delete_terminal_commands.__cmux_command__ = COMMANDS['delete-terminal-commands']
 GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-workspace-group']
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
@@ -822,6 +829,7 @@ GeneratedClientMixin.list_personal.__cmux_command__ = COMMANDS['list-personal']
 GeneratedClientMixin.list_saved_screen_groups.__cmux_command__ = COMMANDS['list-saved-screen-groups']
 GeneratedClientMixin.list_saved_tab_groups.__cmux_command__ = COMMANDS['list-saved-tab-groups']
 GeneratedClientMixin.list_tab_groups.__cmux_command__ = COMMANDS['list-tab-groups']
+GeneratedClientMixin.list_terminal_commands.__cmux_command__ = COMMANDS['list-terminal-commands']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspace_groups.__cmux_command__ = COMMANDS['list-workspace-groups']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']

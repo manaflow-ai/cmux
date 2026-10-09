@@ -204,9 +204,11 @@ public struct DaemonCapabilities: Sendable {
     /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
     /// every restored terminal), and the view freezes.
     public let terminalPendingSequence = "terminal-pending-sequence-v1"
-    /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-    /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
-    public let terminalCommandJournal = "terminal-command-journal-v1"
+    /// Finished shell commands (OSC 133) stored as deletable rows with a
+    /// retention once `set-terminal-command-history` turns it on; read with
+    /// `list-terminal-commands`, deleted with `delete-terminal-commands`
+    /// (plans/cmux-next/history.md 6).
+    public let terminalCommandHistory = "terminal-command-history-v1"
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
@@ -249,7 +251,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,

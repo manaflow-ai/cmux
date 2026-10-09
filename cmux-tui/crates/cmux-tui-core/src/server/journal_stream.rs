@@ -121,13 +121,7 @@ pub(super) fn handle_journal_extension_request(
                             format!("journal event is invalid: {error}"),
                         )
                     })?;
-            // Only the daemon writes terminal command records.
-            if ingress.producer_id == crate::shell_history::SHELL_PRODUCER_ID {
-                return Err(ResourceError::validation_invalid(
-                    Some("event"),
-                    "the cmux shell producer is written only by the daemon".to_string(),
-                ));
-            }
+            super::command_history::refuse_reserved_producer(&ingress)?;
             let idempotency_key = request
                 .envelope
                 .idempotency_key

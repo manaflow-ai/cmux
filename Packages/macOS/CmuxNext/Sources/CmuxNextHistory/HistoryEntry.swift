@@ -90,6 +90,8 @@ public nonisolated struct ClosedItem: Hashable, Sendable {
 
 /// A finished shell command (daemon journal `terminal.command.finished`).
 public nonisolated struct TerminalCommand: Hashable, Sendable {
+    /// The daemon's row id (`list-terminal-commands`), unique per machine.
+    public var id: UInt64
     public var machine: String
     public var terminal: String
     public var command: String?
@@ -98,8 +100,9 @@ public nonisolated struct TerminalCommand: Hashable, Sendable {
     public var startedAt: Date
     public var duration: TimeInterval?
 
-    public init(machine: String, terminal: String, command: String?, cwd: String?, exitCode: Int?,
+    public init(id: UInt64, machine: String, terminal: String, command: String?, cwd: String?, exitCode: Int?,
                 startedAt: Date, duration: TimeInterval?) {
+        self.id = id
         self.machine = machine
         self.terminal = terminal
         self.command = command
@@ -108,4 +111,7 @@ public nonisolated struct TerminalCommand: Hashable, Sendable {
         self.startedAt = startedAt
         self.duration = duration
     }
+
+    /// `<machine>/<row id>`.
+    public var qualifiedID: String { "\(machine)/\(id)" }
 }

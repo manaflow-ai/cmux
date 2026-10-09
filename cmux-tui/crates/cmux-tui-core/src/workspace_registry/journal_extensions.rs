@@ -458,7 +458,6 @@ pub(super) fn create_journal_extensions_schema(
          END;",
     )?;
     ensure_built_in_agent_producer(transaction)?;
-    ensure_built_in_shell_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
     let delivery_columns = table_columns(transaction, "journal_hook_deliveries")?;
     if !delivery_columns.contains("started_event_id") {
@@ -524,51 +523,6 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             manifest_json,
             manifest.producer_id,
         ],
-    )?;
-    Ok(())
-}
-
-/// The reserved `cmux_shell` producer (terminal command history). Added when
-/// missing. A stored manifest of a lower version is replaced; a newer one
-/// (a newer daemon opened this session before) is kept, so an older binary
-/// never downgrades it; the same version with different content fails
-/// closed, like the agent producer.
-fn ensure_built_in_shell_producer(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let manifest = crate::shell_history::built_in_shell_producer_manifest();
-    let manifest_json = canonical_json(&serde_json::to_value(&manifest)?)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO journal_producers(
-           producer_id, namespace, manifest_version, manifest_json, installed_at_ms
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
-        params![
-            manifest.producer_id,
-            manifest.namespace,
-            i64::from(manifest.manifest_version),
-            manifest_json,
-            i64::try_from(unix_epoch_ms()?)?,
-        ],
-    )?;
-    let (installed_version, installed_json) = transaction.query_row(
-        "SELECT manifest_version, manifest_json FROM journal_producers WHERE producer_id = ?1",
-        [crate::shell_history::SHELL_PRODUCER_ID],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-    )?;
-    let current = i64::from(manifest.manifest_version);
-    if installed_version > current {
-        return Ok(());
-    }
-    if installed_version == current {
-        anyhow::ensure!(
-            installed_json == manifest_json,
-            "reserved cmux shell producer manifest does not match this binary"
-        );
-        return Ok(());
-    }
-    transaction.execute(
-        "UPDATE journal_producers
-         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
-         WHERE producer_id = ?4",
-        params![manifest.namespace, current, manifest_json, manifest.producer_id],
     )?;
     Ok(())
 }
@@ -1458,7 +1412,7 @@ impl WorkspaceRegistry {
         );
         anyhow::ensure!(
             manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID,
-            "the cmux shell producer is built in"
+            "the cmux shell producer id is reserved"
         );
         validate_journal_producer_manifest(manifest)?;
         validate_identifier("journal producer origin", origin)?;
@@ -1643,16 +1597,8 @@ fn append_journal_ingress_transaction(
     expand_topology_subjects(tx, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let built_in_agent = ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID;
-    let built_in_shell = ingress.producer_id == crate::shell_history::SHELL_PRODUCER_ID;
     let producer = JournalProducer {
-        kind: if built_in_agent {
-            "agent_adapter"
-        } else if built_in_shell {
-            "terminal_observer"
-        } else {
-            "plugin"
-        }
-        .into(),
+        kind: if built_in_agent { "agent_adapter" } else { "plugin" }.into(),
         id: ingress.producer_id.clone(),
     };
     let authority = JournalAuthority {
