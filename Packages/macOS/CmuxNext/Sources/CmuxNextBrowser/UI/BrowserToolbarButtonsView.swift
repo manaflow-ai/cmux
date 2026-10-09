@@ -73,6 +73,12 @@ public final class BrowserToolbarButtonsView: NSStackView {
         if window != nil { refresh() }
     }
 
+    /// Shown again after its pane parked it (another tab showed).
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if window != nil { refresh() }
+    }
+
     /// The button's view, the anchor for its menu.
     public func button(_ button: BrowserToolbarButton) -> NSView? { buttons[button] }
 
