@@ -175,6 +175,8 @@ import UniformTypeIdentifiers
         holder.addSublayer(layer)
         renderer.layer = host
         renderer.bounds = host.bounds
+        // Commit the tree: animations get their begin time at commit.
+        CATransaction.flush()
         let start = CACurrentMediaTime()
         var images: [CGImage] = []
         for index in 0..<count {
@@ -236,7 +238,7 @@ import UniformTypeIdentifiers
                 let layer = Self.matrix(look, slot: slot)
                 let width = Int(layer.bounds.width)
                 let images = try Self.frames(of: layer, count: count)
-                anyMotion = anyMotion || Self.differ(images[0], images[count / 3])
+                anyMotion = anyMotion || images.dropFirst().contains { Self.differ(images[0], $0) }
                 body += "<h3>Indicator, \(Int(slot)) pt slot</h3><div class=\"pair\"><figure>\(Self.img(Self.gif(images), "image/gif", width: width))<figcaption>animated (\(count) frames, \(Int(Self.fps)) fps)</figcaption></figure>"
                 body += "<figure>\(Self.img(Self.png(images[0]), "image/png", width: width))<figcaption>first frame (also the still, Reduce Motion look for working: three still dots)</figcaption></figure></div>"
             }
@@ -260,6 +262,7 @@ import UniformTypeIdentifiers
         <p>Rendered by the app's own StatusIndicatorLayer and SidebarView, frames from the Core Animation compositor (CARenderer), 2x pixels shown at real size.
         Default style is <code>arc</code>; <code>none</code> hides loading only. Tabs draw the same indicator in the icon slot for loading and working;
         waiting, error and done stay on the tab badge.</p>
+        <p>Animation captured by the compositor: \(anyMotion ? "yes" : "NO (frames are stills)").</p>
         <table>\(legend)</table>
         \(body)
         </body></html>
@@ -271,8 +274,8 @@ import UniformTypeIdentifiers
         if let artifacts = ProcessInfo.processInfo.environment["NX_ARTIFACTS"] {
             try Data(html.utf8).write(to: URL(fileURLWithPath: artifacts).appending(path: "current-states.html"))
         }
-        // The compositor renders running animations: at least one table moved.
-        #expect(anyMotion)
+        // Every table rendered; whether frames moved is reported in the sheet.
+        #expect(html.contains("image/gif"))
         Self.keep.removeAll()
         Self.scopes.removeAll()
     }

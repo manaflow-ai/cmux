@@ -29,7 +29,7 @@ public nonisolated enum AgentTurnState: Hashable, Sendable {
         let lastTurn = summary["lastTurn"] as? [String: Any]
         switch lastTurn?["status"] as? String {
         case "failed"?: return .failed
-        case "completed"?, "ok"? where (summary["unread"] as? Bool) == true: return .done
+        case "completed"?, "ok"?: return (summary["unread"] as? Bool) == true ? .done : nil
         default: return nil
         }
     }
