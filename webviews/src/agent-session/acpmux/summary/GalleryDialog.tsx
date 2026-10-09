@@ -40,7 +40,7 @@ export function GalleryDialog({
     >
       <div className="acpmux-image-viewer-bar">
         <span className="acpmux-image-viewer-title">{t("gallery.title")}</span>
-        <span className="acpmux-chat-gallery-filters" role="group" aria-label={t("gallery.filter")}>
+        <span className="acpmux-chat-gallery-filters">
           {FILTERS.map((kind) => (
             <button
               key={kind}
