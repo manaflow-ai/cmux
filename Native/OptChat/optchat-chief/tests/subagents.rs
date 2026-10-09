@@ -829,7 +829,10 @@ fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
     }
     let theirs = tempfile::tempdir().unwrap();
     let dir = theirs.path().display().to_string();
-    call(&mut s, move |sp| sp.spawn(vec!["one".into(), "two".into()], Some(dir))).unwrap();
+    call(&mut s, move |sp| {
+        sp.spawn(vec!["one".into(), "two".into()], Some(dir))
+    })
+    .unwrap();
     let agents = s.h.agents.inner.lock().unwrap();
     let subs: Vec<&Vec<Value>> = agents
         .prompt_ids
@@ -844,5 +847,8 @@ fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
             .all(|p| p.iter().all(|b| b.get("cache_control").is_none())),
         "no mark"
     );
-    assert!(!theirs.path().join(".claude").exists(), "nothing written there");
+    assert!(
+        !theirs.path().join(".claude").exists(),
+        "nothing written there"
+    );
 }
