@@ -267,3 +267,13 @@ Open:
   B rows of the split). Until then Windows hosts are off and nothing sets it.
 - GPUI banner: after the cmux change lands and cmux-shared.pin includes the
   string.
+- Finding (run 37935857605, job 113837661734): the hosted `test (windows)`
+  runner runs the tests in a Job Object that forbids breakaway
+  (`spawn_host_process` gave BreakawayDenied; `in_job` true). With the
+  decided fallback, every terminal on that runner runs in-process, so
+  `a_terminal_survives_a_fenced_daemon_restart_on_windows` cannot go green
+  there. Decision needed: run the hosted test in a job that allows breakaway
+  (a wrapper job with BREAKAWAY_OK), or on breakaway denial start the host
+  in the daemon's job (it survives a daemon restart, ends only when that
+  job closes) and keep the in-process fallback only for a spawn failure.
+  The standby unit tests use `Breakaway::Stay` on such a runner.
