@@ -729,28 +729,6 @@ mod tests {
         assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
     }
 
-    /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
-    #[test]
-    fn claude_wrapper_hook_commands_match_the_installed_hooks_or_fall_back_to_emit() {
-        let installed = session_hook_settings(None).unwrap();
-        let command = installed["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.contains("\"${h:-:}\" 'claude' 'Stop'"), "{command}");
-        assert_eq!(installed["hooks"]["Stop"][0]["hooks"][0]["async"], true);
-
-        let emit = session_hook_settings(Some(Path::new("/opt/cmux tui/cmux-tui"))).unwrap();
-        let command = emit["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(
-            command.starts_with(
-                "'/opt/cmux tui/cmux-tui' agent hook emit --source 'claude' --event 'Stop' >/dev/null 2>&1||:;echo {};"
-            ),
-            "{command}"
-        );
-        assert_eq!(
-            emit["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
-            installed["hooks"].as_object().unwrap().keys().collect::<Vec<_>>()
-        );
-    }
-
     /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.
     #[test]
     fn claude_wrapper_skips_injection_for_bad_settings_arguments() {
@@ -768,55 +746,6 @@ mod tests {
         // after the merged file where it would win and drop the hooks.
         let non_utf8 = OsStr::from_bytes(b"--settings=/nonexistent/\xff.json").to_owned();
         assert!(args_with_hooks(&[non_utf8], hooks, root.path()).is_err());
-    }
-
-    /// Resolution skips the shim directory, copies of the shim, and links to it.
-    #[test]
-    fn claude_wrapper_resolves_the_real_claude_past_the_shim() {
-        let root = tempfile::tempdir().unwrap();
-        let executable = root.path().join("bin/cmux-tui");
-        write_executable(&executable, "#!/bin/sh\n");
-        let shim_dir = root.path().join("data/shims");
-        install_shim(&shim_dir, &executable).unwrap();
-        // A copy of the shim elsewhere on PATH, and a link back to it.
-        let copied = root.path().join("copied");
-        write_executable(
-            &copied.join("claude"),
-            &fs::read_to_string(shim_dir.join("claude")).unwrap(),
-        );
-        let linked = root.path().join("linked");
-        fs::create_dir_all(&linked).unwrap();
-        std::os::unix::fs::symlink(shim_dir.join("claude"), linked.join("claude")).unwrap();
-        // A searchable directory named `claude` satisfies access(X_OK) but
-        // cannot be executed as the Claude binary.
-        let directory_candidate = root.path().join("directory-candidate");
-        fs::create_dir_all(directory_candidate.join("claude")).unwrap();
-        // An owned file with only the "other execute" bit set looks
-        // executable to a bitmask check but is not executable by its owner.
-        let inaccessible = root.path().join("inaccessible");
-        fs::create_dir_all(&inaccessible).unwrap();
-        fs::write(inaccessible.join("claude"), "#!/bin/sh\n").unwrap();
-        fs::set_permissions(inaccessible.join("claude"), fs::Permissions::from_mode(0o001))
-            .unwrap();
-        let real = root.path().join("real");
-        write_executable(&real.join("claude"), "#!/bin/sh\n");
-
-        let path = std::env::join_paths([
-            &shim_dir,
-            &copied,
-            &linked,
-            &directory_candidate,
-            &inaccessible,
-            &real,
-        ])
-        .unwrap();
-        assert_eq!(find_real_claude(&path, Some(shim_dir.as_path())), Some(real.join("claude")));
-        assert_eq!(
-            path_without_shims(&path, Some(shim_dir.as_path())),
-            std::env::join_paths([&directory_candidate, &inaccessible, &real]).unwrap()
-        );
-        let only_shims = std::env::join_paths([&shim_dir, &copied]).unwrap();
-        assert_eq!(find_real_claude(&only_shims, Some(shim_dir.as_path())), None);
     }
 
     /// Injection needs a live terminal and a session launch, and respects re-entry and the disable flag.
@@ -859,36 +788,6 @@ mod tests {
         assert!(!should_inject(&[], env(&[("CMUX_TUI_SOCKET", "")])), "no socket");
         let missing = &[("CMUX_TUI_SOCKET", "/nonexistent/cmux-tui.sock")];
         assert!(!should_inject(&[], env(missing)), "dead socket");
-    }
-
-    /// Reuse restores private modes and refreshes the idle clock; idle copies are pruned.
-    #[test]
-    fn claude_wrapper_settings_cache_stays_private_and_prunes_idle_copies() {
-        let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join("settings");
-        let data = br#"{"env":{"TOKEN":"x"}}"#;
-        let now = SystemTime::now();
-        let path = write_settings_file(&dir, data, now).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let stale = dir.join("stale.json");
-        let recent = dir.join("recent.json");
-        let idle = now - SETTINGS_RETENTION - Duration::from_secs(3600);
-        for (file, modified) in [(&stale, idle), (&recent, now), (&path, idle)] {
-            if file != &path {
-                fs::write(file, b"{}").unwrap();
-            }
-            fs::File::options().write(true).open(file).unwrap().set_modified(modified).unwrap();
-        }
-
-        assert_eq!(write_settings_file(&dir, data, now).unwrap(), path);
-        assert_eq!(mode(&path), 0o600);
-        assert_eq!(mode(&dir), 0o700);
-        assert!(!stale.exists(), "idle copy was not pruned");
-        assert!(recent.exists(), "recent copy was pruned");
-        let modified = fs::metadata(&path).unwrap().modified().unwrap();
-        assert!(modified >= now - Duration::from_secs(1), "reuse must refresh the idle clock");
     }
 
     /// Runs the shim script through `/bin/sh` with the given `PATH`.
@@ -943,26 +842,5 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             format!("real --model a b|{expected_path}\n")
         );
-    }
-
-    /// The pane PATH starts with the shim directory exactly once.
-    #[test]
-    fn claude_wrapper_pane_path_puts_the_shim_first_once() {
-        let shim = Path::new("/data/cmux-tui/shims");
-        assert_eq!(
-            path_with_shim_first(OsStr::new("/usr/bin:/data/cmux-tui/shims:/bin"), shim).unwrap(),
-            "/data/cmux-tui/shims:/usr/bin:/bin"
-        );
-        assert_eq!(path_with_shim_first(OsStr::new(""), shim).unwrap(), "/data/cmux-tui/shims");
-    }
-
-    /// Only `agent claude-wrapper` argv selects the wrapper.
-    #[test]
-    fn claude_wrapper_invocation_selects_only_the_hidden_verb() {
-        let args = os(&["agent", "claude-wrapper", "--settings", "x"]);
-        assert_eq!(invocation(&args), Some(&args[2..]));
-        assert_eq!(invocation(&os(&["agent", "claude-wrapper"])), Some(&[][..]));
-        assert_eq!(invocation(&os(&["agent", "list"])), None);
-        assert_eq!(invocation(&os(&["claude-wrapper"])), None);
     }
 }

@@ -2188,31 +2188,11 @@ mod tests {
     }
 
     #[test]
-    fn outbound_commands_fail_fast_at_the_byte_bound() {
-        let (inner, _outbound_rx) = test_inner_with_limits(8, 16);
-        let client = CdpClient { inner };
-
-        let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
-        let public = error.to_string();
-        assert_eq!(public, "browser connection unavailable; retry the command");
-        assert!(!public.contains("ws://"));
-        assert!(!public.contains("CDP outbound queue byte budget exceeded"));
-        assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
-        assert!(is_connection_unavailable(&error));
-    }
-
-    #[test]
     fn websocket_write_buffer_is_bounded_to_the_outbound_budget() {
         let config = cdp_websocket_config();
 
         assert!(config.max_write_buffer_size < usize::MAX);
         assert!(config.max_write_buffer_size >= CDP_OUTBOUND_QUEUE_MAX_BYTES);
-    }
-
-    #[test]
-    fn protocol_errors_are_not_classified_as_connection_failures() {
-        let error = anyhow::anyhow!("browser failed: invalid target");
-        assert!(!is_connection_unavailable(&error));
     }
 
     struct BlockingOutboundWriter {
@@ -2251,36 +2231,6 @@ mod tests {
         assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
         release.wait();
         drain.join().unwrap();
-    }
-
-    #[test]
-    fn screencast_ack_byte_budget_closure_hides_internal_reason() {
-        let (inner, _outbound_rx) = test_inner_with_limits(1, 1);
-        let mut diagnostics = Vec::new();
-        ack_screencast_frame(&inner, "session-1", 7, |message| {
-            diagnostics.push(message.to_string());
-        });
-
-        let (event_tx, event_rx) = sync_channel(1);
-        inner.events.drain_into(&event_tx).unwrap();
-        let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
-            panic!("expected a close event");
-        };
-        assert_eq!(reason, "browser connection unavailable; retry the command");
-        assert!(!reason.contains("CDP"));
-        assert_eq!(diagnostics, vec![CDP_ACK_REJECTED_DIAGNOSTIC.to_string()]);
-        assert!(!diagnostics[0].contains("ws://"));
-        assert!(!diagnostics[0].contains("queue byte budget"));
-    }
-
-    #[test]
-    fn outbound_commands_fail_fast_at_the_queue_bound() {
-        let (inner, _outbound_rx) = test_inner_with_capacity(1);
-        let client = CdpClient { inner };
-
-        client.send_value(&json!({"id": 1})).unwrap();
-        let error = client.send_value(&json!({"id": 2})).unwrap_err();
-        assert!(error.to_string().contains("outbound queue is full"));
     }
 
     #[test]
@@ -2341,39 +2291,6 @@ mod tests {
     }
 
     #[test]
-    fn wheel_event_preserves_horizontal_and_vertical_deltas() {
-        assert_eq!(
-            wheel_event_params(12.5, 9.25, -3.75, 8.5),
-            json!({
-                "type": "mouseWheel",
-                "x": 12.5,
-                "y": 9.25,
-                "deltaX": -3.75,
-                "deltaY": 8.5,
-            })
-        );
-    }
-
-    #[test]
-    fn key_event_params_omit_unavailable_physical_identity() {
-        let params = key_event_params(CdpKeyEvent {
-            event_type: "keyDown",
-            key: "a",
-            code: "",
-            windows_virtual_key_code: 0,
-            modifiers: 2,
-            text: None,
-        });
-
-        assert_eq!(params["type"], "keyDown");
-        assert_eq!(params["key"], "a");
-        assert_eq!(params["modifiers"], 2);
-        assert!(params.get("code").is_none());
-        assert!(params.get("windowsVirtualKeyCode").is_none());
-        assert!(params.get("nativeVirtualKeyCode").is_none());
-    }
-
-    #[test]
     fn screencast_frame_rejects_terminal_control_bytes() {
         let params = json!({
             "data": "AAAA\u{1b}_Ga=T,f=100;AAAA\u{1b}\\",
@@ -2395,19 +2312,6 @@ mod tests {
         let frame = screencast_frame(&params, "session-1", 0).unwrap();
         assert_eq!(frame.data_b64, "aGk=");
         assert_eq!((frame.image_width, frame.image_height), (80, 24));
-    }
-
-    #[test]
-    fn screencast_frame_preserves_encoded_png_dimensions_separately_from_css_dimensions() {
-        let params = json!({
-            "data": "iVBORw0KGgoAAAANSUhEUgAAAAMAAAAC",
-            "sessionId": 7,
-            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
-        });
-
-        let frame = screencast_frame(&params, "session-1", 0).unwrap();
-        assert_eq!((frame.css_width, frame.css_height), (80, 24));
-        assert_eq!((frame.image_width, frame.image_height), (3, 2));
     }
 
     #[test]

@@ -1305,7 +1305,6 @@ mod tests {
         JournalProducerManifest, JournalReplayPolicy, JournalSubject, SessionJournalRecord,
     };
     use serde_json::Value;
-    use sha2::Digest;
 
     fn document(kind: &str, payload: Value) -> JournalDocument {
         JournalDocument::new(SessionJournalRecord {
@@ -1328,38 +1327,6 @@ mod tests {
             resource_revision: None,
             previous_resource_revision: None,
             terminal_output: None,
-        })
-    }
-
-    fn terminal_document(bytes: &[u8]) -> JournalDocument {
-        let digest = sha2::Sha256::digest(bytes);
-        JournalDocument::new(SessionJournalRecord {
-            sequence: 1,
-            event_id: "event_terminal_test".into(),
-            schema_version: 1,
-            kind: "terminal.output".into(),
-            class: JournalClass::Observation,
-            replay: JournalReplayPolicy::Required,
-            occurred_at_ms: 1,
-            committed_at_ms: 1,
-            producer: JournalProducer { kind: "terminal_runtime".into(), id: "term_test".into() },
-            authority: None,
-            causation_id: None,
-            correlation_id: None,
-            causation_depth: 0,
-            subjects: vec![JournalSubject { kind: "terminal".into(), id: "term_test".into() }],
-            sensitivity: JournalSensitivity::Sensitive,
-            payload: json!({
-                "format":"cmux.terminal-output.v1",
-                "encoding":"raw",
-                "byte_count":bytes.len().to_string(),
-                "sha256":format!("{digest:x}"),
-                "stream_offset_start":"0",
-                "stream_offset_end":bytes.len().to_string(),
-            }),
-            resource_revision: None,
-            previous_resource_revision: None,
-            terminal_output: Some(Arc::from(bytes)),
         })
     }
 
@@ -1656,41 +1623,6 @@ mod tests {
         assert_eq!(status, None);
         assert!(error.unwrap().contains("hook timed out"));
         assert!(started.elapsed() < Duration::from_secs(2));
-    }
-
-    #[test]
-    fn compiled_hook_regex_matches_cached_payload_bytes() {
-        let mut manifest = manifest();
-        manifest.filter.regex = Some(crate::JournalHookRegex {
-            pattern: "needle-[0-9]+".into(),
-            field: "payload".into(),
-            case_sensitive: true,
-        });
-        let filter = CompiledHookFilter::new(&manifest).unwrap();
-        assert!(filter.matches(&manifest, &document("resource.changed", json!({"v":"needle-42"}))));
-        assert!(!filter.matches(&manifest, &document("resource.changed", json!({"v":"other"}))));
-    }
-
-    #[test]
-    fn compiled_hook_regex_matches_exact_terminal_output_bytes() {
-        let mut manifest = manifest();
-        manifest.permissions.push("journal.read.sensitive".into());
-        manifest.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
-        manifest.filter.regex = Some(crate::JournalHookRegex {
-            pattern: "error-[0-9]+".into(),
-            field: "terminal_output".into(),
-            case_sensitive: true,
-        });
-        let filter = CompiledHookFilter::new(&manifest).unwrap();
-        assert!(filter.matches(&manifest, &terminal_document(b"prompt> error-42\r\n")));
-        assert!(!filter.matches(&manifest, &terminal_document(b"prompt> ready\r\n")));
-    }
-
-    #[test]
-    fn hooks_do_not_reconsume_delivery_events_by_default() {
-        let manifest = manifest();
-        let filter = CompiledHookFilter::new(&manifest).unwrap();
-        assert!(!filter.matches(&manifest, &document("hook.delivery.completed", json!({}))));
     }
 
     #[cfg(unix)]

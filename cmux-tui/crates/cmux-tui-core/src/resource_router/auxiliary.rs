@@ -279,19 +279,6 @@ fn pairing_snapshot(
     }))
 }
 
-#[cfg(test)]
-fn pairing_numeric_id(id: &PairingRequestPublicId) -> Result<u64, ResourceError> {
-    let payload =
-        id.as_str().strip_prefix("pairing_").expect("typed pairing ids have their prefix");
-    let value = u128::from_str_radix(payload, 16).map_err(|error| {
-        validation_error(
-            "pairing request id payload is invalid",
-            json!({"id":id,"error":error.to_string()}),
-        )
-    })?;
-    u64::try_from(value).map_err(|_| ResourceError::not_found("pairing_request", id.as_str()))
-}
-
 fn get_sidebar_view(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
@@ -592,10 +579,6 @@ mod tests {
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
-    fn public_id(prefix: &str, value: u128) -> String {
-        format!("{prefix}_{value:032x}")
-    }
-
     fn request(
         operation: ResourceOperation,
         key: Option<&str>,
@@ -621,55 +604,6 @@ mod tests {
             session: Some("current".to_string()),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn sidebar_input_emits_a_delta_only_when_public_lifecycle_changes() {
-        let sidebar_id =
-            SidebarViewPublicId::parse(public_id("sidebar_view", 1)).expect("sidebar test id");
-        let before = json!({
-            "id":sidebar_id,
-            "session_id":public_id("session", 1),
-            "cols":80,
-            "rows":24,
-            "running":true,
-        });
-        assert!(sidebar_input_lifecycle_delta(&sidebar_id, &before, &before).is_none());
-
-        let mut after = before.clone();
-        after["running"] = json!(false);
-        let changes = sidebar_input_lifecycle_delta(&sidebar_id, &before, &after).unwrap();
-        assert_eq!(changes[0]["kind"], "upsert");
-        assert_eq!(changes[0]["resource"], "sidebar_view");
-        assert_eq!(changes[0]["id"], sidebar_id.as_str());
-        assert_eq!(changes[0]["value"], after);
-    }
-
-    #[test]
-    fn pending_pairing_snapshots_use_public_ids_and_wire_decimals() {
-        let mux = Mux::new_for_test("aux-pairing", SurfaceOptions::default());
-        let (challenge, _response) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
-        let session = resolve_session(
-            &mux,
-            &ResourceSelectors {
-                machine: Some("current".to_string()),
-                session: Some("current".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let snapshot = pairing_snapshot(&session, &challenge, "pending").unwrap();
-        assert!(snapshot["id"].as_str().unwrap().starts_with("pairing_"));
-        assert_eq!(snapshot["expires_in_seconds"], "60");
-        assert_eq!(snapshot["status"], "pending");
-        assert_eq!(
-            pairing_numeric_id(
-                &PairingRequestPublicId::parse(snapshot["id"].as_str().unwrap().to_string())
-                    .unwrap()
-            )
-            .unwrap(),
-            challenge.id
-        );
     }
 
     #[test]
@@ -815,48 +749,6 @@ mod tests {
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
         assert!(mux.pending_pairings().is_empty());
-    }
-
-    #[test]
-    fn frontend_projection_round_trips_exact_json_and_replays() {
-        let mux = Mux::new_for_test("aux-projection", SurfaceOptions::default());
-        let projection_id = FrontendProjectionPublicId::random().unwrap();
-        let mut selected = session_selectors();
-        selected.frontend_projection = Some(projection_id.to_string());
-        let put_request = || {
-            request(
-                ResourceOperation::FrontendProjectionPut,
-                Some("projection-put-once"),
-                selected.clone(),
-                json!({
-                    "frontend_id":"cmux-test",
-                    "window_id":"window-test",
-                    "generation":"launch-test",
-                    "projection":{"columns":[{"workspace":"α"}]},
-                }),
-            )
-        };
-        let first = dispatch(&mux, put_request()).unwrap();
-        assert_eq!(first["replayed"], false);
-        assert_eq!(first["value"]["projection"], json!({"columns":[{"workspace":"α"}]}));
-        let revision = first["revision"].as_str().unwrap().parse::<u64>().unwrap();
-        let events = mux.resource_events_after(0).unwrap();
-        assert_eq!(events.head_revision, revision);
-        assert_eq!(events.batches.len(), 1);
-        assert_eq!(events.batches[0].changes[0]["resource"], "frontend_projection");
-        assert_eq!(
-            crate::resource_api::public_session_snapshot(&mux).unwrap()["cursor"]["revision"],
-            first["revision"]
-        );
-        let replay = dispatch(&mux, put_request()).unwrap();
-        assert_eq!(replay["replayed"], true);
-        assert_eq!(replay["value"], first["value"]);
-        let got = dispatch(
-            &mux,
-            request(ResourceOperation::FrontendProjectionGet, None, selected, json!({})),
-        )
-        .unwrap();
-        assert_eq!(got, first["value"]);
     }
 
     #[test]

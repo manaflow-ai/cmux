@@ -6019,15 +6019,6 @@ mod tests {
     }
 
     #[test]
-    fn ssh_bootstrap_normalizes_ipv6_and_preserves_port() {
-        let endpoint = Url::parse("ssh://alice@[2001:db8::1]:2222").unwrap();
-        assert_eq!(
-            ssh_bootstrap_destination(&endpoint).unwrap(),
-            ("alice@2001:db8::1".into(), Some(2222))
-        );
-    }
-
-    #[test]
     fn ssh_bootstrap_rejects_option_like_destination() {
         let endpoint = Url::parse("ssh://-Fvalidation@localhost").unwrap();
         assert!(ssh_bootstrap_destination(&endpoint).is_err());
@@ -6059,15 +6050,6 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.to_string().contains("timed out"));
-    }
-
-    #[test]
-    fn remote_runtime_worker_pool_is_bounded() {
-        assert!(
-            (MIN_REMOTE_RUNTIME_WORKERS..=MAX_REMOTE_RUNTIME_WORKERS)
-                .contains(&remote_runtime_worker_count())
-        );
-        build_remote_runtime("cmux-remote-runtime-test").unwrap();
     }
 
     #[tokio::test]

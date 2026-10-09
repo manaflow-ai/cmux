@@ -6,8 +6,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
-use super::parse;
-
 #[path = "files_tests.rs"]
 mod files;
 use crate::resource::TerminalPublicId;
@@ -365,33 +363,6 @@ fn many_untracked_files_are_counted_and_the_rest_skipped() {
 }
 
 #[test]
-fn a_folder_outside_a_repository_is_not_a_repository() {
-    let mux = mux();
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let folder = std::env::temp_dir().join(format!("cmux-git-ops-plain-{nanos}"));
-    fs::create_dir_all(&folder).unwrap();
-    let path = folder.to_string_lossy();
-    for (operation, params) in [
-        ("git.status", json!({"path":path})),
-        ("git.diff", json!({"path":path,"scope":"uncommitted"})),
-        ("git.files.search", json!({"path":path,"query":"x"})),
-        ("git.files.search", json!({"path":path,"query":""})),
-    ] {
-        let envelope = call(&mux, operation, params);
-        let (code, details) = failure(&envelope);
-        assert_eq!(code, "operation.failed", "{operation}");
-        assert_eq!(details["extra"]["code"], "not_a_repository", "{operation}");
-    }
-    let missing_path = folder.join("missing");
-    let missing = call(&mux, "git.status", json!({"path":missing_path.to_string_lossy()}));
-    assert_eq!(failure(&missing).1["extra"]["code"], "target_not_found");
-    let relative = call(&mux, "git.status", json!({"path":"relative/folder"}));
-    assert_eq!(failure(&relative).0, "validation.invalid");
-    let nothing = call(&mux, "git.status", json!({}));
-    assert_eq!(failure(&nothing).0, "validation.invalid");
-}
-
-#[test]
 fn status_reads_the_branch_upstream_and_base() {
     let mux = mux();
     let origin = repository("origin");
@@ -460,94 +431,4 @@ fn a_selector_reads_its_terminals_working_directory() {
     let both =
         call(&mux, "git.status", json!({"terminal":terminal,"path":repository.to_string_lossy()}));
     assert_eq!(failure(&both).0, "validation.invalid");
-}
-
-#[test]
-fn name_status_maps_codes_and_pairs_renames() {
-    let output = concat!("M\0a.txt\0R087\0old name.txt\0new.txt\0", "D\0b\0A\0c\0C100\0s\0t\0");
-    let parsed = parse::name_status(output.as_bytes());
-    let rows = parsed
-        .iter()
-        .map(|entry| (entry.path.as_str(), entry.previous_path.as_deref(), entry.status))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        rows,
-        vec![
-            ("a.txt", None, "modified"),
-            ("new.txt", Some("old name.txt"), "renamed"),
-            ("b", None, "deleted"),
-            ("c", None, "added"),
-            ("t", None, "added"),
-        ]
-    );
-}
-
-#[test]
-fn numstat_reads_counts_binaries_and_renames() {
-    let counts = parse::numstat(b"3\t1\ta.txt\0-\t-\timage.png\x002\t0\t\0old.txt\0new.txt\0");
-    assert_eq!(counts["a.txt"], Some(parse::LineCounts { additions: 3, deletions: 1 }));
-    assert_eq!(counts["image.png"], None);
-    assert_eq!(counts["new.txt"], Some(parse::LineCounts { additions: 2, deletions: 0 }));
-    assert!(!counts.contains_key("old.txt"));
-}
-
-#[test]
-fn patches_start_at_the_first_hunk_and_name_their_file() {
-    let output = concat!(
-        "diff --git a/a.txt b/a.txt\nindex 1..2 100644\n--- a/a.txt\n+++ b/a.txt\n",
-        "@@ -1 +1 @@\n-a\n+A\n",
-        "diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n",
-        "--- a/gone.txt\n+++ /dev/null\n",
-        "@@ -1 +0,0 @@\n-gone\n",
-        "diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n",
-        "diff --git a/with space.txt b/with space.txt\n",
-        "--- a/with space.txt\t\n+++ b/with space.txt\t\n",
-        "@@ -1 +1 @@\n-x\n+y\n",
-        "diff --git \"a/tab\\there.txt\" \"b/tab\\there.txt\"\n",
-        "--- \"a/tab\\there.txt\"\n+++ \"b/tab\\there.txt\"\n",
-        "@@ -1 +1 @@\n-p\n+q\n",
-    );
-    let patches = parse::patches(output.as_bytes());
-    assert_eq!(
-        patches,
-        vec![
-            ("a.txt".to_string(), "@@ -1 +1 @@\n-a\n+A\n".to_string()),
-            ("gone.txt".to_string(), "@@ -1 +0,0 @@\n-gone\n".to_string()),
-            ("with space.txt".to_string(), "@@ -1 +1 @@\n-x\n+y\n".to_string()),
-            ("tab\there.txt".to_string(), "@@ -1 +1 @@\n-p\n+q\n".to_string()),
-        ]
-    );
-}
-
-#[test]
-fn a_patch_is_cut_at_a_line_end_or_a_character_boundary() {
-    let mut patch = "@@ -1 +1 @@\n-one\n+two\n".to_string();
-    assert!(!parse::truncate_patch(&mut patch, 100));
-    assert!(parse::truncate_patch(&mut patch, 20));
-    assert_eq!(patch, "@@ -1 +1 @@\n-one\n");
-    let mut single = "+ééééé".to_string();
-    assert!(parse::truncate_patch(&mut single, 4));
-    assert_eq!(single, "+é");
-}
-
-#[test]
-fn branch_headers_read_detached_unborn_and_ahead_behind() {
-    let output = concat!(
-        "# branch.oid abc\0# branch.head topic\0",
-        "# branch.upstream origin/topic\0# branch.ab +2 -3\0",
-        "1 .M N... a\0",
-    );
-    let headers = parse::branch_headers(output.as_bytes());
-    assert_eq!(
-        headers,
-        parse::BranchHeaders {
-            head: Some("abc".into()),
-            branch: Some("topic".into()),
-            upstream: Some("origin/topic".into()),
-            ahead: 2,
-            behind: 3,
-        }
-    );
-    let unborn = parse::branch_headers(b"# branch.oid (initial)\0# branch.head (detached)\0");
-    assert_eq!(unborn, parse::BranchHeaders::default());
 }

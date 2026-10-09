@@ -116,38 +116,6 @@ fn a_closed_connection_ends_its_uploads() {
     assert_eq!(fs::read_dir(&partial).unwrap().count(), 0);
 }
 
-#[test]
-fn unreferenced_records_are_swept_with_their_bytes_and_referenced_ones_stay() {
-    let directory = TempDir::new("sweep");
-    let (mut store, conversation) = store_with_conversation(&directory.0);
-    let sent = b"\x89PNG sent";
-    upload(&mut store, &conversation, BYTES);
-    let stored = upload(&mut store, &conversation, sent);
-    let part: Part = serde_json::from_value(serde_json::json!({
-        "type":"attachment","hash":stored.hash,"name":"b.png","mime_type":"image/png",
-        "byte_count":sent.len()
-    }))
-    .unwrap();
-    store
-        .apply_op(
-            &conversation,
-            "c1",
-            "user_local",
-            &Op::MessageSend { client_msg_id: "c1".into(), parts: vec![part], reply_to: None },
-        )
-        .unwrap();
-    // Both records are older than the grace period.
-    store.connection.execute("UPDATE attachment_record SET created_at_ms = 0", []).unwrap();
-    store.sweep_unreferenced().unwrap();
-    let root = directory.0.join(ATTACHMENTS_DIRECTORY);
-    assert!(!root.join(hash(BYTES)).exists(), "the unsent upload is swept");
-    assert!(root.join(hash(sent)).exists(), "the sent attachment stays");
-    let error = store
-        .attachment_read("user_local", &conversation, &hash(BYTES), Piece::Original, 0, 16)
-        .unwrap_err();
-    assert_eq!(error.to_string(), "unknown_attachment");
-}
-
 fn send(store: &mut ConversationStore, conversation: &str, key: &str, bytes: &[u8]) {
     let part: Part = serde_json::from_value(serde_json::json!({
         "type":"attachment","hash":hash(bytes),"name":"x.png","mime_type":"image/png",

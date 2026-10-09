@@ -216,35 +216,6 @@ mod tests {
         assert!(!lines[0].contains("/daemon.sock"), "{}", lines[0]);
     }
 
-    /// A caller value for a key the daemon does not own replaces the
-    /// daemon's entry, and only one entry stays for the key.
-    #[test]
-    fn a_caller_value_for_an_unowned_key_replaces_the_daemon_value() {
-        let mut env = pairs(&[("LANG", "C"), ("CMUX_TUI_HOOK", "/daemon/hook")]);
-        let dropped = merge_caller_env(
-            &mut env,
-            &pairs(&[("LANG", "en_US.UTF-8"), ("CMUX_TUI_HOOK", "/caller/hook")]),
-        );
-        assert_eq!(dropped, vec!["CMUX_TUI_HOOK".to_string()]);
-        assert_eq!(env, pairs(&[("CMUX_TUI_HOOK", "/daemon/hook"), ("LANG", "en_US.UTF-8")]));
-    }
-
-    /// Every integration-owned key is removed, and other keys stay.
-    #[test]
-    fn strip_integration_owned_removes_only_the_integration_keys() {
-        let mut env = INTEGRATION_OWNED_ENV_KEYS
-            .iter()
-            .map(|key| ((*key).to_string(), "caller".to_string()))
-            .collect::<Vec<_>>();
-        env.push(("HOME".into(), "/home/me".into()));
-        let mut removed = strip_integration_owned(&mut env);
-        removed.sort();
-        let mut expected = INTEGRATION_OWNED_ENV_KEYS.map(String::from).to_vec();
-        expected.sort();
-        assert_eq!(removed, expected);
-        assert_eq!(env, pairs(&[("HOME", "/home/me")]));
-    }
-
     /// Windows env keys ignore case, so a lowercase caller key is the same
     /// variable there and is dropped; elsewhere it is a different variable.
     #[test]

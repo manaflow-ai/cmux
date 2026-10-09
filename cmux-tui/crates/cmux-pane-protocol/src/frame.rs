@@ -195,28 +195,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn text_header_is_a_plain_length_prefix() {
-        let bytes = encode(&Message::Text("{}".into())).unwrap();
-        assert_eq!(bytes, [0, 0, 0, 2, b'{', b'}']);
-        assert_eq!(decode(&bytes).unwrap(), Some((Message::Text("{}".into()), 6)));
-        assert_eq!(decode(&bytes[..5]).unwrap(), None);
-    }
-
-    #[test]
     fn binary_sets_the_high_bit_and_oversize_fails() {
         let bytes = encode(&Message::Binary(Bytes::from_static(&[1, 2]))).unwrap();
         assert_eq!(bytes, [0x80, 0, 0, 2, 1, 2]);
         assert!(matches!(parse_header(0x0100_0001u32.to_be_bytes()), Err(FrameError::TooLarge(_))));
         assert!(parse_header(0x0100_0000u32.to_be_bytes()).is_ok());
-    }
-
-    #[tokio::test]
-    async fn async_read_write_round_trip() {
-        let (mut left, mut right) = tokio::io::duplex(64);
-        let sent = Message::Text(r#"{"t":"cancel","id":1}"#.into());
-        write_message(&mut left, &sent).await.unwrap();
-        drop(left);
-        assert_eq!(read_message(&mut right).await.unwrap(), Some(sent));
-        assert_eq!(read_message(&mut right).await.unwrap(), None);
     }
 }

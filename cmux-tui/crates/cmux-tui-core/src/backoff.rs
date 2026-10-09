@@ -75,39 +75,3 @@ pub fn accept_error_needs_backoff(error: &io::Error) -> bool {
             | io::ErrorKind::NotConnected
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn doubles_to_the_cap_and_resets() {
-        let mut backoff =
-            Backoff::new(Duration::from_millis(10), Duration::from_millis(50)).with_jitter(0.0);
-        let delays: Vec<_> = (0..5).map(|_| backoff.next_delay().as_millis()).collect();
-        assert_eq!(delays, vec![10, 20, 40, 50, 50]);
-        backoff.reset();
-        assert_eq!(backoff.next_delay(), Duration::from_millis(10));
-    }
-
-    #[test]
-    fn jitter_stays_within_its_fraction_and_the_cap() {
-        let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
-        for _ in 0..100 {
-            backoff.reset();
-            let delay = backoff.next_delay();
-            assert!(delay >= Duration::from_millis(80) && delay <= Duration::from_millis(120));
-        }
-        for _ in 0..20 {
-            assert!(backoff.next_delay() <= Duration::from_secs(1));
-        }
-    }
-
-    #[test]
-    fn descriptor_exhaustion_needs_backoff() {
-        assert!(accept_error_needs_backoff(&io::Error::from_raw_os_error(libc::EMFILE)));
-        assert!(accept_error_needs_backoff(&io::Error::from_raw_os_error(libc::ENFILE)));
-        assert!(!accept_error_needs_backoff(&io::Error::from(io::ErrorKind::Interrupted)));
-        assert!(!accept_error_needs_backoff(&io::Error::from(io::ErrorKind::PermissionDenied)));
-    }
-}

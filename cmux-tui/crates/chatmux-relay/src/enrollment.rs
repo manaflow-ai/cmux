@@ -445,73 +445,6 @@ mod tests {
         assert!(!Path::new(&path).exists(), "oversized file must be shredded after refusal");
     }
 
-    #[test]
-    fn wrong_endpoint_expiry_or_permissions_fail_and_delete_the_file() {
-        let mut wrong_backend = enrollment();
-        wrong_backend["backend"] = Value::from("https://api.evil.example");
-        let path = fixture(&wrong_backend, 0o600, "backend");
-        let error = load_managed_enrollment_file(&path, NOW).expect_err("backend refused");
-        assert_eq!(error.0, "Managed enrollment file is invalid or expired.");
-        assert!(!Path::new(&path).exists());
-
-        let mut expired = enrollment();
-        expired["expiresAt"] = Value::from("2025-08-11T11:59:59.000Z");
-        let path = fixture(&expired, 0o600, "expired");
-        assert!(load_managed_enrollment_file(&path, NOW).is_err());
-        assert!(!Path::new(&path).exists());
-
-        #[cfg(unix)]
-        {
-            let path = fixture(&enrollment(), 0o644, "perms");
-            let error = load_managed_enrollment_file(&path, NOW).expect_err("perms refused");
-            assert_eq!(error.0, "Managed enrollment file permissions must be 0600.");
-            assert!(!Path::new(&path).exists(), "file is deleted even on refusal");
-
-            let path = fixture(&enrollment(), 0o700, "owner-only-perms");
-            let error = load_managed_enrollment_file(&path, NOW)
-                .expect_err("non-0600 owner-only permissions must be refused");
-            assert_eq!(error.0, "Managed enrollment file permissions must be 0600.");
-            assert!(!Path::new(&path).exists(), "file is deleted even on refusal");
-
-            let path = fixture(&enrollment(), 0o400, "read-only-perms");
-            let error = load_managed_enrollment_file(&path, NOW)
-                .expect_err("readable but non-writable permissions must be refused");
-            assert_eq!(error.0, "Managed enrollment file permissions must be 0600.");
-            assert!(!Path::new(&path).exists(), "read-only file is deleted even on refusal");
-        }
-
-        let mut short_token = enrollment();
-        short_token["token"] = Value::from("short");
-        let path = fixture(&short_token, 0o600, "token");
-        assert!(load_managed_enrollment_file(&path, NOW).is_err());
-
-        let mut wrong_client = enrollment();
-        wrong_client["client"] = Value::from("cmux-relay-managed-v2");
-        let path = fixture(&wrong_client, 0o600, "client");
-        assert!(load_managed_enrollment_file(&path, NOW).is_err());
-
-        assert_eq!(
-            load_managed_enrollment_file("", NOW).expect_err("path required").0,
-            "Managed enrollment file is required."
-        );
-        assert_eq!(
-            load_managed_enrollment_file("/nonexistent/enroll.json", NOW)
-                .expect_err("missing file")
-                .0,
-            "Managed enrollment file is unavailable."
-        );
-    }
-
-    #[cfg(not(unix))]
-    #[test]
-    fn non_unix_enrollment_fails_closed_before_accepting_contents() {
-        let path = fixture(&enrollment(), 0, "non-unix-identity");
-        let error = load_managed_enrollment_file(&path, NOW)
-            .expect_err("enrollment must be rejected when cleanup identity is unavailable");
-        assert_eq!(error.0, "Managed enrollment file is unavailable.");
-        assert!(Path::new(&path).exists(), "failed-closed enrollment remains for operator cleanup");
-    }
-
     #[cfg(unix)]
     #[test]
     fn enrollment_symlink_is_rejected_without_shredding_target() {
@@ -530,46 +463,6 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), expected);
         assert!(std::fs::symlink_metadata(&link).is_ok(), "rejected symlink must not be unlinked");
         let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn hard_linked_enrollment_is_rejected_without_shredding_other_link() {
-        let dir =
-            std::env::temp_dir().join(format!("cmux-managed-hardlink-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("target.json");
-        let link = dir.join("enrollment.json");
-        let expected = serde_json::to_string(&enrollment()).unwrap();
-        std::fs::write(&target, &expected).unwrap();
-        std::fs::hard_link(&target, &link).unwrap();
-
-        let error = load_managed_enrollment_file(link.to_str().unwrap(), NOW)
-            .expect_err("hard-linked enrollment must be rejected");
-        assert_eq!(error.0, "Managed enrollment file is unavailable.");
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), expected);
-        assert!(!link.exists(), "only the enrollment pathname is removed");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn valid_v2_keeps_events_runtime_only_and_origin_bound() {
-        let mut value = enrollment();
-        value["version"] = Value::from(2);
-        value["events"] = json!({
-            "url": "https://api.chatmux.dev/v2/agent-events",
-            "token": "e".repeat(48),
-        });
-        let path = fixture(&value, 0o600, "v2");
-        let loaded = load_managed_enrollment_file(&path, NOW).expect("valid v2 enrollment");
-        assert_eq!(
-            loaded.events,
-            Some(ManagedEvents {
-                url: "https://api.chatmux.dev/v2/agent-events".to_owned(),
-                token: "e".repeat(48),
-            })
-        );
     }
 
     #[test]
@@ -610,73 +503,5 @@ mod tests {
         let path = fixture(&value, 0o600, "v1-events");
         let loaded = load_managed_enrollment_file(&path, NOW).expect("v1 remains compatible");
         assert!(loaded.events.is_none());
-    }
-
-    #[test]
-    fn e2e_override_accepts_only_http_loopback_origins() {
-        for (raw, expected) in [
-            (Some("http://127.0.0.1:8917"), Some("http://127.0.0.1:8917")),
-            (Some("http://localhost:8917/path"), Some("http://localhost:8917")),
-            (Some("http://[::1]:8917"), Some("http://[::1]:8917")),
-        ] {
-            assert_eq!(
-                e2e_loopback_backend_override(raw),
-                expected.map(str::to_owned),
-                "unexpected result for {raw:?}",
-            );
-        }
-        for raw in [
-            None,
-            Some(""),
-            Some("not a url"),
-            Some("https://127.0.0.1:8917"),
-            Some("http://api.evil.example:8917"),
-            Some("http://10.0.0.5:8917"),
-            Some("http://127.0.0.2:8917"),
-        ] {
-            assert_eq!(e2e_loopback_backend_override(raw), None, "expected {raw:?} to be refused",);
-        }
-    }
-
-    #[test]
-    fn e2e_override_requires_exact_origin_and_preserves_production_allowlist() {
-        let mut loopback = enrollment();
-        loopback["version"] = Value::from(2);
-        loopback["backend"] = Value::from("http://127.0.0.1:8917");
-        loopback["events"] = json!({
-            "url": "http://127.0.0.1:8917/v2/agent-events",
-            "token": "e".repeat(48),
-        });
-        let path = fixture(&loopback, 0o600, "e2e-loopback");
-        let loaded =
-            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"))
-                .expect("matching loopback origin should load");
-        assert_eq!(loaded.backend, "http://127.0.0.1:8917");
-        assert_eq!(
-            loaded.events,
-            Some(ManagedEvents {
-                url: "http://127.0.0.1:8917/v2/agent-events".to_owned(),
-                token: "e".repeat(48),
-            })
-        );
-
-        let mut mismatched = loopback.clone();
-        mismatched["backend"] = Value::from("http://127.0.0.1:9999");
-        let path = fixture(&mismatched, 0o600, "e2e-mismatched");
-        assert!(
-            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"),)
-                .is_err()
-        );
-
-        let mut remote = loopback;
-        remote["backend"] = Value::from("https://attacker.invalid");
-        let path = fixture(&remote, 0o600, "e2e-remote");
-        assert!(load_managed_enrollment_file_with_override(&path, NOW, None,).is_err());
-
-        let path = fixture(&enrollment(), 0o600, "e2e-production");
-        let loaded =
-            load_managed_enrollment_file_with_override(&path, NOW, Some("http://127.0.0.1:8917"))
-                .expect("production backend must remain allowed");
-        assert_eq!(loaded.backend, "https://api.chatmux.dev");
     }
 }

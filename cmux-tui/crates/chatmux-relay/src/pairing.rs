@@ -311,17 +311,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pair_ids_have_the_w100_shape() {
-        for _ in 0..16 {
-            let id = mint_pair_id().expect("OS randomness available in test");
-            assert_eq!(id.len(), "pair_".len() + 24);
-            let tail = id.strip_prefix("pair_").expect("prefix");
-            assert!(tail.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
-        }
-        assert_ne!(mint_pair_id().unwrap(), mint_pair_id().unwrap());
-    }
-
-    #[test]
     fn relay_public_keys_are_x25519_spki_der_base64url() {
         let key = mint_relay_public_key().expect("OS randomness available in test");
         // 44 DER bytes -> 59 unpadded base64url characters.

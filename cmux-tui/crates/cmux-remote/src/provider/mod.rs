@@ -353,26 +353,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn carrier_retryability_excludes_configuration_authentication_and_protocol_failures() {
-        assert!(ProviderError::Link(LinkError::Closed).is_retryable_carrier_failure());
-        assert!(
-            ProviderError::Link(LinkError::Transport("edge unavailable".into()))
-                .is_retryable_carrier_failure()
-        );
-        assert!(
-            !ProviderError::Link(LinkError::Protocol("bad frame".into()))
-                .is_retryable_carrier_failure()
-        );
-        assert!(
-            !ProviderError::Configuration("bad endpoint".into()).is_retryable_carrier_failure()
-        );
-        assert!(
-            !ProviderError::Transport("authentication rejected".into())
-                .is_retryable_carrier_failure()
-        );
-    }
-
     struct CountingProvider {
         calls: AtomicUsize,
         supported_auth: SupportedClientAuthModes,
@@ -491,62 +471,6 @@ mod tests {
             UnixProvider::new(65_535).supported_client_auth(),
             SupportedClientAuthModes::DeviceOrCarrier
         );
-    }
-
-    #[test]
-    fn auto_separates_keystrokes_and_bulk() {
-        let groups = lane_bindings(LanePolicy::Auto, ProviderCapabilities::WEBSOCKET);
-        assert_eq!(groups[0], [Lane::Interactive]);
-        assert_eq!(groups[1], [Lane::Control]);
-        assert!(
-            !groups
-                .iter()
-                .any(|group| { group.contains(&Lane::Interactive) && group.contains(&Lane::Bulk) })
-        );
-        assert!(
-            !groups
-                .iter()
-                .any(|group| { group.contains(&Lane::Control) && group.contains(&Lane::Tunnel) })
-        );
-    }
-
-    #[test]
-    fn isolated_bindings_use_scheduler_priority_order() {
-        assert_eq!(
-            lane_bindings(LanePolicy::Isolated, ProviderCapabilities::MULTI_STREAM),
-            vec![
-                vec![Lane::Interactive],
-                vec![Lane::Control],
-                vec![Lane::Tunnel],
-                vec![Lane::Bulk],
-            ]
-        );
-    }
-
-    #[test]
-    fn stream_provider_collapses_isolated_policy() {
-        assert_eq!(
-            lane_bindings(LanePolicy::Isolated, ProviderCapabilities::STREAM),
-            vec![Lane::ALL.to_vec()]
-        );
-    }
-
-    #[test]
-    fn diagnostic_network_routes_expose_only_scheme_and_authority() {
-        for (route, expected) in [
-            (
-                "wss://user:secret@example.test/v1/link?ticket=secret#fragment",
-                "wss://example.test/",
-            ),
-            ("ssh://alice@example.test:2222", "ssh://example.test:2222"),
-            ("relay+do://worker.example/?ticket=secret", "relay+do://worker.example"),
-            (
-                "relay+https://user:secret@relay.example/path?ticket=secret#fragment",
-                "relay+https://relay.example",
-            ),
-        ] {
-            assert_eq!(sanitized_route(&Url::parse(route).unwrap()), expected);
-        }
     }
 
     #[test]

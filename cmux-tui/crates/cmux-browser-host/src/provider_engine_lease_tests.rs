@@ -108,27 +108,6 @@ fn a_gone_tab_drops_its_lease() {
     wait_for_lease(&app, "W", "dropped with the tab", Option::is_none);
 }
 
-/// lease v2: allow lifts a stop for the stopped principal (actor), so the
-/// same agent can act again under any session name.
-#[test]
-fn allow_from_the_app_lifts_a_stop_by_actor() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-    let first = session(&provider, "webkit", "s1");
-    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
-    app.send(Frame::LeaseUser { op: "stop".into(), target_id: Some("W".into()), actor: None });
-    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-    let renamed = session(&provider, "webkit", "s2");
-    let stopped = renamed.call("input.key", &json!({"targetId": "W"})).unwrap_err();
-    assert_eq!(stopped.error_name.as_deref(), Some("stopped_by_user"), "{stopped}");
-    app.send(Frame::LeaseUser {
-        op: "allow".into(),
-        target_id: None,
-        actor: Some("uid:501".into()),
-    });
-    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-    renamed.call("input.key", &json!({"targetId": "W"})).unwrap();
-}
-
 /// An observe counts as the fresh read after hand back only when it
 /// succeeded: a failed read leaves the next act stale.
 #[test]

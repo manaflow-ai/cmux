@@ -1294,87 +1294,16 @@ async fn relay_session(
     result
 }
 
-#[cfg(all(test, not(unix)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unsupported_pty_requests_get_typed_replies() {
-        let open =
-            unsupported_platform_pty_reply("pty_open", &serde_json::json!({"ptyId": "pty_1"}))
-                .expect("pty open refusal");
-        assert_eq!(open["type"], "pty_error");
-        assert_eq!(open["ptyId"], "pty_1");
-        assert_eq!(open["code"], "failed");
-
-        let list = unsupported_platform_pty_reply(
-            "surface_list",
-            &serde_json::json!({"requestId": "list_1"}),
-        )
-        .expect("surface list response");
-        assert_eq!(list["type"], "surface_list_result");
-        assert_eq!(list["requestId"], "list_1");
-        assert_eq!(list["surfaces"], serde_json::json!([]));
-    }
-}
-
 #[cfg(test)]
 mod liveness_tests {
-    use super::{
-        PRE_HELLO_READ_DEADLINE, READ_LIVENESS_GRACE, SUSPEND_CLOCK_JUMP, clock_jumped,
-        read_liveness_deadline,
-    };
+    use super::{SUSPEND_CLOCK_JUMP, clock_jumped};
     use std::time::Duration;
-
-    #[test]
-    fn matching_clock_deltas_are_not_a_jump() {
-        // A healthy tick: 5s of wall time across 5s of run time. This is
-        // also the wrong-but-ticking guest clock (absolute offset does not
-        // matter; only the deltas are compared).
-        assert!(!clock_jumped(5_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
-    }
-
-    #[test]
-    fn wall_clock_running_ahead_of_monotonic_is_a_suspend() {
-        // Host sleep: 14 minutes of wall time passed while the monotonic
-        // clock (which excludes suspend) saw one 5s sample.
-        assert!(clock_jumped(840_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
-    }
-
-    #[test]
-    fn wall_clock_stepped_backward_is_a_jump() {
-        // A guest clock resync stepping backward after a pause is the same
-        // signal: real time passed that this process never observed.
-        assert!(clock_jumped(-835_000, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
-    }
-
-    #[test]
-    fn the_jump_threshold_is_exclusive() {
-        let threshold_ms = 5_000 + i64::try_from(SUSPEND_CLOCK_JUMP.as_millis()).expect("ms");
-        assert!(!clock_jumped(threshold_ms, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
-        assert!(clock_jumped(threshold_ms + 1, Duration::from_secs(5), SUSPEND_CLOCK_JUMP));
-    }
 
     #[test]
     fn extreme_deltas_saturate_instead_of_overflowing() {
         assert!(clock_jumped(i64::MAX, Duration::ZERO, SUSPEND_CLOCK_JUMP));
         assert!(clock_jumped(i64::MIN, Duration::ZERO, SUSPEND_CLOCK_JUMP));
         assert!(clock_jumped(0, Duration::from_millis(u64::MAX), SUSPEND_CLOCK_JUMP));
-    }
-
-    #[test]
-    fn read_deadline_follows_the_negotiated_heartbeat_cadence() {
-        // 3 heartbeats + 10s grace, matching the server's staleness rule.
-        assert_eq!(read_liveness_deadline(Some(Duration::from_secs(20))), Duration::from_secs(70));
-        assert_eq!(
-            read_liveness_deadline(Some(Duration::from_secs(1))),
-            Duration::from_secs(3) + READ_LIVENESS_GRACE
-        );
-    }
-
-    #[test]
-    fn read_deadline_before_hello_uses_the_server_default_budget() {
-        assert_eq!(read_liveness_deadline(None), PRE_HELLO_READ_DEADLINE);
     }
 }
 

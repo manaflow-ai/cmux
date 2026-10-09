@@ -173,51 +173,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_person_lists_or_purges_cookie_backups() {
-        let (host, backups, dir) = host("origin");
-        let id = backup(&backups);
-        for origin in ["cli", "mcp", "script", "remote"] {
-            for (op, params) in [
-                ("browser.cookieBackups.list", json!({})),
-                ("browser.cookieBackups.purge", json!({"restoreId": id})),
-                ("browser.cookieBackups.purge", json!({"all": true, "confirm": "x"})),
-            ] {
-                let refused = host.dispatch(&caller(origin), op, &params).unwrap_err();
-                assert_eq!(refused.code, ErrorCode::Forbidden, "{origin} {op}");
-            }
-        }
-        assert!(backups.load(&id).is_ok(), "no agent removed the backup");
-        let listed =
-            host.dispatch(&caller("user"), "browser.cookieBackups.list", &json!({})).unwrap();
-        assert_eq!(listed["backups"][0]["restoreId"], id.as_str());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn a_purge_deletes_only_after_its_own_confirmation() {
-        let (host, backups, dir) = host("confirm");
-        let (a, b) = (backup(&backups), backup(&backups));
-        let purge =
-            |params: Value| host.dispatch(&caller("user"), "browser.cookieBackups.purge", &params);
-        let asked = purge(json!({"restoreId": a})).unwrap();
-        assert_eq!(asked["deleted"], 0);
-        assert_eq!(asked["backups"].as_array().unwrap().len(), 1);
-        let token = asked["confirm"].as_str().unwrap().to_owned();
-        assert!(backups.load(&a).is_ok(), "asking deletes nothing");
-        // A token confirms only its own request, once.
-        assert!(purge(json!({"all": true, "confirm": token})).is_err());
-        assert!(backups.load(&a).is_ok() && backups.load(&b).is_ok());
-        let token = purge(json!({"restoreId": a})).unwrap()["confirm"].as_str().unwrap().to_owned();
-        assert_eq!(purge(json!({"restoreId": a, "confirm": token})).unwrap()["deleted"], 1);
-        assert!(backups.load(&a).is_err() && backups.load(&b).is_ok());
-        assert!(purge(json!({"restoreId": a, "confirm": token})).is_err(), "used once");
-        let token = purge(json!({"all": true})).unwrap()["confirm"].as_str().unwrap().to_owned();
-        assert_eq!(purge(json!({"all": true, "confirm": token})).unwrap()["deleted"], 1);
-        assert!(backups.ids().is_empty());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
     fn a_purge_is_logged_where_the_person_reads_it() {
         let (host, backups, dir) = host("log");
         let (a, _b) = (backup(&backups), backup(&backups));

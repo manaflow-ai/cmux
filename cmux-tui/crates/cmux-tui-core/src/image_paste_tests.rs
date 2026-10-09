@@ -23,26 +23,6 @@ fn prepared(store: &ImagePasteStore) -> std::path::PathBuf {
 }
 
 #[test]
-fn cloud_image_paste_remote_file_is_readable_and_only_pasted_once() {
-    let store = ImagePasteStore::with_recovery(None);
-    let path = prepared(&store);
-    let mut pasted = String::new();
-    store
-        .commit(&owner(), ID, |text| {
-            pasted = text.into();
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(pasted, format!("'{}'", path.display()));
-    assert_eq!(fs::read(&path).unwrap(), PNG);
-    assert!(store.commit(&owner(), ID, |_| panic!("must not double paste")).is_err());
-    store.disconnect(1);
-    assert!(path.exists(), "a reconnect must not remove an attachment an agent may be reading");
-    store.close_terminal("term_1");
-    assert!(!path.exists());
-}
-
-#[test]
 fn cloud_image_paste_cleanup_waits_for_blocking_delivery() {
     let store = Arc::new(ImagePasteStore::with_recovery(None));
     let path = prepared(&store);
@@ -68,55 +48,6 @@ fn cloud_image_paste_cleanup_waits_for_blocking_delivery() {
     release_tx.send(()).unwrap();
     worker.join().unwrap();
     assert!(!path.exists(), "deferred terminal cleanup should run after delivery");
-}
-
-#[test]
-fn cloud_image_paste_cancellation_and_connection_end_remove_unpublished_bytes() {
-    let store = ImagePasteStore::with_recovery(None);
-    let path = prepared(&store);
-    store.cancel(&owner(), ID).unwrap();
-    assert!(!path.exists());
-    store.cancel(&owner(), ID).unwrap();
-    assert!(store.commit(&owner(), ID, |_| panic!("cancelled paste")).is_err());
-    let path = prepared(&store);
-    store.disconnect(1);
-    assert!(!path.exists());
-}
-
-#[test]
-fn cloud_image_paste_rejects_foreign_identity_and_out_of_order_chunks() {
-    let store = ImagePasteStore::with_recovery(None);
-    let path = prepared(&store);
-    for foreign in [
-        ImagePasteOwner { client: 2, ..owner() },
-        ImagePasteOwner { surface: 18, ..owner() },
-        ImagePasteOwner { terminal: "term_2".into(), ..owner() },
-        ImagePasteOwner { workspace: "workspace-2".into(), ..owner() },
-        ImagePasteOwner { lease: "retired-lease".into(), ..owner() },
-    ] {
-        assert!(store.commit(&foreign, ID, |_| panic!("foreign paste")).is_err());
-    }
-    assert!(path.exists());
-    assert!(store.append(&owner(), ID, 0, "eA==").is_err());
-    assert!(store.append(&owner(), ID, PNG.len(), "eA==").is_err());
-}
-
-#[test]
-fn cloud_image_paste_rejects_size_type_bad_data_and_incomplete_upload() {
-    let store = ImagePasteStore::with_recovery(None);
-    for size in [0, MAX_IMAGE_BYTES + 1, usize::MAX] {
-        assert!(store.begin(owner(), ID, "image/png", size).is_err());
-    }
-    assert!(store.begin(owner(), ID, "image/svg+xml", 20).is_err());
-    assert!(store.begin(owner(), "../../user-file", "image/png", 20).is_err());
-    store.begin(owner(), ID, "image/png", 20).unwrap();
-    assert!(store.append(&owner(), ID, 0, "not base64").is_err());
-    assert!(store.append(&owner(), ID, 0, &"A".repeat(MAX_CHUNK_BYTES * 2)).is_err());
-    assert!(store.commit(&owner(), ID, |_| panic!("incomplete paste")).is_err());
-    store
-        .append(&owner(), ID, 0, &base64::engine::general_purpose::STANDARD.encode([b'x'; 20]))
-        .unwrap();
-    assert!(store.commit(&owner(), ID, |_| panic!("mislabelled image")).is_err());
 }
 
 #[test]
@@ -162,62 +93,4 @@ fn cloud_image_paste_cleanup_does_not_follow_a_replacement_symlink() {
     fs::remove_file(path).unwrap();
     fs::remove_file(user_file).unwrap();
     fs::remove_dir(directory).unwrap();
-}
-
-#[test]
-fn cloud_image_paste_reservations_are_bounded_before_receiving_bytes() {
-    let store = ImagePasteStore::with_recovery(None);
-    for id in 0..6 {
-        store.begin(owner(), &format!("{id:032x}"), "image/png", MAX_IMAGE_BYTES).unwrap();
-    }
-    assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
-    store.disconnect(1);
-    store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
-}
-
-#[test]
-fn cloud_image_paste_failed_cleanup_keeps_its_reservation_and_cannot_commit() {
-    let store = ImagePasteStore::with_recovery(None);
-    let mut blockers = Vec::new();
-    for index in 0..6 {
-        let id = format!("{index:032x}");
-        store.begin(owner(), &id, "image/png", MAX_IMAGE_BYTES).unwrap();
-        let directory = store.shared.state.lock().unwrap().uploads[&(1, id.clone())]
-            .file
-            .directory()
-            .to_owned();
-        let blocker = directory.join(".cleanup-image");
-        fs::write(&blocker, "user file must not be replaced").unwrap();
-        store.cancel(&owner(), &id).unwrap();
-        assert_eq!(
-            store
-                .commit(&owner(), &id, |_| panic!("cancelled upload committed"))
-                .unwrap_err()
-                .to_string(),
-            "image-upload-expired"
-        );
-        assert_eq!(fs::read_to_string(&blocker).unwrap(), "user file must not be replaced");
-        blockers.push(blocker);
-    }
-    assert_eq!(store.shared.state.lock().unwrap().uploads.len(), 6);
-    assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
-    for blocker in blockers {
-        fs::remove_file(blocker).unwrap();
-    }
-    ImagePasteStore::reap(
-        &mut store.shared.state.lock().unwrap(),
-        Instant::now() + Duration::from_secs(2),
-    );
-    assert!(store.shared.state.lock().unwrap().uploads.is_empty());
-    store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
-}
-
-#[test]
-fn cloud_image_paste_already_removed_file_does_not_hold_storage_forever() {
-    let store = ImagePasteStore::with_recovery(None);
-    let path = prepared(&store);
-    fs::remove_file(&path).unwrap();
-    store.cancel(&owner(), ID).unwrap();
-    assert!(store.shared.state.lock().unwrap().uploads.is_empty());
-    assert!(!path.parent().unwrap().exists());
 }

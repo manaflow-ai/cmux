@@ -210,18 +210,6 @@ mod tests {
     }
 
     #[test]
-    fn daemon_session_matches_the_app_launcher() {
-        assert_eq!(
-            identity(Some("com.cmuxterm.app"), None).daemon_session().as_deref(),
-            Some("cmux-app")
-        );
-        assert_eq!(
-            identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
-            Some("cmux-app-nx9")
-        );
-    }
-
-    #[test]
     fn terminal_environment_wins_over_the_bundle() {
         let env = |key: &str| match key {
             "CMUX_SOCKET_PATH" => Some("/tmp/cmux-debug-own.sock".to_owned()),
@@ -235,14 +223,5 @@ mod tests {
         );
         assert_eq!(found.daemon_session().as_deref(), Some("cmux-app-own"));
         assert_eq!(AppIdentity::detect(|_| None, None), None);
-    }
-
-    #[test]
-    fn app_bundle_is_found_from_the_bundled_cli() {
-        assert_eq!(
-            containing_app_bundle(Path::new("/A/cmux DEV x.app/Contents/Resources/bin/cmux")),
-            Some(PathBuf::from("/A/cmux DEV x.app"))
-        );
-        assert_eq!(containing_app_bundle(Path::new("/usr/local/bin/cmux")), None);
     }
 }

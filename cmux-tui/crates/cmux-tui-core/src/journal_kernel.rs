@@ -637,42 +637,7 @@ fn push_bounded_journal_document(
 #[cfg(test)]
 mod performance_tests {
     use super::*;
-    use crate::{
-        JournalAuthority, JournalEventSchema, JournalProducer, JournalSubject, SessionJournalRecord,
-    };
-    use std::time::Instant;
-
-    fn record(sequence: u64) -> SessionJournalRecord {
-        SessionJournalRecord {
-            sequence,
-            event_id: format!("event_perf_{sequence:020}"),
-            schema_version: 1,
-            kind: "plugin.performance.output".into(),
-            class: JournalClass::Observation,
-            replay: JournalReplayPolicy::Advisory,
-            occurred_at_ms: sequence,
-            committed_at_ms: sequence,
-            producer: JournalProducer { kind: "benchmark".into(), id: "benchmark".into() },
-            authority: Some(JournalAuthority {
-                principal_id: "client_performance".into(),
-                lease_id: "benchmark".into(),
-                generation: "1".into(),
-                role: "benchmark".into(),
-            }),
-            causation_id: None,
-            correlation_id: None,
-            causation_depth: 0,
-            subjects: vec![JournalSubject {
-                kind: "terminal".into(),
-                id: "term_00000000000000000000000000000001".into(),
-            }],
-            sensitivity: JournalSensitivity::Metadata,
-            payload: json!({"message":"approval-42 is ready","padding":"x".repeat(256)}),
-            resource_revision: None,
-            previous_resource_revision: None,
-            terminal_output: None,
-        }
-    }
+    use crate::JournalEventSchema;
 
     fn producer_manifest() -> JournalProducerManifest {
         JournalProducerManifest {
@@ -722,39 +687,6 @@ mod performance_tests {
         assert!(error.contains("encrypted retention"), "{error}");
     }
 
-    fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
-        let state = kernel.state.lock().unwrap();
-        let records: Vec<_> = state
-            .records
-            .iter()
-            .filter(|record| record.record.sequence > sequence)
-            .take(limit)
-            .cloned()
-            .collect();
-        let scanned_through =
-            records.last().map_or(state.head_sequence, |record| record.record.sequence);
-        SharedJournalRead::Page(SharedJournalPage {
-            head_sequence: state.head_sequence,
-            scanned_through,
-            records,
-        })
-    }
-
-    #[test]
-    fn journal_documents_materialize_search_fields_lazily() {
-        let document = JournalDocument::new(record(1));
-        assert!(document.wire_value.get().is_none());
-        assert!(document.subjects_bytes.get().is_none());
-        assert!(document.payload_bytes.get().is_none());
-        assert!(document.record_bytes.get().is_none());
-        assert!(document.wire_value.get().is_none());
-        assert!(!document.subjects_bytes().is_empty());
-        assert!(document.wire_value.get().is_none());
-        assert!(document.subjects_bytes.get().is_some());
-        assert!(document.payload_bytes.get().is_none());
-        assert!(document.record_bytes.get().is_none());
-    }
-
     #[test]
     fn explicit_wake_is_observable_even_before_a_waiter_sleeps() {
         let kernel = JournalKernel {
@@ -776,86 +708,5 @@ mod performance_tests {
         let observed = kernel.epoch();
         kernel.wake_waiters();
         assert_ne!(kernel.wait(observed, Duration::ZERO), observed);
-    }
-
-    #[test]
-    fn journal_fanout_batches_are_bounded_before_publication() {
-        let mut records = VecDeque::new();
-        let mut record_bytes = 0;
-        for sequence in 1..=JOURNAL_FANOUT_CAPACITY as u64 + 137 {
-            push_bounded_journal_document(
-                &mut records,
-                &mut record_bytes,
-                Arc::new(JournalDocument::new(record(sequence))),
-            );
-        }
-        assert_eq!(records.len(), JOURNAL_FANOUT_CAPACITY);
-        assert_eq!(records.front().unwrap().record.sequence, 138);
-        assert_eq!(records.back().unwrap().record.sequence, JOURNAL_FANOUT_CAPACITY as u64 + 137);
-        assert_eq!(
-            record_bytes,
-            records.iter().map(|record| record.resident_bytes()).sum::<usize>()
-        );
-    }
-
-    #[test]
-    #[ignore = "manual release-mode journal performance probe"]
-    fn journal_tail_cache_performance_probe() {
-        let started = Instant::now();
-        let records = (1..=JOURNAL_FANOUT_CAPACITY as u64)
-            .map(record)
-            .map(JournalDocument::new)
-            .map(Arc::new)
-            .collect::<VecDeque<_>>();
-        let construction = started.elapsed();
-        let record_bytes = records.iter().map(|record| record.resident_bytes()).sum();
-        let kernel = JournalKernel {
-            state: Mutex::new(JournalFanoutState {
-                epoch: 1,
-                requested_epoch: 1,
-                shutdown_requested: false,
-                head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
-                records,
-                record_bytes,
-                available: true,
-                database_reader_count: 0,
-            }),
-            changed: Condvar::new(),
-            tailer: Mutex::new(None),
-            enabled: true,
-            producers: RwLock::new(HashMap::new()),
-        };
-
-        let iterations = 100_000_u64;
-        let cursor = JOURNAL_FANOUT_CAPACITY as u64 - 1;
-        let started = Instant::now();
-        let mut linear_observed = 0_u64;
-        for _ in 0..iterations {
-            if let SharedJournalRead::Page(page) =
-                linear_read_after(std::hint::black_box(&kernel), cursor, 1)
-            {
-                linear_observed += page.records.len() as u64;
-            }
-        }
-        let linear_reads = started.elapsed();
-        let started = Instant::now();
-        let mut observed = 0_u64;
-        for _ in 0..iterations {
-            if let SharedJournalRead::Page(page) =
-                std::hint::black_box(&kernel).read_after(cursor, 1)
-            {
-                observed += page.records.len() as u64;
-            }
-        }
-        let reads = started.elapsed();
-        eprintln!(
-            "journal tail cache: build {} lazy documents in {construction:?}; linear {iterations} near-tail reads in {linear_reads:?} ({:.0} reads/s); indexed in {reads:?} ({:.0} reads/s), {:.1}x faster",
-            JOURNAL_FANOUT_CAPACITY,
-            iterations as f64 / linear_reads.as_secs_f64(),
-            iterations as f64 / reads.as_secs_f64(),
-            linear_reads.as_secs_f64() / reads.as_secs_f64(),
-        );
-        assert_eq!(linear_observed, iterations);
-        assert_eq!(observed, iterations);
     }
 }

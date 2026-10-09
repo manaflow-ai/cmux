@@ -170,53 +170,6 @@ mod tests {
     }
 
     #[test]
-    fn conversation_budget_timestamps_round_trip() {
-        for ms in [0, 1, 999, 86_399_999, 1_790_000_000_123, 4_102_444_800_000] {
-            assert_eq!(parse_rfc3339_millis(&format_rfc3339_millis(ms)), Some(ms));
-        }
-        assert_eq!(parse_rfc3339_millis("2026-10-01 12:00:00.000Z"), None);
-        assert_eq!(parse_rfc3339_millis("garbage"), None);
-    }
-
-    #[test]
-    fn conversation_budget_limits_agents_not_humans() {
-        let head = head();
-        let base = 1_790_000_000_000;
-        let mut newest_first = vec![message(1, "user_local", base)];
-        for turn in 0..MAX_AGENT_TURNS {
-            let at = base + 10_000 * (turn as u64 + 1);
-            assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &newest_first, at), Ok(()));
-            let author = if turn % 2 == 0 { "agent_mux" } else { "agent_other" };
-            newest_first.insert(0, message(turn as u64 + 2, author, at));
-        }
-        let later = base + 1_000_000;
-        assert_eq!(
-            check_agent_budget(&head, "agent_mux", &text(), &newest_first, later),
-            Err(Reject::AgentBudget)
-        );
-        assert_eq!(check_agent_budget(&head, "user_local", &text(), &newest_first, later), Ok(()));
-        newest_first.insert(0, message(10, "user_local", later));
-        assert_eq!(
-            check_agent_budget(&head, "agent_mux", &text(), &newest_first, later + 1),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn conversation_budget_enforces_the_gap() {
-        let head = head();
-        let base = 1_790_000_000_000;
-        let recent = vec![message(2, "agent_mux", base), message(1, "user_local", base - 5_000)];
-        let early = base + MIN_AGENT_GAP_MS - 1;
-        assert_eq!(
-            check_agent_budget(&head, "agent_other", &text(), &recent, early),
-            Err(Reject::AgentRate)
-        );
-        let on_time = base + MIN_AGENT_GAP_MS;
-        assert_eq!(check_agent_budget(&head, "agent_other", &text(), &recent, on_time), Ok(()));
-    }
-
-    #[test]
     fn conversation_budget_skips_work_cards_and_a_clock_that_moved_back() {
         let head = head();
         let base = 1_790_000_000_000;

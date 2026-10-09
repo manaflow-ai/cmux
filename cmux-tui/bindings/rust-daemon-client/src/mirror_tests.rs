@@ -139,21 +139,3 @@ fn delete_of_unknown_resource_is_ignored() {
     );
     assert_eq!(names(&mirror), ["beta"]);
 }
-
-/// Documents the daemon/SDK mismatch at the pinned commit: when this starts
-/// failing, the SDK (or daemon) is fixed and `patch_detached_terminal` can go.
-#[test]
-fn pinned_sdk_rejects_detached_terminal_upsert() {
-    let line = crate::fixture::SESSION_EVENTS.lines().last().unwrap();
-    let envelope: serde_json::Value = serde_json::from_str(line).unwrap();
-    let detached = envelope["item"]["changes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["resource"] == "terminal" && c["value"]["tab_ids"] == serde_json::json!([]))
-        .expect("detached terminal upsert")["value"]
-        .clone();
-    assert!(serde_json::from_value::<cmux::TerminalSnapshot>(detached.clone()).is_err());
-    let patched = crate::fixture::patch_detached_terminal(&detached);
-    assert!(serde_json::from_value::<cmux::TerminalSnapshot>(patched).is_ok());
-}

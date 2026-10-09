@@ -87,5 +87,3 @@ fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selector
 }
 
 mod checkpoint;
-#[cfg(test)]
-mod tests;

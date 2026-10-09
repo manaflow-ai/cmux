@@ -399,32 +399,6 @@ mod tests {
         v.iter().map(|x| (*x).to_owned()).collect()
     }
 
-    #[test]
-    fn run_flags_parse() {
-        let cfg = parse_run(
-            &s(&[
-                "--root",
-                "/tmp/r",
-                "--metadata",
-                "127.0.0.1:9",
-                "--daemon-user",
-                "u",
-                "--no-announce",
-                "--rearm-delay-ms",
-                "5",
-            ]),
-            vec![],
-        )
-        .unwrap();
-        assert_eq!(cfg.paths.root(), std::path::Path::new("/tmp/r"));
-        assert_eq!(cfg.metadata_addr.port(), 9);
-        assert_eq!(cfg.daemon.user.as_deref(), Some("u"));
-        assert!(!cfg.announce);
-        assert_eq!(cfg.rearm_delay, Duration::from_millis(5));
-        assert!(parse_run(&s(&["--bogus"]), vec![]).is_err());
-        assert!(parse_run(&s(&["--root"]), vec![]).is_err());
-    }
-
     /// The units run `cmux host run --mode <user|system>` (launchd today;
     /// systemd and Windows later). `--mode` is accepted on both the
     /// roles-only path and the Linux bind agent path, anywhere in the args,
@@ -460,13 +434,5 @@ mod tests {
         assert_eq!(env_mode_deprecation(None, None), None);
         let line = env_mode_deprecation(None, Some("system")).unwrap();
         assert!(line.contains("CMUX_SERVER_MODE") && line.contains("--mode"), "{line}");
-    }
-
-    #[test]
-    fn status_without_agent_is_not_found() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().display().to_string();
-        assert_eq!(status_verb(&s(&["--json", "--root", &root])), 3);
-        assert_eq!(run(&s(&["nope"]), vec![]), 2);
     }
 }

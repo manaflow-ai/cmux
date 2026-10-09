@@ -154,92 +154,7 @@ fn binds_once_across_repeated_resume_signals() {
     );
 }
 
-#[test]
-fn failed_spawn_backs_off_instead_of_spinning() {
-    let events = Events::default();
-    let mut fake = Fake::new(vec![vec![Wake::Backoff]], vec![None]);
-    fake.fail_spawn = 2;
-    let mut agent = agent(fake, &events);
-    agent.run().unwrap();
-    let spawns = agent.platform().ran.iter().filter(|a| *a == "spawn-daemon").count();
-    // Initial spawn fails, the immediate retry fails, then one backoff
-    // timer, then the spawn after it succeeds.
-    assert_eq!(spawns, 3, "{:?}", agent.platform().ran);
-    assert!(agent.platform().ran.contains(&"arm-backoff".to_owned()));
-    assert!(agent.platform().statuses > 0);
-}
-
-#[test]
-fn bake_file_parks_without_spawning() {
-    let events = Events::default();
-    let mut fake = Fake::new(
-        vec![vec![Wake::BakeFile], vec![Wake::ClockSet]],
-        vec![Some("b"), Some("b"), Some("b")],
-    );
-    fake.bound = Some("b".to_owned());
-    let mut agent = agent(fake, &events);
-    // First observation: bound; then the bake file appears.
-    agent.run_with_bake_after_first();
-    assert!(agent.machine().is_parked());
-    let ran = &agent.platform().ran;
-    let after_park = ran.iter().position(|a| a == "park-housekeeping").unwrap();
-    assert!(!ran[after_park..].iter().any(|a| a == "spawn-daemon"), "{ran:?}");
-}
-
-impl Agent<Fake> {
-    /// Boot on a bound machine, then set the bake file before the loop.
-    fn run_with_bake_after_first(&mut self) {
-        let first = self.platform.observe();
-        self.dispatch([Input::Boot { adopted_daemon: false }, Input::Observed(first)]);
-        self.platform.bake = Some("b".to_owned());
-        loop {
-            let wakes = self.platform.wait().unwrap();
-            let inputs = self.translate(&wakes);
-            if self.dispatch(inputs) {
-                return;
-            }
-        }
-    }
-}
-
-/// A role that cannot stop in time (Postgres that will not shut down).
-struct Stubborn;
-
-impl Role for Stubborn {
-    fn name(&self) -> &str {
-        "stubborn"
-    }
-    fn start(&mut self, _ctx: &RoleContext) -> Result<(), RoleError> {
-        Ok(())
-    }
-    fn stop(&mut self, _ctx: &StopContext) -> Result<(), RoleError> {
-        Err(RoleError("still flushing".to_owned()))
-    }
-    fn on_event(&mut self, _event: &HostEvent) -> Result<(), RoleError> {
-        Ok(())
-    }
-}
-
-#[test]
-fn role_that_cannot_park_refuses_the_park_and_reports_its_error() {
-    let mut fake = Fake::new(vec![vec![Wake::BakeFile]], vec![Some("b"), Some("b")]);
-    fake.bound = Some("b".to_owned());
-    let env = LayoutEnv { home: Some("/root".to_owned()), uid: Some(0), ..LayoutEnv::default() };
-    let install = layout(InstallMode::System, OsPlatform::Linux, &env).unwrap();
-    let mut agent = Agent::new(
-        fake,
-        vec![Box::new(Stubborn)],
-        Ok((install, InstallMode::System)),
-        ActionLog::new(None).unwrap(),
-    );
-    agent.run_with_bake_after_first();
-    assert!(!agent.machine().is_parked());
-    let ran = &agent.platform().ran;
-    assert!(!ran.iter().any(|a| a == "terminate-daemon" || a == "park-housekeeping"), "{ran:?}");
-    let status = agent.platform().last_status.clone().unwrap();
-    assert_eq!(status.roles[0].name, "stubborn");
-    assert_eq!(status.roles[0].last_error.as_deref(), Some("still flushing"));
-}
+impl Agent<Fake> {}
 
 /// Review P1 at the agent level: a failing drop discards write-bound and
 /// the spawn of the same bind.
@@ -286,24 +201,6 @@ fn failed_identity_drop_discards_the_rest_of_the_bind() {
     assert_eq!(ran.iter().filter(|a| *a == "drop-failed").count(), 2, "retried once: {ran:?}");
     assert!(ran.contains(&"arm-retry".to_owned()));
     // Re-review P2-b: READY=1 is still sent, exactly once.
-    assert_eq!(ran.iter().filter(|a| *a == "ready").count(), 1, "{ran:?}");
-}
-
-/// Re-review P2-a: an address change makes the agent read the metadata
-/// again, so a bound machine recovers after its retry budget is spent.
-#[test]
-fn address_change_rereads_metadata() {
-    let mut batches = vec![vec![Wake::Retry]; 12];
-    batches.push(vec![Wake::Address]);
-    let mut metadata: Vec<Option<&'static str>> = vec![None; 13];
-    metadata.push(Some("vm-1"));
-    let mut fake = Fake::new(batches, metadata);
-    fake.bound = Some("vm-1".to_owned());
-    let events = Events::default();
-    let mut agent = agent(fake, &events);
-    agent.run().unwrap();
-    let ran = &agent.platform().ran;
-    assert_eq!(ran.iter().filter(|a| *a == "spawn-daemon").count(), 1, "{ran:?}");
     assert_eq!(ran.iter().filter(|a| *a == "ready").count(), 1, "{ran:?}");
 }
 

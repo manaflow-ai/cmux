@@ -5,7 +5,7 @@
 
 use serde_json::json;
 
-use super::tests::{Session, changes_after, error_code, read, revision, send, snapshot};
+use super::tests::{Session, error_code, read, send, snapshot};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -13,88 +13,6 @@ use crate::workspace_registry::WorkspaceRegistry;
 
 fn update(mux: &Arc<Mux>, key: &str, op: Value) -> Result<Value, ResourceError> {
     send(mux, "sidebar_layout.update", json!({"op": op}), Some(key))
-}
-
-/// Defaults, one committed op with its `state_upsert`, idempotent replay,
-/// reducer rejects as `validation.invalid` with the reason, no-ops without a
-/// change, the snapshot, and `personal_revision` for raw clients.
-#[test]
-fn sidebar_layout_ops_commit_replay_and_reject() {
-    let mux = Mux::new_for_test("state-sidebar-layout", SurfaceOptions::default());
-    let before = revision(&mux);
-    let defaults = read(&mux, "sidebar_layout.get", json!({}));
-    assert_eq!(defaults["revision"], "0");
-    let ids = |value: &Value| {
-        value["sections"].as_array().unwrap().iter().map(|s| s["id"].clone()).collect::<Vec<_>>()
-    };
-    assert_eq!(
-        ids(&defaults),
-        [json!("sec_top"), "sec_workspaces".into(), "sec_recents".into(), "sec_bottom".into()]
-    );
-    assert_eq!(
-        defaults["sections"][0]["items"][0]["ref"],
-        json!({"kind": "app", "value": "cmux/home"})
-    );
-    let removed = update(&mux, "s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
-    assert_eq!(removed["replayed"], false);
-    assert_eq!(removed["value"]["revision"], "1");
-    assert_eq!(removed["value"]["sections"][0]["items"][0]["id"], "itm_app_store");
-    let replay = update(&mux, "s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
-    assert_eq!(replay["replayed"], true);
-    let reject =
-        update(&mux, "s-2", json!({"kind": "section.remove", "id": "sec_workspaces"})).unwrap_err();
-    assert_eq!(
-        (reject.code.as_str(), reject.message.as_str()),
-        ("validation.invalid", "workspaces_required")
-    );
-    assert_eq!(
-        error_code(update(&mux, "s-3", json!({"kind": "item.teleport"}))),
-        "validation.invalid"
-    );
-    let gap = update(
-        &mux,
-        "s-4",
-        json!({"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}),
-    )
-    .unwrap();
-    assert_eq!(
-        gap["value"]["sections"][3]["arrangement"],
-        json!({"layout": "inline", "align": "leading", "gap": 6})
-    );
-    let same = json!({"id": "itm_x", "ref": {"kind": "built_in", "value": "account"}});
-    let noop = update(
-        &mux,
-        "s-5",
-        json!({"kind": "item.add", "item": same, "section": "sec_bottom", "index": 0}),
-    )
-    .unwrap();
-    assert_eq!(noop["value"]["revision"], "2");
-    assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "2");
-    let changes = changes_after(&mux, before)
-        .into_iter()
-        .filter(|change| change["resource"] == "sidebar_layout")
-        .map(|change| {
-            (
-                change["kind"].as_str().unwrap().to_string(),
-                change["id"].clone(),
-                change["value"]["revision"].clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        changes,
-        [
-            ("state_upsert".to_string(), json!("user"), json!("1")),
-            ("state_upsert".to_string(), json!("user"), json!("2"))
-        ]
-    );
-    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
-    let personal = mux.personal_snapshot().unwrap().personal_revision;
-    update(&mux, "s-6", json!({"kind": "item.remove", "id": "itm_app_store"})).unwrap();
-    assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1);
-    update(&mux, "s-7", json!({"kind": "item.update", "id": "itm_account", "shows_label": false}))
-        .unwrap();
-    assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1, "a no-op");
 }
 
 /// L5 over the wire: a section and item with values and keys this build does

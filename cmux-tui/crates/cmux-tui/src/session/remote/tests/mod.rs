@@ -19,7 +19,6 @@ mod attach;
 mod bootstrap;
 mod browser;
 mod events;
-mod geometry;
 mod identity;
 mod mirror;
 mod overflow;
@@ -48,18 +47,6 @@ impl RemoteMessageWriter for CloseTrackingWriter {
 
     fn close(&mut self) -> io::Result<()> {
         self.closed.store(true, Ordering::Release);
-        Ok(())
-    }
-}
-
-struct UnexpectedWriteWriter;
-
-impl RemoteMessageWriter for UnexpectedWriteWriter {
-    fn send(&mut self, message: &str) -> io::Result<()> {
-        panic!("unexpected remote write: {message}")
-    }
-
-    fn close(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
@@ -221,41 +208,6 @@ fn test_remote_pty_surface(
         reported_size: Mutex::new(None),
         browser: Mutex::new(RemoteBrowserState::default()),
     })
-}
-
-struct RejectingWriter {
-    session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
-}
-
-impl RemoteMessageWriter for RejectingWriter {
-    fn send(&mut self, message: &str) -> io::Result<()> {
-        let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
-        let id = request
-            .get("id")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
-        let session = self
-            .session
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
-        let response = session
-            .pending
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .ok_or_else(|| io::Error::other("remote request was not pending"))?;
-        response
-            .response
-            .send(json!({"id": id, "ok": false, "error": "injected rejection"}))
-            .map_err(|_| io::Error::other("remote response receiver was dropped"))
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 pub(super) struct SilentWriter;

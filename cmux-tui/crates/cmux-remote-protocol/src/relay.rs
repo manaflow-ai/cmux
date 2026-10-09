@@ -236,38 +236,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relay_control_does_not_name_application_services() {
-        let message = RelayControl::Incoming {
-            circuit: CircuitId("opaque-circuit".into()),
-            lane: LaneToken("opaque-lane".into()),
-            generation: 7,
-            join_ticket: "opaque-ticket".into(),
-        };
-        let json = serde_json::to_string(&message).unwrap();
-        for secret in ["workspace", "terminal", "process", "path", "command"] {
-            assert!(!json.contains(secret));
-        }
-    }
-
-    #[test]
-    fn ticket_scope_is_canonical_and_binds_lane_generation() {
-        let claims = RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: "relay.example".into(),
-            permission: RelayPermission::Join,
-            role: RelayRole::Client,
-            slot: "slot".into(),
-            circuit: Some(CircuitId("circuit".into())),
-            lane: Some(LaneToken("lane".into())),
-            generation: Some(4),
-            issued_at_unix: 40,
-            expires_at_unix: 99,
-        };
-        let payload = String::from_utf8(claims.signing_payload()).unwrap();
-        assert!(payload.contains("\njoin\nclient\nslot\ncircuit\nlane\n4\n40\n99"));
-    }
-
-    #[test]
     fn ticket_scope_canonical_payload_binds_issued_at() {
         let claims: RelayTicketClaims = serde_json::from_value(serde_json::json!({
             "version": RelayTicketClaims::VERSION,

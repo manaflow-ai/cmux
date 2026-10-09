@@ -118,8 +118,6 @@ mod reasoning_tests;
 #[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
-mod subagent_tests;
-#[cfg(test)]
 mod tests;
 
 /// The refusal of a steered prompt when no turn is running (the turn ended

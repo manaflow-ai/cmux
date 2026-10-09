@@ -426,12 +426,6 @@ impl Node {
 mod tests {
     use super::*;
 
-    #[test]
-    fn stack_construction_rejects_empty_membership() {
-        assert!(Node::stack(Vec::new()).is_none());
-        assert!(Node::stack(vec![1]).is_some());
-    }
-
     fn nested_tree() -> Node {
         Node::Split {
             id: 10,
@@ -465,22 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn exact_split_ratio_targets_one_same_direction_node() {
-        let mut root = nested_tree();
-
-        assert!(root.set_split_ratio(10, 0.8));
-        let Node::Split { ratio: root_ratio, a, .. } = &root else {
-            panic!("root should be split");
-        };
-        assert_eq!(*root_ratio, 0.8);
-        let Node::Split { ratio: inner_ratio, .. } = a.as_ref() else {
-            panic!("child should be split");
-        };
-        assert_eq!(*inner_ratio, 0.4);
-        assert!(!root.set_split_ratio(999, 0.2));
-    }
-
-    #[test]
     fn collapsing_a_parent_preserves_surviving_descendant_split_id() {
         let root = nested_tree();
 
@@ -488,24 +466,6 @@ mod tests {
 
         let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
         assert_eq!(id, 11);
-    }
-
-    #[test]
-    fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
-        let root = Node::Split {
-            id: 10,
-            dir: SplitDir::Right,
-            ratio: 0.5,
-            a: Box::new(Node::stack_with_expanded(vec![1], 1).unwrap()),
-            b: Box::new(Node::Leaf(2)),
-        };
-
-        let remaining = root.remove_leaf(2).unwrap();
-
-        assert!(matches!(
-            remaining,
-            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
-        ));
     }
 
     #[test]

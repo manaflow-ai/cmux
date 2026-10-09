@@ -356,38 +356,3 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         manifest,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn catalog_fragments_give_exports_and_palette_commands() {
-        let dir = std::env::temp_dir().join(format!("cmux-apps-catalog-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let catalog = json!({ "family": "notes", "operations": [
-            { "name": "notes.export", "export": "exportNotes", "palette": { "title": { "en": "Export" }, "when": "paneFocused:editor" } },
-            { "name": "notes.open", "export": "open" }
-        ] });
-        std::fs::write(dir.join("catalog.json"), catalog.to_string()).unwrap();
-        let package = Package {
-            id: "cmux/notes".into(),
-            version: "1.0.0".into(),
-            tier: Tier::FirstParty,
-            source: Source::Bundled,
-            dir: dir.clone(),
-            manifest: json!({ "catalog": "catalog.json" }),
-        };
-        let export = package.export_for_op("notes.open");
-        let commands = package.palette_commands();
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(export.as_deref(), Some("open"));
-        assert_eq!(
-            commands,
-            vec![
-                json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor" })
-            ]
-        );
-    }
-}

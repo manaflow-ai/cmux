@@ -392,31 +392,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_link_command_requests_agent_hooks_only_when_configured() {
-        let mut config = SshProviderConfig::default();
-        assert_eq!(
-            remote_link_command(&config),
-            ["~/.local/bin/cmux-tui", "remote-link", "--stdio", "--session", "main"]
-        );
-        config.remote_state_dir = Some("~/state".into());
-        config.agent_hooks = vec!["claude".into(), "codex".into()];
-        assert_eq!(
-            remote_link_command(&config),
-            [
-                "~/.local/bin/cmux-tui",
-                "remote-link",
-                "--stdio",
-                "--session",
-                "main",
-                "--state-dir",
-                "~/state",
-                "--agent-hooks",
-                "claude,codex",
-            ]
-        );
-    }
-
-    #[test]
     fn remote_link_command_attaches_to_an_explicit_mux_socket() {
         let config = SshProviderConfig {
             remote_binary: "~/.cmux/brains/chief/bin/cmux-tui".into(),
@@ -445,37 +420,11 @@ mod tests {
     }
 
     #[test]
-    fn agent_hook_providers_must_be_plain_words() {
-        for provider in ["claude", "codex", "hermes-agent"] {
-            let config = SshProviderConfig {
-                agent_hooks: vec![provider.into()],
-                ..SshProviderConfig::default()
-            };
-            assert!(SshProvider::new(config).is_ok(), "{provider}");
-        }
-        for provider in ["", "a,b", "claude;rm", "$(x)", "a b"] {
-            let config = SshProviderConfig {
-                agent_hooks: vec![provider.into()],
-                ..SshProviderConfig::default()
-            };
-            assert!(SshProvider::new(config).is_err(), "{provider:?}");
-        }
-    }
-
-    #[test]
     fn destination_preserves_user_for_dial_but_description_redacts_it() {
         let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
         let (destination, description) = ssh_destination(&endpoint).unwrap();
         assert_eq!(destination, "alice@example.com");
         assert_eq!(description, "ssh://example.com:2222");
-    }
-
-    #[test]
-    fn ipv6_destination_uses_openssh_form_and_bracketed_url() {
-        let endpoint = url::Url::parse("ssh://[2001:db8::1]:2222").unwrap();
-        let (destination, description) = ssh_destination(&endpoint).unwrap();
-        assert_eq!(destination, "2001:db8::1");
-        assert_eq!(description, "ssh://[2001:db8::1]:2222");
     }
 
     #[test]

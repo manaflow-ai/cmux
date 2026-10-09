@@ -49,16 +49,6 @@ impl AttachMessages {
     pub fn unknown_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
-
-    #[cfg(test)]
-    pub fn ambiguous_terminal(&self, reference: &str) -> String {
-        format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
-    }
-
-    #[cfg(test)]
-    pub fn browser_not_terminal(&self, reference: &str) -> String {
-        format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
-    }
 }
 
 pub(super) const ENGLISH: AttachMessages = AttachMessages {

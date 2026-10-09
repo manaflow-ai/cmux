@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 pub(super) use cmux_tui_core::user_settings::strip_jsonc;
-#[cfg(test)]
-pub(super) use cmux_tui_core::user_settings::{CONFIG_OVERRIDE, path_from};
 
 /// The settings file the app writes: `CMUX_NEXT_CONFIG_FILE`, else
 /// `~/.config/cmux/cmux-next.json` (classic `cmux.json` before the app's

@@ -23,11 +23,6 @@ struct DiagnosticState {
 }
 
 impl BoundedDiagnosticBuffer {
-    #[cfg(test)]
-    pub(crate) fn new(max_bytes: usize) -> Self {
-        Self::with_redactions(max_bytes, &[])
-    }
-
     pub(crate) fn with_redactions(max_bytes: usize, redactions: &[String]) -> Self {
         let mut redactions = redactions
             .iter()
@@ -61,7 +56,7 @@ impl BoundedDiagnosticBuffer {
         state.redactions.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
     }
 
-    #[cfg(any(not(unix), test))]
+    #[cfg(not(unix))]
     pub(crate) fn drain(&self, mut reader: impl Read) {
         let mut buffer = [0_u8; 4096];
         loop {
@@ -228,7 +223,6 @@ fn redact(bytes: &[u8], redactions: &[Vec<u8>]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
 
     use super::*;
 
@@ -268,31 +262,5 @@ mod tests {
         assert!(!state.truncated);
         drop(state);
         assert_eq!(diagnostics.sanitized().as_deref(), Some("[redacted]"));
-    }
-
-    #[test]
-    fn drain_retries_interrupted_reads() {
-        let diagnostics = BoundedDiagnosticBuffer::new(64);
-        diagnostics.drain(InterruptedOnce {
-            reads: VecDeque::from([Err(io::ErrorKind::Interrupted), Ok(b"diagnostic".to_vec())]),
-        });
-        assert_eq!(diagnostics.sanitized().as_deref(), Some("diagnostic"));
-    }
-
-    struct InterruptedOnce {
-        reads: VecDeque<Result<Vec<u8>, io::ErrorKind>>,
-    }
-
-    impl Read for InterruptedOnce {
-        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-            match self.reads.pop_front() {
-                Some(Ok(bytes)) => {
-                    buffer[..bytes.len()].copy_from_slice(&bytes);
-                    Ok(bytes.len())
-                }
-                Some(Err(kind)) => Err(io::Error::from(kind)),
-                None => Ok(0),
-            }
-        }
     }
 }

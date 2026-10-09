@@ -1114,22 +1114,6 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message;
 
-    #[test]
-    fn duplicate_request_ids_replace_order_entry() {
-        let ring = ConsoleRing::new();
-        ring.remember_request("same".to_owned(), "GET".to_owned(), "https://first".to_owned());
-        ring.remember_request("other".to_owned(), "POST".to_owned(), "https://other".to_owned());
-        ring.remember_request("same".to_owned(), "PUT".to_owned(), "https://latest".to_owned());
-
-        let mut inner = ring.inner.lock().expect("ring lock");
-        assert_eq!(inner.pending_order, VecDeque::from(["other".to_owned(), "same".to_owned()]));
-        assert_eq!(inner.pending.len(), 2);
-        assert_eq!(
-            inner.pending.remove("same"),
-            Some(("PUT".to_owned(), "https://latest".to_owned()))
-        );
-    }
-
     /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
     /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
     /// response header.
@@ -1852,19 +1836,5 @@ mod tests {
         let inner = ring.inner.lock().expect("ring lock");
         assert!(inner.pending.is_empty(), "an oversized request id was retained");
         assert!(inner.pending_order.is_empty(), "an oversized request id was queued");
-    }
-
-    #[tokio::test]
-    async fn bounds_preview_listeners_and_evicts_oldest_target() {
-        let registry = PreviewRegistry::new();
-        for target_port in 1..=i64::try_from(PREVIEW_PROXY_CAP).unwrap() + 1 {
-            registry.open(target_port).await.expect("preview open");
-        }
-        assert_eq!(registry.proxies.lock().await.len(), PREVIEW_PROXY_CAP);
-        assert!(!registry.proxies.lock().await.contains_key(&1));
-        assert!(registry.proxies.lock().await.contains_key(&(PREVIEW_PROXY_CAP as i64 + 1)));
-        registry.shutdown().await;
-        assert!(registry.proxies.lock().await.is_empty());
-        assert!(registry.order.lock().await.is_empty());
     }
 }

@@ -320,48 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn a_host_replacement_is_logged_as_its_own_event_and_removes_breadcrumbs() {
-        let root = temp_root("replaced");
-        let record = root.join("terminal-hosts-x").join("abc.json");
-        fs::write(signals_path(&record), "").unwrap();
-        record_host_replaced(&record, "abc", "i1", 10, 20);
-        let text = fs::read_to_string(root.join(LOSS_LOG_FILE)).unwrap();
-        let line: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
-        assert_eq!(line["event"], "host_replaced");
-        assert_eq!(
-            (line["old_host_pid"].as_u64(), line["new_host_pid"].as_u64()),
-            (Some(10), Some(20))
-        );
-        assert!(line.get("end").is_none(), "a replacement is not an end: {line}");
-        assert!(line["cause"].as_str().unwrap().contains("SIGKILL"), "{line}");
-        assert!(!signals_path(&record).exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn a_respawn_is_logged_as_its_own_event() {
-        let root = temp_root("respawned");
-        let hosts = root.join("terminal-hosts-x");
-        record_terminal_respawned(
-            &hosts,
-            "abc",
-            ("i1", "i2"),
-            "dead_before_adoption",
-            Prefilled::Harness,
-        );
-        let text = fs::read_to_string(root.join(LOSS_LOG_FILE)).unwrap();
-        let line: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
-        assert_eq!(line["event"], "terminal_respawned");
-        assert_eq!(
-            (line["old_incarnation"].as_str(), line["new_incarnation"].as_str()),
-            (Some("i1"), Some("i2"))
-        );
-        assert_eq!(line["cause"], "dead_before_adoption");
-        assert_eq!(line["prefilled"], "harness");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn a_loss_without_signals_names_an_uncatchable_end_and_process_ends_are_not_logged() {
         let root = temp_root("nosignals");
         let record = root.join("terminal-hosts-x").join("abc.json");

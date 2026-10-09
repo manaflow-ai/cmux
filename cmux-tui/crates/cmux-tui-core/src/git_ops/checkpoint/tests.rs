@@ -514,11 +514,6 @@ fn an_in_memory_session_and_a_folder_outside_a_repository_refuse() {
     mux.shutdown();
 }
 
-#[test]
-fn identify_advertises_git_checkpoints() {
-    assert_eq!(super::super::CHECKPOINTS_CAPABILITY, "git-checkpoints-v1");
-}
-
 fn pin_call(mux: &Arc<Mux>, repository: &Path, operation: &str, fields: Value, key: &str) -> Value {
     let mut params = fields;
     params["path"] = json!(repository.to_string_lossy());

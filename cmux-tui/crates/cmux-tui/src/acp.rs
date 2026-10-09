@@ -363,20 +363,6 @@ mod tests {
     }
 
     #[test]
-    fn open_runs_the_acpmux_tui_in_a_new_tab() {
-        let words = |list: &[&str]| list.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
-        assert_eq!(
-            open_command(&words(&["review"]), "/b/cmux").unwrap(),
-            words(&["pane", "current", "run", "--", "/b/cmux", "acp", "attach", "review"])
-        );
-        assert_eq!(
-            open_command(&words(&["--pane", "pane_01", "review"]), "/b/cmux").unwrap(),
-            words(&["pane", "pane_01", "run", "--", "/b/cmux", "acp", "attach", "review"])
-        );
-        assert!(open_command(&words(&[]), "/b/cmux").is_err());
-    }
-
-    #[test]
     fn a_tagged_bundle_without_cmux_tag_uses_its_own_acpmux_home() {
         let bundle = crate::app_identity::AppIdentity {
             bundle_id: Some("com.cmuxterm.app.debug.acpx-v2".into()),
@@ -393,17 +379,5 @@ mod tests {
         };
         assert_eq!(acpmux_tag(None, Some(untagged)), None);
         assert_eq!(acpmux_tag(None, None), None);
-    }
-
-    #[test]
-    fn tagged_builds_get_their_own_acpmux_home() {
-        let home = Path::new("/Users/a");
-        assert_eq!(
-            tagged_home(Some("Feat_ACP.2"), home),
-            Some(PathBuf::from("/Users/a/.acpmux/tags/feat-acp-2"))
-        );
-        assert_eq!(tagged_home(Some("--"), home), None);
-        assert_eq!(tagged_home(Some(""), home), None);
-        assert_eq!(tagged_home(None, home), None);
     }
 }

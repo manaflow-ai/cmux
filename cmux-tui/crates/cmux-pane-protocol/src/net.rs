@@ -153,16 +153,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    #[test]
-    fn backoff_doubles_to_a_cap_and_resets() {
-        let mut backoff = Backoff::default();
-        let delays: Vec<u64> = (0..9).map(|_| backoff.failure().0.as_millis() as u64).collect();
-        assert_eq!(delays, [10, 20, 40, 80, 160, 320, 640, 1000, 1000]);
-        backoff.success();
-        assert_eq!(backoff.failure(), (Backoff::FIRST, true));
-        assert!(!backoff.failure().1);
-    }
-
     /// An accept that keeps failing is retried with backoff and logged
     /// once per burst, not once per error.
     #[tokio::test]

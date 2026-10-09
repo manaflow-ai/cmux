@@ -22,12 +22,3 @@ pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::
     remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
         .into()
 }
-
-pub(crate) fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected {
-        error: message.to_string(),
-        code: Some(code.to_string()),
-        delivery: None,
-    }
-    .into()
-}

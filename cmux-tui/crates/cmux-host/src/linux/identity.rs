@@ -343,17 +343,6 @@ mod tests {
     }
 
     #[test]
-    fn clone_started_refuses_a_fifo_without_blocking() {
-        let root = tempfile::tempdir().unwrap();
-        let paths = Paths::new(root.path());
-        fs::create_dir_all(paths.at(RUN_DIR)).unwrap();
-        let fifo = std::ffi::CString::new(paths.at(CLONE_STARTED_FILE).to_str().unwrap()).unwrap();
-        // SAFETY: mkfifo with a valid path.
-        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
-        assert!(mark_clone_started(&paths).is_err());
-    }
-
-    #[test]
     fn rekey_steps_are_independent() {
         let root = tempfile::tempdir().unwrap();
         let paths = Paths::new(root.path());

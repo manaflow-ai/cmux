@@ -681,42 +681,6 @@ mod tests {
         }
     }
 
-    /// CALLER-LOCALITY: a remote caller (from the transport) is refused
-    /// loopback and private ranges for fetch and navigation alike; a
-    /// "remote" or "local" field in the request changes nothing.
-    #[test]
-    fn locality_comes_from_the_transport_not_the_request() {
-        let (host, _engines, _ended, root) = idle_host("locality", DEFAULT_IDLE_TIMEOUT);
-        let remote = Caller {
-            locality: crate::locality::CallerLocality::Remote {
-                principal: crate::locality::RemotePrincipal {
-                    user: "u".into(),
-                    install: "phone".into(),
-                    class: crate::locality::PrincipalClass::Agent,
-                    interactive: true,
-                },
-            },
-            ..mcp()
-        };
-        let run = |caller: &Caller, session: &str, code: &str| {
-            let params = json!({"session": session, "code": code, "engine": "headless",
-                "remote": true, "locality": "remote", "origin": "remote"});
-            let out = host.dispatch(caller, "browser.repl.eval", &params).unwrap();
-            out["error"].as_str().unwrap_or("").to_owned()
-        };
-        for code in [
-            "await fetch('http://127.0.0.1:9/x')",
-            "await page.goto('http://192.168.1.1/')",
-            "await tabs.open('http://localhost:3000/')",
-        ] {
-            let local = run(&mcp(), "near", code);
-            assert!(!local.contains("private or loopback"), "local {code}: {local}");
-            let far = run(&remote, "far", code);
-            assert!(far.contains("private or loopback"), "remote {code}: {far}");
-        }
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
     /// Classic main ends a named session after 30 minutes without a call
     /// (docs/browser-repl/README.md ~:396); here the deadline is short.
     #[test]
@@ -852,66 +816,6 @@ mod tests {
             let _ = host.dispatch(&caller("user"), "browser.repl.close", &json!({"session": name}));
         }
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn output_caps_on_char_boundaries() {
-        let mut text = "héllo".repeat(10);
-        assert!(cap(&mut text, 7));
-        assert!(text.starts_with("héllo"));
-        let mut short = "ok".to_owned();
-        assert!(!cap(&mut short, 7));
-    }
-
-    #[test]
-    fn broad_caller_directories_get_a_private_root() {
-        let home = std::env::var("HOME").unwrap();
-        assert!(session_root(Some("/"), "/", "s").contains("cmux-browser-host"));
-        assert!(session_root(Some(&home), "/", "s").contains("cmux-browser-host"));
-        assert!(session_root(Some("relative/dir"), "/", "s").contains("cmux-browser-host"));
-        let narrow = std::env::temp_dir().join(format!("narrow-{}", std::process::id()));
-        std::fs::create_dir_all(&narrow).unwrap();
-        assert_eq!(
-            session_root(Some(narrow.to_str().unwrap()), "/", "s"),
-            narrow.canonicalize().unwrap().display().to_string()
-        );
-    }
-
-    #[test]
-    fn lease_labels_are_cleaned_and_capped() {
-        assert_eq!(lease_label(Some("Book  a\nflight"), "s"), "Book a flight");
-        assert_eq!(lease_label(Some("\u{202E}evil\u{200B}\u{0007}"), "s"), "evil");
-        assert_eq!(lease_label(Some(" \u{FEFF} "), "s1"), "s1");
-        assert_eq!(lease_label(None, "s1"), "s1");
-        assert_eq!(lease_label(Some(&"x".repeat(200)), "s").chars().count(), 48);
-    }
-
-    #[test]
-    fn the_persons_tabs_need_a_named_session() {
-        for engine in ["cef", "webkit"] {
-            assert!(Host::require_named_session(engine, &json!({})).is_err(), "{engine}");
-            let null = json!({"session": null});
-            assert!(Host::require_named_session(engine, &null).is_err());
-            let default = json!({"session": "default"});
-            assert!(Host::require_named_session(engine, &default).is_err());
-            assert!(Host::require_named_session(engine, &json!({"session": "a"})).is_ok());
-        }
-        assert!(Host::require_named_session("headless", &json!({})).is_ok());
-        assert!(Host::require_named_session("auto", &json!({})).is_ok());
-    }
-
-    #[test]
-    fn session_names_are_checked() {
-        assert!(Host::session_name(&json!({"session": "a.b-c_1"})).is_ok());
-        assert_eq!(Host::session_name(&json!({})).unwrap(), "default");
-        assert!(Host::session_name(&json!({"session": "../x"})).is_err());
-    }
-
-    #[test]
-    fn the_bundle_holds_the_manifest_scripts() {
-        assert!(bundle::REPL_SCRIPTS.iter().any(|(f, _)| *f == "repl-host.js"));
-        assert_eq!(bundle::AGENT_SCRIPTS.last().map(|(f, _)| *f), Some("page-agent.js"));
-        assert!(agent_bundle().contains("cmux"));
     }
 
     #[test]

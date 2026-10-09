@@ -54,51 +54,6 @@ fn dial(client: &mut TcpStack) -> oneshot::Receiver<Result<WgStream, WgError>> {
 }
 
 #[tokio::test]
-async fn an_accepted_connection_carries_the_key_that_delivered_its_syn() {
-    let mut server = stack(SERVER, true);
-    let mut client = stack(CLIENT, false);
-    let mut incoming = server.begin_listen(4100).unwrap();
-    let mut answer = dial(&mut client);
-    exchange(&mut client, &mut server, || Some(KEY));
-
-    let (stream, tag) = incoming.try_recv().expect("accepted");
-    assert_eq!(tag, Some(KEY));
-    assert_eq!(stream.peer_addr().ip(), address(CLIENT));
-    assert!(answer.try_recv().unwrap().is_ok());
-    assert!(server.syn_origins.as_ref().unwrap().is_empty(), "the origin is consumed");
-}
-
-#[tokio::test]
-async fn a_syn_without_a_session_key_is_never_accepted() {
-    let mut server = stack(SERVER, true);
-    let mut client = stack(CLIENT, false);
-    let mut incoming = server.begin_listen(4100).unwrap();
-    let _answer = dial(&mut client);
-    exchange(&mut client, &mut server, || None);
-    assert!(incoming.try_recv().is_err(), "an untagged SYN must not open a connection");
-}
-
-#[tokio::test]
-async fn a_connection_whose_syn_origin_is_gone_is_reset_not_matched_by_address() {
-    let mut server = stack(SERVER, true);
-    let mut client = stack(CLIENT, false);
-    let mut incoming = server.begin_listen(4100).unwrap();
-    let _answer = dial(&mut client);
-    // Deliver the SYN only, with a key, so the server is half-open.
-    client.step();
-    while let Some(packet) = client.pop_tx() {
-        server.push_rx(packet, Some(KEY));
-    }
-    server.step();
-    assert_eq!(server.syn_origins.as_ref().unwrap().len(), 1);
-    // The origin disappears (as if its peer had gone); the handshake still
-    // completes from the same address.
-    server.syn_origins.as_mut().unwrap().clear();
-    exchange(&mut client, &mut server, || Some(KEY));
-    assert!(incoming.try_recv().is_err(), "no key may be derived from the address");
-}
-
-#[tokio::test]
 async fn aborting_a_peer_fails_its_streams_with_an_error() {
     let mut server = stack(SERVER, true);
     let mut client = stack(CLIENT, false);

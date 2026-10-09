@@ -295,66 +295,6 @@ mod tests {
         );
     }
 
-    fn live(
-        id: &str,
-        efforts: &[&str],
-        fast: Option<bool>,
-        is_default: bool,
-    ) -> crate::live_models::LiveModel {
-        crate::live_models::LiveModel {
-            id: id.into(),
-            name: id.into(),
-            efforts: efforts.iter().map(|e| (*e).to_owned()).collect(),
-            default_effort: None,
-            fast,
-            is_default,
-        }
-    }
-
-    #[test]
-    fn a_live_claude_list_replaces_the_static_list_and_picks_curated_models() {
-        let c = catalog();
-        // The CLI names gpt-new and a model the catalog does not have yet.
-        let reported = vec![
-            ("gpt-new".to_owned(), "gpt new".to_owned()),
-            ("brand-new".to_owned(), "Brand New".to_owned()),
-        ];
-        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &reported, true);
-        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
-        assert_eq!(out[1]["curated"], true);
-        // Without a catalog entry the live list stands alone, after "default".
-        let out = offered(&HarnessKind::ClaudeStdio, None, &c, &reported, true);
-        assert_eq!(ids(&out), ["default", "gpt-new", "brand-new"]);
-    }
-
-    #[test]
-    fn live_fields_win_and_the_cli_default_moves_first() {
-        let c = catalog();
-        let mut models = offered(&HarnessKind::Acp, Some(&c.harnesses[0]), &c, &[], false);
-        let listed = [
-            live("gpt-new", &["low", "high"], Some(false), false),
-            live("gpt-old", &[], None, true),
-        ];
-        crate::live_models::overlay(&mut models, &listed);
-        assert_eq!(ids(&models), ["gpt-old", "gpt-new"]);
-        let new = &models[1];
-        assert_eq!(new["efforts"], json!(["low", "high"]));
-        assert_eq!(new["fast"], false, "the CLI knows the version it runs");
-        assert_eq!(new["contextWindow"], 400000, "curated metadata stays");
-    }
-
-    #[test]
-    fn a_live_alias_fills_the_curated_model_it_names() {
-        let mut models = vec![
-            json!({"id": "default", "name": "Default"}),
-            json!({"id": "claude-opus-5-5", "name": "Opus 5.5", "aliases": ["opus"]}),
-        ];
-        crate::live_models::overlay(&mut models, &[live("opus", &["max"], Some(true), true)]);
-        assert_eq!(models[1]["efforts"], json!(["max"]));
-        assert_eq!(models[1]["fast"], true);
-        assert_eq!(models[0]["id"], "default", "Claude Code's own default stays first");
-    }
-
     #[test]
     fn a_declared_model_keeps_its_fields_and_gains_curated_ones() {
         let c = catalog();

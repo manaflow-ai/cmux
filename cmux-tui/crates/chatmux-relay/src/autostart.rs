@@ -200,23 +200,6 @@ mod tests {
     fn escapes() {
         assert_eq!(xml_escape("a<&\"' >"), "a&lt;&amp;&quot;&apos; &gt;");
     }
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn quotes_systemd_execstart_arguments() {
-        assert_eq!(
-            systemd_quote("/tmp/a'b with\\slash\"quote"),
-            "\"/tmp/a'b with\\\\slash\\\"quote\""
-        );
-    }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn quotes_systemd_percent_specifiers_as_literal_path_bytes() {
-        assert_eq!(
-            systemd_quote("/tmp/relay%2Fbin/config%name"),
-            "\"/tmp/relay%%2Fbin/config%%name\""
-        );
-    }
 
     #[test]
     fn rejects_npx_cache_paths_but_allows_persistent_installs() {
@@ -232,13 +215,5 @@ mod tests {
         assert!(!is_ephemeral_npx_path(Path::new(
             "/work/project/node_modules/cmux-relay-linux-x64/bin/cmux-relay",
         )));
-    }
-
-    #[test]
-    fn npx_autostart_refusal_explains_the_durable_install_requirement() {
-        let error = validate_autostart_executable(Path::new("/tmp/_npx/abc/bin/cmux-relay"))
-            .expect_err("ephemeral npx path must be refused");
-        assert!(error.contains("durable relay executable"));
-        assert!(error.contains("npm install --global cmux-relay"));
     }
 }

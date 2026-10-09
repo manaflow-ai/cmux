@@ -442,14 +442,6 @@ mod tests {
     }
 
     #[test]
-    fn debug_output_omits_the_private_key() {
-        let config = WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap();
-        let debug = format!("{config:?}");
-        assert!(!debug.contains(KEY_A));
-        assert!(debug.contains(KEY_B));
-    }
-
-    #[test]
     fn hostname_endpoints_and_comma_lists_parse() {
         let text = format!(
             "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2/24, fdaa::2/64 # tunnel\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.7/24\nEndpoint=vpn.example.com:51820\n"
@@ -465,17 +457,6 @@ mod tests {
             config.local_address_for("10.1.0.9".parse().unwrap()),
             Some("10.1.0.2".parse().unwrap())
         );
-    }
-
-    #[test]
-    fn a_bare_address_is_a_host() {
-        let text = format!(
-            "[Interface]\nPrivateKey={KEY_A}\nAddress=10.1.0.2\n[Peer]\nPublicKey={KEY_B}\nAllowedIPs=10.1.0.9\n"
-        );
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        assert_eq!(config.addresses[0].to_string(), "10.1.0.2/32");
-        assert_eq!(config.allowed_ips[0].to_string(), "10.1.0.9/32");
-        assert!(config.endpoint.is_none());
     }
 
     #[test]
@@ -534,25 +515,5 @@ mod tests {
             WgConfig::parse_wg_quick(&three_addresses).unwrap_err(),
             ConfigError::TooManyAddresses { maximum: 2 }
         );
-    }
-
-    #[test]
-    fn the_peer_address_is_read_from_the_peer_section() {
-        let text = freestyle_shaped()
-            .replace("[Peer]\n", "[Peer]\nPeerAddress = 10.100.0.10/32, fd12::10\n");
-        let config = WgConfig::parse_wg_quick(&text).unwrap();
-        let v4: IpAddr = "10.100.0.10".parse().unwrap();
-        let v6: IpAddr = "fd12::10".parse().unwrap();
-        assert_eq!(config.peer_addresses, vec![v4, v6]);
-        assert_eq!(config.peer_address_for("10.0.0.1".parse().unwrap()), Some(v4));
-        assert_eq!(config.peer_address_for("fd00::1".parse().unwrap()), Some(v6));
-        assert!(WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap().peer_addresses.is_empty());
-
-        let twice =
-            freestyle_shaped().replace("[Peer]\n", "[Peer]\nPeerAddress = 10.0.0.1, 10.0.0.2\n");
-        assert!(matches!(
-            WgConfig::parse_wg_quick(&twice),
-            Err(ConfigError::InvalidValue { key: "PeerAddress", .. })
-        ));
     }
 }

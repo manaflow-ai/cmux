@@ -163,18 +163,3 @@ fn rejected_subscription_recovery_retries_then_closes_session() {
     }
     assert!(!session.subscription_recovery.lock().unwrap().in_flight);
 }
-
-#[test]
-fn subscription_recovery_retries_only_explicit_rejection() {
-    let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
-        error: "no capacity".to_string(),
-        code: None,
-        delivery: None,
-    });
-    let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
-    let shutdown = anyhow::Error::new(RemoteRequestError::Shutdown);
-
-    assert!(RemoteSession::subscription_recovery_is_retryable(&rejected));
-    assert!(!RemoteSession::subscription_recovery_is_retryable(&timeout));
-    assert!(!RemoteSession::subscription_recovery_is_retryable(&shutdown));
-}

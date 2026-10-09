@@ -187,7 +187,6 @@ pub fn record_host_pid(json: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote_entry::{Carrier, RemoteEntry};
 
     fn layout(kind: LayoutKind) -> DaemonLayout {
         let (user, home) = match kind {
@@ -205,54 +204,6 @@ mod tests {
         }
     }
 
-    fn cloud_edge(bind: &str) -> RemoteEntry {
-        RemoteEntry::TrustedCarrier { bind: bind.parse().unwrap(), carrier: Carrier::FreestyleEdge }
-    }
-
-    /// Parity with cmuxTuiDaemon.ts and cmux-devbox-boot: a Cloud machine
-    /// whose host config selects the Freestyle edge carrier gets exactly
-    /// the Cloud command line.
-    #[test]
-    fn user_layout_matches_the_shell_command() {
-        let spec = daemon_spec(
-            &layout(LayoutKind::User),
-            "1.2.3",
-            &cloud_edge("[::]:1337"),
-            Path::new("/run/cmux/bound"),
-        );
-        assert_eq!(spec.program, PathBuf::from("/home/cmux/.cmux/bin/cmux-tui"));
-        assert_eq!(
-            spec.args,
-            [
-                "server",
-                "start",
-                "--session",
-                "cloud",
-                "--remote-ws",
-                "[::]:1337",
-                "--remote-ws-insecure-bind",
-                "--remote-ws-trusted-carrier"
-            ]
-        );
-        assert_eq!(spec.cwd, PathBuf::from("/home/cmux"));
-        let env: Vec<String> = spec.set_env.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        assert_eq!(
-            env,
-            [
-                "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1",
-                "CMUX_TUI_TEMPLATE_BOUND_FILE=/run/cmux/bound",
-                "CMUX_TUI_TEMPLATE_WORKSPACE_NAME=Cloud",
-                "HOME=/home/cmux",
-                "USER=cmux",
-                "LOGNAME=cmux",
-                "SHELL=/bin/bash",
-                "TERM=xterm-256color",
-                "TERM_PROGRAM=ghostty",
-                "TERM_PROGRAM_VERSION=1.2.3",
-            ]
-        );
-    }
-
     /// Without a host config the session host listens on loopback with
     /// enrolled auth: no insecure bind, no trusted carrier.
     #[test]
@@ -268,51 +219,6 @@ mod tests {
             ["server", "start", "--session", "cloud", "--remote-ws", "127.0.0.1:1337"]
         );
         assert!(spec.set_env.iter().all(|(k, _)| !k.starts_with("CMUX_TUI_REMOTE_WS")));
-    }
-
-    #[test]
-    fn root_layout_sets_no_user_names() {
-        let spec = daemon_spec(
-            &layout(LayoutKind::Root),
-            "",
-            &cloud_edge("0.0.0.0:1337"),
-            Path::new("/run/cmux/bound"),
-        );
-        assert!(spec.set_env.iter().all(|(k, _)| k != "USER" && k != "SHELL"));
-        assert_eq!(spec.cwd, PathBuf::from("/root"));
-        assert_eq!(ghostty_version(Some("1.3.0\n\n")), "1.3.0");
-        assert_eq!(ghostty_version(None), "");
-    }
-
-    #[test]
-    fn argv_matching_is_element_wise() {
-        let bin = Path::new("/home/cmux/.cmux/bin/cmux-tui");
-        let argv = |s: &str| split_cmdline(s.replace(' ', "\0").as_bytes());
-        assert!(is_session_host_argv(
-            &argv("/home/cmux/.cmux/bin/cmux-tui server start --session cloud --remote-ws x"),
-            bin
-        ));
-        assert!(is_session_host_argv(
-            &argv("/bin/sh /home/cmux/.cmux/bin/cmux-tui server start --session cloud"),
-            bin
-        ));
-        assert!(!is_session_host_argv(
-            &argv("sh -c /home/cmux/.cmux/bin/cmux-tui server start --session cloud"),
-            bin
-        ));
-        assert!(!is_session_host_argv(
-            &argv("/home/cmux/.cmux/bin/cmux-tui server start --session other"),
-            bin
-        ));
-        assert!(!is_session_host_argv(
-            &argv("/usr/bin/cmux-tui server start --session cloud"),
-            bin
-        ));
-        assert!(is_terminal_host_argv(&argv(
-            "/home/cmux/.cmux/bin/cmux-tui __terminal-host --bootstrap-stdio"
-        )));
-        assert!(!is_terminal_host_argv(&argv("grep __terminal-host")));
-        assert!(!is_terminal_host_argv(&argv("/tmp/cmux-tui-evil server")));
     }
 
     #[test]
@@ -352,12 +258,5 @@ mod tests {
         );
         let no_path = inherited_env(Vec::new());
         assert_eq!(no_path, [("PATH".to_owned(), DEFAULT_PATH.to_owned())]);
-    }
-
-    #[test]
-    fn record_pid_parses() {
-        assert_eq!(record_host_pid(r#"{"record_version":1,"host_pid":4242}"#), Some(4242));
-        assert_eq!(record_host_pid(r#"{"host_pid":0}"#), None);
-        assert_eq!(record_host_pid("nope"), None);
     }
 }

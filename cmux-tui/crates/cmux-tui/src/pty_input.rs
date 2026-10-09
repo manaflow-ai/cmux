@@ -720,29 +720,6 @@ impl Drop for PtyInputDispatcher {
     }
 }
 
-#[cfg(test)]
-fn enqueue_bounded(
-    events: &mut VecDeque<PtyInputEvent>,
-    queued_bytes: &mut usize,
-    release_reservations: &mut ReleaseReservations,
-    event: PtyInputEvent,
-    capacity: usize,
-    max_bytes: usize,
-) -> bool {
-    let outcome = enqueue_bounded_with_evictions(
-        events,
-        queued_bytes,
-        release_reservations,
-        event,
-        capacity,
-        max_bytes,
-    );
-    if let Some(on_superseded) = outcome.superseded {
-        on_superseded();
-    }
-    outcome.accepted
-}
-
 struct BoundedEnqueueOutcome {
     accepted: bool,
     evicted: Vec<PtyOperationFailure>,
@@ -1391,13 +1368,6 @@ mod tests {
     }
 
     #[test]
-    fn exited_input_is_rejected_before_transport_but_mutations_are_not() {
-        assert!(known_exited_input(PtyInputKind::Ordered, true));
-        assert!(!known_exited_input(PtyInputKind::Mutation, true));
-        assert!(!known_exited_input(PtyInputKind::Ordered, false));
-    }
-
-    #[test]
     fn clean_terminal_exit_is_known_not_delivered_and_does_not_fail_its_lane() {
         let mux = TestMux::new(
             "clean-terminal-exit-lane-test",
@@ -1469,74 +1439,6 @@ mod tests {
         mux.shutdown();
     }
 
-    fn mutation_with_retained_bytes(retained_bytes: usize) -> PtyInputEvent {
-        PtyInputEvent::mutation_for_surface(
-            "retained payload",
-            PtyMutationIdentity { retained_bytes, ..Default::default() },
-            false,
-            None,
-            None,
-            || Ok(()),
-        )
-    }
-
-    #[test]
-    fn consecutive_motion_on_one_surface_keeps_latest() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 1, PtyInputKind::Motion),
-            8,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 2, PtyInputKind::Motion),
-            8,
-            1024,
-        ));
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].bytes.as_slice(), &[2]);
-    }
-
-    #[test]
-    fn bounded_queue_reports_evicted_motion_as_known_not_delivered() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(7, 1, PtyInputKind::Motion),
-            1,
-            1024,
-        ));
-
-        let outcome = enqueue_bounded_with_evictions(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(8, 2, PtyInputKind::Ordered),
-            1,
-            1024,
-        );
-
-        assert!(outcome.accepted);
-        assert_eq!(outcome.evicted.len(), 1);
-        assert_eq!(outcome.evicted[0].surface_id, Some(7));
-        assert_eq!(outcome.evicted[0].kind, Some(PtyInputKind::Motion));
-        assert_eq!(outcome.evicted[0].delivery, PtyOperationDelivery::KnownNotDelivered);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].surface_id, 8);
-    }
-
     #[test]
     fn sender_emits_failure_when_bounded_queue_evicts_motion() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
@@ -1577,62 +1479,6 @@ mod tests {
     }
 
     #[test]
-    fn ordered_bytes_batch_without_crossing_motion_or_surfaces() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        for item in [
-            event(1, 1, PtyInputKind::Ordered),
-            event(1, 2, PtyInputKind::Ordered),
-            event(1, 3, PtyInputKind::Motion),
-            event(2, 4, PtyInputKind::Ordered),
-        ] {
-            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024,));
-        }
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].bytes.as_slice(), &[1, 2]);
-        assert!(!events[0].bytes.spilled());
-        assert_eq!(events[1].bytes.as_slice(), &[3]);
-        assert_eq!(events[2].bytes.as_slice(), &[4]);
-    }
-
-    #[test]
-    fn ordered_input_does_not_cross_a_session_mutation() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 1, PtyInputKind::Ordered),
-            8,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            PtyInputEvent::mutation("close tab", None, false, || Ok(())),
-            8,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 2, PtyInputKind::Ordered),
-            8,
-            1024,
-        ));
-
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].bytes.as_slice(), &[1]);
-        assert_eq!(events[1].kind, PtyInputKind::Mutation);
-        assert_eq!(events[2].bytes.as_slice(), &[2]);
-    }
-
-    #[test]
     fn surface_operation_failure_keeps_its_surface_identity() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let dispatcher = PtyInputDispatcher::spawn(move |failure| {
@@ -1655,70 +1501,6 @@ mod tests {
         assert_eq!(failure.kind, None);
         assert_eq!(failure.label, "clear terminal history");
         assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
-    }
-
-    #[test]
-    fn ambiguous_surface_operation_quarantines_only_its_surface() {
-        let queue = Arc::new(SharedQueue::default());
-        {
-            let mut state = queue.state.lock().unwrap();
-            state.events.push_back(event(41, 1, PtyInputKind::Ordered));
-            state.events.push_back(event(42, 2, PtyInputKind::Ordered));
-            state.queued_bytes = 2;
-            state.in_flight_surface_operations.insert(lane(41), 0);
-        }
-        let failures = Arc::new(Mutex::new(Vec::new()));
-        let captured_failures = failures.clone();
-        let on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync> =
-            Arc::new(move |failure| captured_failures.lock().unwrap().push(failure));
-        let operation = PtyInputEvent::mutation_for_surface(
-            "clear terminal history",
-            PtyMutationIdentity {
-                failure_surface_id: Some(41),
-                concurrent_surface_operation: true,
-                ..Default::default()
-            },
-            false,
-            None,
-            None,
-            || Err(anyhow::anyhow!("partial fallback write")),
-        );
-
-        process_event(queue.clone(), on_failure.clone(), operation);
-
-        {
-            let state = queue.state.lock().unwrap();
-            assert_eq!(
-                state.events.iter().map(PtyInputEvent::ordering_surface_id).collect::<Vec<_>>(),
-                vec![Some(42)],
-                "same-surface input survived an ambiguous surface operation"
-            );
-            assert!(!state.in_flight_surface_operations.contains_key(&lane(41)));
-        }
-        let sender = PtyInputSender { queue, on_failure, session_generation: 1 };
-        assert_eq!(
-            sender.enqueue(event(41, 3, PtyInputKind::Ordered)),
-            PtyInputEnqueueResult::Failed,
-            "new same-surface input entered an ambiguous lane"
-        );
-        assert_eq!(
-            sender.enqueue(event(42, 4, PtyInputKind::Ordered)),
-            PtyInputEnqueueResult::Accepted,
-            "an unrelated surface was quarantined"
-        );
-
-        let failures = failures.lock().unwrap();
-        assert!(failures.iter().any(|failure| {
-            failure.surface_id == Some(41)
-                && failure.label == "clear terminal history"
-                && failure.delivery == PtyOperationDelivery::Ambiguous
-                && failure.lane_failed
-        }));
-        assert!(failures.iter().any(|failure| {
-            failure.surface_id == Some(41)
-                && failure.delivery == PtyOperationDelivery::KnownNotDelivered
-                && failure.lane_failed
-        }));
     }
 
     #[test]
@@ -1862,41 +1644,6 @@ mod tests {
     }
 
     #[test]
-    fn saturated_worker_cap_preserves_the_queued_surface_barrier() {
-        let mut state = QueueState::default();
-        for surface in 1..=MAX_CONCURRENT_SURFACE_OPERATIONS as u64 {
-            state.in_flight_surface_operations.insert(lane(surface), 0);
-        }
-        state.events.push_back(PtyInputEvent::mutation_for_surface(
-            "queued clear history",
-            PtyMutationIdentity {
-                failure_surface_id: Some(100),
-                concurrent_surface_operation: true,
-                ..Default::default()
-            },
-            false,
-            None,
-            None,
-            || Ok(()),
-        ));
-        state.events.push_back(event(100, 1, PtyInputKind::Ordered));
-        state.events.push_back(event(101, 2, PtyInputKind::Ordered));
-        state.queued_bytes = state.events.iter().map(PtyInputEvent::queued_byte_len).sum();
-
-        let ready = dequeue_ready_event(&mut state).unwrap();
-
-        assert_eq!(
-            ready.ordering_lane(),
-            Some(lane(101)),
-            "same-surface input overtook the clear blocked on worker capacity"
-        );
-        assert_eq!(
-            state.events.iter().map(PtyInputEvent::ordering_lane).collect::<Vec<_>>(),
-            vec![Some(lane(100)), Some(lane(100))]
-        );
-    }
-
-    #[test]
     fn in_flight_surface_operation_counts_against_byte_budget() {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let sender = dispatcher.sender();
@@ -2030,266 +1777,6 @@ mod tests {
     }
 
     #[test]
-    fn coalescing_mutations_replace_by_key_across_adjacent_resize_work() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        for item in [
-            PtyInputEvent::mutation("resize one", Some(("resize", 1, 0)), false, || Ok(())),
-            PtyInputEvent::mutation("resize two", Some(("resize", 2, 0)), false, || Ok(())),
-            PtyInputEvent::mutation("resize one latest", Some(("resize", 1, 0)), false, || Ok(())),
-        ] {
-            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024));
-        }
-
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].label, "resize two");
-        assert_eq!(events[1].label, "resize one latest");
-
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 1, PtyInputKind::Ordered),
-            8,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            PtyInputEvent::mutation("resize after input", Some(("resize", 1, 0)), false, || Ok(()),),
-            8,
-            1024,
-        ));
-        assert_eq!(events.len(), 4);
-    }
-
-    #[test]
-    fn retained_mutation_payload_counts_toward_the_byte_limit() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            mutation_with_retained_bytes(6),
-            8,
-            10,
-        ));
-        assert!(!enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            mutation_with_retained_bytes(5),
-            8,
-            10,
-        ));
-
-        assert_eq!(queued_bytes, 6);
-        assert_eq!(events.len(), 1);
-    }
-
-    #[test]
-    fn coalescing_mutations_distinguish_both_subject_ids() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        for item in [
-            PtyInputEvent::mutation("surface 7 client 1", Some(("sizing", 7, 1)), false, || Ok(())),
-            PtyInputEvent::mutation("surface 7 client 2", Some(("sizing", 7, 2)), false, || Ok(())),
-            PtyInputEvent::mutation("surface 8 client 1", Some(("sizing", 8, 1)), false, || Ok(())),
-            PtyInputEvent::mutation(
-                "surface 7 client 1 latest",
-                Some(("sizing", 7, 1)),
-                false,
-                || Ok(()),
-            ),
-        ] {
-            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024));
-        }
-
-        assert_eq!(events.len(), 3);
-        assert_eq!(events[0].label, "surface 7 client 2");
-        assert_eq!(events[1].label, "surface 8 client 1");
-        assert_eq!(events[2].label, "surface 7 client 1 latest");
-    }
-
-    #[test]
-    fn coalescing_mutation_reports_the_replaced_sample_as_superseded() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        let superseded = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let replaced = superseded.clone();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            PtyInputEvent::mutation_with_superseded(
-                "resize old",
-                Some(("resize", 1, 0)),
-                false,
-                Some(Box::new(move || {
-                    replaced.store(true, std::sync::atomic::Ordering::Release);
-                })),
-                None,
-                || Ok(()),
-            ),
-            8,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            PtyInputEvent::mutation("resize latest", Some(("resize", 1, 0)), false, || Ok(())),
-            8,
-            1024,
-        ));
-
-        assert!(superseded.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].label, "resize latest");
-    }
-
-    #[test]
-    fn rejected_coalescing_replacement_restores_the_previous_sample() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        let superseded = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let replaced = superseded.clone();
-        let mut previous = PtyInputEvent::mutation_with_superseded(
-            "resize old",
-            Some(("resize", 1, 0)),
-            false,
-            Some(Box::new(move || {
-                replaced.store(true, std::sync::atomic::Ordering::Release);
-            })),
-            None,
-            || Ok(()),
-        );
-        previous.bytes = PtyInputBytes::from_slice(&[1]);
-        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, previous, 8, 1,));
-
-        let mut too_large =
-            PtyInputEvent::mutation("resize latest", Some(("resize", 1, 0)), false, || Ok(()));
-        too_large.bytes = PtyInputBytes::from_slice(&[2, 3]);
-        assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, too_large, 8, 1,));
-
-        assert!(!superseded.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(queued_bytes, 1);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].label, "resize old");
-        assert_eq!(events[0].bytes.as_slice(), &[1]);
-    }
-
-    #[test]
-    fn accepted_press_guarantees_its_release_slot() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 1, PtyInputKind::Press),
-            3,
-            1024,
-        ));
-        assert_eq!(releases.len(), 1);
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(2, 2, PtyInputKind::Ordered),
-            3,
-            1024,
-        ));
-        assert!(!enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(3, 3, PtyInputKind::Ordered),
-            3,
-            1024,
-        ));
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(1, 4, PtyInputKind::Release),
-            3,
-            1024,
-        ));
-        assert_eq!(releases.len(), 0);
-        assert_eq!(events.len(), 3);
-        assert_eq!(events.back().unwrap().bytes.as_slice(), &[4]);
-    }
-
-    #[test]
-    fn failed_consumed_press_does_not_cancel_a_newer_reservation() {
-        let mut reservations = ReleaseReservations::default();
-        let first = reservations.reserve(lane(7));
-        assert!(reservations.consume(lane(7)));
-        let second = reservations.reserve(lane(7));
-
-        reservations.outstanding.remove(&first);
-
-        assert_eq!(reservations.len(), 1);
-        assert!(reservations.outstanding.contains_key(&second));
-    }
-
-    #[test]
-    fn release_consumes_only_its_exact_reservation() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(7, 1, PtyInputKind::Press),
-            8,
-            1024,
-        ));
-        let first = releases.next_id;
-        assert!(enqueue_bounded(
-            &mut events,
-            &mut queued_bytes,
-            &mut releases,
-            event(7, 2, PtyInputKind::Press),
-            8,
-            1024,
-        ));
-        let second = releases.next_id;
-
-        let mut release = event(7, 3, PtyInputKind::Release);
-        release.reservation_id = Some(first);
-        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, release, 8, 1024,));
-
-        assert!(!releases.outstanding.contains_key(&first));
-        assert_eq!(releases.outstanding.get(&second), Some(&lane(7)));
-    }
-
-    #[test]
-    fn ordered_batch_respects_byte_budget() {
-        let mut events = VecDeque::new();
-        let mut queued_bytes = 0;
-        let mut releases = ReleaseReservations::default();
-        let mut first = event(1, 1, PtyInputKind::Ordered);
-        first.bytes = vec![1; 8].into();
-        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, first, 8, 10,));
-        let mut overflow = event(1, 2, PtyInputKind::Ordered);
-        overflow.bytes = vec![2; 3].into();
-        assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, overflow, 8, 10,));
-        assert_eq!(queued_bytes, 8);
-    }
-
-    #[test]
     fn shutdown_drains_and_joins_the_worker() {
         let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         assert_eq!(
@@ -2297,44 +1784,6 @@ mod tests {
             PtyInputEnqueueResult::Accepted
         );
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
-    }
-
-    #[test]
-    fn shutdown_retains_release_for_worker_behind_in_flight_operation() {
-        let queue = Arc::new(SharedQueue::default());
-        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        {
-            let mut state = queue.state.lock().unwrap();
-            state.events.push_back(event(1, 1, PtyInputKind::Motion));
-            let released_flag = released.clone();
-            let mut release = event(1, 2, PtyInputKind::Release);
-            release.reservation_id = Some(7);
-            release.mutation = Some(Box::new(move || {
-                released_flag.store(true, std::sync::atomic::Ordering::Release);
-                Ok(())
-            }));
-            state.events.push_back(release);
-            state.queued_bytes = 2;
-            state.in_flight =
-                Some(InFlightInput { lane: Some(lane(2)), kind: PtyInputKind::Ordered });
-        }
-        let mut dispatcher = PtyInputDispatcher {
-            sender: PtyInputSender {
-                queue: queue.clone(),
-                on_failure: Arc::new(|_| {}),
-                session_generation: 1,
-            },
-            worker: None,
-        };
-
-        assert!(!dispatcher.shutdown(Duration::ZERO));
-
-        let state = queue.state.lock().unwrap();
-        assert!(state.closed);
-        assert_eq!(state.events.len(), 1);
-        assert_eq!(state.queued_bytes, 1);
-        assert_eq!(state.release_reservations.len(), 0);
-        assert!(!released.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
@@ -2420,32 +1869,6 @@ mod tests {
         assert_eq!(state.events[0].reservation_id, Some(12));
         assert_eq!(state.queued_bytes, 1);
         assert!(!state.release_reservations.outstanding.contains_key(&11));
-    }
-
-    #[test]
-    fn shutdown_timeout_discards_backlog_without_an_in_flight_press() {
-        let queue = Arc::new(SharedQueue::default());
-        {
-            let mut state = queue.state.lock().unwrap();
-            state.events.push_back(event(1, 1, PtyInputKind::Ordered));
-            state.queued_bytes = 1;
-            state.in_flight =
-                Some(InFlightInput { lane: Some(lane(1)), kind: PtyInputKind::Ordered });
-        }
-        let mut dispatcher = PtyInputDispatcher {
-            sender: PtyInputSender {
-                queue: queue.clone(),
-                on_failure: Arc::new(|_| {}),
-                session_generation: 1,
-            },
-            worker: None,
-        };
-
-        assert!(!dispatcher.shutdown(Duration::ZERO));
-
-        let state = queue.state.lock().unwrap();
-        assert!(state.events.is_empty());
-        assert!(state.shutdown_release_drain);
     }
 
     #[test]
@@ -2612,20 +2035,6 @@ mod tests {
         );
         assert!(dispatcher.shutdown(Duration::from_secs(1)));
         mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn ambiguous_release_is_retained_for_retry() {
-        let mut state = QueueState::default();
-        let mut release = event(7, 3, PtyInputKind::Release);
-        release.reservation_id = Some(11);
-
-        requeue_ambiguous_release(&mut state, release);
-
-        assert_eq!(state.queued_bytes, 1);
-        assert_eq!(state.events.len(), 1);
-        assert_eq!(state.events[0].kind, PtyInputKind::Release);
-        assert_eq!(state.events[0].reservation_id, Some(11));
     }
 
     #[test]

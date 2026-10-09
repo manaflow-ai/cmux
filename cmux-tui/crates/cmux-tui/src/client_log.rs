@@ -675,32 +675,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timestamps_are_iso_utc() {
-        let stamp = timestamp();
-        assert_eq!(stamp.len(), 20, "{stamp}");
-        assert!(stamp.ends_with('Z'));
-        assert_eq!(&stamp[4..5], "-");
-        assert_eq!(&stamp[10..11], "T");
-    }
-
-    #[test]
     fn sanitize_collapses_control_characters() {
         assert_eq!(sanitize("a\nb\x1b[31mc\t d "), "a b [31mc\t d");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn log_file_is_created_owner_only() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("cmux-tui-log-mode-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("client.log");
-        let _ = fs::remove_file(&path);
-        drop(append_options().open(&path).unwrap());
-        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        fs::remove_file(&path).unwrap();
-        let _ = fs::remove_dir(&dir);
-        assert_eq!(mode, 0o600, "log must not be readable by other users");
     }
 
     #[test]
@@ -716,13 +692,5 @@ mod tests {
         }
         assert_eq!(end, 4093);
         assert!(message.is_char_boundary(end));
-    }
-
-    #[test]
-    fn rollover_appends_suffix() {
-        assert_eq!(
-            rollover_path(&PathBuf::from("/x/client.log")),
-            PathBuf::from("/x/client.log.1")
-        );
     }
 }

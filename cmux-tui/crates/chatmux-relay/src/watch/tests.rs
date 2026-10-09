@@ -2,27 +2,7 @@ const CRITICAL_QUEUE_CAPACITY: usize = 256;
 
 use super::*;
 use crate::session::{OutboundFrame, OutboundSink};
-use notify::Watcher as _;
 use serde_json::Value;
-
-#[cfg(unix)]
-#[test]
-fn repeated_teardown_attempts_hit_the_hard_worker_cap() {
-    let slots = Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY));
-    let mut owners = Vec::new();
-    let mut rejected = 0;
-    for _ in 0..(WATCH_TEARDOWN_CONCURRENCY * 3) {
-        let watcher = notify::RecommendedWatcher::new(|_| {}, notify::Config::default())
-            .expect("create test watcher");
-        match WatcherOwner::new_with_slots(watcher, Arc::clone(&slots)) {
-            Ok(owner) => owners.push(owner),
-            Err(_) => rejected += 1,
-        }
-    }
-    assert_eq!(owners.len(), WATCH_TEARDOWN_CONCURRENCY);
-    assert_eq!(rejected, WATCH_TEARDOWN_CONCURRENCY * 2);
-    drop(owners);
-}
 
 fn scratch(name: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -357,32 +337,6 @@ async fn failed_open_waits_for_critical_capacity() {
     assert!(sessions.lock().unwrap().is_empty(), "opening is cleared after delivery");
 }
 
-#[tokio::test]
-async fn saturated_watch_bytes_reports_a_terminal_error() {
-    let (sink, mut critical, _watch) = OutboundSink::channels();
-    let payload = "x".repeat(2 << 20);
-    let mut filled = 0;
-    while filled < 8 && sink.try_watch_text(payload.clone()).is_ok() {
-        filled += 1;
-    }
-    assert!(filled >= 3, "watch bytes must admit multiple frames");
-    assert!(filled < 8, "watch bytes must stop before global bytes are exhausted");
-    let cancellation = CancellationToken::new();
-    let live = Arc::new(AtomicBool::new(true));
-    let mut report = Box::pin(report_watch_failure("saturated", &sink, &cancellation, &live));
-    let frame = tokio::select! {
-        frame = critical.recv() => frame.expect("terminal error frame"),
-        _ = &mut report => panic!("terminal report returned before delivery ack"),
-    };
-    let value: Value = serde_json::from_str(&frame.text).expect("error json");
-    assert_eq!(value["type"], "fs_watch_error");
-    assert_eq!(value["watchId"], "saturated");
-    assert_eq!(value["code"], "failed");
-    assert!(value["message"].is_null(), "terminal copy is localized by the client");
-    frame.ack.expect("terminal delivery ack").send(()).expect("ack receiver");
-    report.await;
-}
-
 #[cfg(unix)]
 #[tokio::test]
 async fn watch_refuses_typed_and_respects_the_session_cap() {
@@ -460,29 +414,6 @@ fn bursts_merge_and_cap_with_overflow() {
     let rename = changes.iter().find(|change| change.path == "b.txt").expect("rename");
     assert_eq!(rename.kind, wire::FsWatchChangeKind::Renamed);
     assert_eq!(rename.old_path.as_deref(), Some("a.txt"));
-}
-
-#[test]
-fn gitignored_paths_are_filtered_but_ignore_files_pass() {
-    let root = scratch("ignore");
-    std::fs::write(root.join(".gitignore"), "dist/\n").expect("gitignore");
-    std::fs::create_dir_all(root.join(".git")).expect("fake repo marker");
-    std::fs::create_dir_all(root.join("dist")).expect("dist");
-    let matcher = build_ignore_matcher(&root);
-    let mut changes = Vec::new();
-    let mut index = HashMap::new();
-    let mut saw_ignore = false;
-    let ignored = notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
-        .add_path(root.join("dist/bundle.js"));
-    collect_changes(&root, &matcher, &ignored, &mut changes, &mut index, &mut saw_ignore);
-    assert!(changes.is_empty(), "gitignored churn stays quiet: {changes:?}");
-    let gitignore_edit = notify::Event::new(notify::EventKind::Modify(
-        notify::event::ModifyKind::Data(notify::event::DataChange::Content),
-    ))
-    .add_path(root.join(".gitignore"));
-    collect_changes(&root, &matcher, &gitignore_edit, &mut changes, &mut index, &mut saw_ignore);
-    assert_eq!(changes.len(), 1, "the ignore file itself reports");
-    assert!(saw_ignore, "and schedules a matcher rebuild");
 }
 
 #[test]

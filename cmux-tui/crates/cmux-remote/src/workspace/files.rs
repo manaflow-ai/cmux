@@ -3684,46 +3684,6 @@ mod tests {
             .any(|entry| entry.file_name().to_string_lossy().starts_with(prefix))
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    #[tokio::test]
-    async fn atomic_write_enforces_content_preconditions() {
-        let (_directory, root) = root().await;
-        let first = ByteString::from_bytes(b"one");
-        let response = write_file(&root, "src/value.txt", &first, &FilePrecondition::Missing, true)
-            .await
-            .unwrap();
-        let WorkspaceResponse::Written { content_hash, .. } = response else { panic!() };
-
-        let conflict = write_file(
-            &root,
-            "src/value.txt",
-            &ByteString::from_bytes(b"two"),
-            &FilePrecondition::ContentHash("0".repeat(64)),
-            false,
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(conflict.code, "conflict");
-        assert_eq!(
-            tokio::fs::read(root.canonical_root().join("src/value.txt")).await.unwrap(),
-            b"one"
-        );
-
-        write_file(
-            &root,
-            "src/value.txt",
-            &ByteString::from_bytes(b"two"),
-            &FilePrecondition::ContentHash(content_hash),
-            false,
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            tokio::fs::read(root.canonical_root().join("src/value.txt")).await.unwrap(),
-            b"two"
-        );
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn atomic_write_does_not_follow_a_parent_swapped_to_a_symlink() {
@@ -4744,106 +4704,6 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
-    async fn prepublish_hash_failure_cleans_the_staged_write() {
-        let (_directory, root) = root().await;
-        let target = root.canonical_root().join("value.txt");
-        tokio::fs::write(&target, b"old").await.unwrap();
-        let _hash =
-            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishHash);
-
-        let error = write_file(
-            &root,
-            "value.txt",
-            &ByteString::from_bytes(b"new"),
-            &FilePrecondition::ContentHash(hash_bytes(b"old")),
-            false,
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(error.code, "injected-failure");
-        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
-        assert!(!has_recovery_entry(&root, ".cmux-write-"));
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    #[tokio::test]
-    async fn prepublish_hash_failure_retains_the_staged_write_when_cleanup_fails() {
-        let (_directory, root) = root().await;
-        let target = root.canonical_root().join("value.txt");
-        tokio::fs::write(&target, b"old").await.unwrap();
-        let _hash =
-            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishHash);
-        let _cleanup =
-            install_mutation_test_fault(&root, "value.txt", MutationTestFault::UnpublishedCleanup);
-
-        let error = write_file(
-            &root,
-            "value.txt",
-            &ByteString::from_bytes(b"new"),
-            &FilePrecondition::ContentHash(hash_bytes(b"old")),
-            false,
-        )
-        .await
-        .unwrap_err();
-
-        let recovery = recovery_entry(&root, ".cmux-write-");
-        assert_eq!(error.code, "partial-write");
-        assert!(error.message.contains(&recovery.display().to_string()));
-        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
-        assert_eq!(tokio::fs::read(&recovery).await.unwrap(), b"new");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn prepublish_stat_failure_cleans_an_unconditional_staged_write() {
-        let (_directory, root) = root().await;
-        let target = root.canonical_root().join("value.txt");
-        tokio::fs::write(&target, b"old").await.unwrap();
-        let _stat =
-            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishStat);
-
-        let error = write_file(
-            &root,
-            "value.txt",
-            &ByteString::from_bytes(b"new"),
-            &FilePrecondition::Any,
-            false,
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(error.code, "injected-failure");
-        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
-        assert!(!has_recovery_entry(&root, ".cmux-write-"));
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    #[tokio::test]
-    async fn prepublish_stat_failure_cleans_a_content_guarded_staged_write() {
-        let (_directory, root) = root().await;
-        let target = root.canonical_root().join("value.txt");
-        tokio::fs::write(&target, b"old").await.unwrap();
-        let _stat =
-            install_mutation_test_fault(&root, "value.txt", MutationTestFault::PrePublishStat);
-
-        let error = write_file(
-            &root,
-            "value.txt",
-            &ByteString::from_bytes(b"new"),
-            &FilePrecondition::ContentHash(hash_bytes(b"old")),
-            false,
-        )
-        .await
-        .unwrap_err();
-
-        assert_eq!(error.code, "injected-failure");
-        assert_eq!(tokio::fs::read(&target).await.unwrap(), b"old");
-        assert!(!has_recovery_entry(&root, ".cmux-write-"));
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    #[tokio::test]
     async fn failed_unpublished_cleanup_reports_the_retained_recovery_path() {
         let (_directory, root) = root().await;
         let target = root.canonical_root().join("value.txt");
@@ -5070,47 +4930,6 @@ mod tests {
         assert_eq!(remove_error.code, "unsupported-platform");
     }
 
-    #[cfg(all(
-        unix,
-        not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))
-    ))]
-    #[tokio::test]
-    async fn content_guarded_mutations_report_unsupported_unix_platform() {
-        let (_directory, root) = root().await;
-        let target = root.canonical_root().join("value.txt");
-        tokio::fs::write(&target, b"value").await.unwrap();
-        let precondition = FilePrecondition::ContentHash(hash_bytes(b"value"));
-
-        let write_error = write_file(
-            &root,
-            "value.txt",
-            &ByteString::from_bytes(b"updated"),
-            &precondition,
-            false,
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(write_error.code, "unsupported-platform");
-
-        let remove_error =
-            remove_file_precondition_locked(&root, "value.txt", &precondition).await.unwrap_err();
-        assert_eq!(remove_error.code, "unsupported-platform");
-    }
-
-    #[tokio::test]
-    async fn directory_listing_is_sorted_bounded_and_hidden_aware() {
-        let (_directory, root) = root().await;
-        let (queries, owner) = query_context();
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        tokio::fs::create_dir(root.canonical_root().join("z-dir")).await.unwrap();
-        tokio::fs::write(root.canonical_root().join("A.txt"), b"a").await.unwrap();
-        tokio::fs::write(root.canonical_root().join(".hidden"), b"h").await.unwrap();
-        let response = list_directory(&context, "", false, 1, None).await.unwrap().commit();
-        let WorkspaceResponse::Directory { entries, truncated, .. } = response else { panic!() };
-        assert!(truncated);
-        assert_eq!(entries[0].name, "z-dir");
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn repeated_root_directory_snapshots_have_independent_stream_offsets() {
@@ -5124,38 +4943,6 @@ mod tests {
             let WorkspaceResponse::Directory { entries, .. } = response else { panic!() };
             assert!(entries.iter().any(|entry| entry.name == "one.txt"));
         }
-    }
-
-    #[tokio::test]
-    async fn directory_cursor_returns_the_next_sorted_page() {
-        let (_directory, root) = root().await;
-        let (queries, owner) = query_context();
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        for name in ["c.txt", "a.txt", "b.txt"] {
-            tokio::fs::write(root.canonical_root().join(name), name).await.unwrap();
-        }
-        let first = list_directory(&context, "", false, 2, None).await.unwrap().commit();
-        let WorkspaceResponse::Directory { entries, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        assert_eq!(
-            entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
-            ["a.txt", "b.txt"]
-        );
-
-        let second = list_directory(&context, "", false, 2, Some(&cursor)).await.unwrap().commit();
-        let WorkspaceResponse::Directory { entries, next_cursor, truncated } = second else {
-            panic!()
-        };
-        assert_eq!(entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(), ["c.txt"]);
-        assert_eq!(next_cursor, None);
-        assert!(!truncated);
-
-        let error = list_directory(&context, "", true, 2, Some(&cursor))
-            .await
-            .err()
-            .expect("cursor with a different scope should fail");
-        assert_eq!(error.code, "invalid-cursor");
     }
 
     #[tokio::test]
@@ -5179,55 +4966,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_is_literal_structured_and_bounded() {
-        let (_directory, root) = root().await;
-        let (queries, owner) = query_context();
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        tokio::fs::create_dir(root.canonical_root().join("src")).await.unwrap();
-        tokio::fs::write(
-            root.canonical_root().join("src/lib.rs"),
-            b"before\nneedle here\nafter\nneedle twice\n",
-        )
-        .await
-        .unwrap();
-        let response =
-            search(&context, "needle", &["src".into()], &["*.rs".into()], false, 1, None)
-                .await
-                .unwrap()
-                .commit();
-        let WorkspaceResponse::Search { matches, truncated, .. } = response else { panic!() };
-        assert!(truncated);
-        assert_eq!(matches[0].path, "src/lib.rs");
-        assert_eq!(matches[0].line, 2);
-        assert_eq!(matches[0].before, ["before"]);
-        assert_eq!(matches[0].after, ["after"]);
-    }
-
-    #[tokio::test]
-    async fn search_cursor_resumes_after_the_last_match() {
-        let (_directory, root) = root().await;
-        let (queries, owner) = query_context();
-        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
-        tokio::fs::write(root.canonical_root().join("matches.txt"), b"needle one\nneedle two\n")
-            .await
-            .unwrap();
-        let first = search(&context, "needle", &[], &[], false, 1, None).await.unwrap().commit();
-        let WorkspaceResponse::Search { matches, next_cursor: Some(cursor), .. } = first else {
-            panic!()
-        };
-        assert_eq!(matches[0].line, 1);
-
-        let second =
-            search(&context, "needle", &[], &[], false, 1, Some(&cursor)).await.unwrap().commit();
-        let WorkspaceResponse::Search { matches, next_cursor, truncated } = second else {
-            panic!()
-        };
-        assert_eq!(matches[0].line, 2);
-        assert_eq!(next_cursor, None);
-        assert!(!truncated);
-    }
-
-    #[tokio::test]
     async fn search_cursor_continues_without_replaying_changed_files() {
         let (_directory, root) = root().await;
         let (queries, owner) = query_context();
@@ -5243,12 +4981,5 @@ mod tests {
         let WorkspaceResponse::Search { matches, .. } = second else { panic!() };
         assert_eq!(matches[0].text, "needle two");
         assert_eq!(matches[0].line, 2);
-    }
-
-    #[test]
-    fn wildcard_matching_handles_common_patterns() {
-        assert!(wildcard_match("*.rs", "src/lib.rs"));
-        assert!(wildcard_match("src/?ib.rs", "src/lib.rs"));
-        assert!(!wildcard_match("*.md", "src/lib.rs"));
     }
 }

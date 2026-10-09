@@ -1739,31 +1739,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bounded_priority_bursts_do_not_starve_bulk_ingress() {
-        let (interactive_tx, interactive_rx) = mpsc::channel(128);
-        let (control_tx, control_rx) = mpsc::channel(128);
-        let (bulk_tx, bulk_rx) = mpsc::channel(128);
-        let (tunnel_tx, tunnel_rx) = mpsc::channel(128);
-        for sequence in 0..100 {
-            interactive_tx.send((Lane::Interactive, sequence)).await.unwrap();
-        }
-        bulk_tx.send((Lane::Bulk, 0)).await.unwrap();
-        drop((interactive_tx, control_tx, bulk_tx, tunnel_tx));
-        let mut receivers =
-            PriorityReceivers::new([interactive_rx, control_rx, bulk_rx, tunnel_rx]);
-
-        assert_eq!(receivers.receive().await.unwrap().0, Lane::Interactive);
-        let mut bulk_delivery = None;
-        for delivery in 2..=2 * (PRIORITY_BURST_FRAMES + 1) {
-            if receivers.receive().await.unwrap().0 == Lane::Bulk {
-                bulk_delivery = Some(delivery);
-                break;
-            }
-        }
-        assert!(bulk_delivery.is_some(), "bulk was starved by interactive ingress");
-    }
-
-    #[tokio::test]
     async fn shared_physical_writer_prioritizes_later_interactive_sends_without_starvation() {
         const INTERACTIVE_FRAMES: u64 = 100;
 

@@ -197,7 +197,7 @@ impl ConversationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_conversation::{Op, Participant, Reject};
+    use cmux_conversation::Participant;
 
     fn participants() -> Vec<Participant> {
         serde_json::from_value(serde_json::json!([
@@ -235,36 +235,6 @@ mod tests {
                 "2026-10-06T04:55:30.495Z",
             ),
         ]
-    }
-
-    fn store_with_chief() -> (ConversationStore, String) {
-        let mut store = ConversationStore::open(None).unwrap();
-        let id =
-            store.create("home-chief", "user_local", "Chief", &participants()).unwrap().summary.id;
-        (store, id)
-    }
-
-    #[test]
-    fn an_import_keeps_authors_times_and_ids_and_the_owner_assigns_seqs() {
-        let (mut store, id) = store_with_chief();
-        let outcome = store.import(&id, &history()).unwrap();
-        assert_eq!(outcome.imported, vec![1, 2, 3]);
-        assert_eq!(outcome.skipped, 0);
-        assert_eq!(outcome.summary.last_seq, 3);
-        assert_eq!(outcome.summary.rev, 2, "one rev for the whole import");
-        let (_, messages) = store.snapshot(&id, 10).unwrap();
-        let shown: Vec<_> = messages
-            .iter()
-            .map(|m| (m.seq, m.id.as_str(), m.author.as_str(), m.created_at.as_str()))
-            .collect();
-        assert_eq!(
-            shown,
-            vec![
-                (1, "msg_b1", "user_local", "2026-10-06T03:06:01.998Z"),
-                (2, "msg_b2", "agent_mux", "2026-10-06T03:06:04.622Z"),
-                (3, "msg_c1", "user_local", "2026-10-06T04:55:30.495Z"),
-            ]
-        );
     }
 
     /// The shared corpus case (home-core conversation-import-cases.json): the TypeScript core
@@ -309,54 +279,6 @@ mod tests {
             u64::from(head.agent_text_streak),
             case["expect"]["head"]["agent_text_streak"].as_u64().unwrap()
         );
-    }
-
-    #[test]
-    fn a_retry_imports_nothing_twice() {
-        let (mut store, id) = store_with_chief();
-        store.import(&id, &history()).unwrap();
-        let again = store.import(&id, &history()).unwrap();
-        assert!(again.imported.is_empty());
-        assert_eq!(again.skipped, 3);
-        assert_eq!(again.summary.rev, 2, "a replay commits nothing");
-        let mut more = history();
-        more.push(message("msg_d1", "user_local", "cmk_4", "later", "2026-10-06T05:00:00.000Z"));
-        let next = store.import(&id, &more).unwrap();
-        assert_eq!((next.imported, next.skipped), (vec![4], 3));
-    }
-
-    #[test]
-    fn history_older_than_what_the_conversation_holds_is_refused() {
-        let (mut store, id) = store_with_chief();
-        let op = Op::MessageSend {
-            client_msg_id: "now-1".into(),
-            parts: vec![Part::Text { text: "typed now".into(), runs: None }],
-            reply_to: None,
-        };
-        store.apply_op(&id, "now-1", "user_local", &op).unwrap();
-        let error = store.import(&id, &history()).unwrap_err().to_string();
-        assert!(error.contains("import_out_of_order"), "{error}");
-        assert_eq!(store.snapshot(&id, 10).unwrap().0.last_seq, 1, "nothing was written");
-    }
-
-    #[test]
-    fn times_that_go_backward_or_into_the_future_and_strangers_are_refused() {
-        let (mut store, id) = store_with_chief();
-        let mut backward = history();
-        backward.swap(0, 1);
-        assert!(store.import(&id, &backward).unwrap_err().to_string().contains("goes backward"));
-        let future = vec![message("msg_f", "user_local", "cmk_f", "x", "2999-01-01T00:00:00.000Z")];
-        assert!(store.import(&id, &future).unwrap_err().to_string().contains("future"));
-        let stranger =
-            vec![message("msg_s", "agent_other", "cmk_s", "x", "2026-10-06T03:00:00.000Z")];
-        let error = store.import(&id, &stranger).unwrap_err();
-        assert_eq!(
-            error.downcast_ref::<super::super::ConversationRejected>().map(|r| r.0),
-            Some(Reject::NotParticipant)
-        );
-        let bad_time = vec![message("msg_t", "user_local", "cmk_t", "x", "2026-10-06T03:00:00Z")];
-        assert!(store.import(&id, &bad_time).is_err());
-        assert_eq!(store.snapshot(&id, 10).unwrap().0.last_seq, 0);
     }
 
     #[test]

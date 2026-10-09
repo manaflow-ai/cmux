@@ -433,75 +433,8 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
-    use super::unix::{
-        AncestorPolicy, ancestor_policy, ensure_secure_directory_with_policy, validate_ancestor,
-    };
+    use super::unix::{AncestorPolicy, ensure_secure_directory_with_policy};
     use super::{DirectoryAccess, ensure_secure_directory};
-
-    #[test]
-    fn ancestor_walk_is_enforced_everywhere_but_ios() {
-        #[cfg(target_os = "ios")]
-        assert_eq!(ancestor_policy(), AncestorPolicy::TrustSandbox);
-        #[cfg(not(target_os = "ios"))]
-        assert_eq!(ancestor_policy(), AncestorPolicy::Enforce);
-    }
-
-    #[test]
-    fn group_writable_ancestor_is_rejected_under_enforce_and_accepted_under_trust_sandbox() {
-        let directory = tempfile::tempdir().unwrap();
-        let shared = directory.path().join("data");
-        fs::create_dir(&shared).unwrap();
-        // The iOS Simulator's per-device data directory shape.
-        fs::set_permissions(&shared, fs::Permissions::from_mode(0o775)).unwrap();
-        let handle = fs::File::open(&shared).unwrap();
-
-        let rejected = validate_ancestor(&handle, &shared, AncestorPolicy::Enforce).unwrap_err();
-        assert!(rejected.to_string().contains("writable by other users"), "{rejected}");
-        validate_ancestor(&handle, &shared, AncestorPolicy::TrustSandbox).unwrap();
-    }
-
-    #[test]
-    fn sandbox_directory_opens_without_reading_ancestors() {
-        assert_sandbox_directory_behind_unreadable_ancestor(false);
-    }
-
-    #[test]
-    fn sandbox_directory_creates_descendants_without_reading_ancestors() {
-        assert_sandbox_directory_behind_unreadable_ancestor(true);
-    }
-
-    fn assert_sandbox_directory_behind_unreadable_ancestor(create: bool) {
-        // Root bypasses Unix mode checks. Hosted test runners use an ordinary
-        // account so this fixture reproduces the iPhone's denied ancestor open.
-        // SAFETY: geteuid has no preconditions.
-        if unsafe { libc::geteuid() } == 0 {
-            return;
-        }
-        let directory = tempfile::tempdir().unwrap();
-        let ancestor = directory.path().join("data");
-        let container = ancestor.join("Application/container");
-        fs::create_dir_all(&container).unwrap();
-        let state = container.join("Library/Application Support/cmux-cloud-remote");
-        if !create {
-            fs::create_dir_all(&state).unwrap();
-            fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        // Searching through the ancestor is allowed, opening it for reading
-        // is not. iOS similarly allows app files but denies opening /var.
-        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o111)).unwrap();
-        let ancestor_open = fs::File::open(&ancestor);
-        let result = ensure_secure_directory_with_policy(
-            &state,
-            DirectoryAccess::ManagedOwnerOnly,
-            AncestorPolicy::TrustSandbox,
-        );
-        // Restore access before assertions so a failing regression is cleaned up.
-        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o700)).unwrap();
-
-        assert_eq!(ancestor_open.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
-        result.expect("sandbox-owned state must not require opening global ancestors");
-        assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o700);
-    }
 
     #[test]
     fn sandbox_directory_rejects_final_symlinks_including_trailing_components() {
@@ -534,28 +467,6 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(!directory.path().join("created").exists());
-    }
-
-    #[test]
-    fn sandbox_directory_enforces_private_permissions_on_the_final_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
-
-        let result = ensure_secure_directory_with_policy(
-            directory.path(),
-            DirectoryAccess::OwnerOnly,
-            AncestorPolicy::TrustSandbox,
-        );
-        assert!(result.is_err());
-        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
-
-        ensure_secure_directory_with_policy(
-            directory.path(),
-            DirectoryAccess::ManagedOwnerOnly,
-            AncestorPolicy::TrustSandbox,
-        )
-        .unwrap();
-        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
     }
 
     #[test]

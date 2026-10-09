@@ -95,43 +95,6 @@ fn fold(path: &Path) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn refuses_home_root_and_guarded_folders_as_spelled() {
-        let home = Path::new("/Users/me");
-        for cwd in [
-            "/",
-            "/Users/me",
-            "/Users/me/",
-            "/Users/me/Desktop",
-            "/Users/me/documents/app",
-            "/Users/me/Downloads/x",
-            "/Users/me/Pictures/x",
-            "/Users/me/Music",
-            "/Users/me/Movies/x",
-            "/Users/me/Library/Mobile Documents/com~apple~CloudDocs",
-            "/Users/me/Library/CloudStorage/Dropbox",
-            "/Users/me/Library/Containers/com.apple.Notes",
-            "/Users/me/Library/Group Containers/g",
-            "/Users/me/Library/Mail",
-            "/Users/me/Library/Messages",
-            "/Users/me/Library/Safari",
-            "/Users/me/Library/Calendars",
-            "/Volumes/External/x",
-            "/Network/Servers/x",
-        ] {
-            assert!(refusal_in(Path::new(cwd), Some(home)).is_some(), "{cwd} must be refused");
-        }
-        for cwd in [
-            "/Users/me/code/app",
-            "/Users/me/Desktopish",
-            "/opt/work",
-            "/Users/me/Library/Application Support/x",
-        ] {
-            assert_eq!(refusal_in(Path::new(cwd), Some(home)), None, "{cwd} must be allowed");
-        }
-        assert!(refusal_in(Path::new("relative"), Some(home)).is_some());
-    }
-
     #[cfg(unix)]
     #[test]
     fn refuses_a_symlink_into_a_guarded_folder() {

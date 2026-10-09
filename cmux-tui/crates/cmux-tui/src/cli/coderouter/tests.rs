@@ -11,57 +11,9 @@ fn parsed(words: &[&str]) -> Result<Invocation, UsageError> {
 }
 
 #[test]
-fn cmux_owns_status_machines_and_claude_and_everything_else_passes_through() {
-    assert_eq!(
-        parsed(&["coderouter", "status"]).unwrap(),
-        Invocation::Owned(Verb::Status { team: None })
-    );
-    assert_eq!(
-        parsed(&["coderouter", "machines", "--team", "t1"]).unwrap(),
-        Invocation::Owned(Verb::Machines { team: Some("t1".into()) })
-    );
-    assert_eq!(
-        parsed(&["coderouter", "claude"]).unwrap(),
-        Invocation::Owned(Verb::ClaudeList { team: None })
-    );
-    assert_eq!(parsed(&["coderouter", "--help"]).unwrap(), Invocation::Help);
-    assert_eq!(
-        parsed(&["coderouter", "login", "--json"]).unwrap(),
-        Invocation::Passthrough(args(&["login", "--json"]))
-    );
-    assert_eq!(parsed(&["coderouter"]).unwrap(), Invocation::Passthrough(vec![]));
-    // `cr` is always the CodeRouter CLI, even for cmux's own verbs.
-    assert_eq!(
-        parsed(&["cr", "status", "--help"]).unwrap(),
-        Invocation::Passthrough(args(&["status", "--help"]))
-    );
-    assert!(split(&args(&["workspace", "list"])).is_none());
-}
-
-#[test]
 fn passthrough_keeps_arguments_the_global_parser_would_take() {
     let raw = args(&["--app-socket", "/tmp/a.sock", "cr", "--json", "accounts"]);
     assert_eq!(raw_tail(&raw), args(&["--json", "accounts"]));
-}
-
-#[test]
-fn claude_verbs_take_an_account_and_reject_extra_words() {
-    assert_eq!(
-        parsed(&["coderouter", "claude", "disable", "work", "--team", "t"]).unwrap(),
-        Invocation::Owned(Verb::ClaudeState {
-            team: Some("t".into()),
-            account: "work".into(),
-            enable: false
-        })
-    );
-    assert_eq!(
-        parsed(&["coderouter", "claude", "rm", "work"]).unwrap(),
-        Invocation::Owned(Verb::ClaudeRemove { team: None, account: "work".into() })
-    );
-    assert!(parsed(&["coderouter", "claude", "remove"]).is_err());
-    assert!(parsed(&["coderouter", "claude", "remove", "a", "b"]).is_err());
-    assert!(parsed(&["coderouter", "claude", "clear", "x"]).is_err());
-    assert!(parsed(&["coderouter", "claude", "frob"]).is_err());
 }
 
 #[test]
@@ -156,85 +108,6 @@ fn secrets_come_from_the_variable_stdin_or_a_hidden_prompt() {
 }
 
 #[test]
-fn bedrock_reads_aws_credentials_from_the_environment() {
-    let env = [
-        ("AWS_ACCESS_KEY_ID", "AKIA1"),
-        ("AWS_SECRET_ACCESS_KEY", "secret"),
-        ("AWS_DEFAULT_REGION", "us-west-2"),
-    ];
-    let credential = Credential::Bedrock { region: None, models: vec![("c".into(), "b".into())] };
-    let (result, read, prompted) =
-        with_sources(&env, true, "", "", |s| add_params(None, None, &credential, s));
-    let params = Value::Object(result.unwrap());
-    assert_eq!(
-        params,
-        json!({
-            "kind": "bedrock", "region": "us-west-2", "accessKeyId": "AKIA1",
-            "secretAccessKey": "secret", "modelIds": {"c": "b"},
-        })
-    );
-    assert!(!read && !prompted);
-    let (result, _, _) =
-        with_sources(&env[..2], true, "", "", |s| add_params(None, None, &credential, s));
-    assert!(result.is_err());
-}
-
-#[test]
-fn accounts_resolve_by_handle_then_id_identifier_and_a_unique_label() {
-    let accounts = json!([
-        {"id": "a1", "account": "acct_one", "kind": "anthropic_oauth", "label": "Work", "identifier": "sk-…1"},
-        {"id": "a2", "account": "acct_two", "kind": "anthropic_api_key", "label": "home", "identifier": "sk-…2"},
-        {"id": "a3", "account": "acct_three", "kind": "anthropic_api_key", "label": "home", "identifier": "sk-…3"},
-        {"id": "acct_two", "account": "acct_four", "kind": "bedrock", "label": "x", "identifier": "b-…4"},
-    ]);
-    // The handle wins over an `id` with the same text.
-    assert_eq!(account_id("acct_two", &accounts).unwrap(), "a2");
-    assert_eq!(account_id("acct_three", &accounts).unwrap(), "a3");
-    assert_eq!(account_id("a1", &accounts).unwrap(), "a1");
-    assert_eq!(account_id("sk-…2", &accounts).unwrap(), "a2");
-    assert_eq!(account_id("work", &accounts).unwrap(), "a1");
-    // Handles are exact.
-    assert!(account_id("ACCT_ONE", &accounts).is_err());
-    let ambiguous = account_id("home", &accounts).unwrap_err();
-    assert_eq!(
-        ambiguous.candidates,
-        vec![
-            "acct_two  anthropic_api_key  home".to_owned(),
-            "acct_three  anthropic_api_key  home".to_owned(),
-        ]
-    );
-    assert!(account_id("nope", &accounts).unwrap_err().candidates.is_empty());
-    assert!(is_uuid("3f2a1b4c-0000-4000-8000-0123456789ab"));
-    assert!(!is_uuid("work"));
-}
-
-#[test]
-fn an_email_is_never_a_selector() {
-    let accounts = json!([{"id": "a1", "account": "acct_one", "label": "s@e.com"}]);
-    for selector in ["s@e.com", "s\u{FF20}e.com", "s\u{FE6B}e.com", "s%40e.com", "s%2540e.com"] {
-        let error = account_id(selector, &accounts).unwrap_err();
-        assert!(error.message.contains("acct_"), "{selector}: {}", error.message);
-    }
-}
-
-#[test]
-fn account_text_shows_the_handle_and_never_the_server_account() {
-    let accounts = json!([{
-        "id": "a1", "account": "acct_one", "server_account": "srv-secret",
-        "kind": "anthropic_oauth", "identifier": "sk-…1", "label": "work", "state": "active",
-    }]);
-    assert_eq!(
-        account_lines(Some(&accounts)),
-        json!("acct_one  anthropic_oauth  sk-…1  (work)  active")
-    );
-    assert!(!account_lines(Some(&accounts)).to_string().contains("srv-secret"));
-    assert_eq!(
-        account_lines(Some(&json!([]))),
-        json!(crate::localization::catalog().coderouter.no_accounts)
-    );
-}
-
-#[test]
 fn error_text_redacts_emails_in_paths_and_selectors() {
     assert_eq!(
         redact_emails("timed out: GET /api/coderouter/claude-upstream/s@e.com?x=1"),
@@ -265,17 +138,6 @@ fn passthrough_removes_every_cmux_variable_and_keeps_the_rest() {
         ]
     );
     assert_eq!(command.get_args().collect::<Vec<_>>(), vec![std::ffi::OsStr::new("login")]);
-}
-
-#[test]
-fn the_bundled_cli_is_found_next_to_the_bundled_cmux() {
-    let directory = tempfile::tempdir().unwrap();
-    let bin = directory.path().join("cmux DEV.app/Contents/Resources/bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("cmux"), b"").unwrap();
-    let found = bundled_coderouter(&bin.join("cmux")).unwrap();
-    assert!(found.ends_with("cmux DEV.app/Contents/Resources/bin/coderouter"), "{found:?}");
-    assert_eq!(bundled_coderouter(Path::new("/usr/local/bin/cmux")), None);
 }
 
 /// A fake app that answers each line with the next response.

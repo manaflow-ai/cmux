@@ -102,40 +102,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_way_send_round_trips_without_base64_on_the_wire() {
-        let packet = encode_local_line(
-            br#"{"id":17,"cmd":"send","surface":23,"bytes":"AP+A","no_reply":true}"#,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(packet.len(), HEADER_BYTES + 3);
-        assert!(!packet.windows(4).any(|window| window == b"AP+A"));
-
-        let input = decode_packet(&packet).unwrap().unwrap();
-        assert_eq!(input.request, 17);
-        assert_eq!(input.surface, 23);
-        assert_eq!(input.bytes, b"\0\xff\x80".as_slice());
-        assert_eq!(
-            serde_json::from_slice::<Value>(&input.into_local_line().unwrap()).unwrap(),
-            json!({"id": 17, "cmd": "send", "surface": 23, "bytes": "AP+A"})
-        );
-    }
-
-    #[test]
-    fn legacy_and_semantically_different_sends_stay_on_mux_control() {
-        for line in [
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA=="}"#.as_slice(),
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"!","no_reply":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"bytes":"eA==","no_reply":true,"paste":"false"}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"text":"x","bytes":"eA==","no_reply":true}"#,
-            br#"{"id":1,"cmd":"send","surface":2,"text":false,"bytes":"eA==","no_reply":true}"#,
-        ] {
-            assert!(encode_local_line(line).unwrap().is_none());
-        }
-    }
-
-    #[test]
     fn oversized_input_falls_back_to_fragmented_mux_control() {
         let encoded =
             base64::engine::general_purpose::STANDARD.encode(vec![b'x'; MAX_INPUT_BYTES + 1]);

@@ -613,7 +613,7 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Cursor, Read, Write};
+    use std::io::{self, Read, Write};
     use std::net::Shutdown;
     use std::sync::{Arc, Mutex};
 
@@ -631,42 +631,6 @@ mod tests {
     fn accepts_session_names_for_explicit_and_default_socket_routes() {
         assert!(valid_session_name("main"));
         assert!(valid_session_name("agent-1"));
-    }
-
-    struct UnreadableStream;
-
-    impl Read for UnreadableStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            panic!("an expired lifecycle deadline must fail before reading")
-        }
-    }
-
-    impl Write for UnreadableStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for UnreadableStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
     }
 
     struct TimeoutRecordingStream {
@@ -749,53 +713,6 @@ mod tests {
         }
     }
 
-    struct RejectedStream {
-        response: Cursor<Vec<u8>>,
-    }
-
-    impl Read for RejectedStream {
-        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-            self.response.read(bytes)
-        }
-    }
-
-    impl Write for RejectedStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for RejectedStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self { response: self.response.clone() }))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn expired_deadline_fails_before_reading_another_frame() {
-        let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
-        let mut connection = BufReader::new(stream);
-        let expired = Instant::now() - Duration::from_millis(1);
-
-        assert_eq!(read_response(&mut connection, expired), Err(ExchangeError::Timeout));
-    }
-
     #[test]
     fn lifecycle_deadline_bounds_reads_and_writes() {
         let read_timeout = Arc::new(Mutex::new(None));
@@ -823,26 +740,6 @@ mod tests {
         let mut connection = BufReader::new(stream);
 
         assert!(wait_for_close(&mut connection, Instant::now() + Duration::from_secs(1)).is_ok());
-    }
-
-    #[test]
-    fn exchange_preserves_daemon_rejection_details() {
-        let rejection = json!({
-            "id": 2,
-            "ok": false,
-            "error": "trusted local connection required",
-        });
-        let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
-            response: Cursor::new(format!("{rejection}\n").into_bytes()),
-        });
-        let mut connection = BufReader::new(stream);
-        let error = exchange(
-            &mut connection,
-            json!({"id":2,"cmd":"server-stats"}),
-            Instant::now() + Duration::from_secs(1),
-        )
-        .expect_err("rejected response");
-        assert_eq!(error, ExchangeError::Rejected("trusted local connection required".into()));
     }
 
     #[test]

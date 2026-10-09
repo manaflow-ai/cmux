@@ -235,18 +235,8 @@ impl ProgramStatusRecords {
     }
 
     #[cfg(test)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    #[cfg(test)]
     pub(crate) fn get(&self, id: &str) -> Option<&ProgramStatusRecord> {
         self.records.get(id)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.records.len()
     }
 
     /// The public value (`extra.program_status`): records sorted by id.

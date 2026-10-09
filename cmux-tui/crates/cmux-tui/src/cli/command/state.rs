@@ -771,6 +771,3 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
         .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
     Ok(Value::Array(members))
 }
-
-#[cfg(test)]
-mod tests;

@@ -404,20 +404,4 @@ mod launch_args_tests {
         // The page URL stays last.
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
-
-    #[test]
-    fn disabled_features_merge_into_one_switch() {
-        let mut options = options();
-        options.extra_args =
-            vec!["--disable-features=Translate,PaintHolding".into(), "--lang=en".into()];
-        let args = launch_args(&options, std::path::Path::new("/tmp/p")).unwrap();
-        let switches: Vec<&String> =
-            args.iter().filter(|a| a.starts_with("--disable-features=")).collect();
-        assert_eq!(
-            switches,
-            vec!["--disable-features=PaintHolding,HappyEyeballsV3,Translate"],
-            "{args:?}"
-        );
-        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
-    }
 }

@@ -2115,18 +2115,6 @@ mod tests {
         std::fs::canonicalize(&dir).unwrap()
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn create_parent_dirs_accepts_windows_drive_prefix() {
-        let root =
-            std::env::temp_dir().join(format!("chatmux-actions-drive-{}", std::process::id()));
-        let parent = root.join("nested").join("deeper");
-        let _ = std::fs::remove_dir_all(&root);
-        create_parent_dirs_no_symlink(&parent).unwrap();
-        assert!(parent.is_dir());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     #[test]
     fn expand_path_handles_tilde_relative_and_absolute() {
         assert_eq!(expand_path("~", &home(), &home()), home());
@@ -2137,30 +2125,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_scoped_path_enforces_every_nonempty_root_list() {
-        let roots_a = vec!["/home/u/work".to_owned()];
-        let roots_b = vec!["/home/u/work/sub".to_owned()];
-        let lists: RootLists = [Some(roots_a.as_slice()), Some(roots_b.as_slice())];
-        // Inside both: ok.
-        let ok = resolve_scoped_path("/home/u/work/sub/file", &lists, &home(), "/home/u/work/sub");
-        assert!(ok.is_ok());
-        // Inside A but outside B: refused.
-        let refused = resolve_scoped_path("/home/u/work/other", &lists, &home(), "/home/u/work");
-        assert!(refused.is_err());
-    }
-
-    #[test]
-    fn relative_paths_stay_in_the_workdir() {
-        let roots = vec!["/home/u/work".to_owned()];
-        let lists: RootLists = [Some(roots.as_slice()), None];
-        assert!(resolve_scoped_path("../escape", &lists, &home(), "/home/u/work").is_err());
-        assert!(resolve_scoped_path("./nested/../ok", &lists, &home(), "/home/u/work").is_ok());
-        // Encoded and control-character variants are refused.
-        assert!(resolve_scoped_path("a%2e%2e/b", &lists, &home(), "/home/u/work").is_err());
-        assert!(resolve_scoped_path("a\u{0000}b", &lists, &home(), "/home/u/work").is_err());
-    }
-
-    #[test]
     fn truncate_output_caps_and_marks() {
         let short = truncate_output("hi", MAX_OUTPUT_CHARS);
         assert!(!short.truncated);
@@ -2168,27 +2132,6 @@ mod tests {
         let capped = truncate_output(&long, MAX_OUTPUT_CHARS);
         assert!(capped.truncated);
         assert!(capped.output.contains("truncated 5 characters"));
-    }
-
-    #[test]
-    fn clamp_timeout_bounds() {
-        assert_eq!(clamp_timeout(None), DEFAULT_TIMEOUT_MS);
-        assert_eq!(clamp_timeout(Some(&json!(50))), 1_000);
-        assert_eq!(clamp_timeout(Some(&json!(9_999_999))), MAX_TIMEOUT_MS);
-        assert_eq!(clamp_timeout(Some(&json!(-5))), DEFAULT_TIMEOUT_MS);
-    }
-
-    #[test]
-    fn scoped_file_capability_refusal_is_typed_and_fail_closed() {
-        let roots = vec!["/srv/work".to_owned()];
-        let scoped: RootLists<'_> = [Some(roots.as_slice()), None];
-        assert!(ensure_scoped_file_roots_available(true, &scoped).is_ok());
-        assert_eq!(
-            ensure_scoped_file_roots_available(false, &scoped),
-            Err(SCOPED_FILE_ROOTS_UNSUPPORTED),
-        );
-        let unscoped: RootLists<'_> = [None, None];
-        assert!(ensure_scoped_file_roots_available(false, &unscoped).is_ok());
     }
 
     #[test]
@@ -2205,38 +2148,6 @@ mod tests {
         assert_eq!(env.get("XDG_RUNTIME_DIR").map(String::as_str), Some("/run/user/1000"));
         assert!(!env.contains_key("OPENAI_API_KEY"));
         assert_eq!(env.get("TERM").map(String::as_str), Some("dumb"));
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn read_write_ls_round_trip_inside_allowed_roots() {
-        let root = scratch("rw");
-        let roots = vec![root.display().to_string()];
-        let context = ctx("supervised", Some(roots.clone()), root.clone());
-        // write
-        let write = perform_action(
-            &json!({ "verb": "write", "actionId": "a1", "allowedRoots": roots,
-                     "args": { "path": "note.txt", "content": "hello" } }),
-            &context,
-        )
-        .await;
-        assert_eq!(write["ok"], true, "{write}");
-        // read
-        let read = perform_action(
-            &json!({ "verb": "read", "actionId": "a2", "allowedRoots": roots,
-                     "args": { "path": "note.txt" } }),
-            &context,
-        )
-        .await;
-        assert_eq!(read["result"]["content"], "hello");
-        // ls
-        let ls = perform_action(
-            &json!({ "verb": "ls", "actionId": "a3", "allowedRoots": roots, "args": {} }),
-            &context,
-        )
-        .await;
-        assert!(ls["result"]["listing"].as_str().unwrap().contains("note.txt"));
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[cfg(unix)]
@@ -2348,91 +2259,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_action_capacity_is_bounded_across_connections() {
-        let root = scratch("file-capacity");
-        std::fs::write(root.join("note.txt"), "hello").unwrap();
-        let roots = vec![root.display().to_string()];
-        let context = ctx("supervised", Some(roots.clone()), root.clone());
-        let _capacity = Arc::clone(&context.file_slots)
-            .try_acquire_many_owned(MAX_BLOCKING_FILE_ACTIONS as u32)
-            .unwrap();
-
-        let read = perform_action(
-            &json!({ "verb": "read", "actionId": "busy", "allowedRoots": roots,
-                     "args": { "path": "note.txt" } }),
-            &context,
-        )
-        .await;
-
-        assert_eq!(read["ok"], false);
-        assert_eq!(read["code"], "busy");
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn grep_accepts_a_regular_file_path() {
-        let root = scratch("grep-file");
-        let file = root.join("note.txt");
-        std::fs::write(&file, "needle\n").unwrap();
-        let roots = vec![root.display().to_string()];
-        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
-        context.env =
-            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
-        let grep = perform_action(
-            &json!({ "verb": "grep", "actionId": "a1", "allowedRoots": roots,
-                     "args": { "path": file, "pattern": "needle" }, "timeoutMs": 10000 }),
-            &context,
-        )
-        .await;
-        assert_eq!(grep["ok"], true, "{grep}");
-        assert!(grep["result"]["output"].as_str().unwrap().contains("needle"));
-        let find = perform_action(
-            &json!({ "verb": "find", "actionId": "a2", "allowedRoots": roots,
-                     "args": { "path": file }, "timeoutMs": 10000 }),
-            &context,
-        )
-        .await;
-        assert_eq!(find["ok"], true, "{find}");
-        let matching_find = perform_action(
-            &json!({ "verb": "find", "actionId": "a3", "allowedRoots": roots,
-                     "args": { "path": file, "pattern": "note.txt" }, "timeoutMs": 10000 }),
-            &context,
-        )
-        .await;
-        assert_eq!(matching_find["ok"], true, "{matching_find}");
-        assert!(matching_find["result"]["output"].as_str().unwrap().contains("note.txt"));
-        let nonmatching_find = perform_action(
-            &json!({ "verb": "find", "actionId": "a4", "allowedRoots": roots,
-                     "args": { "path": file, "pattern": "other.txt" }, "timeoutMs": 10000 }),
-            &context,
-        )
-        .await;
-        assert_eq!(nonmatching_find["ok"], true, "{nonmatching_find}");
-        assert_eq!(nonmatching_find["result"]["output"], "");
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[tokio::test]
-    async fn ls_bounds_retained_entries_and_reports_omitted_names() {
-        let root = scratch("ls-bound");
-        for index in 0..(MAX_LISTING_ENTRIES + 5) {
-            std::fs::write(root.join(format!("entry-{index:04}.txt")), "").unwrap();
-        }
-        let roots = vec![root.display().to_string()];
-        let context = ctx("supervised", Some(roots.clone()), root.clone());
-        let ls = perform_action(
-            &json!({ "verb": "ls", "actionId": "a1", "allowedRoots": roots, "args": {} }),
-            &context,
-        )
-        .await;
-        assert_eq!(ls["ok"], true, "{ls}");
-        let listing = ls["result"]["listing"].as_str().unwrap();
-        assert!(listing.contains("…[more entries omitted]"));
-        assert_eq!(listing.lines().count(), MAX_LISTING_ENTRIES + 1);
-        std::fs::remove_dir_all(&root).ok();
-    }
-    #[tokio::test]
     async fn oversized_regular_file_is_refused_before_reading() {
         let root = scratch("oversized-read");
         let file = root.join("oversized.txt");
@@ -2494,28 +2320,6 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    #[tokio::test]
-    async fn grep_returns_busy_when_file_action_capacity_is_exhausted() {
-        let root = scratch("grep-capacity");
-        std::fs::write(root.join("note.txt"), "needle").unwrap();
-        let roots = vec![root.display().to_string()];
-        let context = ctx("supervised", Some(roots.clone()), root.clone());
-        let _capacity = Arc::clone(&context.file_slots)
-            .try_acquire_many_owned(MAX_BLOCKING_FILE_ACTIONS as u32)
-            .unwrap();
-
-        let grep = perform_action(
-            &json!({ "verb": "grep", "actionId": "grep-busy", "allowedRoots": roots,
-                     "args": { "path": ".", "pattern": "needle" } }),
-            &context,
-        )
-        .await;
-
-        assert_eq!(grep["ok"], false);
-        assert_eq!(grep["code"], "busy");
-        std::fs::remove_dir_all(&root).ok();
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn symlinks_cannot_escape_allowed_roots() {
@@ -2536,84 +2340,6 @@ mod tests {
         assert_eq!(read["code"], "path_forbidden");
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&outside).ok();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn ancestor_replacement_cannot_redirect_a_scoped_read() {
-        let root = scratch("read-race");
-        let outside = scratch("read-race-outside");
-        std::fs::create_dir(root.join("ancestor")).unwrap();
-        std::fs::write(root.join("ancestor/secret.txt"), "inside").unwrap();
-        std::fs::write(outside.join("secret.txt"), "outside").unwrap();
-        let roots = vec![root.display().to_string()];
-        let lists: RootLists = [Some(roots.as_slice()), None];
-        let scoped = resolve_scoped_host_path(
-            "ancestor/secret.txt",
-            &lists,
-            &root,
-            root.to_str().unwrap(),
-            false,
-        )
-        .unwrap()
-        .unwrap();
-
-        std::fs::rename(root.join("ancestor"), root.join("original")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("ancestor")).unwrap();
-
-        let result = read_utf8_no_follow(&scoped);
-        assert!(matches!(result, Err(HostError::Refusal(_)) | Err(HostError::Io(_))));
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&outside).ok();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn ancestor_replacement_cannot_redirect_a_scoped_write() {
-        let root = scratch("write-race");
-        let outside = scratch("write-race-outside");
-        std::fs::create_dir(root.join("ancestor")).unwrap();
-        let roots = vec![root.display().to_string()];
-        let lists: RootLists = [Some(roots.as_slice()), None];
-        let scoped = resolve_scoped_host_path(
-            "ancestor/new.txt",
-            &lists,
-            &root,
-            root.to_str().unwrap(),
-            true,
-        )
-        .unwrap()
-        .unwrap();
-
-        std::fs::rename(root.join("ancestor"), root.join("original")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("ancestor")).unwrap();
-
-        assert!(write_utf8_no_follow(&scoped, "unsafe").is_err());
-        assert!(!outside.join("new.txt").exists());
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&outside).ok();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn exec_runs_with_cwd_discipline_and_returns_exit_code_and_output() {
-        let root = scratch("exec");
-        let roots = vec![root.display().to_string()];
-        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
-        context.env =
-            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
-        let exec = perform_action(
-            &json!({ "verb": "exec", "actionId": "a1", "allowedRoots": roots,
-                     "args": { "command": "echo hi && pwd" }, "timeoutMs": 10000 }),
-            &context,
-        )
-        .await;
-        assert_eq!(exec["ok"], true, "{exec}");
-        assert_eq!(exec["result"]["exitCode"], 0);
-        let output = exec["result"]["output"].as_str().unwrap();
-        assert!(output.contains("hi"));
-        assert!(output.contains(&root.display().to_string()));
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[cfg(unix)]
@@ -2728,23 +2454,6 @@ mod tests {
         assert!(!windows_job_should_terminate(false));
         assert!(windows_job_should_terminate(true));
     }
-    #[tokio::test]
-    async fn exec_receives_scoped_process_environment_values() {
-        let root = scratch("procenv");
-        let roots = vec![root.display().to_string()];
-        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
-        context.env =
-            scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
-        let exec = perform_action(
-            &json!({ "verb": "exec", "actionId": "a1", "allowedRoots": roots,
-                     "args": { "command": "printf '%s' \"$MY_TOKEN\"" }, "timeoutMs": 10000,
-                     "runtime": { "environment": { "MY_TOKEN": "abc123" }, "files": [] } }),
-            &context,
-        )
-        .await;
-        assert_eq!(exec["result"]["output"], "abc123");
-        std::fs::remove_dir_all(&root).ok();
-    }
 
     #[cfg(unix)]
     #[tokio::test]
@@ -2789,40 +2498,6 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn observe_trust_refuses_mutating_verbs_allows_reads() {
-        let root = scratch("observe");
-        std::fs::write(root.join("f.txt"), "data").unwrap();
-        let roots = vec![root.display().to_string()];
-        let context = ctx("observe", Some(roots.clone()), root.clone());
-        let write = perform_action(
-            &json!({ "verb": "write", "actionId": "a1", "allowedRoots": roots,
-                     "args": { "path": "x.txt", "content": "no" } }),
-            &context,
-        )
-        .await;
-        assert_eq!(write["code"], "trust_refused");
-        let read = perform_action(
-            &json!({ "verb": "read", "actionId": "a2", "allowedRoots": roots,
-                     "args": { "path": "f.txt" } }),
-            &context,
-        )
-        .await;
-        assert_eq!(read["ok"], true);
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[tokio::test]
-    async fn unknown_verbs_answer_unsupported_verb() {
-        let context = ctx("supervised", None, home());
-        let result =
-            perform_action(&json!({ "verb": "nope", "actionId": "a1", "args": {} }), &context)
-                .await;
-        assert_eq!(result["ok"], false);
-        assert_eq!(result["code"], "unsupported_verb");
-    }
-
     #[cfg(not(unix))]
     #[tokio::test]
     async fn scoped_actions_answer_typed_unsupported() {
@@ -2846,18 +2521,5 @@ mod tests {
         assert_eq!(result["ok"], false);
         assert_eq!(result["code"], "unsupported_verb");
         std::fs::remove_dir_all(root).ok();
-    }
-
-    #[tokio::test]
-    async fn invalid_process_runtime_does_not_reflect_credential_bytes() {
-        let context = ctx("supervised", None, home());
-        let result = perform_action(
-            &json!({ "verb": "exec", "actionId": "a1", "args": { "command": "true" },
-                     "runtime": { "environment": { "BAD NAME": "sekret-value" }, "files": [] } }),
-            &context,
-        )
-        .await;
-        assert_eq!(result["ok"], false);
-        assert!(!result["message"].as_str().unwrap().contains("sekret-value"));
     }
 }

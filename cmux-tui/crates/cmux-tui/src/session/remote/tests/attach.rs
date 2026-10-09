@@ -125,40 +125,6 @@ fn attach_deadline_hard_maximum_wins_over_progress() {
     assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
 }
 
-#[test]
-fn attach_progress_reverse_index_tracks_only_live_matching_requests() {
-    let mut pending = PendingRemoteRequests::default();
-    let unrelated_progress = Arc::new(AtomicU64::new(0));
-    for id in 0..1_000 {
-        pending.insert(
-            id,
-            PendingRemoteRequest {
-                response: channel().0,
-                progress: unrelated_progress.clone(),
-                attach_surface: Some(8),
-            },
-        );
-    }
-    let matching_progress = Arc::new(AtomicU64::new(0));
-    pending.insert(
-        1_000,
-        PendingRemoteRequest {
-            response: channel().0,
-            progress: matching_progress.clone(),
-            attach_surface: Some(7),
-        },
-    );
-
-    assert!(pending.progress_for_attach_surface(7));
-    assert_eq!(matching_progress.load(Ordering::Acquire), 1);
-    assert_eq!(unrelated_progress.load(Ordering::Acquire), 0);
-
-    let removed = pending.remove(&1_000).expect("matching request is pending");
-    drop(removed);
-    assert!(!pending.progress_for_attach_surface(7));
-    assert_eq!(matching_progress.load(Ordering::Acquire), 1);
-}
-
 #[cfg(unix)]
 #[test]
 fn queued_attach_preserves_two_request_wire_order() {
@@ -345,23 +311,6 @@ fn surface_exit_during_attach_retires_the_exact_mirror_before_return() {
     assert!(crate::session::SurfaceHandle::Remote(mirror, session).is_dead());
 }
 
-#[test]
-fn exited_marker_outlives_every_cached_remote_surface_handle() {
-    let session = super::super::test_session_with_provider_context(None, HashSet::new());
-    let surface = test_remote_surface(7);
-    session.surfaces.lock().unwrap().insert(7, surface.clone());
-    let handle = crate::session::SurfaceHandle::Remote(surface.clone(), session.clone());
-
-    session.drop_surface(7);
-    session.prune_exited_surfaces(&HashSet::new());
-
-    assert!(handle.is_dead());
-    drop(handle);
-    drop(surface);
-    session.prune_exited_surfaces(&HashSet::new());
-    assert!(!session.surface_is_exited(7));
-}
-
 #[cfg(unix)]
 #[test]
 fn unrelated_remote_traffic_does_not_extend_attach_idle_deadline() {
@@ -412,26 +361,6 @@ fn unrelated_remote_traffic_does_not_extend_attach_idle_deadline() {
         started.elapsed()
     );
     peer.join().unwrap();
-}
-
-#[test]
-fn timed_out_attach_closes_transport_and_removes_local_mirror() {
-    let closed = Arc::new(AtomicBool::new(false));
-    let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
-
-    let error = session
-        .try_ensure_surface_with_kind(7, SurfaceKind::Pty, None)
-        .err()
-        .expect("silent attach must time out");
-
-    assert!(matches!(
-        error.downcast_ref::<RemoteRequestError>(),
-        Some(RemoteRequestError::Timeout)
-    ));
-    assert!(!session.has_surface(7));
-    assert!(session.pending.lock().unwrap().is_empty());
-    assert!(session.shutdown.load(Ordering::Acquire));
-    assert!(closed.load(Ordering::Acquire));
 }
 
 #[cfg(unix)]

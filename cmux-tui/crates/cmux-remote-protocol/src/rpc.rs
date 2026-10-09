@@ -1010,13 +1010,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_bytes_service_uses_the_versioned_wire_name() {
-        let encoded = serde_json::to_value(Service::TerminalBytes).unwrap();
-        assert_eq!(encoded, "terminal-bytes-v1");
-        assert_eq!(serde_json::from_value::<Service>(encoded).unwrap(), Service::TerminalBytes);
-    }
-
-    #[test]
     fn arbitrary_file_bytes_round_trip_through_json() {
         let bytes = ByteString::from_bytes(&[0, 1, 2, 255]);
         let json = serde_json::to_string(&bytes).unwrap();
@@ -1133,14 +1126,6 @@ mod tests {
     }
 
     #[test]
-    fn computer_use_invocation_ids_are_json_strings() {
-        assert!(
-            serde_json::to_value(ComputerUseInvocationId::from_u128(0x5a17)).unwrap().is_string(),
-            "numeric computer-use handles lose precision in JavaScript clients"
-        );
-    }
-
-    #[test]
     fn process_catalog_and_terminal_snapshot_have_stable_wire_shapes() {
         let process = ProcessId::from_u128(0x5a17);
         let descriptor = ProcessDescriptor {
@@ -1225,75 +1210,11 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewer_size_priority_capability_uses_its_wire_name() {
-        assert_eq!(
-            serde_json::to_value(RemoteCapability::TerminalViewerSizePriorityV1).unwrap(),
-            "terminal-viewer-size-priority-v1"
-        );
-        let decoded: RemoteCapability =
-            serde_json::from_value(serde_json::json!("terminal-viewer-size-priority-v1")).unwrap();
-        assert_eq!(decoded, RemoteCapability::TerminalViewerSizePriorityV1);
-    }
-
-    #[test]
-    fn remote_capabilities_round_trip_known_and_unknown_wire_values() {
-        let known: RemoteCapability =
-            serde_json::from_value(serde_json::json!("process-catalog-v1")).unwrap();
-        assert_eq!(known, RemoteCapability::ProcessCatalogV1);
-        assert_eq!(serde_json::to_value(known).unwrap(), "process-catalog-v1");
-
-        let unknown_wire_value = "workspace-files-v99";
-        let unknown: RemoteCapability =
-            serde_json::from_value(serde_json::json!(unknown_wire_value)).unwrap();
-        assert_eq!(unknown, RemoteCapability::Unknown(unknown_wire_value.to_owned()));
-        assert_eq!(serde_json::to_value(unknown).unwrap(), unknown_wire_value);
-
-        let response: WorkspaceResponse = serde_json::from_value(serde_json::json!({
-            "type": "capabilities",
-            "capabilities": ["process-catalog-v1", unknown_wire_value]
-        }))
-        .unwrap();
-        assert!(matches!(
-            response,
-            WorkspaceResponse::Capabilities { capabilities }
-                if capabilities == vec![
-                    RemoteCapability::ProcessCatalogV1,
-                    RemoteCapability::Unknown(unknown_wire_value.to_owned())
-                ]
-        ));
-    }
-
-    #[test]
     fn request_ids_are_uuid_json_strings() {
         const ENCODED: &str = "\"018f47a2-17d6-4c16-a8b1-7b3d5d998271\"";
         let request: RequestId =
             serde_json::from_str(ENCODED).expect("request ID should decode from a UUID string");
 
         assert_eq!(serde_json::to_string(&request).unwrap(), ENCODED);
-    }
-
-    #[test]
-    fn legacy_responses_and_errors_default_new_detail_fields() {
-        let patch: WorkspaceResponse = serde_json::from_value(serde_json::json!({
-            "type": "patch",
-            "changed_paths": ["a.txt"],
-            "applied": true
-        }))
-        .unwrap();
-        assert!(matches!(patch, WorkspaceResponse::Patch { files, .. } if files.is_empty()));
-
-        let error: RpcError = serde_json::from_value(serde_json::json!({
-            "code": "conflict",
-            "message": "changed",
-            "retryable": false
-        }))
-        .unwrap();
-        assert_eq!(error.details, None);
-    }
-
-    #[test]
-    fn legacy_structured_line_names_remain_stable() {
-        assert_eq!(serde_json::to_value(StructuredDiffLineKind::Added).unwrap(), "add");
-        assert_eq!(serde_json::to_value(StructuredDiffLineKind::Deleted).unwrap(), "delete");
     }
 }

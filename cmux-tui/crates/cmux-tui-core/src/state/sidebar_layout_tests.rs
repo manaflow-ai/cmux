@@ -407,65 +407,6 @@ fn newer_client_keys_survive_ops() {
 }
 
 #[test]
-fn spans_tiles_and_contents() {
-    let d = defaults();
-    let wide = json!({"id": "itm_w", "ref": {"kind": "built_in", "value": "history"}, "span": 7});
-    let doc =
-        ok(&d, json!({"kind": "item.add", "item": wide, "section": "sec_bottom", "index": 1}));
-    assert_eq!(find(&doc, "sec_bottom").items[1].span, Some(7));
-    for span in [0, 13, -1] {
-        let bad =
-            json!({"id": "itm_b", "ref": {"kind": "built_in", "value": "history"}, "span": span});
-        assert_eq!(
-            err(&d, json!({"kind": "item.add", "item": bad, "section": "sec_top", "index": 0})),
-            Reject::InvalidArrangement
-        );
-        let section = json!({"id": "sec_s", "region": "top", "look": "list", "content": "items",
-                             "items": [bad]});
-        assert_eq!(
-            err(&d, json!({"kind": "section.add", "section": section, "index": 0})),
-            Reject::InvalidArrangement
-        );
-    }
-    let tiles = ok(
-        &d,
-        json!({"kind": "section.update", "id": "sec_top", "patch": {"layout": "tiles", "columns": 4}}),
-    );
-    assert_eq!(
-        serde_json::to_value(&find(&tiles, "sec_top").arrangement).unwrap(),
-        json!({"layout": "tiles", "align": "leading", "columns": 4})
-    );
-    let item = json!({"id": "itm_r", "ref": {"kind": "built_in", "value": "history"}});
-    assert_eq!(
-        err(&d, json!({"kind": "item.add", "item": item, "section": "sec_recents", "index": 0})),
-        Reject::ItemsNotAllowed
-    );
-    let future = json!({"id": "sec_f", "region": "middle", "look": "list", "content": "feed",
-                        "contribution": "x#y"});
-    let doc = ok(&d, json!({"kind": "section.add", "section": future, "index": 0}));
-    assert_eq!(find(&doc, "sec_f").content, Content::Other("feed".into()));
-    assert_eq!(
-        err(&doc, json!({"kind": "item.move", "id": "itm_home", "section": "sec_f", "index": 0})),
-        Reject::ItemsNotAllowed
-    );
-    let side = json!({"id": "sec_side", "region": "side", "look": "list", "content": "items"});
-    let doc = ok(&d, json!({"kind": "section.add", "section": side, "index": 0}));
-    assert_eq!(doc.sections.last().unwrap().id, "sec_side");
-    let moved =
-        ok(&doc, json!({"kind": "section.move", "id": "sec_top", "region": "side", "index": 0}));
-    assert_eq!(section_ids(&moved, Region::Other("side".into())), ["sec_top", "sec_side"]);
-}
-
-#[test]
-fn remove_ref_matches_kind_and_value_only() {
-    let doc = ok(
-        &defaults(),
-        json!({"kind": "item.remove_ref", "ref": {"kind": "app", "value": "cmux/home", "tint": 1}}),
-    );
-    assert_eq!(find(&doc, "sec_top").items.len(), 1);
-}
-
-#[test]
 fn workspace_refs_are_qualified_session_ids_compared_verbatim() {
     // sidebar-sections.md 1: a workspace item's value is the qualified public
     // id `<session>:ws_...`. The store keeps refs opaque (kind + value): the

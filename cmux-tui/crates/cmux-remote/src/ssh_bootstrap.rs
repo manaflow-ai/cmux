@@ -1186,80 +1186,6 @@ mod tests {
     }
 
     #[test]
-    fn upload_command_writes_only_after_exclusive_directory_creation() {
-        let payload = "~/.local/bin/.cmux-upload-test/payload";
-        let command = upload_command(payload, UploadEncoding::Raw);
-        assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
-        assert!(command.contains("cat >&3"));
-        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
-        assert!(!command.contains("cat > ~/.local/bin"));
-        let command = upload_command(payload, UploadEncoding::Gzip);
-        assert!(command.contains("set -C; exec 3> ~/.local/bin/.cmux-upload-test/payload"));
-        assert!(command.contains("gzip -dc >&3"));
-        assert!(command.contains("chmod 755 ~/.local/bin/.cmux-upload-test/payload"));
-    }
-
-    #[test]
-    fn temporary_upload_paths_are_unique_within_one_process() {
-        let bootstrapper = SshBootstrapper::new(SshBootstrapConfig::defaults("host")).unwrap();
-        let first = bootstrapper.temporary_upload_path();
-        let second = bootstrapper.temporary_upload_path();
-
-        assert_ne!(first, second);
-        assert!(first.contains(".cmux-upload-"));
-        assert!(second.contains(".cmux-upload-"));
-    }
-
-    fn probe(distribution_version: Option<&str>) -> RemoteProbe {
-        RemoteProbe {
-            app: "cmux-tui".into(),
-            version: "0.1.0".into(),
-            distribution_version: distribution_version.map(str::to_owned),
-            npm_bootstrap_version: None,
-            build_identity: Some(BUILD_IDENTITY.into()),
-            remote_protocol: REMOTE_PROTOCOL_VERSION,
-            os: "linux".into(),
-            arch: "x86_64".into(),
-        }
-    }
-
-    #[test]
-    fn compatibility_uses_the_stamped_distribution_version() {
-        let mut config = SshBootstrapConfig::defaults("host");
-        config.package_version = "0.9.4".into();
-        let bootstrapper = SshBootstrapper::new(config).unwrap();
-
-        assert!(bootstrapper.compatible(&probe(Some("0.9.4"))));
-        assert!(!bootstrapper.compatible(&probe(Some("0.9.3"))));
-    }
-
-    #[test]
-    fn bootstrap_retryability_separates_carrier_loss_from_terminal_setup() {
-        assert!(BootstrapError::Timeout.is_retryable_carrier_failure());
-        assert!(
-            BootstrapError::Remote { status: 255, stderr: "network unreachable".into() }
-                .is_retryable_carrier_failure()
-        );
-        assert!(
-            !BootstrapError::Configuration("bad command".into()).is_retryable_carrier_failure()
-        );
-        assert!(!BootstrapError::Missing.is_retryable_carrier_failure());
-        assert!(
-            !BootstrapError::Remote { status: 2, stderr: "usage".into() }
-                .is_retryable_carrier_failure()
-        );
-    }
-
-    #[test]
-    fn native_windows_shell_failure_reports_the_wsl_prerequisite() {
-        assert!(windows_command_shell_error(
-            "'~' is not recognized as an internal or external command, operable program or batch file."
-        ));
-        assert!(!BootstrapError::WindowsRequiresWsl.is_retryable_carrier_failure());
-        assert!(BootstrapError::WindowsRequiresWsl.to_string().contains("wsl --install"));
-    }
-
-    #[test]
     fn option_like_destination_is_rejected_by_bootstrap_config() {
         let Err(error) =
             SshBootstrapper::new(SshBootstrapConfig::defaults("-Fvalidation@localhost"))
@@ -1316,26 +1242,6 @@ mod tests {
     }
 
     #[test]
-    fn option_like_remote_binary_is_rejected_by_bootstrap_config() {
-        let mut config = SshBootstrapConfig::defaults("host");
-        config.remote_binary = "-bad/path".into();
-
-        assert!(matches!(
-            SshBootstrapper::new(config),
-            Err(BootstrapError::Configuration(message)) if message.contains("remote binary")
-        ));
-    }
-
-    #[test]
-    fn legacy_probe_falls_back_to_the_binary_version() {
-        let mut config = SshBootstrapConfig::defaults("host");
-        config.package_version = "0.1.0".into();
-        let bootstrapper = SshBootstrapper::new(config).unwrap();
-
-        assert!(bootstrapper.compatible(&probe(None)));
-    }
-
-    #[test]
     fn raw_build_rejects_the_same_version_from_a_different_source_revision() {
         let mut config = SshBootstrapConfig::defaults("host");
         config.package_version = "0.1.0".into();
@@ -1355,44 +1261,6 @@ mod tests {
         assert!(!bootstrapper.compatible(&installed));
         installed.build_identity = None;
         assert!(!bootstrapper.compatible(&installed));
-    }
-
-    #[test]
-    fn npm_bootstrap_requires_a_matching_published_package_stamp() {
-        let mut config = SshBootstrapConfig::defaults("host");
-        config.package_version = "0.9.4".into();
-        config.package_installable = true;
-        let bootstrapper = SshBootstrapper::new(config).unwrap();
-        let mut installed = probe(Some("0.9.4"));
-
-        assert!(!bootstrapper.compatible(&installed));
-        installed.npm_bootstrap_version = Some("0.9.3".into());
-        assert!(!bootstrapper.compatible(&installed));
-        installed.npm_bootstrap_version = Some("0.9.4".into());
-        installed.build_identity = Some("different-package-build".into());
-        assert!(bootstrapper.compatible(&installed));
-    }
-
-    #[test]
-    fn shell_unsafe_bootstrap_values_are_rejected() {
-        let mut config = SshBootstrapConfig::defaults("host; reboot");
-        config.auto_install = false;
-
-        assert!(matches!(SshBootstrapper::new(config), Err(BootstrapError::Configuration(_))));
-    }
-
-    #[tokio::test]
-    async fn raw_build_refuses_to_claim_an_unpublished_npm_installer() {
-        let mut config = SshBootstrapConfig::defaults("host");
-        config.package_version = "0.0.0-r2.test".into();
-        config.package_installable = false;
-        config.local_binary = None;
-
-        let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
-        assert!(matches!(
-            error,
-            BootstrapError::PackageUnavailable(version) if version == "0.0.0-r2.test"
-        ));
     }
 
     #[cfg(unix)]

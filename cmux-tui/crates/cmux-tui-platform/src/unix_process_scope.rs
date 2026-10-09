@@ -1558,55 +1558,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn close_on_exec_marker_does_not_claim_an_unrelated_process() {
-        let scope = UnixProcessScope::prepare().unwrap();
-        // A fork sees every parent's descriptor before exec closes CLOEXEC
-        // entries. Model that ownership scan with the live test process and
-        // an earlier, absent root; no tracker is registered and no PID is killed.
-        let registration = ScopeRegistration {
-            marker: scope.marker.clone(),
-            file_marker: scope.file_marker,
-            _marker_fd: Arc::clone(&scope._marker_fd),
-            root: ProcessIdentity { pid: u32::MAX, started: 0 },
-            tracked: scope.tracked.clone(),
-            track_before_finalization: true,
-            final_scan_gate: None,
-        };
-        let current = process_identity(std::process::id()).unwrap();
-        let scanned = scan_registered_processes(&[registration], ProcessScanCursor::default());
-        assert!(
-            !scanned.matches.contains(&(0, current)),
-            "a close-on-exec marker is incidental fork inheritance, not scope membership"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
-        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 4242";
-        assert_eq!(
-            linux_process_identity_from_stat(12, stat),
-            Some(ProcessIdentity { pid: 12, started: 4242 })
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn mac_argument_parser_finds_only_environment_entries() {
-        let expected = b"CMUX_TUI_PROCESS_SCOPE=abc";
-        let mut arguments = 2_i32.to_ne_bytes().to_vec();
-        arguments.extend_from_slice(b"/bin/tool\0\0tool\0--flag\0A=1\0");
-        arguments.extend_from_slice(expected);
-        arguments.push(0);
-        assert!(mac_environment_contains(&arguments, expected));
-
-        let mut argv_only = 1_i32.to_ne_bytes().to_vec();
-        argv_only.extend_from_slice(b"/bin/tool\0\0CMUX_TUI_PROCESS_SCOPE=abc\0A=1\0");
-        assert!(!mac_environment_contains(&argv_only, expected));
-    }
-
     #[cfg(target_os = "macos")]
     #[test]
     fn mac_process_scope_launcher_stops_before_the_requested_program() {

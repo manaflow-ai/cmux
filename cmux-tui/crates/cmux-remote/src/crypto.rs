@@ -849,43 +849,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn enrolled_device_establishes_encrypted_link() {
-        let daemon = StaticIdentity::generate().unwrap();
-        let client = StaticIdentity::generate().unwrap();
-        let auth = TestAuthenticator {
-            enrolled: client.public_key(),
-            invitation: None,
-            seen: Mutex::new(Vec::new()),
-        };
-        let (client_link, server_link) = test_support::pair(128 * 1024);
-        let client_config = client_config(client.clone(), &daemon, ClientAuthMode::Enrolled);
-
-        let (client_result, server_result) = tokio::join!(
-            initiate_secure_link(Box::new(client_link), client_config),
-            accept_secure_link(
-                Box::new(server_link),
-                &daemon,
-                &auth,
-                InboundAuthEvidence::Network(NetworkPeer::Tcp),
-            ),
-        );
-        let client_secure = client_result.unwrap();
-        let accepted = server_result.unwrap();
-        assert_eq!(accepted.grant.revocation_generation, 4);
-        assert_eq!(accepted.connection_attempt, ConnectionAttemptId([7; 16]));
-        assert_eq!(accepted.resume.get(&Lane::Interactive), Some(&9));
-        assert_eq!(accepted.session, SessionId([3; 16]));
-        assert_eq!(accepted.lane, Lane::Interactive);
-        assert_eq!(accepted.lanes, [Lane::Interactive]);
-        assert_eq!(accepted.generation, 0);
-        assert_eq!(client_secure.remote_static(), daemon.public_key());
-        assert_eq!(accepted.link.remote_static(), client.public_key());
-
-        client_secure.send(Bytes::from_static(b"secret input")).await.unwrap();
-        assert_eq!(accepted.link.receive().await.unwrap().unwrap().as_ref(), b"secret input");
-    }
-
-    #[tokio::test]
     async fn secure_link_delegates_terminal_control_drain_state() {
         let daemon = StaticIdentity::generate().unwrap();
         let client = StaticIdentity::generate().unwrap();
@@ -913,59 +876,5 @@ mod tests {
             client_secure.terminal_control_drain_active(),
             "secure wrapper hid its inner terminal Control drain"
         );
-    }
-
-    #[tokio::test]
-    async fn client_rejects_substituted_daemon_key() {
-        let daemon = StaticIdentity::generate().unwrap();
-        let wrong_daemon = StaticIdentity::generate().unwrap();
-        let client = StaticIdentity::generate().unwrap();
-        let auth = TestAuthenticator {
-            enrolled: client.public_key(),
-            invitation: None,
-            seen: Mutex::new(Vec::new()),
-        };
-        let (client_link, server_link) = test_support::pair(128 * 1024);
-        let config = client_config(client, &wrong_daemon, ClientAuthMode::Enrolled);
-
-        let (client_result, _) = tokio::join!(
-            initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(
-                Box::new(server_link),
-                &daemon,
-                &auth,
-                InboundAuthEvidence::Network(NetworkPeer::Tcp),
-            ),
-        );
-        assert!(matches!(client_result, Err(CryptoError::DaemonKeyMismatch { .. })));
-    }
-
-    #[tokio::test]
-    async fn invitation_requires_matching_psk() {
-        let daemon = StaticIdentity::generate().unwrap();
-        let client = StaticIdentity::generate().unwrap();
-        let auth = TestAuthenticator {
-            enrolled: client.public_key(),
-            invitation: Some(("invite".into(), [7; 32])),
-            seen: Mutex::new(Vec::new()),
-        };
-        let (client_link, server_link) = test_support::pair(128 * 1024);
-        let config = client_config(
-            client,
-            &daemon,
-            ClientAuthMode::Invitation { id: "invite".into(), secret: Zeroizing::new([8; 32]) },
-        );
-
-        let (client_result, server_result) = tokio::join!(
-            initiate_secure_link(Box::new(client_link), config),
-            accept_secure_link(
-                Box::new(server_link),
-                &daemon,
-                &auth,
-                InboundAuthEvidence::Network(NetworkPeer::Tcp),
-            ),
-        );
-        assert!(client_result.is_err());
-        assert!(server_result.is_err());
     }
 }

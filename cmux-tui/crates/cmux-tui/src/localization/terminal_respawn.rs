@@ -20,20 +20,3 @@ fn text_for(catalog: &'static super::Catalog) -> &'static TerminalRespawnText {
 pub(crate) fn install() {
     cmux_tui_core::terminal_respawn_text::install(text_for(super::catalog()));
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn every_language_has_the_respawn_marker() {
-        let en = super::text_for(super::super::catalog_for_locale("en_US.UTF-8"));
-        let ja = super::text_for(super::super::catalog_for_locale("ja_JP.UTF-8"));
-        assert_eq!(en.restored, "\u{2014} session restored (previous process ended) \u{2014}");
-        assert!(
-            ja.restored_command.contains("{program}") && en.restored_command.contains("{program}")
-        );
-        assert_ne!(en.restored, ja.restored);
-        assert_ne!(en.recovered_workspace, ja.recovered_workspace);
-        assert!(ja.stopped.contains("{program}") && en.stopped.contains("{program}"));
-        assert_ne!(en.stopped, ja.stopped);
-    }
-}

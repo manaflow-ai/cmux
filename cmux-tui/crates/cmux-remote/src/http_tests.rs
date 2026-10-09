@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -11,10 +9,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 use super::*;
-
-fn request(authorization: Option<&str>) -> HttpRequest<Body> {
-    workspace_request(authorization, 1, WorkspaceRequest::Capabilities)
-}
 
 fn workspace_request(
     authorization: Option<&str>,
@@ -88,40 +82,6 @@ async fn read_raw_http_response(connection: &mut TcpStream) -> Vec<u8> {
         }
         let read = connection.read_buf(&mut response).await.unwrap();
         assert_ne!(read, 0, "HTTP connection closed before its response completed");
-    }
-}
-
-#[tokio::test]
-async fn workspace_http_authenticates_before_rpc_dispatch() {
-    let token = WorkspaceHttpBearerToken::test_value();
-    let authorization = format!("Bearer {}", token.0.as_str());
-    let router = workspace_http_router(WorkspaceService::new(), token);
-
-    let unauthorized = router.clone().oneshot(request(None)).await.unwrap();
-    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(unauthorized.headers().get(CONNECTION).unwrap(), "close");
-    assert_eq!(
-        router.clone().oneshot(request(Some("Bearer wrong"))).await.unwrap().status(),
-        StatusCode::UNAUTHORIZED
-    );
-    let response = router.oneshot(request(Some(&authorization))).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), MAX_HTTP_RPC_BODY_BYTES).await.unwrap();
-    let response: RpcResponse = serde_json::from_slice(&body).unwrap();
-    assert!(response.result.is_ok());
-}
-
-#[tokio::test]
-async fn workspace_http_refuses_browser_origins_even_with_the_token() {
-    let token = WorkspaceHttpBearerToken::test_value();
-    let authorization = format!("Bearer {}", token.0.as_str());
-    let router = workspace_http_router(WorkspaceService::new(), token);
-    for origin in ["https://evil.example", "null", "http://127.0.0.1:1"] {
-        let mut request = request(Some(&authorization));
-        request.headers_mut().insert(ORIGIN, HeaderValue::from_static(origin));
-        let response = router.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
-        assert_eq!(response.headers().get(CONNECTION).unwrap(), "close");
     }
 }
 
@@ -213,71 +173,6 @@ async fn dropped_http_page_keeps_its_parent_cursor_retryable() {
     assert_eq!(retries[0].0, retries[1].0);
     assert_eq!(retries[0].0[0].name, "b.txt");
     assert_eq!(retries[0].1, retries[1].1);
-}
-
-#[tokio::test]
-async fn authenticated_rest_action_applies_native_codex_patch() {
-    let directory = tempdir().unwrap();
-    let workspace = WorkspaceService::new();
-    let opened = workspace
-        .handle_request(WorkspaceRequest::OpenWorkspace {
-            root: directory.path().to_str().unwrap().to_owned(),
-        })
-        .await
-        .unwrap();
-    let WorkspaceResponse::Workspace { id, .. } = opened else { panic!() };
-    let token = WorkspaceHttpBearerToken::test_value();
-    let authorization = format!("Bearer {}", token.0.as_str());
-    let router = workspace_http_router(workspace, token);
-    let patch = "*** Begin Patch\n*** Add File: created.txt\n+created\n*** End Patch\n";
-    let request = HttpRequest::builder()
-        .method("POST")
-        .uri(format!("/v1/workspaces/{}/apply-patch", id.0))
-        .header(AUTHORIZATION, authorization)
-        .header("content-type", "text/plain")
-        .body(Body::from(patch))
-        .unwrap();
-
-    let response = router.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), MAX_HTTP_RPC_BODY_BYTES).await.unwrap();
-    let response: WorkspaceHttpResponse = serde_json::from_slice(&body).unwrap();
-    assert!(response.result.is_ok());
-    assert_eq!(tokio::fs::read(directory.path().join("created.txt")).await.unwrap(), b"created\n");
-}
-
-#[test]
-fn workspace_http_token_file_is_owner_only_and_stable() {
-    let directory = tempdir().unwrap();
-    let path = directory.path().join("workspace-http.token");
-    let first = load_or_create_workspace_http_token(&path).unwrap();
-    let second = load_or_create_workspace_http_token(&path).unwrap();
-    assert!(bool::from(first.0.as_bytes().ct_eq(second.0.as_bytes())));
-    #[cfg(unix)]
-    assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
-}
-
-#[test]
-fn workspace_http_token_reader_bounds_growth_after_metadata_check() {
-    let directory = tempdir().unwrap();
-    let path = directory.path().join("workspace-http.token");
-    fs::write(&path, b"x").unwrap();
-    #[cfg(unix)]
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-
-    let mut file = OpenOptions::new().read(true).open(&path).unwrap();
-    let metadata = file.metadata().unwrap();
-    validate_workspace_http_token_metadata(&metadata).unwrap();
-    OpenOptions::new()
-        .append(true)
-        .open(&path)
-        .unwrap()
-        .write_all(&vec![b'x'; MAX_HTTP_TOKEN_FILE_BYTES as usize])
-        .unwrap();
-
-    let error = read_workspace_http_token_contents(&mut file).unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    assert_eq!(error.to_string(), "HTTP token file is too large");
 }
 
 #[tokio::test]

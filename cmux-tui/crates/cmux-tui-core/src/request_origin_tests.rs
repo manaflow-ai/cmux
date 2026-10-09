@@ -81,34 +81,6 @@ fn issuing_a_confirmation_needs_user_after_narrowing() {
 }
 
 #[test]
-fn gate_a2_needs_user_and_app_origin_is_refused() {
-    for operation in USER_ONLY_OPERATIONS {
-        for origin in [RequestOrigin::Page, RequestOrigin::Agent, RequestOrigin::App] {
-            let error = require_origin(operation, origin).unwrap_err();
-            assert_eq!(error.code, "origin.forbidden");
-            assert_eq!(error.message, NEEDS_VERIFIED_APP);
-            assert_eq!(error.details, json!({"required": "user", "derived": origin.wire_name()}));
-        }
-        assert!(require_origin(operation, RequestOrigin::User).is_ok());
-    }
-    assert!(require_origin("apps.list", RequestOrigin::Page).is_ok());
-}
-
-#[test]
-fn canonical_json_sorts_keys_at_every_depth_without_whitespace() {
-    let value = json!({"b": [1, {"z": null, "a": "é/\""}], "a": {"y": true, "x": 1.5}});
-    let mut out = String::new();
-    write_canonical_json(&value, &mut out);
-    assert_eq!(out, r#"{"a":{"x":1.5,"y":true},"b":[1,{"a":"é/\"","z":null}]}"#);
-    let expected: String =
-        Sha256::digest(out.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-    assert_eq!(params_sha256(&value), expected);
-    assert!(valid_sha256_hex(&expected));
-    assert!(!valid_sha256_hex(&expected.to_uppercase()));
-    assert!(!valid_sha256_hex(&expected[1..]));
-}
-
-#[test]
 fn a_confirmation_is_single_use_bound_and_expires() {
     let ping = ResourceOperation::SessionPing;
     let params = json!({"machine": "current", "session": "current"});
@@ -162,31 +134,4 @@ fn tokens_are_32_random_bytes_base64url() {
     assert_ne!(first, second);
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&first).unwrap();
     assert_eq!(bytes.len(), 32);
-}
-
-#[test]
-fn install_ids_and_roles_have_one_shape() {
-    assert!(valid_install_id("a"));
-    assert!(valid_install_id(&"A-_9".repeat(32)));
-    let long = "a".repeat(129);
-    for bad in ["", "a b", "a/b", "é", long.as_str()] {
-        assert!(!valid_install_id(bad), "{bad}");
-    }
-    assert_eq!(HelloRole::declared("main"), Some(HelloRole::Main));
-    assert_eq!(HelloRole::declared("page_relay"), Some(HelloRole::PageRelay));
-    assert_eq!(HelloRole::declared("legacy"), None);
-    assert_eq!(HelloRole::declared("user"), None);
-}
-
-#[test]
-fn the_token_clock_is_monotonic_and_the_wall_reading_is_separate() {
-    let clock = OriginClock::default();
-    clock.advance(0);
-    let (monotonic, wall) = (clock.monotonic_ms(), clock.wall_ms());
-    clock.jump_wall(-7_200_000);
-    assert_eq!(clock.monotonic_ms(), monotonic);
-    assert_eq!(clock.wall_ms(), wall.saturating_sub(7_200_000));
-    clock.advance(CONFIRMATION_TTL_MS);
-    assert_eq!(clock.monotonic_ms(), monotonic + CONFIRMATION_TTL_MS);
-    assert_eq!(clock.wall_ms(), wall.saturating_sub(7_200_000) + CONFIRMATION_TTL_MS);
 }

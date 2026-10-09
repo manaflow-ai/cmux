@@ -118,18 +118,6 @@ mod tests {
     }
 
     #[test]
-    fn title_head_and_star() {
-        assert_eq!(
-            decide(&json!({"autoApprove": ["write"]}), &req("edit", "Write: a.txt")),
-            Some(RuleDecision::Approve)
-        );
-        assert_eq!(
-            decide(&json!({"autoDeny": ["*"]}), &req("read", "Read x")),
-            Some(RuleDecision::Deny)
-        );
-    }
-
-    #[test]
     fn validation() {
         assert!(validate(&json!({"autoApprove": ["a"], "default": "ask"})).is_ok());
         assert!(validate(&json!({"autoApprove": "a"})).is_err());

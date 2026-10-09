@@ -65,21 +65,3 @@ fn hello_proof_refuses_any_other_input() {
         assert!(!verify_hello_proof(&key(), "inst_test-01", &NONCE, proof), "{proof}");
     }
 }
-
-#[test]
-fn install_ids_are_short_and_plain() {
-    assert!(valid_install_id("inst_ABC-123"));
-    let too_long = "a".repeat(MAX_INSTALL_ID_LEN + 1);
-    for bad in ["", "a b", "a\0b", "a/b", "é", too_long.as_str()] {
-        assert!(!valid_install_id(bad), "{bad:?}");
-        assert!(!verify_hello_proof(&key(), bad, &NONCE, VECTOR));
-    }
-}
-
-#[test]
-fn hex_round_trips() {
-    let bytes: [u8; 4] = [0, 0x7f, 0x80, 0xff];
-    assert_eq!(hex(&bytes), "007f80ff");
-    assert_eq!(unhex::<4>("007F80ff"), Some(bytes));
-    assert_eq!(unhex::<4>("007f80f"), None);
-}

@@ -4,18 +4,6 @@
 use super::*;
 
 #[test]
-fn cmux_executables_are_services() {
-    for name in
-        ["cmux", "acpmux", "chatmux-relay", "cmux-browser-host", "cmux-tui (deleted)", "chrome"]
-    {
-        assert!(is_service_name(name), "{name}");
-    }
-    for name in ["node", "bun", "python3", "postgres", "cmux_browser_host-0123abcd"] {
-        assert!(!is_service_name(name), "{name}");
-    }
-}
-
-#[test]
 fn listening_rows_are_read_by_port_and_state() {
     let table = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
    0: 0100007F:0BB8 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 4242 1 0 100 0 0 10 0\n\

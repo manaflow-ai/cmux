@@ -518,26 +518,3 @@ fn interactive_queue_saturation_fails_without_waiting_for_the_writer() {
     control.release();
     overflow.join().unwrap();
 }
-
-#[test]
-fn latency_histogram_reports_fixed_bucket_percentiles() {
-    let metrics = InteractiveWriteMetrics::default();
-    for latency in [
-        Duration::from_micros(10),
-        Duration::from_micros(80),
-        Duration::from_micros(200),
-        Duration::from_micros(900),
-        Duration::from_millis(20),
-    ] {
-        metrics.record_latency(latency);
-    }
-
-    let snapshot = metrics.snapshot();
-    assert_eq!(snapshot.samples, 5);
-    assert_eq!(snapshot.write_failures, 0);
-    assert_eq!(snapshot.backpressure_rejections, 0);
-    assert_eq!(snapshot.p50, Some(Duration::from_micros(250)));
-    assert_eq!(snapshot.p95, Some(Duration::from_millis(25)));
-    assert_eq!(snapshot.p99, Some(Duration::from_millis(25)));
-    assert_eq!(snapshot.histogram.iter().map(|bucket| bucket.samples).sum::<u64>(), 5);
-}

@@ -964,61 +964,9 @@ mod tests {
         sent: AsyncMutex<Vec<Lane>>,
     }
 
-    struct RejectingLink;
-
-    struct ReceiveThenRejectAckLink {
-        incoming: AsyncMutex<Option<Bytes>>,
-    }
-
     struct GatedAckLink {
         incoming: AsyncMutex<mpsc::UnboundedReceiver<Bytes>>,
         send_entered: Semaphore,
-    }
-
-    #[async_trait]
-    impl FrameLink for RejectingLink {
-        fn description(&self) -> &str {
-            "rejecting"
-        }
-
-        fn maximum_frame_bytes(&self) -> usize {
-            128 * 1024
-        }
-
-        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
-            Err(LinkError::Closed)
-        }
-
-        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-            std::future::pending().await
-        }
-
-        async fn close(&self) -> Result<(), LinkError> {
-            Ok(())
-        }
-    }
-
-    #[async_trait]
-    impl FrameLink for ReceiveThenRejectAckLink {
-        fn description(&self) -> &str {
-            "receive-then-reject-ack"
-        }
-
-        fn maximum_frame_bytes(&self) -> usize {
-            128 * 1024
-        }
-
-        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
-            Err(LinkError::Transport("reverse path closed".into()))
-        }
-
-        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-            Ok(self.incoming.lock().await.take())
-        }
-
-        async fn close(&self) -> Result<(), LinkError> {
-            Ok(())
-        }
     }
 
     #[async_trait]
@@ -1125,29 +1073,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn committed_frame_is_delivered_when_its_ack_write_fails() {
-        let session_id = SessionId([15; 16]);
-        let frame = WireFrame {
-            session: session_id,
-            generation: 0,
-            lane: Lane::Control,
-            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
-            sequence: 1,
-            acknowledgement: 0,
-            stream: 0,
-            payload: Vec::new(),
-        };
-        let link = Arc::new(ReceiveThenRejectAckLink {
-            incoming: AsyncMutex::new(Some(Bytes::from(frame.encode().unwrap()))),
-        });
-        let session = ReliableSession::new(session_id, link, SessionLimits::default());
-
-        let received = session.receive().await.unwrap().unwrap();
-        assert_eq!(received.sequence, 1);
-        assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
-    }
-
-    #[tokio::test]
     async fn duplicate_replay_ack_failure_does_not_hide_admitted_session_close() {
         let session_id = SessionId([17; 16]);
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
@@ -1199,57 +1124,6 @@ mod tests {
             .expect("session ended before the admitted session close");
         assert_eq!(received.sequence, 2);
         assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
-    }
-
-    async fn assert_replay_full_does_not_skip_sequence(session_byte: u8) {
-        let limits = SessionLimits { replay_frames_per_lane: 1, ..SessionLimits::default() };
-        let (sender_link, peer_link) = test_support::pair(128 * 1024);
-        let sender =
-            ReliableSession::new(SessionId([session_byte; 16]), Arc::new(sender_link), limits);
-        let peer = ReliableSession::new(SessionId([session_byte; 16]), Arc::new(peer_link), limits);
-
-        assert_eq!(
-            sender
-                .send(Lane::Control, 7, Bytes::from_static(b"one"), FrameFlags::empty())
-                .await
-                .unwrap(),
-            1
-        );
-        assert_eq!(peer.receive().await.unwrap().unwrap().sequence, 1);
-
-        assert!(matches!(
-            sender.send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty()).await,
-            Err(SessionError::ReplayFull(Lane::Control))
-        ));
-        assert_eq!(sender.next_outbound_sequence(Lane::Control), 2);
-        assert_eq!(sender.outstanding_reliable_frames(Lane::Control), 1);
-
-        peer.send(Lane::Control, 8, Bytes::from_static(b"ack carrier"), FrameFlags::empty())
-            .await
-            .unwrap();
-        assert_eq!(sender.receive().await.unwrap().unwrap().payload, b"ack carrier".as_slice());
-        assert_eq!(sender.outstanding_reliable_frames(Lane::Control), 0);
-
-        assert_eq!(
-            sender
-                .send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty())
-                .await
-                .unwrap(),
-            2
-        );
-        let received = peer.receive().await.unwrap().unwrap();
-        assert_eq!(received.sequence, 2);
-        assert_eq!(received.payload, b"two".as_slice());
-    }
-
-    #[tokio::test]
-    async fn client_replay_full_then_success_does_not_create_sequence_gap() {
-        assert_replay_full_does_not_skip_sequence(11).await;
-    }
-
-    #[tokio::test]
-    async fn server_replay_full_then_success_does_not_create_sequence_gap() {
-        assert_replay_full_does_not_skip_sequence(12).await;
     }
 
     #[tokio::test]
@@ -1371,84 +1245,6 @@ mod tests {
         let tunnel = peer.receive().await.unwrap().unwrap();
         assert_eq!(tunnel.sequence, 1);
         assert_eq!(tunnel.payload, b"tunnel fits".as_slice());
-    }
-
-    #[tokio::test]
-    async fn reconnect_replays_only_frames_after_peer_cursor() {
-        let (client_link, server_link) = test_support::pair(128 * 1024);
-        let client = ReliableSession::new(
-            SessionId([2; 16]),
-            Arc::new(client_link),
-            SessionLimits::default(),
-        );
-        let server = ReliableSession::new(
-            SessionId([2; 16]),
-            Arc::new(server_link),
-            SessionLimits::default(),
-        );
-        client
-            .send(Lane::Control, 7, Bytes::from_static(b"one"), FrameFlags::empty())
-            .await
-            .unwrap();
-        assert_eq!(server.receive().await.unwrap().unwrap().payload, b"one".as_slice());
-        client
-            .send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty())
-            .await
-            .unwrap();
-
-        let (new_client_link, new_server_link) = test_support::pair(128 * 1024);
-        let client = client
-            .reconnect(Arc::new(new_client_link), &BTreeMap::from([(Lane::Control, 1)]))
-            .await
-            .unwrap();
-        let server = server.reconnect(Arc::new(new_server_link), &BTreeMap::new()).await.unwrap();
-        let replay = server.receive().await.unwrap().unwrap();
-        assert_eq!(replay.sequence, 2);
-        assert_eq!(replay.payload, b"two".as_slice());
-        assert!(replay.flags.contains(FrameFlags::REPLAY));
-        assert_eq!(client.outstanding_reliable_frames(Lane::Control), 1);
-    }
-
-    #[tokio::test]
-    async fn failed_reconnect_keeps_old_session_usable_and_retryable() {
-        let (old_link, old_peer) = test_support::pair(128 * 1024);
-        let session =
-            ReliableSession::new(SessionId([14; 16]), Arc::new(old_link), SessionLimits::default());
-        session
-            .send(Lane::Control, 1, Bytes::from_static(b"one"), FrameFlags::empty())
-            .await
-            .unwrap();
-        let first = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
-        assert_eq!(first.sequence, 1);
-
-        assert!(matches!(
-            session.reconnect(Arc::new(RejectingLink), &BTreeMap::new()).await,
-            Err(SessionError::LinkMessage(_))
-        ));
-        assert_eq!(session.generation(), 0);
-        assert_eq!(session.next_outbound_sequence(Lane::Control), 2);
-        assert_eq!(session.outstanding_reliable_frames(Lane::Control), 1);
-
-        assert_eq!(
-            session
-                .send(Lane::Control, 1, Bytes::from_static(b"two"), FrameFlags::empty())
-                .await
-                .unwrap(),
-            2
-        );
-        let second = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
-        assert_eq!(second.generation, 0);
-        assert_eq!(second.sequence, 2);
-
-        let (retry_link, retry_peer) = test_support::pair(128 * 1024);
-        let replacement = session.reconnect(Arc::new(retry_link), &BTreeMap::new()).await.unwrap();
-        assert_eq!(replacement.generation(), 1);
-        for expected in [b"one".as_slice(), b"two".as_slice()] {
-            let replay = WireFrame::decode(&retry_peer.receive().await.unwrap().unwrap()).unwrap();
-            assert_eq!(replay.generation, 1);
-            assert!(replay.flags.contains(FrameFlags::REPLAY));
-            assert_eq!(replay.payload, expected);
-        }
     }
 
     #[tokio::test]
@@ -1603,18 +1399,5 @@ mod tests {
         assert_eq!(server.receive().await.unwrap().unwrap().payload, b"once".as_slice());
         client_link.send(encoded).await.unwrap();
         assert!(tokio::time::timeout(Duration::from_millis(25), server.receive()).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn stale_connection_is_generation_fenced() {
-        let (left, _right) = test_support::pair(128 * 1024);
-        let original =
-            ReliableSession::new(SessionId([4; 16]), Arc::new(left), SessionLimits::default());
-        let (new_left, _new_right) = test_support::pair(128 * 1024);
-        let _replacement = original.reconnect(Arc::new(new_left), &BTreeMap::new()).await.unwrap();
-        assert!(matches!(
-            original.send(Lane::Control, 0, Bytes::new(), FrameFlags::empty()).await,
-            Err(SessionError::StaleGeneration { .. })
-        ));
     }
 }

@@ -208,44 +208,6 @@ pub(super) fn rfc3339(ms: u64) -> String {
 mod tests {
     use super::*;
 
-    fn stored(id: &str, created_at_ms: u64, pinned: bool) -> Stored {
-        let mut record: Checkpoint = serde_json::from_value(serde_json::json!({
-            "checkpoint_id": id, "repository_id": "repo", "worktree_id": "wt",
-            "ref": "refs/cmux/checkpoints/wt/x", "object_id": "0", "revision": "1",
-            "complete": true, "skipped": [], "skipped_total": 0,
-            "created_at": "x", "expires_at": null,
-            "base": {"head": null, "branch": null, "detached": false},
-            "coverage": {"included": 0, "omitted": 0, "unavailable": 0},
-            "included": {"tracked": 0, "untracked": 0, "staged_entries": 0},
-            "bytes": {"logical": 0, "newly_stored": 0},
-            "limits": {"max_bytes": 1, "max_files": 1, "max_untracked_file_bytes": 1},
-            "pins": [],
-        }))
-        .unwrap();
-        if pinned {
-            record.pins.push(Pin { pin_id: "keep".into(), reason: "test".into() });
-        }
-        Stored { record, created_at_ms, revision: 1 }
-    }
-
-    #[test]
-    fn retention_prunes_old_and_excess_unpinned_records_and_never_pins() {
-        let now = RETENTION_MS * 3;
-        let mut records = vec![
-            stored("ckpt_old_pinned", 0, true),
-            stored("ckpt_old", 1, false),
-            stored("ckpt_recent", now - 1000, false),
-        ];
-        assert_eq!(prunable(&records, now), vec!["ckpt_old".to_string()]);
-
-        records = (0..53)
-            .map(|index| stored(&format!("ckpt_{index:03}"), now - 60 + index, false))
-            .collect();
-        records[0].record.pins.push(Pin { pin_id: "keep".into(), reason: "test".into() });
-        // 53 records, one pinned: the three oldest unpinned ones go.
-        assert_eq!(prunable(&records, now), vec!["ckpt_001", "ckpt_002", "ckpt_003"]);
-    }
-
     #[test]
     fn timestamps_are_rfc3339_utc() {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00.000Z");

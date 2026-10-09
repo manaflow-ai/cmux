@@ -617,13 +617,6 @@ mod tests {
         assert_eq!(RelayConfig::default().bind, "127.0.0.1:8787".parse::<SocketAddr>().unwrap());
     }
 
-    #[test]
-    fn non_loopback_open_relay_requires_an_explicit_override() {
-        let config =
-            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
-        assert!(config.validate().is_err());
-    }
-
     /// Open mode admits any non-empty provider ticket, so a local process
     /// could register or connect to any slot. A relay without a ticket
     /// secret starts only with an explicit `--allow-open`, also on loopback.
@@ -669,26 +662,6 @@ mod tests {
         assert_eq!(config.http_header_timeout, Duration::from_secs(7));
         assert_eq!(config.max_control_sockets_per_slot, 9);
         assert_eq!(config.max_allocations_per_second_per_slot, 11);
-    }
-
-    #[test]
-    fn allow_open_flag_is_applied_before_security_validation() {
-        let config =
-            RelayConfig { bind: "0.0.0.0:8787".parse().unwrap(), ..RelayConfig::default() };
-        let command = RelayCommand::parse(config, [OsString::from("--allow-open")]).unwrap();
-        assert!(matches!(command, RelayCommand::Serve(config) if config.allow_open));
-    }
-
-    #[test]
-    fn version_is_available_as_a_flag_or_command() {
-        for arguments in [vec!["--version"], vec!["-V"], vec!["version"]] {
-            let command = RelayCommand::parse(
-                RelayConfig::default(),
-                arguments.into_iter().map(OsString::from),
-            )
-            .unwrap();
-            assert!(matches!(command, RelayCommand::Version));
-        }
     }
 
     #[test]

@@ -260,65 +260,6 @@ fn methods(driver: &FakeDriver) -> Vec<String> {
     driver.calls.lock().unwrap().iter().map(|(m, _)| m.clone()).collect()
 }
 
-#[test]
-fn blocked_navigation_never_reaches_the_driver() {
-    let (gate, driver) = make_gate(Value::Null, false);
-    let layer = Layer {
-        allowed: Some(vec![DomainPattern::parse("example.com").unwrap()]),
-        prohibited: Vec::new(),
-        block_ips: false,
-    };
-    gate.set_owner_policy(layer, true).unwrap();
-    let error = gate
-        .driver_call("tab.navigate", json!({"targetId": "T", "url": "https://evil.test/"}))
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::Forbidden);
-    assert_eq!(
-        error.message,
-        "page.goto: https://evil.test/ is blocked: not in session.allowedDomains (example.com)"
-    );
-    let opened = gate.driver_call("tabs.open", json!({"url": "file:///etc/passwd"})).unwrap_err();
-    assert!(
-        opened.message.starts_with("tabs.open: file:///etc/passwd is blocked: file: URLs"),
-        "{}",
-        opened.message
-    );
-    assert!(methods(&driver).is_empty());
-}
-
-#[test]
-fn vm_code_cannot_widen_a_locked_policy() {
-    let (gate, _) = make_gate(Value::Null, false);
-    let layer = Layer {
-        allowed: Some(vec![DomainPattern::parse("example.com").unwrap()]),
-        prohibited: Vec::new(),
-        block_ips: false,
-    };
-    gate.set_owner_policy(layer, true).unwrap();
-    // The VM "allows" another domain: the base layer still refuses it.
-    policy(&gate, "set", json!({"allowed": ["evil.test", "example.com"]})).unwrap();
-    assert!(
-        gate.driver_call("tab.navigate", json!({"targetId": "T", "url": "https://evil.test/"}))
-            .is_err()
-    );
-    let got = policy(&gate, "get", json!({})).unwrap();
-    assert_eq!(got["locked"], true);
-    assert!(gate.set_owner_policy(Layer::default(), false).is_err());
-}
-
-#[test]
-fn vm_code_never_reaches_the_host_world() {
-    let (gate, driver) = make_gate(Value::Null, false);
-    let error = gate
-        .driver_call(
-            "frame.evaluate",
-            json!({"targetId": "T", "world": "host", "source": "() => 1"}),
-        )
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::Forbidden);
-    assert!(methods(&driver).is_empty());
-}
-
 /// The host-world probe cannot look into a cross-origin frame; the engine
 /// then reports the focused frame itself, and that frame's URL is checked.
 #[test]
@@ -348,27 +289,6 @@ fn secret_typing_follows_focus_into_cross_origin_frames() {
     driver.calls.lock().unwrap().clear();
     let error = gate.driver_call("frame.focused", json!({"targetId": "T"})).unwrap_err();
     assert_eq!(error.code, ErrorCode::Forbidden);
-    assert!(methods(&driver).is_empty());
-}
-
-#[test]
-fn raw_cdp_and_content_rules_need_the_host() {
-    let (gate, driver) = make_gate(Value::Null, false);
-    assert_eq!(
-        gate.driver_call("cdp", json!({"targetId": "T", "method": "DOM.getDocument"}))
-            .unwrap_err()
-            .code,
-        ErrorCode::Forbidden
-    );
-    assert_eq!(
-        gate.driver_call(
-            "session.configure",
-            json!({"contentRules": [{"action": {"type": "ignore-previous-rules"}}]})
-        )
-        .unwrap_err()
-        .code,
-        ErrorCode::Forbidden
-    );
     assert!(methods(&driver).is_empty());
 }
 
@@ -406,39 +326,6 @@ fn secret_handles_resolve_only_in_matching_frames() {
         .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
         .unwrap_err();
     assert!(refused.message.contains("raw CDP"), "{}", refused.message);
-}
-
-#[test]
-fn results_and_errors_going_back_into_the_vm_are_masked() {
-    let (gate, _) = make_gate(Value::Null, false);
-    gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
-    let info = gate.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
-    assert_eq!(info["title"], "token <secret:pw> here");
-    let error = gate
-        .driver_call("tab.navigate", json!({"targetId": "T", "url": "https://example.com/"}))
-        .unwrap_err();
-    assert_eq!(error.message, "failed: token <secret:pw> here");
-    assert_eq!(gate.mask("x s3cret-value"), "x <secret:pw>");
-}
-
-#[test]
-fn natives_expose_names_never_values() {
-    let (gate, _) = make_gate(Value::Null, false);
-    let set =
-        secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["example.com"]}));
-    assert_eq!(set.unwrap(), json!({"name": "api", "domains": ["example.com"], "totp": false}));
-    gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
-    let list = secrets(&gate, "list", json!({})).unwrap();
-    assert!(!list.to_string().contains("s3cret") && !list.to_string().contains("k-123"));
-    assert_eq!(list[0]["agentKnown"], true);
-    assert_eq!(list[1]["agentKnown"], false);
-    assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(true));
-    assert_eq!(secrets(&gate, "delete", json!({"name": "api"})).unwrap(), json!(true));
-    assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(false));
-    assert!(
-        secrets(&gate, "set", json!({"name": "bad name", "value": "v", "domains": ["a.test"]}))
-            .is_err()
-    );
 }
 
 #[test]

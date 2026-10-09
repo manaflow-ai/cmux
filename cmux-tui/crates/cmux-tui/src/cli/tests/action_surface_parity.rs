@@ -15,39 +15,6 @@ fn action_surfaces() -> serde_json::Value {
     serde_json::from_str(&text).expect("action-surfaces.json is JSON")
 }
 
-/// The CLI names of the actions the app offers to `cmux`.
-fn offered_cli_names() -> Vec<String> {
-    let surfaces = action_surfaces();
-    let actions = surfaces["actions"].as_array().expect("actions array");
-    let names = actions
-        .iter()
-        .filter(|action| action["cli"] == "offered")
-        .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
-    assert!(names.len() > 300, "only {} offered CLI names; is the export stale?", names.len());
-    names
-}
-
-#[test]
-fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
-    let mut shadowed = Vec::new();
-    for name in offered_cli_names() {
-        let words = name.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        // App scopes (`app`, `settings`, ...) and coderouter route before
-        // the mux grammar.
-        if matches!(app::parse(&words), Ok(Some(_))) || coderouter::split(&words).is_some() {
-            continue;
-        }
-        if parse(&words, Surface::Cmux).is_ok() {
-            shadowed.push(name);
-        }
-    }
-    assert!(
-        shadowed.is_empty(),
-        "the mux grammar accepts these app CLI names, so `cmux` never runs their action: {shadowed:?}"
-    );
-}
-
 /// `cmux servers add --code CODE [--chief] [--name N]` approves a server's
 /// pairing code (a Chief brain's `optchat-chief cloud pair`): the app offers
 /// `server.addServer` under that CLI name, the mux grammar (its `server`

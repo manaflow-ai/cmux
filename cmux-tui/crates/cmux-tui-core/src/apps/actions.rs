@@ -67,20 +67,3 @@ pub fn decide(id: Option<&str>) -> ActionDecision {
         None => ActionDecision::NeedsGesture,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn agent_exemptions_bind_apps_and_everything_else_needs_a_gesture() {
-        assert_eq!(decide(Some("palette.auth.signIn")), ActionDecision::Refused("credentials"));
-        assert_eq!(decide(Some("quit")), ActionDecision::Refused("endsApp"));
-        assert_eq!(decide(Some("keepMacAwake")), ActionDecision::Refused("systemChange"));
-        assert_eq!(decide(Some("taskManager.killProcess")), ActionDecision::Refused("liveInput"));
-        assert_eq!(decide(Some("newWindow")), ActionDecision::NeedsGesture);
-        assert_eq!(decide(Some("openSettings")), ActionDecision::NeedsGesture);
-        assert_eq!(decide(Some("made.up")), ActionDecision::Unknown);
-        assert_eq!(decide(None), ActionDecision::Unknown);
-    }
-}

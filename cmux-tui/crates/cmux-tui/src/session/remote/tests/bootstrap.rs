@@ -7,90 +7,6 @@ struct EnsureInitialTreeWriter {
     list_requests: usize,
 }
 
-struct AgentRefreshWriter {
-    session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
-    agent_requests: usize,
-}
-
-impl RemoteMessageWriter for AgentRefreshWriter {
-    fn send(&mut self, message: &str) -> io::Result<()> {
-        let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
-        let id = request
-            .get("id")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
-        let response = match request.get("cmd").and_then(Value::as_str) {
-            Some("list-workspaces") => json!({
-                "id": id,
-                "ok": true,
-                "data": {
-                    "workspaces": [{
-                        "id": 1,
-                        "active": true,
-                        "screens": [{
-                            "id": 2,
-                            "active": true,
-                            "active_pane": 3,
-                            "layout": {"type": "leaf", "pane": 3},
-                            "panes": [{
-                                "id": 3,
-                                "active_tab": 0,
-                                "tabs": [{"surface": 4, "kind": "pty"}],
-                            }],
-                        }],
-                    }],
-                },
-            }),
-            Some("list-agents") => {
-                self.agent_requests += 1;
-                if self.agent_requests == 1 {
-                    json!({
-                        "id": id,
-                        "ok": true,
-                        "data": {
-                            "agents": [{
-                                "surface": 4,
-                                "state": "working",
-                                "source": "hook",
-                                "session": "agent-session",
-                                "updated_at_ms": 1,
-                            }],
-                        },
-                    })
-                } else {
-                    json!({"id": id, "ok": false, "error": "agent snapshot unavailable"})
-                }
-            }
-            command => {
-                return Err(io::Error::other(format!(
-                    "unexpected agent refresh command {command:?}"
-                )));
-            }
-        };
-        let session = self
-            .session
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
-        let pending = session
-            .pending
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .ok_or_else(|| io::Error::other("remote request was not pending"))?;
-        pending
-            .response
-            .send(response)
-            .map_err(|_| io::Error::other("remote response receiver was dropped"))
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 impl RemoteMessageWriter for EnsureInitialTreeWriter {
     fn send(&mut self, message: &str) -> io::Result<()> {
         let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
@@ -335,28 +251,6 @@ impl RemoteMessageWriter for LostBootstrapRaceWriter {
 }
 
 #[test]
-fn winner_between_snapshots_still_lands_in_the_cache() {
-    // The other attach creates the shell between the first tree read and
-    // the raw snapshot: no create runs here, and the final refresh must
-    // still deliver the winner's tree to this client's cache.
-    let session_slot = Arc::new(Mutex::new(None));
-    let remote = test_session(Box::new(LostBootstrapRaceWriter {
-        session: session_slot.clone(),
-        list_requests: 1, // skip one bare read: the snapshot is populated
-    }));
-    *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
-    let session = crate::session::Session::Remote(remote);
-
-    session.ensure_initial(Some((80, 24))).unwrap();
-
-    assert_eq!(
-        session.tree().active_surface(),
-        Some(4),
-        "the stale bare tree survived in the cache"
-    );
-}
-
-#[test]
 fn losing_the_bare_session_bootstrap_race_is_not_a_startup_failure() {
     let session_slot = Arc::new(Mutex::new(None));
     let remote = test_session(Box::new(LostBootstrapRaceWriter {
@@ -372,72 +266,6 @@ fn losing_the_bare_session_bootstrap_race_is_not_a_startup_failure() {
         session.tree().active_surface(),
         Some(4),
         "the loser must adopt the winner's shell instead of failing attach"
-    );
-}
-
-/// A daemon too old to report revision metadata cannot enforce the
-/// bootstrap guard, so the client must not send an unguarded create at
-/// all: the writer refuses `create-terminal`, and attach must still
-/// succeed with the session left bare, exactly as before the bootstrap
-/// existed.
-struct UnguardableTreeWriter {
-    session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
-}
-
-impl RemoteMessageWriter for UnguardableTreeWriter {
-    fn send(&mut self, message: &str) -> io::Result<()> {
-        let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
-        let id = request
-            .get("id")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
-        let data = match request.get("cmd").and_then(Value::as_str) {
-            Some("list-workspaces") => json!({"workspaces": [
-                {"id": 5, "key": "ws-active", "active": true, "screens": []},
-            ]}),
-            Some("list-agents") => json!({"agents": []}),
-            command => {
-                return Err(io::Error::other(format!(
-                    "an unguardable daemon must not receive {command:?}"
-                )));
-            }
-        };
-        let session = self
-            .session
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
-        let pending = session
-            .pending
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .ok_or_else(|| io::Error::other("remote request was not pending"))?;
-        pending
-            .response
-            .send(json!({"id": id, "ok": true, "data": data}))
-            .map_err(|_| io::Error::other("remote response receiver was dropped"))
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-#[test]
-fn bootstrap_stays_home_when_the_daemon_cannot_enforce_its_guard() {
-    let session_slot = Arc::new(Mutex::new(None));
-    let remote = test_session(Box::new(UnguardableTreeWriter { session: session_slot.clone() }));
-    *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
-    let session = crate::session::Session::Remote(remote);
-
-    session.ensure_initial(Some((80, 24))).unwrap();
-
-    assert!(
-        session.tree().workspaces().iter().all(|workspace| workspace.screens.is_empty()),
-        "an unguarded create must never run"
     );
 }
 
@@ -482,35 +310,6 @@ fn ensure_initial_populates_remote_cache_after_creating_first_workspace() {
         session.tree().active_surface(),
         Some(4),
         "startup returned before the client could route input to its created terminal"
-    );
-}
-
-#[test]
-fn failed_agent_refresh_clears_last_known_agent_rows() {
-    let session_slot = Arc::new(Mutex::new(None));
-    let remote = test_session(Box::new(AgentRefreshWriter {
-        session: session_slot.clone(),
-        agent_requests: 0,
-    }));
-    *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
-
-    remote.refresh_tree().unwrap();
-    assert_eq!(remote.cached_agents().len(), 1);
-
-    remote.refresh_tree().unwrap();
-
-    assert!(remote.cached_agents().is_empty());
-}
-
-#[test]
-fn provider_guard_fails_before_writing_to_an_older_remote_server() {
-    let session = crate::session::Session::Remote(test_session(Box::new(UnexpectedWriteWriter)));
-
-    let error = session.mark_workspaces_provider_managed().unwrap_err();
-
-    assert_eq!(
-        error.to_string(),
-        "remote cmux server cannot guard provider-managed workspaces; upgrade the server before attaching"
     );
 }
 

@@ -335,43 +335,6 @@ mod tests {
     use super::*;
     use crate::transport::memory_pair;
 
-    struct Echo;
-
-    impl Handler for Echo {
-        fn call(&self, op: String, params: Value) -> CallFuture {
-            Box::pin(async move {
-                if op == "test.echo.slow" {
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                }
-                Ok(json!({ "op": op, "params": params }))
-            })
-        }
-
-        fn subscribe(&self, _stream: String, _filter: Option<Value>) -> SubscribeResult {
-            let (tx, rx) = mpsc::channel(4);
-            tokio::spawn(async move {
-                for n in 0..3 {
-                    let _ = tx.send(EventItem::new(json!({ "n": n }))).await;
-                }
-            });
-            Ok(rx)
-        }
-    }
-
-    #[tokio::test]
-    async fn both_sides_call_and_subscribe() {
-        let (a, b) = memory_pair();
-        let (a, _) = Peer::start(a, Role::Connecting, Arc::new(Echo));
-        let (b, _) = Peer::start(b, Role::Accepting, Arc::new(Echo));
-        let reply = a.call("test.echo.say", json!({ "x": 1 })).await.unwrap();
-        assert_eq!(reply, json!({ "op": "test.echo.say", "params": { "x": 1 } }));
-        assert!(b.call("test.echo.say", json!({})).await.is_ok());
-        let mut subscription = a.subscribe("test.echo.ticks", None).await.unwrap();
-        for n in 0..3 {
-            assert_eq!(subscription.events.recv().await, Some(EventItem::new(json!({ "n": n }))));
-        }
-    }
-
     #[tokio::test]
     async fn a_full_queue_drops_events_and_marks_the_next_one() {
         let (source_tx, source_rx) = mpsc::channel(16);

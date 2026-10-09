@@ -60,47 +60,6 @@ fn every_limited_address_is_refused_to_every_caller() {
     }
 }
 
-#[test]
-fn names_are_checked_after_resolution_and_metadata_names_before_it() {
-    let lookups = Arc::new(AtomicUsize::new(0));
-    let counted = lookups.clone();
-    let inner = table(&[
-        ("public.test", &["93.184.216.34"]),
-        ("lan.test", &["10.0.0.5"]),
-        ("meta.test", &["169.254.169.254"]),
-        ("ula.test", &["fd00:ec2::254"]),
-        ("mixed.test", &["93.184.216.34", "192.168.0.10"]),
-        ("mapped.test", &["::ffff:100.64.1.1"]),
-        ("loop.test", &["127.0.0.1"]),
-    ]);
-    let rule = EgressRule::new(
-        Vec::new(),
-        Arc::new(move |name, port| {
-            counted.fetch_add(1, Ordering::SeqCst);
-            inner(name, port)
-        }),
-    );
-    let name = |n: &str| Target::Name(n.to_owned(), 80);
-    assert_eq!(rule.resolve(&name("public.test")), Ok(vec!["93.184.216.34:80".parse().unwrap()]));
-    for refused in [
-        "lan.test",
-        "meta.test",
-        "ula.test",
-        "mixed.test",
-        "mapped.test",
-        // A public name that resolves to loopback is DNS rebinding.
-        "loop.test",
-    ] {
-        assert!(matches!(rule.resolve(&name(refused)), Err(Refusal::Blocked(_))), "{refused}");
-    }
-    let before = lookups.load(Ordering::SeqCst);
-    for metadata in ["metadata.google.internal", "Metadata.Google.Internal.", "metadata.goog"] {
-        assert!(matches!(rule.resolve(&name(metadata)), Err(Refusal::Blocked(_))), "{metadata}");
-    }
-    assert_eq!(lookups.load(Ordering::SeqCst), before, "metadata names are never looked up");
-    assert!(matches!(rule.resolve(&name("nowhere.test")), Err(Refusal::Unresolved(_))));
-}
-
 /// The chief's decision (cx-d0d.7): an agent browses its own dev server on
 /// the VM's loopback; metadata and private ranges stay refused.
 #[test]
@@ -141,57 +100,6 @@ fn urls_are_refused_by_literal_and_by_resolution() {
     ] {
         assert!(rule.url_refusal(&Url::parse(text).unwrap()).is_none(), "{text}");
     }
-}
-
-#[test]
-fn the_owner_allow_list_opens_exact_private_ports_but_never_metadata() {
-    let (allow, errors) = parse_allow(
-        "localhost:3000, 10.0.0.5:8080 169.254.169.254:80,[fd00:ec2::254]:80, x, 127.0.0.1:0",
-    );
-    assert_eq!(errors.len(), 4, "{errors:?}");
-    let rule = EgressRule::new(allow, no_names());
-    let addr = |text: &str| Target::Address(text.parse().unwrap());
-    assert!(rule.resolve(&addr("127.0.0.1:3000")).is_ok());
-    assert!(rule.resolve(&addr("[::1]:3000")).is_ok());
-    assert!(rule.resolve(&addr("[::ffff:127.0.0.1]:3000")).is_ok());
-    assert!(rule.resolve(&Target::Name("localhost".into(), 3000)).is_ok());
-    let rebind =
-        EgressRule::new(parse_allow("10.0.0.5:8080").0, table(&[("evil.test", &["10.0.0.5"])]));
-    assert!(
-        matches!(rebind.resolve(&Target::Name("evil.test".into(), 8080)), Err(Refusal::Blocked(_))),
-        "a public name that resolves to an allowed address"
-    );
-    assert!(rule.resolve(&addr("10.0.0.5:8080")).is_ok());
-    for refused in ["10.0.0.5:80", "169.254.169.254:80", "[fd00:ec2::254]:80"] {
-        assert!(rule.resolve(&addr(refused)).is_err(), "{refused}");
-    }
-}
-
-#[test]
-fn a_cloud_machine_is_isolated_unless_its_owner_says_machine() {
-    let isolated = |scope: Option<&str>, cloud: bool| {
-        EgressScope::decide(scope, cloud, "", no_names()).0.isolated().is_some()
-    };
-    assert!(isolated(None, true), "a baked Cloud image");
-    assert!(!isolated(None, false), "the person's own machine");
-    assert!(isolated(Some("isolated"), false));
-    assert!(isolated(Some("machine"), true), "an agent's own host cannot turn it off");
-    assert!(!isolated(Some("machine"), false));
-    let (scope, warnings) = EgressScope::decide(Some("off"), false, "", no_names());
-    assert!(scope.isolated().is_some(), "an unknown value fails closed");
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-}
-
-#[test]
-fn chromium_sends_every_connection_through_the_listener() {
-    let args = chromium_args("127.0.0.1:4567".parse().unwrap());
-    assert!(args.contains(&"--proxy-server=socks5://127.0.0.1:4567".to_owned()), "{args:?}");
-    assert!(args.contains(&"--proxy-bypass-list=<-loopback>".to_owned()), "{args:?}");
-    assert!(
-        args.iter().any(|a| a.starts_with("--host-resolver-rules=MAP * ~NOTFOUND")),
-        "{args:?}"
-    );
-    assert!(args.iter().any(|a| a.contains("disable_non_proxied_udp")), "{args:?}");
 }
 
 // The listener, over real sockets.

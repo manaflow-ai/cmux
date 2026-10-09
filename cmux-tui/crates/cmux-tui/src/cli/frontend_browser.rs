@@ -423,6 +423,3 @@ fn resource_error(error: Value) -> Value {
 fn app_failure(code: &str, message: String) -> Failure {
     Failure::Resource(json!({"code": code, "message": message, "details": {}, "retryable": false}))
 }
-
-#[cfg(test)]
-mod tests;

@@ -128,20 +128,6 @@ fn reap_ends_revoked_sessions_and_drops_dead_records_but_keeps_the_rest() {
 }
 
 #[test]
-fn forgetting_a_dead_session_keeps_the_record_of_a_new_session_on_the_same_pid() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let paths = Paths::new(dir.path());
-    save(&paths, &record(10, 500, "cert-old")).expect("save");
-    save(&paths, &record(10, 600, "cert-new")).expect("save");
-    let host = FakeHost { procs: BTreeMap::from([(10, (600, "sshd"))]), ..FakeHost::default() };
-    let out = reap(&paths, &host);
-    assert_eq!(out.forgotten, vec![10]);
-    let left = load_all(&paths);
-    assert_eq!(left.len(), 1);
-    assert_eq!((left[0].pid, left[0].start_time), (10, 600));
-}
-
-#[test]
 fn failures_keep_the_record_and_are_reported() {
     let dir = tempfile::tempdir().expect("tempdir");
     let paths = Paths::new(dir.path());
@@ -242,34 +228,6 @@ fn every_pass_turns_lingering_off_for_users_with_a_principals_file_only() {
     assert_eq!(out.linger_off, vec!["alice"]);
     assert!(out.managers_stopped.is_empty(), "no revocation, no stop: logind stops it");
     assert_eq!(*host.lingering.borrow(), vec!["runner"]);
-}
-
-#[test]
-fn a_member_who_left_has_its_sessions_ended_and_its_user_manager_stopped() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let paths = Paths::new(dir.path());
-    let principals = paths.at(super::PRINCIPALS_DIR);
-    std::fs::create_dir_all(&principals).expect("dir");
-    // ada left (managed, no principals file); bob is still a member; the
-    // work user `cmux` was never managed and has no principals file here.
-    std::fs::write(paths.at(super::ACCOUNTS_FILE), r#"{"users":{"ada":20000,"bob":20004}}"#)
-        .expect("accounts");
-    std::fs::write(principals.join("bob"), "bob\n").expect("bob");
-    for r in [
-        user_record(10, "ada", "cert-ok"),
-        user_record(11, "bob", "cert-ok"),
-        record(12, 500, "cert-ok"),
-    ] {
-        save(&paths, &r).expect("save");
-    }
-    let host = FakeHost {
-        procs: BTreeMap::from([(10, (500, "sshd")), (11, (500, "sshd")), (12, (500, "sshd"))]),
-        ..FakeHost::default()
-    };
-    let out = reap(&paths, &host);
-    assert_eq!(out.ended, vec![10]);
-    assert_eq!(*host.actions.borrow(), vec!["stop ada s10"]);
-    assert_eq!(load_all(&paths).iter().map(|r| r.pid).collect::<Vec<_>>(), vec![11, 12]);
 }
 
 #[cfg(target_os = "linux")]

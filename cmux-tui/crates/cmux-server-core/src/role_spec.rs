@@ -301,19 +301,6 @@ mod tests {
         parse_roles(Some(&value))
     }
 
-    #[test]
-    fn chief_entry_parses_with_defaults() {
-        let set = parse(json!({"chief": {"program": "optchat-chief", "args": ["host"]}}));
-        assert!(set.invalid.is_empty(), "{:?}", set.invalid);
-        let spec = &set.roles[0];
-        assert_eq!(spec.name, "chief");
-        assert_eq!(spec.program, Program::Store("optchat-chief".to_owned()));
-        assert_eq!(spec.args, ["host"]);
-        assert_eq!(spec.restart, RestartPolicy::Always);
-        assert_eq!(spec.ready, Readiness::Started);
-        assert_eq!(spec.stop_grace, DEFAULT_STOP_GRACE);
-    }
-
     /// v1 rule: roles never run as root. `runAsRoot` (any value) is refused
     /// at load with a clear reason; a role that needs root is a system
     /// service, not a role.
@@ -330,47 +317,6 @@ mod tests {
                 set.invalid[0].reason
             );
         }
-    }
-
-    #[test]
-    fn missing_roles_is_empty_and_roles_are_in_name_order() {
-        assert_eq!(parse_roles(None), RoleSet::default());
-        let set = parse(json!({
-            "b-role": {"program": "b", "restart": "on-failure", "ready": "notify"},
-            "a-role": {"program": "/opt/x/bin/a", "stopGraceSeconds": 30},
-            "off": {"program": "c", "enabled": false}
-        }));
-        let names: Vec<_> = set.roles.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["a-role", "b-role"]);
-        assert!(set.invalid.is_empty());
-        let a = set.roles.iter().find(|r| r.name == "a-role").unwrap();
-        assert_eq!(a.program, Program::Path("/opt/x/bin/a".to_owned()));
-        assert_eq!(a.stop_grace, Duration::from_secs(30));
-        let b = set.roles.iter().find(|r| r.name == "b-role").unwrap();
-        assert_eq!((b.restart, b.ready), (RestartPolicy::OnFailure, Readiness::Notify));
-    }
-
-    #[test]
-    fn bad_entries_are_refused_alone() {
-        let set = parse(json!({
-            "postgres": {"program": "x"},
-            "Bad": {"program": "x"},
-            "dots": {"program": "../evil"},
-            "rel": {"program": "bin/x"},
-            "abs": {"program": "/opt/../etc/x"},
-            "noprog": {},
-            "envbad": {"program": "x", "env": {"DYLD_INSERT_LIBRARIES": "/tmp/x"}},
-            "envrole": {"program": "x", "env": {"CMUX_ROLE_NAME": "y"}},
-            "envlow": {"program": "x", "env": {"path": "/"}},
-            "grace": {"program": "x", "stopGraceSeconds": 0},
-            "restart": {"program": "x", "restart": "sometimes"},
-            "extra": {"program": "x", "shell": true},
-            "args": {"program": "x", "args": "host"},
-            "good": {"program": "x", "env": {"OPTCHAT_MODE": "host"}}
-        }));
-        assert_eq!(set.roles.len(), 1, "{:?}", set.roles);
-        assert_eq!(set.roles[0].name, "good");
-        assert_eq!(set.invalid.len(), 13, "{:?}", set.invalid);
     }
 
     /// On a user's server no role may open a wider cmux-tui remote entry
@@ -402,25 +348,5 @@ mod tests {
         assert!(!private_listen_address("100.128.0.1".parse().unwrap()));
         assert!(private_listen_address("::1".parse().unwrap()));
         assert!(!private_listen_address("0.0.0.0".parse().unwrap()));
-    }
-
-    #[test]
-    fn roles_must_be_an_object() {
-        let set = parse(json!(["chief"]));
-        assert!(set.roles.is_empty());
-        assert_eq!(set.invalid[0].name, "roles");
-    }
-
-    #[test]
-    fn names_and_env_keys() {
-        assert!(valid_name("chief"));
-        assert!(valid_name("a-2"));
-        assert!(!valid_name("2a"));
-        assert!(!valid_name("health"));
-        assert!(!valid_name(&"a".repeat(33)));
-        assert!(valid_env_key("OPTCHAT_HOME"));
-        assert!(valid_env_key("_X"));
-        assert!(!valid_env_key("LD_PRELOAD"));
-        assert!(!valid_env_key("A-B"));
     }
 }

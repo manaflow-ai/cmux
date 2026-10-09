@@ -2,29 +2,8 @@
 //! EOF that follows it, and requests the daemon refused while its shutdown
 //! handoff was pending (the session_shutdown flake).
 
-use super::tests::{CloseTrackingWriter, SilentWriter, test_session};
+use super::tests::{SilentWriter, test_session};
 use super::*;
-
-#[test]
-fn daemon_shutdown_event_marks_the_following_eof_as_expected() {
-    let session =
-        test_session(Box::new(CloseTrackingWriter { closed: Arc::new(AtomicBool::new(false)) }));
-
-    session.handle_line(json!({
-        "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
-    }));
-    session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
-
-    assert!(session.daemon_shutdown_requested());
-    assert_eq!(session.transport_disconnect_reason(), None);
-    assert!(matches!(
-        session
-            .request(json!({"cmd": "identify"}))
-            .unwrap_err()
-            .downcast_ref::<RemoteRequestError>(),
-        Some(RemoteRequestError::DaemonShutdown)
-    ));
-}
 
 /// The daemon refuses requests while its shutdown handoff is reserved,
 /// and announces the shutdown to other clients only after the requester

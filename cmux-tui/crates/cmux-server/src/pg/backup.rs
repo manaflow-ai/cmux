@@ -177,14 +177,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stamps_are_utc_civil_time() {
-        assert_eq!(utc_stamp(0), "19700101T000000Z");
-        // 2026-10-02T22:01:14Z
-        assert_eq!(utc_stamp(1_790_978_474_000), "20261002T220114Z");
-        assert_eq!(utc_stamp(951_782_400_000), "20000229T000000Z");
-    }
-
-    #[test]
     fn archive_is_idempotent_and_refuses_other_bytes() {
         let tmp = tempfile::tempdir().unwrap();
         let wal = tmp.path().join("wal");

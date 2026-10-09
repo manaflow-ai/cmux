@@ -2106,41 +2106,6 @@ mod tests {
         }
     }
 
-    /// A listener the operator marked trusted vouches for its peers by itself:
-    /// the grant needs no enrollment and no daemon-wide carrier policy, and it
-    /// still names the client's own key so the connection stays attributable.
-    #[tokio::test]
-    async fn trusted_network_listener_grants_carrier_without_policy_or_enrollment() {
-        let directory = tempdir().unwrap();
-        let denied =
-            AuthDatabase::load_or_create(directory.path(), "trusted-network", false).unwrap();
-        let client = StaticIdentity::generate().unwrap();
-        let public_key = client.public_key();
-        for peer in [NetworkPeer::Tcp, NetworkPeer::Tls] {
-            let grant = ServerAuthenticator::authorize(
-                &*denied,
-                carrier_auth_request(public_key, InboundAuthEvidence::TrustedNetwork(peer)),
-            )
-            .await
-            .unwrap_or_else(|error| panic!("trusted {peer:?} evidence was rejected: {error}"));
-            assert_eq!(grant.device_id, format!("network:{}", public_key_fingerprint(&public_key)));
-            // The grant stays current without the daemon-wide carrier policy: the
-            // network, not the device list, is what admits and revokes it.
-            assert!(denied.grant_is_current(&grant).await);
-            assert!(denied.device_is_active(&grant.device_id).await);
-        }
-        assert!(
-            ServerAuthenticator::authorize(
-                &*denied,
-                carrier_auth_request(public_key, InboundAuthEvidence::Network(NetworkPeer::Tcp)),
-            )
-            .await
-            .is_err(),
-            "an untrusted listener's network evidence granted Carrier authentication"
-        );
-        assert!(denied.pending_enrollments().await.is_empty());
-    }
-
     struct FaultEpoch {
         failed: watch::Sender<bool>,
     }

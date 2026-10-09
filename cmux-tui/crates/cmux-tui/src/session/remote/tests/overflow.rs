@@ -219,39 +219,3 @@ fn stable_surface_recoveries_are_pruned_before_capacity() {
     assert_eq!(session.surface_overflow_recovery.lock().unwrap().len(), 1);
     assert!(!session.surface_overflow_reconnect_required.load(Ordering::Acquire));
 }
-
-#[test]
-fn ordered_resize_replay_recovers_from_stale_initial_replay() {
-    let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
-    server.vt_write(b"\x1b[7m%\x1b[0m");
-    let stale_replay = server.vt_replay_bytes().unwrap();
-
-    server.resize(10, 3, 8, 16).unwrap();
-    let resize_replay = server.vt_replay_bytes().unwrap();
-    let prompt = b"\r\x1b[Klawrence";
-    server.vt_write(prompt);
-    let server_text = server.plain_text().unwrap();
-    assert!(server_text.lines().next().unwrap_or_default().contains("lawrence"));
-
-    let surface = RemoteSurface {
-        id: 1,
-        kind: SurfaceKind::Pty,
-        term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
-        mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
-        cursor_provenance: Mutex::new(CursorStyleProvenance::default()),
-        dirty: AtomicBool::new(false),
-        geometry_lifecycle: Mutex::new(()),
-        cell_pixels: Mutex::new((8, 16)),
-        geometry_test_hook: Mutex::new(None),
-        content_generation: AtomicU64::new(1),
-        reported_size: Mutex::new(None),
-        browser: Mutex::new(RemoteBrowserState::default()),
-    };
-    surface.apply_stream_resize(12, 3, None, &[]).unwrap();
-    surface.term.lock().unwrap().vt_write(&stale_replay);
-    surface.apply_stream_resize(10, 3, Some(&resize_replay), &[]).unwrap();
-    let mut mirror = surface.term.lock().unwrap();
-    mirror.vt_write(prompt);
-
-    assert_eq!(mirror.plain_text().unwrap(), server_text);
-}

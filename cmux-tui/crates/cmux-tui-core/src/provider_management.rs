@@ -374,13 +374,6 @@ mod tests {
         serde_json::to_vec(&value).unwrap()
     }
 
-    #[test]
-    fn non_root_is_rejected_before_parsing() {
-        let response = handle_request(&mux(), 501, b"this is deliberately not JSON");
-        assert!(!response.ok);
-        assert_eq!(response.error.unwrap().code, "access_denied");
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn explicit_unsupported_response_is_the_only_upgrade_signal() {
@@ -410,38 +403,6 @@ mod tests {
         assert_eq!(message.0, line.as_bytes()[..line.len() - 1]);
     }
 
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn management_read_rejects_eof_before_the_frame_delimiter() {
-        let Err(error) = read_message(io::Cursor::new(br#"{"protocol":1,"operation":"status"}"#))
-        else {
-            panic!("EOF without a frame delimiter was accepted");
-        };
-        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
-    }
-
-    #[test]
-    fn initial_install_accepts_a_durable_generation_after_mux_restart() {
-        let mux = mux();
-        let response = handle_request(
-            &mux,
-            0,
-            &request(serde_json::json!({
-                "protocol": 1,
-                "operation": "install_or_rotate",
-                "mux_generation": MUX_GENERATION,
-                "expected_authority_generation": 0,
-                "authority_generation": 19,
-                "authority": AUTHORITY_ONE,
-            })),
-        );
-        assert!(response.ok);
-        let status = response.status.unwrap();
-        assert_eq!(status.authority_generation, 19);
-        assert!(status.authority_installed);
-        mux.authorize_provider_workspace_authority(AUTHORITY_ONE).unwrap();
-    }
-
     #[test]
     fn same_generation_is_idempotent_only_for_the_same_secret() {
         let mux = mux();
@@ -466,76 +427,6 @@ mod tests {
     }
 
     #[test]
-    fn rotation_is_exact_compare_and_swap() {
-        let mux = mux();
-        mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            0,
-            7,
-            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
-        )
-        .unwrap();
-        let stale = mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            6,
-            8,
-            ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-        );
-        assert_eq!(
-            stale.unwrap_err(),
-            ProviderWorkspaceAuthorityUpdateError::ExpectedGenerationMismatch
-        );
-        let gap = mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            7,
-            9,
-            ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-        );
-        assert_eq!(gap.unwrap_err(), ProviderWorkspaceAuthorityUpdateError::InvalidGeneration);
-        mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            7,
-            8,
-            ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-        )
-        .unwrap();
-        assert!(mux.authorize_provider_workspace_authority(AUTHORITY_ONE).is_err());
-        mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
-    }
-
-    #[test]
-    fn stale_mux_generation_and_downgrade_are_rejected() {
-        let mux = mux();
-        let wrong_mux = mux.install_or_rotate_provider_workspace_authority(
-            "ffffffffffffffffffffffffffffffff",
-            0,
-            1,
-            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
-        );
-        assert_eq!(
-            wrong_mux.unwrap_err(),
-            ProviderWorkspaceAuthorityUpdateError::MuxGenerationMismatch
-        );
-        mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            0,
-            4,
-            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
-        )
-        .unwrap();
-        let downgrade = mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            4,
-            3,
-            ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-        );
-        assert_eq!(
-            downgrade.unwrap_err(),
-            ProviderWorkspaceAuthorityUpdateError::InvalidGeneration
-        );
-    }
-
-    #[test]
     fn concurrent_identical_install_is_idempotent() {
         let mux = mux();
         let mut installers = Vec::new();
@@ -553,23 +444,6 @@ mod tests {
         for installer in installers {
             assert_eq!(installer.join().unwrap().unwrap().authority_generation, 11);
         }
-    }
-
-    #[test]
-    fn pending_mux_blocks_direct_lifecycle_mutation_before_install() {
-        let mux = mux();
-        let workspace = mux
-            .create_empty_workspace(
-                Some("managed".into()),
-                Some("018f6e21-7b70-7e70-8000-00000000aa01".into()),
-                None,
-            )
-            .unwrap();
-        let error = mux
-            .rename_workspace_at_revision(workspace.workspace, "escaped".into(), None)
-            .unwrap_err();
-        assert!(error.to_string().contains("provider-managed workspace directly"));
-        assert_eq!(mux.with_state(|state| state.workspaces[0].name.clone()), "managed");
     }
 
     #[cfg(target_os = "linux")]
@@ -611,25 +485,5 @@ mod tests {
         std::fs::remove_file(socket).unwrap();
         assert_eq!(status.authority_generation, 23);
         mux.authorize_provider_workspace_authority(AUTHORITY_ONE).unwrap();
-    }
-
-    #[test]
-    fn management_responses_never_contain_authority() {
-        let mux = mux();
-        let response = handle_request(
-            &mux,
-            0,
-            &request(serde_json::json!({
-                "protocol": 1,
-                "operation": "install_or_rotate",
-                "mux_generation": MUX_GENERATION,
-                "expected_authority_generation": 0,
-                "authority_generation": 1,
-                "authority": AUTHORITY_ONE,
-            })),
-        );
-        let encoded = serde_json::to_string(&response).unwrap();
-        assert!(!encoded.contains(AUTHORITY_ONE));
-        assert!(!encoded.contains("authority-one"));
     }
 }

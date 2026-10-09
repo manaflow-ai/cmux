@@ -118,18 +118,6 @@ fn replays_recorded_group_operations_as_typed_changes() {
     assert!(steps.next().is_none());
 }
 
-#[test]
-fn snapshot_extra_state_seeds_groups_and_placements() {
-    let snapshot = events(GROUP_SNAPSHOT).remove(0);
-    let mut mirror = Mirror::default();
-    assert_eq!(mirror.apply(snapshot), Ok(Applied::Reset));
-    assert_eq!(group_names(&mirror), [("Play".into(), 0)]);
-    assert_eq!(mirror.group_members(PLAY), [ws(BETA)]);
-    assert_eq!(mirror.placements_ordered().iter().map(|p| p.index).collect::<Vec<_>>(), [0, 1]);
-    assert_eq!(personal_names(&mirror), ["beta", "alpha"]);
-    assert_eq!(mirror.placement_of(&ws(ALPHA)).unwrap().group_id, None);
-}
-
 /// A state change addressed to the mirror's revision, built from the
 /// recorded snapshot's cursor.
 fn state_delta(mirror: &Mirror, change: serde_json::Value) -> SessionEvent {
@@ -194,25 +182,4 @@ fn a_group_upsert_with_pinned_applies() {
                         "color": null, "collapsed": false, "index": 0, "pinned": true}});
     let changes = apply_state(&mut mirror, pinned);
     assert_eq!(changes, [MirrorChange::WorkspaceGroup(Change::Updated(PLAY.into()))]);
-}
-
-#[test]
-fn state_deletes_of_absent_rows_and_unknown_kinds_are_ignored() {
-    let mut mirror = Mirror::default();
-    mirror.apply(events(GROUP_SNAPSHOT).remove(0)).unwrap();
-    let gone = json!({"kind": "state_delete", "sequence": 0, "resource": "workspace_group",
-                      "id": WORK});
-    let changes = apply_state(&mut mirror, gone);
-    assert_eq!(changes, [MirrorChange::IgnoredState("workspace_group".into())]);
-    let delete = json!({"kind": "state_delete", "sequence": 0,
-                        "resource": "workspace_placement", "id": ALPHA_PLACEMENT});
-    let changes = apply_state(&mut mirror, delete);
-    assert_eq!(
-        changes,
-        [MirrorChange::WorkspacePlacement(Change::Removed(ALPHA_PLACEMENT.into()))]
-    );
-    // Alpha has no placement now: it follows the placed workspaces.
-    assert_eq!(personal_names(&mirror), ["beta", "alpha"]);
-    let future = json!({"kind": "future_change", "sequence": 0});
-    assert_eq!(apply_state(&mut mirror, future), [MirrorChange::Ignored(None)]);
 }

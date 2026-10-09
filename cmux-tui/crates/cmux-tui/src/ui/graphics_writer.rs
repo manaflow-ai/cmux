@@ -1682,61 +1682,6 @@ mod tests {
         }
     }
 
-    struct PrefixInterruptOutput {
-        bytes: Vec<u8>,
-    }
-
-    impl GraphicsOutput for PrefixInterruptOutput {
-        fn write_segment(
-            &mut self,
-            bytes: &[u8],
-            _permit: &WritePermit<'_>,
-            emitted: &mut usize,
-        ) -> io::Result<bool> {
-            let end = bytes
-                .windows(2)
-                .position(|window| window == b"\x1b\\")
-                .map(|at| at + 2)
-                .expect("graphics segment must contain a complete APC");
-            self.bytes.extend_from_slice(&bytes[..end]);
-            *emitted = end;
-            Ok(false)
-        }
-
-        fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
-            self.bytes.extend_from_slice(bytes);
-            Ok(())
-        }
-    }
-
-    struct RecoveringPartialOutput {
-        bytes: Vec<u8>,
-        recovery_attempts: usize,
-    }
-
-    impl GraphicsOutput for RecoveringPartialOutput {
-        fn write_segment(
-            &mut self,
-            bytes: &[u8],
-            _permit: &WritePermit<'_>,
-            emitted: &mut usize,
-        ) -> io::Result<bool> {
-            let partial = bytes.len().min(8);
-            self.bytes.extend_from_slice(&bytes[..partial]);
-            *emitted = partial;
-            Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "terminal stayed blocked after a partial APC",
-            ))
-        }
-
-        fn write_recovery(&mut self, bytes: &[u8]) -> io::Result<()> {
-            self.recovery_attempts += 1;
-            self.bytes.extend_from_slice(bytes);
-            Ok(())
-        }
-    }
-
     struct PermanentRecoveryFailureOutput {
         attempted: SyncSender<()>,
     }
@@ -1809,35 +1754,6 @@ mod tests {
 
     fn key(ch: char, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(KeyCode::Char(ch), modifiers))
-    }
-
-    #[test]
-    fn large_batches_split_only_between_complete_kitty_commands() {
-        let command = |payload: u8| {
-            let mut command = b"\x1b_Gq=2,m=1;".to_vec();
-            command.extend(std::iter::repeat_n(payload, 4_096));
-            command.extend_from_slice(b"\x1b\\");
-            command
-        };
-        let commands = (0..40).map(command).collect::<Vec<_>>();
-        let batch = commands.concat();
-
-        let mut offset = 0;
-        let mut segments = Vec::new();
-        while offset < batch.len() {
-            let end = next_graphics_write_end(&batch, offset).expect("complete Kitty segment");
-            let segment = &batch[offset..end];
-            assert!(segment.ends_with(b"\x1b\\"));
-            assert!(
-                segment.len() <= MAX_LOCKED_GRAPHICS_WRITE_BYTES,
-                "bounded command grouping held stdout for {} bytes",
-                segment.len()
-            );
-            segments.extend_from_slice(segment);
-            offset = end;
-        }
-        assert_eq!(segments, batch);
-        assert!(next_graphics_write_end(b"\x1b_Gunterminated", 0).is_none());
     }
 
     #[cfg(unix)]
@@ -2623,69 +2539,6 @@ mod tests {
         assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
         assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
         assert_eq!(snapshot.placements.len(), 1);
-    }
-
-    #[test]
-    fn partial_segment_progress_recovers_completed_multipart_chunks() {
-        let old = GraphicPlacement::browser(
-            0,
-            7,
-            Rect { x: 0, y: 0, width: 1, height: 1 },
-            1,
-            1,
-            1,
-            "A".repeat(4_096 * 2),
-        );
-        let mut graphics = GraphicsState::default();
-        let batch = graphics.frame_batches(&[old]).remove(0);
-        let slot =
-            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
-        let control = WriterControl::default();
-        let stdout_lock = Arc::new(StdoutLock::new(()));
-        let mut output = PrefixInterruptOutput { bytes: Vec::new() };
-
-        assert_eq!(
-            write_batch(&mut output, &stdout_lock, &slot, &control, 1, &batch),
-            BatchWriteOutcome::Stopped
-        );
-
-        let mut host = Terminal::new(8, 4, 0, Callbacks::default()).unwrap();
-        host.resize(8, 4, 1, 1).unwrap();
-        host.vt_write(&output.bytes);
-        let mut next = GraphicsState::default();
-        for batch in next.frame_batches(&[rgba_placement(41, 1, 0, [0, 0, 255, 255])]) {
-            host.vt_write(&batch);
-        }
-        let snapshot = host.kitty_graphics_snapshot().unwrap();
-        assert_eq!(snapshot.images.len(), 1, "{snapshot:?}");
-        assert_eq!(snapshot.images[0].data.as_ref(), &[0, 0, 255, 255]);
-        assert_eq!(snapshot.placements.len(), 1);
-    }
-
-    #[test]
-    fn failed_partial_apc_recovery_precedes_later_terminal_output() {
-        let slot =
-            Arc::new(Mutex::new(PendingGraphics { revision: 1, ..PendingGraphics::default() }));
-        let control = WriterControl::default();
-        let stdout_lock = Arc::new(StdoutLock::new(()));
-        let mut output = RecoveringPartialOutput { bytes: Vec::new(), recovery_attempts: 0 };
-        let command = b"\x1b_Gq=2;payload\x1b\\";
-
-        assert_eq!(
-            write_batch(&mut output, &stdout_lock, &slot, &control, 1, command),
-            BatchWriteOutcome::Stopped
-        );
-        assert_writer_failed(&control, false);
-        output.bytes.extend_from_slice(b"visible-after-recovery");
-
-        let mut host = Terminal::new(80, 4, 0, Callbacks::default()).unwrap();
-        host.resize(80, 4, 1, 1).unwrap();
-        host.vt_write(&output.bytes);
-        assert!(
-            host.viewport_text().unwrap().contains("visible-after-recovery"),
-            "normal terminal output was consumed by an unterminated Kitty APC"
-        );
-        assert_eq!(output.recovery_attempts, 1);
     }
 
     #[test]

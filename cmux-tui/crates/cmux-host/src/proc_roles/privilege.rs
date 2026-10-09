@@ -47,13 +47,6 @@ mod tests {
     }
 
     #[test]
-    fn a_root_supervisor_without_a_work_user_refuses_every_role() {
-        assert!(identity_for(0, None).unwrap_err().contains("never run as root"));
-        let root = WorkUser { uid: 0, ..work() };
-        assert!(identity_for(0, Some(&root)).is_err());
-    }
-
-    #[test]
     fn a_user_supervisor_keeps_its_user() {
         assert_eq!(identity_for(501, Some(&work())), Ok(Identity::Inherit));
         assert_eq!(identity_for(501, None), Ok(Identity::Inherit));

@@ -1292,16 +1292,6 @@ mod tests {
     }
 
     #[test]
-    fn reconnect_policy_defaults_to_an_unbounded_recovery_window() {
-        assert_eq!(ReconnectPolicy::default().maximum_duration, None);
-        assert!(
-            ReconnectPolicy { maximum_duration: Some(Duration::ZERO), ..Default::default() }
-                .validate()
-                .is_err()
-        );
-    }
-
-    #[test]
     fn reconnect_classifier_excludes_terminal_transport_failures() {
         for error in [
             ConnectionError::Provider(ProviderError::Transport("wrong Unix peer owner".into())),

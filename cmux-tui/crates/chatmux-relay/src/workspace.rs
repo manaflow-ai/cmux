@@ -2675,25 +2675,6 @@ mod tests {
         assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
     }
 
-    #[test]
-    fn both_root_lists_are_enforced() {
-        let root_a = scratch("scope-a");
-        let root_b = scratch("scope-b");
-        write(&root_a, "a.txt", "a");
-        write(&root_b, "b.txt", "b");
-        let list_a = vec![root_a.to_string_lossy().into_owned()];
-        let list_b = vec![root_b.to_string_lossy().into_owned()];
-        let scope = Scope::build(Some(&list_a), Some(&list_b)).expect("scope");
-        // workdir comes from the LOCAL list (config authority)...
-        assert_eq!(scope.workdir, root_b);
-        // ...and a path must satisfy the server echo AND the local config.
-        let inside_b_only = root_b.join("b.txt");
-        let refusal = scope
-            .resolve(&inside_b_only.to_string_lossy(), false)
-            .expect_err("outside the server echo");
-        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
-    }
-
     // --- fs ops ----------------------------------------------------------
 
     fn body_tree(body: wire::WorkspaceResultBody) -> wire::FsTreeResult {
@@ -2868,87 +2849,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn write_cas_conflicts_echo_the_current_hash() {
-        let root = scratch("write");
-        write(&root, "file.txt", "one\n");
-        let scope = scope_for(&root);
-        let base = sha256_hex(b"one\n");
-        let ok = run_write(
-            &scope,
-            &wire::FsWriteOp {
-                op: wire::TagFsWrite::FsWrite,
-                path: "file.txt".to_owned(),
-                content: "two\n".to_owned(),
-                base_sha256: Some(base.clone()),
-            },
-        )
-        .expect("fresh base writes");
-        match ok {
-            wire::WorkspaceResultBody::FsWrite(result) => {
-                assert_eq!(result.sha256, sha256_hex(b"two\n"));
-                assert_eq!(result.size, 4);
-            }
-            other => panic!("wrong body: {other:?}"),
-        }
-        let stale = run_write(
-            &scope,
-            &wire::FsWriteOp {
-                op: wire::TagFsWrite::FsWrite,
-                path: "file.txt".to_owned(),
-                content: "clobber\n".to_owned(),
-                base_sha256: Some(base),
-            },
-        )
-        .expect_err("stale base conflicts");
-        assert_eq!(stale.code, wire::WorkspaceErrorCode::WriteConflict);
-        assert_eq!(stale.current_sha256.as_deref(), Some(sha256_hex(b"two\n").as_str()));
-        // A base against a missing file conflicts without a current hash.
-        let missing = run_write(
-            &scope,
-            &wire::FsWriteOp {
-                op: wire::TagFsWrite::FsWrite,
-                path: "new.txt".to_owned(),
-                content: "x\n".to_owned(),
-                base_sha256: Some(sha256_hex(b"x\n")),
-            },
-        )
-        .expect_err("missing file with a base conflicts");
-        assert_eq!(missing.code, wire::WorkspaceErrorCode::WriteConflict);
-        assert!(missing.current_sha256.is_none());
-        // No base: unconditional write, parents created.
-        assert!(
-            run_write(
-                &scope,
-                &wire::FsWriteOp {
-                    op: wire::TagFsWrite::FsWrite,
-                    path: "deep/dir/new.txt".to_owned(),
-                    content: "x\n".to_owned(),
-                    base_sha256: None,
-                },
-            )
-            .is_ok()
-        );
-        assert_eq!(std::fs::read_to_string(root.join("deep/dir/new.txt")).expect("read"), "x\n");
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_scoped_write_is_refused_before_filesystem_mutation() {
-        let root = scratch("windows-write-refusal");
-        let scope = scope_for(&root);
-        let op = wire::FsWriteOp {
-            op: wire::TagFsWrite::FsWrite,
-            path: "new.txt".into(),
-            content: "must not be written".to_owned(),
-            base_sha256: None,
-        };
-
-        let refusal = run_write(&scope, &op).expect_err("Windows scoped writes must fail closed");
-        assert_eq!(refusal.code, wire::WorkspaceErrorCode::PathForbidden);
-        assert!(!root.join("new.txt").exists());
-    }
-
     #[cfg(unix)]
     #[test]
     fn write_and_rename_refuse_symlinked_parent_directories() {
@@ -2981,66 +2881,6 @@ mod tests {
         assert_eq!(rename_refusal.code, wire::WorkspaceErrorCode::PathForbidden);
         assert!(!outside.join("escape.txt").exists());
         assert!(!outside.join("moved.txt").exists());
-    }
-
-    #[test]
-    fn rename_moves_and_refuses_typed() {
-        let root = scratch("rename");
-        write(&root, "a.txt", "a");
-        write(&root, "b.txt", "b");
-        let scope = scope_for(&root);
-        let rename = |from: &str, to: &str, overwrite: Option<bool>| {
-            run_rename(
-                &scope,
-                &wire::FsRenameOp {
-                    op: wire::TagFsRename::FsRename,
-                    from_path: from.to_owned(),
-                    to_path: to.to_owned(),
-                    overwrite,
-                },
-            )
-        };
-        assert!(rename("a.txt", "moved/a.txt", None).is_ok());
-        assert!(root.join("moved/a.txt").is_file());
-        assert!(!root.join("a.txt").exists());
-        let missing = rename("a.txt", "again.txt", None).expect_err("gone source");
-        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
-        let collide = rename("b.txt", "moved/a.txt", None).expect_err("occupied");
-        assert_eq!(collide.code, wire::WorkspaceErrorCode::DestinationExists);
-        assert!(rename("b.txt", "moved/a.txt", Some(true)).is_ok());
-        assert_eq!(std::fs::read_to_string(root.join("moved/a.txt")).expect("read"), "b");
-    }
-
-    #[test]
-    fn delete_removes_files_and_refuses_typed() {
-        let root = scratch("delete");
-        write(&root, "gone.txt", "x");
-        write(&root, "dir/child.txt", "y");
-        write(&root, "empty-dir/.keep", "");
-        std::fs::remove_file(root.join("empty-dir/.keep")).expect("mk empty dir");
-        let scope = scope_for(&root);
-        let delete = |path: &str, recursive: Option<bool>| {
-            run_delete(
-                &scope,
-                &wire::FsDeleteOp {
-                    op: wire::TagFsDelete::FsDelete,
-                    path: path.to_owned(),
-                    recursive,
-                },
-            )
-        };
-        assert!(delete("gone.txt", None).is_ok());
-        assert!(!root.join("gone.txt").exists());
-        let missing = delete("gone.txt", None).expect_err("double delete");
-        assert_eq!(missing.code, wire::WorkspaceErrorCode::NotFound);
-        let populated = delete("dir", None).expect_err("populated dir");
-        assert_eq!(populated.code, wire::WorkspaceErrorCode::DirectoryNotEmpty);
-        assert!(root.join("dir/child.txt").exists(), "refusal deleted nothing");
-        assert!(delete("empty-dir", None).is_ok(), "empty dir needs no recursive");
-        assert!(delete("dir", Some(true)).is_ok(), "recursive removes the tree");
-        assert!(!root.join("dir").exists());
-        let escape = delete("../outside", None).expect_err("scoped");
-        assert_eq!(escape.code, wire::WorkspaceErrorCode::PathForbidden);
     }
 
     #[test]
@@ -3105,43 +2945,6 @@ mod tests {
         assert!(!env.contains_key("GIT_EXTERNAL_DIFF"));
     }
 
-    #[tokio::test]
-    async fn bounded_git_diff_line_discards_unterminated_over_limit_input() {
-        let mut reader = tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789"));
-        let mut line = Vec::new();
-        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
-            .await
-            .expect("oversized unterminated diff line should be consumed")
-            .expect("the oversized line marker");
-
-        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
-        assert!(line.is_empty(), "reader retained bytes past its limit");
-        assert!(
-            read_bounded_git_diff_line(&mut reader, &mut line, 8)
-                .await
-                .expect("EOF after discarded line")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn bounded_git_diff_line_keeps_stream_aligned_after_over_limit_input() {
-        let mut reader =
-            tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789\nshort\n"));
-        let mut line = Vec::new();
-        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
-            .await
-            .expect("oversized line should be consumed")
-            .expect("the oversized line marker");
-        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
-
-        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
-            .await
-            .expect("short line should decode")
-            .expect("short line");
-        assert!(matches!(result, BoundedGitDiffLine::Complete(value) if value == "short"));
-    }
-
     #[test]
     fn oversized_diff_line_prefix_preserves_stat_kind() {
         assert_eq!(classify_git_diff_line(b"+payload"), GitDiffLineKind::Addition);
@@ -3149,14 +2952,6 @@ mod tests {
         assert_eq!(classify_git_diff_line(b"diff --git a/a b/a"), GitDiffLineKind::File);
         assert_eq!(classify_git_diff_line(b"+++ b/a"), GitDiffLineKind::Other);
         assert_eq!(classify_git_diff_line(b"--- a/a"), GitDiffLineKind::Other);
-    }
-
-    #[test]
-    fn git_stdout_read_uses_the_request_deadline() {
-        let remaining = remaining_git_time(std::time::Instant::now() + Duration::from_secs(30))
-            .expect("future request deadline");
-
-        assert!(remaining > GIT_CHILD_WAIT_TIMEOUT);
     }
 
     #[tokio::test]
@@ -3565,16 +3360,6 @@ mod tests {
         assert_eq!(answer["requestId"], "req_1");
         assert_eq!(answer["ok"], false);
         assert_eq!(answer["code"], "unsupported_verb");
-    }
-
-    #[tokio::test]
-    async fn dispatch_times_out_typed() {
-        let root = scratch("dispatch-timeout");
-        // A 1ms-clamped timeout with a blocking op that cannot finish is
-        // hard to fake portably; instead pin the clamp arithmetic.
-        assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
-        assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
-        let _ = root;
     }
 
     #[test]

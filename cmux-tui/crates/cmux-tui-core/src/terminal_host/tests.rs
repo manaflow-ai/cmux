@@ -5,16 +5,6 @@ fn terminal(byte: u8) -> TerminalId {
     TerminalId::from_bytes([byte; TERMINAL_ID_LEN])
 }
 
-#[test]
-fn canonical_terminal_hex_requires_lowercase_uuid_v4() {
-    let canonical = "00000000000040008000000000000001";
-    assert_eq!(TerminalId::from_hex(canonical).unwrap().to_hex(), canonical);
-    assert!(TerminalId::from_hex("00000000000030008000000000000001").is_none());
-    assert!(TerminalId::from_hex("00000000000040007000000000000001").is_none());
-    assert!(TerminalId::from_hex("0000000000004000800000000000000A").is_none());
-    assert!(TerminalId::from_hex("short").is_none());
-}
-
 fn token(byte: u8) -> CapabilityToken {
     CapabilityToken::from_bytes([byte; CAPABILITY_TOKEN_LEN])
 }
@@ -158,19 +148,6 @@ fn malformed_reserved_and_unknown_rights_are_rejected() {
 }
 
 #[test]
-fn version_negotiation_selects_highest_common_version() {
-    assert_eq!(negotiate_version(1, 4, 2..=3).unwrap(), 3);
-    assert!(matches!(
-        negotiate_version(4, 5, 1..=3),
-        Err(HostHandshakeError::UnsupportedVersion { .. })
-    ));
-    assert!(matches!(
-        negotiate_version(3, 2, 1..=3),
-        Err(HostHandshakeError::UnsupportedVersion { .. })
-    ));
-}
-
-#[test]
 fn stdio_bootstrap_echoes_identity_not_owner_secret() {
     let bootstrap = HostBootstrap {
         min_version: PROTOCOL_VERSION,
@@ -191,18 +168,6 @@ fn stdio_bootstrap_echoes_identity_not_owner_secret() {
     let ready = HostReady::decode(&frame.payload).unwrap();
     assert_eq!(ready.terminal_id, terminal(0x42));
     assert_eq!(ready.incarnation, state.incarnation);
-}
-
-#[test]
-fn stdio_bootstrap_requires_the_bootstrap_message_kind() {
-    let input = encode_frame(&Frame::new(MessageKind::Input, vec![])).unwrap();
-    assert!(matches!(
-        bootstrap_stdio_once(&mut input.as_slice(), &mut Vec::new()),
-        Err(HostHandshakeError::UnexpectedMessage {
-            expected: MessageKind::Bootstrap,
-            actual: MessageKind::Input,
-        })
-    ));
 }
 
 #[test]

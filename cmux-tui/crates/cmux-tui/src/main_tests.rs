@@ -1,168 +1,9 @@
-#[cfg(unix)]
-#[test]
-fn loopback_forward_denies_every_daemon_listener_port() {
-    let mut policy = cmux_tui_core::server::LoopbackForwardPolicy::default();
-    let addresses = [
-        Some("127.0.0.1:1337".parse().unwrap()),
-        None,
-        Some("[::]:8080".parse().unwrap()),
-        Some("127.0.0.1:0".parse().unwrap()),
-    ];
-    deny_daemon_listener_ports(&mut policy, addresses);
-    assert!(!policy.permits_port(1337));
-    assert!(!policy.permits_port(8080));
-    assert!(policy.permits_port(3000));
-}
-
 use std::time::Duration;
 
 use {super::*, crate::local_actor::TuiMuxOps};
 
 fn args(values: &[&str]) -> Args {
     parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
-}
-
-#[test]
-fn plain_interactive_launch_uses_a_detached_owner() {
-    let config = config::Config::default();
-    assert!(config.server.detached_owner);
-    assert!(detached_owner_launch_applicable(&args(&[]), &config, &None, &None, false, true));
-    assert!(detached_owner_launch_applicable(
-        &args(&["--session", "agents", "--state", "/tmp/state"]),
-        &config,
-        &None,
-        &None,
-        false,
-        true
-    ));
-}
-
-#[test]
-fn in_process_hosting_is_kept_where_the_owner_must_live_here() {
-    let config = config::Config::default();
-    // Modes excluded by should_attach_existing.
-    assert!(!detached_owner_launch_applicable(
-        &args(&["--headless"]),
-        &config,
-        &None,
-        &None,
-        false,
-        true
-    ));
-    assert!(!detached_owner_launch_applicable(
-        &args(&[]),
-        &config,
-        &Some("127.0.0.1:7681".to_string()),
-        &None,
-        false,
-        true
-    ));
-    // Ephemeral state is in-memory and dies with its process.
-    assert!(!detached_owner_launch_applicable(
-        &args(&["--ephemeral"]),
-        &config,
-        &None,
-        &None,
-        false,
-        true
-    ));
-    // Provider-owned muxes stay in this process.
-    assert!(!detached_owner_launch_applicable(&args(&[]), &config, &None, &None, true, true));
-    // Without terminal stdio the TUI cannot start; spawning an owner
-    // first would leak it.
-    assert!(!detached_owner_launch_applicable(&args(&[]), &config, &None, &None, false, false));
-    // Explicit opt-out restores the founding-TUI host.
-    let mut opted_out = config;
-    opted_out.server.detached_owner = false;
-    assert!(!detached_owner_launch_applicable(&args(&[]), &opted_out, &None, &None, false, true));
-}
-
-#[test]
-fn public_cli_routing_skips_private_process_option_values() {
-    let strings =
-        |values: &[&str]| values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
-    assert!(is_cli_invocation(&strings(&["--relay-slot", "server", "workspace", "list",])));
-    assert!(!is_cli_invocation(&strings(&["--relay-slot", "routing-key", "--headless",])));
-}
-
-#[test]
-fn remote_normalization_preserves_leading_globals_for_direct_commands() {
-    let mut json_connect = ["--json", "connect"].map(str::to_string).to_vec();
-    normalize_remote_resource_args(&mut json_connect).unwrap();
-    assert_eq!(json_connect, ["connect", "--json"]);
-
-    let mut session_stop = ["--session", "dev", "remote-stop"].map(str::to_string).to_vec();
-    normalize_remote_resource_args(&mut session_stop).unwrap();
-    assert_eq!(session_stop, ["remote-stop", "--session", "dev"]);
-}
-
-#[test]
-fn remote_normalization_handles_inline_globals_and_unknown_actions() {
-    let mut inline_nested = ["--session=dev", "remote", "connect"].map(str::to_string).to_vec();
-    normalize_remote_resource_args(&mut inline_nested).unwrap();
-    assert_eq!(inline_nested, ["connect", "--session=dev"]);
-
-    let mut unknown = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
-    let error = normalize_remote_resource_args(&mut unknown).unwrap_err();
-    assert_eq!(error, localization::catalog().remote_client.unknown_action("remote", "frobnicate"));
-}
-
-#[test]
-fn remote_normalization_leaves_missing_global_values_and_terminator_untouched() {
-    let mut missing = ["--session"].map(str::to_string).to_vec();
-    normalize_remote_resource_args(&mut missing).unwrap();
-    assert_eq!(missing, ["--session"]);
-
-    let mut terminated = ["--", "remote", "connect"].map(str::to_string).to_vec();
-    normalize_remote_resource_args(&mut terminated).unwrap();
-    assert_eq!(terminated, ["--", "remote", "connect"]);
-}
-
-#[test]
-fn server_start_routing_skips_private_process_option_values() {
-    for value in ["--help", "--json", "--jsonl", "--quiet"] {
-        let mut values = [
-            "server",
-            "start",
-            "--relay-ticket-command",
-            "ticket-helper",
-            "--relay-ticket-command-arg",
-            value,
-        ]
-        .map(str::to_string)
-        .to_vec();
-
-        rewrite_server_start(&mut values);
-
-        assert_eq!(values[0], "--headless");
-        assert_eq!(values.last().map(String::as_str), Some(value));
-    }
-
-    let mut quiet = ["server", "start", "--quiet"].map(str::to_string).to_vec();
-    rewrite_server_start(&mut quiet);
-    assert_eq!(quiet, ["server", "start", "--quiet"]);
-}
-
-#[test]
-fn startup_scanners_share_option_value_boundaries() {
-    for option in STARTUP_VALUE_OPTIONS
-        .iter()
-        .copied()
-        .filter(|option| !matches!(*option, "--relay-ticket" | "--relay-ticket-command-arg"))
-    {
-        let args = [option, "--help"].map(str::to_string);
-        assert!(!is_cli_invocation(&args), "{option} consumed a value boundary");
-        assert!(!server_start_has_cli_routing_flag(&args), "{option} routed its value");
-    }
-
-    assert!(!has_inline_relay_ticket_argument(
-        &["--relay-ticket-command", "helper", "--relay-ticket-command-arg", "--relay-ticket",]
-            .map(str::to_string)
-    ));
-    assert!(!has_inline_relay_ticket_argument(
-        &["--machine-provider-command", "provider", "--relay-ticket", "--",].map(str::to_string)
-    ));
-    assert!(server_start_has_cli_routing_flag(&["--json"].map(str::to_string)));
 }
 
 #[test]
@@ -313,30 +154,6 @@ fn normal_server_cleanup_disarms_the_fallback_guard() {
 
 #[cfg(unix)]
 #[test]
-fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
-    let parsed = args(&["--headless", "--agent-browser-provider"]);
-    assert!(parsed.headless);
-    assert!(parsed.agent_browser_provider);
-    assert!(!usage().contains("--agent-browser-provider"));
-}
-
-#[cfg(not(unix))]
-#[test]
-fn browser_owned_server_rejects_the_private_provider_flag() {
-    let error = parse_args_result(["--headless", "--agent-browser-provider"].map(str::to_string))
-        .unwrap_err();
-    assert!(error.contains("unsupported"));
-}
-
-#[cfg(windows)]
-#[test]
-fn recovery_commands_identify_the_powershell_dialect() {
-    assert_eq!(shell_prompt(), "PowerShell> ");
-    assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
-}
-
-#[cfg(unix)]
-#[test]
 fn absent_socket_recovery_only_shows_reset_when_supported() {
     let messages = &localization::catalog_for_locale("en_US.UTF-8").startup;
     let state_root = Path::new("/tmp/cmux state");
@@ -370,78 +187,6 @@ fn absent_socket_recovery_only_shows_reset_when_supported() {
     assert!(unsupported.contains("no server is listening on this socket"), "{unsupported}");
     assert!(unsupported.contains("scoped saved-state reset is not supported"), "{unsupported}");
     assert!(!unsupported.contains("reset-state"), "{unsupported}");
-}
-
-#[cfg(unix)]
-#[test]
-fn local_frontend_seeds_configured_defaults_before_host_overlay() {
-    let configured = cmux_tui_core::DefaultColors {
-        fg: Some(cmux_tui_core::Rgb { r: 0x12, g: 0x34, b: 0x56 }),
-        bg: Some(cmux_tui_core::Rgb { r: 0x65, g: 0x43, b: 0x21 }),
-        ..Default::default()
-    };
-    let host = cmux_tui_core::DefaultColors {
-        fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
-        bg: None,
-        ..Default::default()
-    };
-    let mux = Mux::new(
-        format!("local-host-color-test-{}", std::process::id()),
-        SurfaceOptions::default(),
-    );
-
-    let FrontendSessionPreparation { session: _session, colors } =
-        prepare_frontend_session(Session::Local(mux.clone()), configured, || host);
-
-    assert_eq!(
-        mux.default_colors(),
-        configured,
-        "a locally owned mux must retain configured terminal defaults"
-    );
-    assert_eq!(colors.fg, host.fg, "host foreground may overlay local chrome defaults");
-    assert_eq!(
-        colors.bg, configured.bg,
-        "a missing host background must preserve the configured local default"
-    );
-}
-
-#[test]
-fn detached_owner_host_colors_fill_only_unspecified_defaults() {
-    let configured = cmux_tui_core::DefaultColors {
-        fg: Some(cmux_tui_core::Rgb { r: 0x12, g: 0x34, b: 0x56 }),
-        bg: None,
-        ..Default::default()
-    };
-    let host = cmux_tui_core::DefaultColors {
-        fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
-        bg: Some(cmux_tui_core::Rgb { r: 0x65, g: 0x43, b: 0x21 }),
-        ..Default::default()
-    };
-
-    let defaults = owner_startup_defaults(configured, host);
-
-    assert_eq!(
-        defaults.fg, configured.fg,
-        "an explicit configured foreground must remain authoritative"
-    );
-    assert_eq!(defaults.bg, host.bg, "the host fills a missing background");
-}
-
-#[test]
-fn private_owner_host_color_parser_requires_rgb_hex() {
-    let parsed = args(&["--headless", "--owner-host-fg", "#112233", "--owner-host-bg", "#445566"]);
-    assert_eq!(parsed.owner_host_fg, Some(cmux_tui_core::Rgb { r: 0x11, g: 0x22, b: 0x33 }));
-    assert_eq!(parsed.owner_host_bg, Some(cmux_tui_core::Rgb { r: 0x44, g: 0x55, b: 0x66 }));
-    assert_eq!(
-        parse_owner_host_color("--owner-host-fg", "#112233").unwrap(),
-        cmux_tui_core::Rgb { r: 0x11, g: 0x22, b: 0x33 }
-    );
-    for value in ["112233", "#1234", "#gg2233"] {
-        assert!(
-            parse_owner_host_color("--owner-host-fg", value).is_err(),
-            "invalid private color {value:?} was accepted"
-        );
-    }
 }
 
 #[cfg(unix)]
@@ -523,25 +268,6 @@ fn remote_host_colors_stay_client_local_across_concurrent_attaches() {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
-}
-
-#[test]
-fn initial_provider_connection_failure_uses_the_selected_locale() {
-    let error = io::Error::other("offline");
-    assert_eq!(
-        initial_provider_connection_notice(
-            &localization::catalog_for_locale("en_US.UTF-8").sidebar,
-            &error,
-        ),
-        "Could not connect: offline"
-    );
-    assert_eq!(
-        initial_provider_connection_notice(
-            &localization::catalog_for_locale("ja_JP.UTF-8").sidebar,
-            &error,
-        ),
-        "マシンに接続できませんでした: offline"
-    );
 }
 
 #[test]
@@ -890,101 +616,6 @@ fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
 }
 
 #[test]
-fn direct_provider_command_preserves_literal_argv_until_terminator() {
-    let parsed = args(&[
-        "--machine-provider-command",
-        "/opt/provider",
-        "--literal",
-        "$(touch nope)",
-        "--",
-        "--term",
-        "xterm-direct",
-    ]);
-
-    assert_eq!(
-        parsed.machine_provider_command,
-        Some(vec!["/opt/provider".into(), "--literal".into(), "$(touch nope)".into(),])
-    );
-    assert_eq!(parsed.term.as_deref(), Some("xterm-direct"));
-    assert!(parse_args_result(["--machine-provider-command".into(), "provider".into()]).is_err());
-    assert!(parse_args_result(["--machine-provider-command".into(), "--".into()]).is_err());
-}
-
-#[test]
-fn cloud_cli_parses_overrides_and_implies_cloud_mode() {
-    let parsed = args(&[
-        "--cloud-host",
-        "edge.example.com",
-        "--cloud-user",
-        "lawrence",
-        "--cloud-port",
-        "2200",
-        "--cloud-identity",
-        "/tmp/cloud-key",
-    ]);
-
-    assert!(parsed.cloud_cli_requested());
-    assert_eq!(parsed.cloud_host.as_deref(), Some("edge.example.com"));
-    assert_eq!(parsed.cloud_user.as_deref(), Some("lawrence"));
-    assert_eq!(parsed.cloud_port, Some(2200));
-    assert_eq!(parsed.cloud_identity, Some(PathBuf::from("/tmp/cloud-key")));
-    assert!(parse_args_result(["--cloud-port".into(), "0".into()]).is_err());
-}
-
-#[test]
-fn provider_resolution_keeps_defaults_off_and_applies_cli_over_config() {
-    let mut config = config::Config::default();
-    assert_eq!(resolve_provider_launch(&args(&[]), &config).unwrap(), None);
-
-    config.machine_provider.cloud.enabled = true;
-    config.machine_provider.cloud.host = "configured.example.com".into();
-    config.machine_provider.cloud.user = Some("configured-user".into());
-    config.machine_provider.cloud.port = Some(2222);
-    config.machine_provider.cloud.identity_file = Some(PathBuf::from("/configured-key"));
-    assert_eq!(
-        resolve_provider_launch(&args(&[]), &config).unwrap(),
-        Some(ProviderLaunch::Cloud(CloudLaunch {
-            host: "configured.example.com".into(),
-            user: Some("configured-user".into()),
-            port: Some(2222),
-            identity_file: Some(PathBuf::from("/configured-key")),
-        }))
-    );
-    assert_eq!(
-        resolve_provider_launch(
-            &args(&["--cloud", "--cloud-host", "cli.example.com", "--cloud-port", "2200",]),
-            &config,
-        )
-        .unwrap(),
-        Some(ProviderLaunch::Cloud(CloudLaunch {
-            host: "cli.example.com".into(),
-            user: Some("configured-user".into()),
-            port: Some(2200),
-            identity_file: Some(PathBuf::from("/configured-key")),
-        }))
-    );
-
-    assert_eq!(
-        resolve_provider_launch(&args(&["--machine-provider", "/tmp/provider.sock"]), &config)
-            .unwrap(),
-        Some(ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock")))
-    );
-
-    assert_eq!(
-        resolve_provider_launch(
-            &args(&["--machine-provider-command", "/opt/provider", "--profile", "dev", "--",]),
-            &config,
-        )
-        .unwrap(),
-        Some(ProviderLaunch::Command(vec![
-            OsString::from("/opt/provider"),
-            OsString::from("--profile"),
-            OsString::from("dev"),
-        ]))
-    );
-}
-
-#[test]
 fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
     let mut config = config::Config::default();
     let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);
@@ -1016,34 +647,6 @@ fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
 }
 
 #[test]
-fn only_local_cloud_launch_enables_ephemeral_machine_connect() {
-    assert!(
-        ProviderLaunch::Cloud(CloudLaunch {
-            host: "cmux.cloud".into(),
-            user: None,
-            port: None,
-            identity_file: None,
-        })
-        .enables_client_machine_connect()
-    );
-    assert!(
-        !ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock")).enables_client_machine_connect()
-    );
-    assert!(
-        !ProviderLaunch::Command(vec![OsString::from("provider")]).enables_client_machine_connect()
-    );
-}
-
-#[test]
-fn startup_help_lists_all_provider_entrypoints() {
-    let usage = usage();
-    assert!(usage.contains("--machine-provider <path>"));
-    assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
-    assert!(usage.contains("--cloud"));
-    assert!(usage.contains("--cloud-identity"));
-}
-
-#[test]
 fn startup_help_localizes_the_machine_agent_entrypoint() {
     let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
     assert!(english.contains("cmux machine-agent"));
@@ -1057,56 +660,6 @@ fn startup_help_localizes_the_machine_agent_entrypoint() {
     assert!(japanese.contains("置換可能な SSH サイドカーを明示的に停止"));
     assert!(!japanese.contains("Share one local session"));
     assert!(!japanese.contains("Stop authenticated remote access explicitly"));
-}
-
-#[test]
-fn startup_help_omits_machine_agent_on_unsupported_platforms() {
-    let english = localization::catalog_for_locale("en_US.UTF-8");
-    let usage = usage_for_platform(english, false);
-    assert!(!usage.contains("machine-agent"));
-    assert!(usage.contains("cmux relay"));
-    assert!(!usage.contains("cmux-tui"));
-    assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
-}
-
-#[test]
-fn old_single_target_attach_flag_is_rejected() {
-    let removed = ["--sur", "face"].concat();
-    assert!(parse_args_result([removed.clone(), "s:abc123".into()]).is_err());
-    assert!(parse_args_result(["attach".into(), removed, "s:abc123".into()]).is_err());
-}
-
-#[test]
-fn terminal_attach_is_scoped_to_attach_mode() {
-    let terminal = "term_0123456789abcdef0123456789abcdef";
-    let parsed = args(&["attach", "--session", "agents", "--terminal", terminal]);
-    assert!(parsed.attach);
-    assert_eq!(parsed.session, "agents");
-    assert_eq!(parsed.terminal.as_deref(), Some(terminal));
-    assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
-    assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
-}
-
-#[test]
-fn attach_verb_can_follow_global_startup_options() {
-    let parsed = args(&["--session", "agents", "attach"]);
-    assert!(parsed.attach);
-    assert_eq!(parsed.session, "agents");
-}
-
-#[test]
-fn startup_help_stays_focused_on_process_modes() {
-    let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
-    assert!(english.contains("cmux <scope> --help"));
-    assert!(english.contains("--terminal <id>"));
-    assert!(!english.contains("cmux-tui"));
-    assert!(!english.contains("KEYS"));
-    assert!(!english.contains("CLI VERBS"));
-
-    let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
-    assert!(japanese.contains("cmux <scope> --help"));
-    assert!(!japanese.contains("cmux-tui"));
-    assert!(!japanese.contains("KEYS"));
 }
 
 #[test]

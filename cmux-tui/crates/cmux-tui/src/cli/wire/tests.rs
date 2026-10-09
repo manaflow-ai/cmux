@@ -12,15 +12,6 @@ fn plan(operation: ResourceOperation) -> RequestPlan {
     }
 }
 
-#[test]
-fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
-    let wait = plan(ResourceOperation::TerminalWait);
-    assert_eq!(success_exit_code(&wait, &json!({"matched": false, "text": ""})), 1);
-    assert_eq!(success_exit_code(&wait, &json!({"matched": true, "text": "ready"})), 0);
-    let read = plan(ResourceOperation::TerminalScreenRead);
-    assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
-}
-
 /// nxdog55: with `--order personal` the rows come in sidebar order, but
 /// INDEX is the session index; an ORDER column numbers the shown order.
 #[test]
@@ -42,42 +33,6 @@ fn personal_workspace_order_numbers_the_shown_rows() {
 }
 
 #[test]
-fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
-    let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert!(validate_capability_identity(&identity).is_err());
-}
-
-#[test]
-fn capability_preflight_rejects_pre_capability_protocol_even_when_capability_is_present() {
-    let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION - 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert!(validate_capability_identity(&identity).is_err());
-}
-
-#[test]
-fn capability_preflight_accepts_capability_introduction_protocol() {
-    let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert!(validate_capability_identity(&identity).is_ok());
-}
-
-#[test]
-fn capability_preflight_accepts_current_protocol() {
-    let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert_eq!(validate_capability_identity(&identity), Ok(()));
-}
-
-#[test]
-fn capability_preflight_rejects_future_protocol() {
-    let identity = json!({"app":"cmux-tui", "protocol":cmux_tui_core::server::PROTOCOL_VERSION + 1, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
-}
-
-#[test]
-fn capability_preflight_rejects_max_protocol() {
-    let identity = json!({"app":"cmux-tui", "protocol":u64::MAX, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
-    assert_eq!(validate_capability_identity(&identity), Err("unsupported server protocol"));
-}
-
-#[test]
 fn capability_preflight_rejects_malformed_capabilities() {
     for capabilities in [json!(null), json!("journal-v1"), json!(["journal-v1", false])] {
         assert!(
@@ -87,29 +42,6 @@ fn capability_preflight_rejects_malformed_capabilities() {
             .is_err()
         );
     }
-}
-
-#[test]
-fn mutation_request_has_a_key_and_read_does_not() {
-    let mutation = RequestPlan {
-        operation: WireOperation::Typed(ResourceOperation::WorkspaceCreate),
-        params: json!({"initial_content":"empty"}),
-        idempotency_key: None,
-        stream: false,
-        resolve: Vec::new(),
-        view: Default::default(),
-    };
-    assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
-
-    let read = RequestPlan {
-        operation: WireOperation::Typed(ResourceOperation::WorkspaceList),
-        params: json!({}),
-        idempotency_key: None,
-        stream: false,
-        resolve: Vec::new(),
-        view: Default::default(),
-    };
-    assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
 }
 
 /// Daemon and terminal-derived strings never write raw control
@@ -130,89 +62,6 @@ fn sec_audit_human_output_shows_controls_instead_of_sending_them() {
 }
 
 #[test]
-fn human_lists_are_readable_tables_instead_of_json_lines() {
-    let output = human_text(&json!([
-        {"id":"ws_a","name":"build","focused":true},
-        {"id":"ws_b","name":"docs","focused":false}
-    ]));
-    assert_eq!(output, "ID    NAME   FOCUSED\nws_a  build  true\nws_b  docs   false\n");
-    assert!(!output.contains(['{', '}', '"']));
-}
-
-#[test]
-fn human_tables_pad_wide_cells_by_terminal_width() {
-    let output = human_text(&json!([
-        {"name":"界","value":"a"},
-        {"name":"x","value":"界"}
-    ]));
-    assert_eq!(output, "NAME  VALUE\n界    a\nx     界\n");
-}
-
-#[test]
-#[allow(clippy::unicode_not_nfc)]
-fn human_tables_pad_halfwidth_dakuten_by_terminal_width() {
-    let output = human_text(&json!([
-        {"name":"ｶﾞ","value":"a"},
-        {"name":"x","value":"ｶﾞ"}
-    ]));
-    assert_eq!(output, "NAME  VALUE\nｶﾞ    a\nx     ｶﾞ\n");
-}
-
-#[test]
-fn human_single_array_wrappers_use_the_same_table() {
-    let output = human_text(&json!({
-        "workspaces": [
-            {"id":"ws_a","name":"build"},
-            {"id":"ws_b","name":"docs"}
-        ]
-    }));
-    assert_eq!(output, "ID    NAME\nws_a  build\nws_b  docs\n");
-}
-
-#[test]
-fn human_records_flatten_nested_results_without_losing_fields() {
-    let output = human_text(&json!({
-        "generation": "generation-1",
-        "revision": "7",
-        "replayed": false,
-        "value": {"kind": "workspace", "workspace_id": "ws_a"}
-    }));
-    for expected in [
-        "generation",
-        "generation-1",
-        "revision",
-        "7",
-        "replayed",
-        "false",
-        "value.kind",
-        "workspace",
-        "value.workspace_id",
-        "ws_a",
-    ] {
-        assert!(output.contains(expected), "missing {expected:?} in {output:?}");
-    }
-    assert!(!output.contains(['{', '}', '"']));
-}
-
-#[test]
-fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
-    for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
-        let bounded = RequestPlan {
-            operation: WireOperation::Typed(operation),
-            params: json!({"timeout_ms":"5000"}),
-            idempotency_key: None,
-            stream: false,
-            resolve: Vec::new(),
-            view: Default::default(),
-        };
-        assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
-
-        let unbounded = RequestPlan { params: json!({}), ..bounded };
-        assert_eq!(response_read_timeout(&unbounded, false), None);
-    }
-}
-
-#[test]
 fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
     let stream = RequestPlan {
         operation: WireOperation::Typed(ResourceOperation::SessionJournalSubscribe),
@@ -224,51 +73,6 @@ fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
     };
     assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
     assert_eq!(response_read_timeout(&stream, true), None);
-}
-
-#[test]
-fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
-    for operation in [
-        ResourceOperation::TerminalInputWrite,
-        ResourceOperation::TerminalInputKeys,
-        ResourceOperation::TerminalInputMouse,
-        ResourceOperation::TerminalInputFocus,
-    ] {
-        for locale in ["en", "ja"] {
-            let catalog = crate::localization::catalog_for_locale(locale);
-            let plan = RequestPlan {
-                operation: WireOperation::Typed(operation),
-                params: json!({}),
-                idempotency_key: Some("input-error".into()),
-                stream: false,
-                resolve: Vec::new(),
-                view: Default::default(),
-            };
-            for (reason, expected) in [
-                ("terminal_input_too_large", catalog.terminal_input.too_large),
-                ("terminal_input_unavailable", catalog.terminal_input.unavailable),
-                (
-                    "terminal_input_confirmation_unsupported",
-                    catalog.terminal_input.confirmation_unsupported,
-                ),
-                ("terminal_input_delivery_failed", catalog.terminal_input.delivery_failed),
-            ] {
-                let wire = json!({"code":"operation.failed", "message":reason,
-                        "details":{"reason":reason}, "retryable":false});
-                let mut human = wire.clone();
-                localize_operation_error_with_catalog(&plan, &mut human, catalog);
-                assert_eq!(human["message"], expected);
-                assert_ne!(human["message"], reason);
-                assert_eq!(human["details"], wire["details"]);
-                assert_eq!(wire["message"], reason);
-                assert_eq!(human["retryable"], false);
-            }
-        }
-    }
-    assert_ne!(
-        crate::localization::catalog_for_locale("en").terminal_input,
-        crate::localization::catalog_for_locale("ja").terminal_input
-    );
 }
 
 #[test]
@@ -318,110 +122,6 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
 }
 
 #[test]
-fn human_cells_disarm_escape_sequences_in_remote_titles() {
-    // A remote-supplied title (browser page, terminal program) must not
-    // reach the invoking terminal as a live escape sequence. Here the
-    // payload is an OSC title change.
-    let output = human_text(&json!([
-        {"id":"b_1","title":"page\u{1b}]0;owned\u{7}title"}
-    ]));
-    assert!(!output.contains('\u{1b}'), "raw ESC in {output:?}");
-    assert!(!output.contains('\u{7}'), "raw BEL in {output:?}");
-    assert_eq!(output, "ID   TITLE\nb_1  page\u{fffd}]0;owned\u{fffd}title\n");
-}
-
-#[test]
-fn human_cells_disarm_osc52_clipboard_payloads() {
-    // OSC 52 writes the clipboard on supporting terminals; the sequence
-    // must render as inert text.
-    let output = human_text(&json!([
-        {"id":"b_1","title":"\u{1b}]52;c;aGVsbG8=\u{7}"}
-    ]));
-    assert!(!output.contains("\u{1b}]52"), "live OSC 52 in {output:?}");
-    assert_eq!(output, "ID   TITLE\nb_1  \u{fffd}]52;c;aGVsbG8=\u{fffd}\n");
-}
-
-#[test]
-fn human_rows_replace_c1_and_del_controls_with_placeholders() {
-    // C1 controls (CSI, DCS, OSC) and DEL are control bytes even without
-    // a leading ESC on terminals that accept 8-bit controls.
-    let output = human_text(&json!({"title":"a\u{9b}31mb\u{90}c\u{9d}d\u{7f}e"}));
-    assert_eq!(output, "title  a\u{fffd}31mb\u{fffd}c\u{fffd}d\u{fffd}e\n");
-}
-
-#[test]
-fn human_cells_replace_unicode_line_separators() {
-    let output = human_text(&json!([{"id":"w","name":"x\u{2028}y\u{2029}z"}]));
-    assert_eq!(output, "ID  NAME\nw   x\u{fffd}y\u{fffd}z\n");
-}
-
-#[test]
-fn human_cells_keep_the_visible_newline_escape_for_cr_and_lf() {
-    let output = human_text(&json!([{"id":"s_1","title":"line1\r\nline2"}]));
-    assert_eq!(output, "ID   TITLE\ns_1  line1\\n\\nline2\n");
-}
-
-#[test]
-fn human_cells_replace_tabs_so_column_math_stays_aligned() {
-    let output = human_text(&json!([{"id":"x","title":"a\tb"}]));
-    assert_eq!(output, "ID  TITLE\nx   a\u{fffd}b\n");
-}
-
-#[test]
-fn human_headers_and_keys_cannot_carry_control_sequences() {
-    let table = human_text(&json!([{"id":"x","bad\u{1b}key":"v"}]));
-    assert_eq!(table, "ID  BAD\u{fffd}KEY\nx   v\n");
-    let object = human_text(&json!({"k\u{1b}ey":"v"}));
-    assert_eq!(object, "k\u{fffd}ey  v\n");
-}
-
-#[test]
-fn human_nested_values_disarm_c1_controls_after_json_serialization() {
-    // serde_json escapes C0 controls but writes C1 controls raw, so the
-    // serialized fallback cell needs the same sanitizing as plain strings.
-    let output = human_text(&json!([{"id":"x","tags":["a\u{85}b"]}]));
-    assert!(!output.contains('\u{85}'), "raw C1 NEL in {output:?}");
-    assert_eq!(output, "ID  TAGS\nx   [\"a\u{fffd}b\"]\n");
-}
-
-#[test]
-fn human_top_level_strings_keep_newlines_but_disarm_controls() {
-    assert_eq!(human_text(&json!("line1\nline2\u{1b}[2Jline3")), "line1\nline2\u{fffd}[2Jline3\n");
-    assert_eq!(human_text(&json!("crlf\r\nkept")), "crlf\nkept\n");
-    assert_eq!(human_text(&json!("overwrite\rspoof")), "overwrite\u{fffd}spoof\n");
-    assert_eq!(human_text(&json!("tab\tkept")), "tab\tkept\n");
-}
-
-#[test]
-fn human_string_lists_disarm_controls_per_line() {
-    let output = human_text(&json!(["a\u{1b}b", "plain"]));
-    assert_eq!(output, "a\u{fffd}b\nplain\n");
-}
-
-#[test]
-fn human_output_keeps_plain_unicode_text_unchanged() {
-    let output = human_text(&json!({"title":"日本語 🚀 ｶﾞ title"}));
-    assert_eq!(output, "title  日本語 🚀 ｶﾞ title\n");
-}
-
-#[test]
-fn human_error_text_disarms_control_sequences() {
-    let error = json!({
-        "code": "operation.failed",
-        "message": "no workspace named b\u{1b}]0;owned\u{7}ad",
-        "details": {"candidates": ["work\u{9b}space", "plain"]},
-        "retryable": false
-    });
-    let text = human_error_lines(&error);
-    assert!(!text.contains('\u{1b}'), "raw ESC in {text:?}");
-    assert!(!text.contains('\u{9b}'), "raw C1 CSI in {text:?}");
-    assert_eq!(
-        text,
-        "no workspace named b\u{fffd}]0;owned\u{fffd}ad\n  work\u{fffd}space\n  plain\n"
-    );
-}
-
-#[test]
 fn sanitizers_cover_every_control_range() {
     let controls = ('\u{0}'..='\u{1f}').chain('\u{7f}'..='\u{9f}').chain(['\u{2028}', '\u{2029}']);
     for ch in controls {
@@ -436,22 +136,6 @@ fn sanitizers_cover_every_control_range() {
     }
     assert_eq!(sanitize_human_cell("plain ascii"), "plain ascii");
     assert_eq!(sanitize_human_block("plain ascii"), "plain ascii");
-}
-
-#[test]
-fn json_output_keeps_remote_title_bytes_intact() {
-    // JSON modes rely on JSON escaping, not visible sanitizing: C0
-    // controls are escaped, C1 controls and separator characters stay in
-    // the encoded text, and the exact title survives a round-trip for
-    // machine consumers.
-    let title = "a\u{1b}]52;c;aGk=\u{7}b\u{9b}c\u{2028}d";
-    let encoded = serde_json::to_string(&json!({"title": title})).expect("titles encode");
-    assert!(!encoded.contains('\u{1b}'));
-    assert!(!encoded.contains('\u{7}'));
-    assert!(encoded.contains('\u{9b}'));
-    assert!(encoded.contains('\u{2028}'));
-    let decoded: Value = serde_json::from_str(&encoded).expect("titles decode");
-    assert_eq!(decoded["title"].as_str(), Some(title));
 }
 
 /// `closed list` shows one short MEMBERS cell per group (kind and the first

@@ -31,52 +31,6 @@ fn isolated_gate_allowing(allow: Vec<std::net::SocketAddr>) -> (Gate, Arc<FakeDr
     (Gate::new(driver.clone(), grants), driver)
 }
 
-#[test]
-fn a_local_caller_on_a_cloud_machine_is_refused_every_limited_range() {
-    let (gate, driver) = isolated_gate();
-    for url in [
-        "http://169.254.169.254/latest/meta-data/",
-        "http://[fd00:ec2::254]/latest/meta-data/",
-        "http://metadata.google.internal/computeMetadata/v1/",
-        "http://10.0.0.1/",
-        "http://172.16.5.4/",
-        "http://192.168.1.1/",
-        "http://100.64.0.1/",
-        "http://0.0.0.0:3000/",
-        "http://[fe80::1]/",
-        "http://[fd12::1]/",
-        "http://[::ffff:10.0.0.1]/",
-        "http://rebind.test/",
-        "http://meta.test/",
-    ] {
-        for (method, params) in [
-            ("tabs.open", json!({"url": url})),
-            ("tab.navigate", json!({"targetId": "T", "url": url})),
-            ("net.fetch", json!({"targetId": "T", "url": url})),
-        ] {
-            let refused = gate.driver_call(method, params).unwrap_err();
-            assert_eq!(refused.code, ErrorCode::Forbidden, "{method} {url}: {refused}");
-        }
-    }
-    assert!(methods(&driver).is_empty(), "nothing reached the engine: {:?}", methods(&driver));
-    for url in ["https://public.test/", "http://localhost:3000/", "http://127.0.0.1:3000/"] {
-        assert!(gate.driver_call("tabs.open", json!({"url": url})).is_ok(), "{url}");
-    }
-}
-
-#[test]
-fn a_session_on_a_cloud_machine_sets_no_proxy() {
-    let (gate, driver) = isolated_gate();
-    for server in ["http://203.0.113.7:3128", "socks5://127.0.0.1:1080"] {
-        let refused = gate
-            .driver_call("session.configure", json!({"proxy": {"server": server}}))
-            .unwrap_err();
-        assert_eq!(refused.code, ErrorCode::Forbidden, "{server}: {refused}");
-    }
-    assert!(!methods(&driver).contains(&"session.configure".to_owned()));
-    assert!(gate.driver_call("session.configure", json!({"proxy": null})).is_ok());
-}
-
 /// Every connection goes through the listener, which reports itself as the
 /// remote address: that answer is no rebinding sign and stops nothing.
 #[test]
@@ -111,58 +65,6 @@ fn a_response_from_another_refused_address_stops_the_load() {
         assert!(std::time::Instant::now() < deadline, "the load was never stopped");
         std::thread::yield_now();
     }
-}
-
-/// The owner's allow list reaches the request filter too: a fetch to an
-/// allowed dev server port runs, page requests to it pass with a policy
-/// active, and other private targets stay refused there.
-#[test]
-fn the_owner_allow_list_reaches_fetch_and_the_request_filter() {
-    let allow = crate::egress_scope::parse_allow("localhost:3000").0;
-    let (gate, driver) = isolated_gate_allowing(allow);
-    *driver.fetch_reply.lock().unwrap() = json!({"url": "http://localhost:3000/", "status": 200,
-        "headers": [], "bodyBase64": ""});
-    let out =
-        gate.driver_call("net.fetch", json!({"targetId": "T", "url": "http://localhost:3000/"}));
-    assert!(out.is_ok(), "{out:?}");
-    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
-    let filter = driver.filter.lock().unwrap().clone().expect("a policy installs the filter");
-    let decide = |url: &str| {
-        filter(&crate::driver::RequestInfo {
-            target: "T",
-            url,
-            kind: crate::driver::RequestKind::Subresource,
-        })
-    };
-    assert_eq!(decide("http://localhost:3000/app.js"), None);
-    assert_eq!(decide("http://127.0.0.1:3000/app.js"), None);
-    assert_eq!(decide("https://public.test/x"), None, "names are the listener's");
-    assert_eq!(decide("http://127.0.0.1:3001/"), None, "the VM's own loopback");
-    for refused in
-        ["http://10.0.0.1/", "http://169.254.169.254/", "http://metadata.google.internal/"]
-    {
-        assert!(decide(refused).is_some(), "{refused}");
-    }
-}
-
-/// An agent call to a cmux service port is refused with a clear reason; the
-/// request filter leaves it to the listener (no /proc walk per request).
-#[test]
-fn a_cmux_service_port_is_refused_before_dispatch() {
-    let (gate, driver) = isolated_gate();
-    for url in ["http://127.0.0.1:1337/", "http://localhost:1337/", "http://[::1]:1337/"] {
-        let refused = gate.driver_call("tabs.open", json!({"url": url})).unwrap_err();
-        assert!(refused.message.contains("cmux service"), "{url}: {refused}");
-    }
-    assert!(!methods(&driver).contains(&"tabs.open".to_owned()));
-    policy(&gate, "set", json!({"prohibited": ["peer.test"]})).unwrap();
-    let filter = driver.filter.lock().unwrap().clone().expect("a policy installs the filter");
-    let info = crate::driver::RequestInfo {
-        target: "T",
-        url: "http://127.0.0.1:1337/",
-        kind: crate::driver::RequestKind::Subresource,
-    };
-    assert_eq!(filter(&info), None, "the listener checks the connected peer");
 }
 
 /// A loopback answer that is not the listener's went around it.

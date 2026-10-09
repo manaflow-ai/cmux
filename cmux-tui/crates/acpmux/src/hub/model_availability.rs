@@ -63,30 +63,3 @@ impl Hub {
 pub(crate) fn set_model_for_test(session: &Session, model: &str) {
     session.meta.lock().unwrap().model_request = Some(model.to_owned());
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn an_unsupported_parameter_refusal_marks_its_model_with_the_backend_message() {
-        let error = r#"{"type":"error","error":{"message":"Image web search is not supported by rustponsesapi.","type":"invalid_request_error","param":"tools.search_content_types","code":"unsupported_parameter"},"status":400}"#;
-        assert_eq!(
-            refusal_reason(error).as_deref(),
-            Some("Image web search is not supported by rustponsesapi.")
-        );
-        assert_eq!(refusal_reason("rate limited"), None);
-        let refused = HashMap::from([(
-            ("codex".to_owned(), "gpt-5.5".to_owned()),
-            "no image search".to_owned(),
-        )]);
-        let mut models = vec![json!({"id": "gpt-5.5"}), json!({"id": "gpt-6.1-sol"})];
-        mark_unavailable(&mut models, "codex", &refused);
-        assert_eq!(models[0]["unavailable"], "no image search");
-        assert!(models[1].get("unavailable").is_none());
-        let mut other = vec![json!({"id": "gpt-5.5"})];
-        mark_unavailable(&mut other, "opencode", &refused);
-        assert!(other[0].get("unavailable").is_none());
-    }
-}

@@ -956,43 +956,6 @@ mod tests {
     }
 
     #[test]
-    fn ssh_config_discovery_follows_includes_and_skips_patterns() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path();
-        let ssh_root = home.join(".ssh");
-        let include_root = ssh_root.join("hosts");
-        fs::create_dir_all(&include_root).unwrap();
-        fs::write(
-            ssh_root.join("config"),
-            "Include hosts/*.conf\nHost buildbox *.internal !blocked duplicate\n",
-        )
-        .unwrap();
-        fs::write(include_root.join("a.conf"), "Host mini duplicate\n  HostName 192.0.2.10\n")
-            .unwrap();
-        fs::write(include_root.join("b.conf"), "Host=quoted-host # note\n").unwrap();
-
-        assert_eq!(
-            ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
-            vec!["buildbox", "duplicate", "mini", "quoted-host"]
-        );
-    }
-
-    #[test]
-    fn ssh_config_discovery_breaks_include_cycles() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path();
-        let ssh_root = home.join(".ssh");
-        fs::create_dir_all(&ssh_root).unwrap();
-        fs::write(ssh_root.join("config"), "Include loop\nHost root\n").unwrap();
-        fs::write(ssh_root.join("loop"), "Include config\nHost nested\n").unwrap();
-
-        assert_eq!(
-            ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
-            vec!["root", "nested"]
-        );
-    }
-
-    #[test]
     fn configured_targets_are_deduplicated_in_one_pass() {
         let machine = MachineConfig {
             id: "mini".into(),

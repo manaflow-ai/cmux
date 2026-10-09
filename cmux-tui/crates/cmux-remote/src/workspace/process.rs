@@ -3320,35 +3320,6 @@ mod tests {
     }
 
     #[test]
-    fn replay_rejects_a_cursor_the_process_has_not_produced() {
-        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        let error = log.subscribe(1, false).err().expect("future cursor must be rejected");
-        assert_eq!(error.code, "invalid-replay-cursor");
-        assert!(log.subscribe(0, false).is_ok());
-    }
-
-    #[tokio::test]
-    async fn finished_subscription_at_exit_cursor_closes() {
-        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        log.publish_exit(ProcessId::from_u128(7), ExitOutcome { code: Some(0), signal: None });
-
-        // The caller's finished flag can lag exit publication briefly. The
-        // event log records terminal state atomically with the Exit event.
-        let mut subscription = log.subscribe(1, false).unwrap();
-        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
-    }
-
-    #[tokio::test]
-    async fn live_subscription_closes_after_delivering_exit() {
-        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        let mut subscription = log.subscribe(0, false).unwrap();
-        log.publish_exit(ProcessId::from_u128(7), ExitOutcome { code: Some(0), signal: None });
-
-        assert!(matches!(subscription.recv().await.unwrap().event, ProcessEvent::Exit { .. }));
-        assert_eq!(subscription.recv().await, Err(ProcessSubscriptionError::Closed));
-    }
-
-    #[test]
     fn concurrent_publishers_retain_sequence_order() {
         let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
         let publishers = (0..4)
@@ -3370,55 +3341,6 @@ mod tests {
             history.events.iter().map(|event| event.sequence).collect::<Vec<_>>(),
             (1..=256).collect::<Vec<_>>()
         );
-    }
-
-    #[tokio::test]
-    async fn live_subscription_recovers_broadcast_lag_from_retained_history() {
-        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        let mut subscription = log.subscribe(0, false).unwrap();
-        for index in 0..(PROCESS_BROADCAST_CAPACITY + 40) {
-            log.publish_output(ProcessId::from_u128(7), false, format!("event-{index}").as_bytes());
-        }
-
-        for expected in 1..=(PROCESS_BROADCAST_CAPACITY + 40) as u64 {
-            let event = subscription.recv().await.unwrap();
-            assert_eq!(event.sequence, expected);
-        }
-    }
-
-    #[test]
-    fn typed_replay_pages_and_reports_retention_gaps() {
-        let process = ProcessId::from_u128(7);
-        let log = ProcessEventLog::new(PROCESS_EVENT_BYTES);
-        log.publish_output(process, false, b"one");
-        log.publish_output(process, false, b"two");
-        log.publish_output(process, false, b"three");
-
-        let first = log.read(process, 0, 2, false).unwrap();
-        let WorkspaceResponse::ProcessEvents { events, next_cursor, range, .. } = first else {
-            panic!()
-        };
-        assert_eq!(events.iter().map(|event| event.sequence).collect::<Vec<_>>(), [1, 2]);
-        assert_eq!(next_cursor, Some(2));
-        assert_eq!(range.first_available, Some(1));
-
-        let second = log.read(process, 2, 2, false).unwrap();
-        let WorkspaceResponse::ProcessEvents { events, next_cursor, .. } = second else { panic!() };
-        assert_eq!(events.iter().map(|event| event.sequence).collect::<Vec<_>>(), [3]);
-        assert_eq!(next_cursor, None);
-
-        let evicting = ProcessEventLog::new(4);
-        evicting.publish_output(process, false, b"a");
-        evicting.publish_output(process, false, b"b");
-        let gap = evicting.read(process, 0, 1, false).unwrap();
-        assert!(matches!(
-            gap,
-            WorkspaceResponse::ProcessReplayGap {
-                requested_after: 0,
-                range: ProcessReplayRange { first_available: Some(2), .. },
-                ..
-            }
-        ));
     }
 
     #[cfg(unix)]

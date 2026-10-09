@@ -22,8 +22,6 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
 use open::{OpenRequest, parse_open};
-#[cfg(test)]
-use open::{is_web_url, parse_open_with};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;

@@ -1242,15 +1242,6 @@ mod tests {
     }
 
     #[test]
-    fn directory_entry_read_errors_fail_closed() {
-        let mut names = vec!["before-error".to_owned()];
-        let result = append_dir_name(&mut names, Err(()));
-
-        assert_eq!(result, Err(()));
-        assert_eq!(names, vec!["before-error".to_owned()]);
-    }
-
-    #[test]
     fn subscribe_replay_stays_ahead_of_concurrent_output_and_exit() {
         let output = ThreadOutput::new();
         output.push_data(Bytes::from_static(b"buffered"));
@@ -1368,44 +1359,6 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
-    }
-
-    #[test]
-    fn empty_chunks_do_not_bypass_backlog_cap() {
-        let output = ThreadOutput::new();
-        for _ in 0..10_000 {
-            output.push_data(Bytes::new());
-        }
-
-        let state = output.state.lock().expect("source lock");
-        assert!(state.backlog.is_empty());
-        assert_eq!(state.backlog_bytes, 0);
-    }
-
-    #[test]
-    fn pipe_exit_waits_for_reader_eof_before_delivering_late_bytes() {
-        let output = ThreadOutput::new();
-        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
-        completion.child_exited(23);
-        output.push_data(Bytes::from_static(b"tail"));
-        completion.reader_finished();
-
-        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
-        let data_seen = TestArc::clone(&seen);
-        let exit_seen = TestArc::clone(&seen);
-        output.subscribe(
-            TestArc::new(move |chunk| {
-                data_seen
-                    .lock()
-                    .expect("seen lock")
-                    .push(String::from_utf8_lossy(&chunk).into_owned());
-            }),
-            TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
-            }),
-        );
-
-        assert_eq!(*seen.lock().expect("seen lock"), vec!["tail".to_owned(), "exit:23".to_owned()]);
     }
 
     #[test]

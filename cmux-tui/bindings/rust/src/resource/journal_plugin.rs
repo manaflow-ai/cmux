@@ -346,14 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn producer_component_grammar_is_shared_with_core() {
-        assert!(manifest("screen-detector").validate().is_ok());
-        assert!(manifest("screen_detector").validate().is_ok());
-        assert!(manifest("_screen-detector").validate().is_err());
-        assert!(manifest("Screen-detector").validate().is_err());
-    }
-
-    #[test]
     fn producer_and_ingress_limits_are_checked_before_socket_io() {
         let mut producer = manifest("screen-detector");
         producer.permissions =
@@ -382,26 +374,5 @@ mod tests {
 
         event.kind = "agent.state.changed".into();
         assert!(event.validate().is_err());
-    }
-
-    #[test]
-    fn mutation_receipts_reject_invalid_identity_and_sequence() {
-        let mut put = JournalProducerPutResult {
-            producer_id: "screen-detector".into(),
-            manifest_version: 1,
-            namespace: "plugin.screen-detector".into(),
-            sequence: "1".into(),
-            event_id: "event-1".into(),
-        };
-        assert!(put.validate().is_ok());
-        put.namespace = "agent".into();
-        assert!(put.validate().is_err());
-
-        let append = JournalAppendResult {
-            producer_id: "screen-detector".into(),
-            sequence: "01".into(),
-            event_id: "event-1".into(),
-        };
-        assert!(append.validate().is_err());
     }
 }

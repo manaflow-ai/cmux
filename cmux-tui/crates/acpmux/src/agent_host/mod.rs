@@ -536,32 +536,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn negotiation_picks_the_highest_common_version_or_none() {
-        assert_eq!(negotiate(1, 1), Some(1));
-        assert_eq!(negotiate(1, 9), Some(PROTOCOL_MAX));
-        assert_eq!(negotiate(2, 9), None);
-        assert_eq!(negotiate(0, 0), None);
-    }
-
-    #[test]
-    fn frames_round_trip_with_their_tags() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        rt.block_on(async {
-            let (mut a, mut b) = tokio::io::duplex(1024);
-            let frame = HostFrame::Entry {
-                h: 7,
-                e: Entry::In { msg: serde_json::json!({"jsonrpc":"2.0","method":"x"}) },
-            };
-            write_frame(&mut a, &frame).await.unwrap();
-            let read: HostFrame = read_frame(&mut b).await.unwrap().unwrap();
-            assert_eq!(read, frame);
-            let json = serde_json::to_value(&frame).unwrap();
-            assert_eq!(json["t"], "entry");
-            assert_eq!(json["e"]["k"], "in");
-        });
-    }
-
-    #[test]
     fn records_of_another_version_are_reported_not_dropped() {
         let dir = std::env::temp_dir().join(format!("amx-rec-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

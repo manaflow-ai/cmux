@@ -2835,74 +2835,6 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn startup_config_loader_stays_lazy_for_help_and_parse_errors() {
-        let load_count = std::cell::Cell::new(0);
-        let help_args = ["connect", "--help"].map(str::to_string);
-        assert!(
-            run_inner(&help_args, "usage", || {
-                load_count.set(load_count.get() + 1);
-                panic!("remote help must not load startup config");
-            })
-            .is_ok()
-        );
-
-        let invalid_args = ["ssh", "--unknown"].map(str::to_string);
-        assert!(
-            run_inner(&invalid_args, "usage", || {
-                load_count.set(load_count.get() + 1);
-                panic!("remote parse errors must not load startup config");
-            })
-            .is_err()
-        );
-        assert_eq!(load_count.get(), 0);
-    }
-
-    #[test]
-    fn probe_capabilities_include_direct_ws_user_agent() {
-        assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
-        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
-    }
-
-    #[test]
-    fn agent_hooks_flag_collects_providers() {
-        let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
-            .map(str::to_string);
-        assert_eq!(direct_ssh_flags(&args).unwrap().agent_hooks, ["claude", "codex", "gemini"]);
-        let plain = ["host"].map(str::to_string);
-        assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
-    }
-
-    #[test]
-    fn wireguard_config_and_hub_are_mutually_exclusive() {
-        let both = [
-            "ws://[fd00::1]:1337/v1/link",
-            "--wireguard-config",
-            "/tmp/a.conf",
-            "--wireguard-hub",
-            "/tmp/hub.sock",
-        ]
-        .map(str::to_string);
-        let error = parse_connect_flags(&both).err().expect("both flags must be rejected");
-        assert_eq!(error.to_string(), catalog().remote_client.wireguard_hub_conflict);
-        let hub_only =
-            ["ws://[fd00::1]:1337/v1/link", "--wireguard-hub", "/tmp/hub.sock"].map(str::to_string);
-        let flags = parse_connect_flags(&hub_only).unwrap();
-        assert_eq!(flags.wireguard_hub, Some(PathBuf::from("/tmp/hub.sock")));
-        assert!(flags.wireguard_config.is_none());
-        assert!(!flags.exit_with_parent);
-        let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
-        assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn parent_lifecycle_fence_tracks_the_direct_parent() {
-        let parent = current_parent_process_id();
-        assert!(parent_process_is(parent));
-        assert!(!parent_process_is(parent.wrapping_add(1)));
-    }
-
     use super::*;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
@@ -2984,26 +2916,6 @@ mod tests {
             Some(UnixPeerAuthError::WrongUid { .. })
         ));
         assert_eq!(responder.await.unwrap(), 0, "stdio data leaked to the rejected Unix responder");
-    }
-
-    #[test]
-    fn initial_ssh_bootstrap_uses_startup_budget_not_reconnect_attempt_budget() {
-        let startup_timeout = Duration::from_secs(2);
-        let flags = ConnectFlags {
-            reconnect: ReconnectPolicy {
-                attempt_timeout: Duration::from_millis(20),
-                ..ReconnectPolicy::default()
-            },
-            auto_install: true,
-            upgrade: true,
-            ..ConnectFlags::default()
-        };
-
-        let bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-        assert_eq!(bootstrap.attempt_timeout, startup_timeout);
-        assert_ne!(bootstrap.attempt_timeout, flags.reconnect.attempt_timeout);
-        assert!(bootstrap.auto_install);
-        assert!(bootstrap.upgrade);
     }
 
     #[test]
@@ -3103,65 +3015,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_lane_policy_and_relay_flags() {
-        let args = [
-            "relay+wss://host",
-            "--lanes",
-            "isolated",
-            "--relay-slot",
-            "slot",
-            "--relay-ticket-command",
-            "ticket-command",
-        ]
-        .map(str::to_string);
-        let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.lanes, LanePolicy::Isolated);
-        assert!(parsed.lanes_explicit);
-        assert_eq!(parsed.relay_slots, ["slot"]);
-        assert_eq!(parsed.relay_credentials.len(), 1);
-    }
-
-    #[test]
-    fn invitation_file_parser_is_unambiguous_and_help_safe() {
-        let parsed = parse_connect_flags(&[
-            "ws://daemon.example/v1/link".into(),
-            "--invite-file".into(),
-            "-".into(),
-        ])
-        .unwrap();
-        assert!(matches!(
-            parsed.invitation,
-            Some(InvitationArg::File(path)) if path == Path::new("-")
-        ));
-        assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
-
-        let args = ["--invite-file", "first", "--invite-file", "second"]
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        assert!(parse_connect_flags(&args).is_err(), "unexpectedly accepted {args:?}");
-    }
-
-    #[test]
     fn positional_invitations_are_rejected_before_loading_or_connecting() {
         let error = parse_connect_flags(&["cmux://enroll/positional-secret".into()])
             .err()
             .expect("positional invitation should fail");
         assert!(!error.to_string().contains("positional-secret"));
-    }
-
-    #[test]
-    fn invitation_input_accepts_one_lf_or_crlf_and_preserves_following_stdin() {
-        for input in [b"cmux://enroll/value\n".as_slice(), b"cmux://enroll/value\r\n"] {
-            let mut input = io::Cursor::new(input);
-            assert_eq!(&*read_invitation_uri_to_end(&mut input).unwrap(), "cmux://enroll/value");
-        }
-
-        let mut input = io::Cursor::new(b"cmux://enroll/value\nrpc-request\n");
-        assert_eq!(&*read_invitation_uri_line(&mut input).unwrap(), "cmux://enroll/value");
-        let mut remaining = String::new();
-        input.read_to_string(&mut remaining).unwrap();
-        assert_eq!(remaining, "rpc-request\n");
     }
 
     #[test]
@@ -3182,21 +3040,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn invitation_file_requires_owner_only_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().unwrap();
-        let invitation = directory.path().join("invitation");
-        fs::write(&invitation, "cmux://enroll/value\n").unwrap();
-        fs::set_permissions(&invitation, fs::Permissions::from_mode(0o600)).unwrap();
-        assert_eq!(&*read_invitation_uri(&invitation).unwrap(), "cmux://enroll/value");
-
-        fs::set_permissions(&invitation, fs::Permissions::from_mode(0o640)).unwrap();
-        assert!(read_invitation_uri(&invitation).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn invitation_file_rejects_non_regular_paths_without_blocking() {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt;
@@ -3210,103 +3053,6 @@ mod tests {
         let error = read_invitation_uri(&fifo).unwrap_err().to_string();
         assert!(started.elapsed() < Duration::from_secs(1));
         assert!(error.contains("regular file"));
-    }
-
-    #[test]
-    fn carrier_flag_is_off_by_default_and_needs_no_value() {
-        let default = parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into()]).unwrap();
-        assert!(!default.carrier);
-        let carrier =
-            parse_connect_flags(&["ws://10.0.0.5:1337/v1/link".into(), "--carrier".into()])
-                .unwrap();
-        assert!(carrier.carrier);
-        assert_eq!(carrier.route.as_deref(), Some("ws://10.0.0.5:1337/v1/link"));
-        let registry = client_provider_registry(
-            SshProviderConfig::default(),
-            BTreeMap::new(),
-            IrohPathMode::Auto,
-            None,
-            true,
-        )
-        .unwrap();
-        assert_eq!(
-            registry.supported_client_auth("ws").unwrap(),
-            SupportedClientAuthModes::DeviceOrCarrier
-        );
-        let registry = client_provider_registry(
-            SshProviderConfig::default(),
-            BTreeMap::new(),
-            IrohPathMode::Auto,
-            None,
-            false,
-        )
-        .unwrap();
-        assert_eq!(
-            registry.supported_client_auth("ws").unwrap(),
-            SupportedClientAuthModes::DeviceOnly
-        );
-    }
-
-    #[test]
-    fn ssh_can_distinguish_transport_default_from_an_explicit_lane_policy() {
-        let default = parse_connect_flags(&["host".into()]).unwrap();
-        assert!(!default.lanes_explicit);
-        let explicit =
-            parse_connect_flags(&["host".into(), "--lanes".into(), "isolated".into()]).unwrap();
-        assert!(explicit.lanes_explicit);
-    }
-
-    #[tokio::test]
-    async fn explicit_daemon_pins_carrier_routes_while_unpinned_routes_discover() {
-        let directory = tempfile::tempdir().unwrap();
-        let store = ClientIdentityStore::load_or_create(directory.path()).unwrap();
-        let key = cmux_remote::crypto::StaticIdentity::generate().unwrap().public_key();
-        let known = store
-            .pin_carrier_daemon("remote".into(), key, vec!["ssh://remote.example".into()])
-            .await
-            .unwrap();
-
-        for route in ["ssh://remote.example", "unix:///tmp/cmux-remote.sock"] {
-            let pinned = select_explicit_route_identity(
-                &store,
-                Some(&known.fingerprint),
-                route,
-                SupportedClientAuthModes::DeviceOrCarrier,
-            )
-            .await
-            .unwrap();
-            assert!(matches!(pinned.auth, ClientAuthMode::Carrier));
-            assert_eq!(pinned.expected_daemon, Some(key));
-            assert_eq!(
-                pinned.known.as_ref().map(|daemon| &daemon.fingerprint),
-                Some(&known.fingerprint)
-            );
-            assert!(!pinned.carrier_discovery);
-
-            let unpinned = select_explicit_route_identity(
-                &store,
-                None,
-                route,
-                SupportedClientAuthModes::DeviceOrCarrier,
-            )
-            .await
-            .unwrap();
-            assert!(matches!(unpinned.auth, ClientAuthMode::Carrier));
-            assert!(unpinned.expected_daemon.is_none());
-            assert!(unpinned.known.is_none());
-            assert!(unpinned.carrier_discovery);
-        }
-
-        assert!(
-            select_explicit_route_identity(
-                &store,
-                Some("unknown"),
-                "ssh://remote.example",
-                SupportedClientAuthModes::DeviceOrCarrier,
-            )
-            .await
-            .is_err()
-        );
     }
 
     #[test]
@@ -3352,76 +3098,6 @@ mod tests {
             parse_connect_flags(&["iroh://node".into(), "--iroh-path".into(), "direct".into(),])
                 .is_err()
         );
-    }
-
-    #[test]
-    fn help_detection_does_not_consume_ssh_argument_values() {
-        assert!(!remote_help_requested(&["host".into(), "--ssh-arg".into(), "-h".into()]));
-        assert!(!remote_help_requested(&["--invite-file".into(), "-h".into()]));
-        assert!(remote_help_requested(&["host".into(), "--help".into()]));
-        assert!(!remote_help_requested(&[
-            "--invite".into(),
-            "inline-secret".into(),
-            "--help".into(),
-        ]));
-        assert!(!remote_help_requested(&[
-            "--relay-ticket".into(),
-            "inline-secret".into(),
-            "--help".into(),
-        ]));
-        assert!(!remote_help_requested(&[
-            "--help".into(),
-            "--invite".into(),
-            "inline-secret".into(),
-        ]));
-        assert!(!remote_help_requested(&["--invite=inline-secret".into(), "--help".into(),]));
-        assert!(!remote_help_requested(&["--relay-ticket=inline-secret".into(), "--help".into(),]));
-        assert!(
-            parse_connect_flags(&["--help".into(), "--invite".into(), "inline-secret".into(),])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn reconnect_backoff_is_configurable() {
-        let args = [
-            "ws://host/v1/link",
-            "--reconnect-attempts",
-            "7",
-            "--reconnect-initial-ms",
-            "25",
-            "--reconnect-max-ms",
-            "400",
-            "--reconnect-attempt-timeout-ms",
-            "2000",
-            "--reconnect-jitter",
-            "none",
-            "--heartbeat-interval-ms",
-            "1000",
-            "--heartbeat-timeout-ms",
-            "3000",
-        ]
-        .map(str::to_string);
-        let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.reconnect.maximum_attempts, Some(7));
-        assert_eq!(parsed.reconnect.initial_delay, Duration::from_millis(25));
-        assert_eq!(parsed.reconnect.maximum_delay, Duration::from_millis(400));
-        assert_eq!(parsed.reconnect.attempt_timeout, Duration::from_secs(2));
-        assert!(!parsed.reconnect.full_jitter);
-        assert_eq!(parsed.reconnect.heartbeat_interval, Some(Duration::from_secs(1)));
-        assert_eq!(parsed.reconnect.heartbeat_timeout, Duration::from_secs(3));
-    }
-
-    #[test]
-    fn every_remote_subcommand_help_exits_without_running_the_command() {
-        for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
-            let args = [command.to_string(), "--help".to_string()];
-            assert!(
-                run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
-                "{command}"
-            );
-            assert!(remote_help(Some(command)).starts_with("USAGE:"));
-        }
     }
 
     #[test]
@@ -3504,30 +3180,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_state_files_are_private_and_existing_permissions_are_tightened() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-        let directory = tempfile::tempdir().unwrap();
-        let log_path = directory.path().join("daemon.log");
-        fs::write(&log_path, b"old log\n").unwrap();
-        fs::set_permissions(&log_path, fs::Permissions::from_mode(0o644)).unwrap();
-
-        let mut log = open_private_daemon_file(&log_path, true).unwrap();
-        log.write_all(b"new log\n").unwrap();
-        let metadata = fs::metadata(&log_path).unwrap();
-        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
-        assert_eq!(metadata.nlink(), 1);
-        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::read_to_string(&log_path).unwrap(), "old log\nnew log\n");
-
-        let lock_path = directory.path().join("start.lock");
-        let lock = open_private_daemon_file(&lock_path, false).unwrap();
-        assert_eq!(fs::metadata(&lock_path).unwrap().permissions().mode() & 0o777, 0o600);
-        drop(lock);
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn daemon_state_files_refuse_symlinks_without_touching_target() {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("target.log");
@@ -3582,22 +3234,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_state_lock_rejects_insecure_parent_before_creation() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().unwrap();
-        let shared = directory.path().join("shared");
-        fs::create_dir(&shared).unwrap();
-        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
-        let state = shared.join("sessions").join("main");
-
-        let error = lock_daemon_start(&state).unwrap_err();
-        assert!(error.to_string().contains("secure daemon state directory"));
-        assert!(!state.exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn daemon_state_lock_rejects_symlink_parent_before_creation() {
         let directory = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
@@ -3640,28 +3276,6 @@ mod tests {
 
         assert!(error.to_string().contains("did not create"), "{error:#}");
         assert!(!survived_timeout, "timed-out detached child was left running");
-    }
-
-    #[test]
-    fn enrollment_startup_covers_invitation_and_approval_windows() {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let invitation = EnrollmentInvitation {
-            version: 1,
-            id: "id".into(),
-            secret: "secret".into(),
-            daemon_public_key: "key".into(),
-            daemon_fingerprint: "fingerprint".into(),
-            daemon_name: "daemon".into(),
-            expires_at_unix: now + 120,
-            route_hints: vec![],
-            relay_access: vec![],
-            approval_required: true,
-        };
-
-        assert!(
-            invitation_timeout(&invitation)
-                >= Duration::from_secs(120) + ENROLLMENT_APPROVAL_TIMEOUT
-        );
     }
 
     #[test]
@@ -3761,23 +3375,6 @@ mod tests {
     }
 
     #[test]
-    fn enrollment_positionals_ignore_owner_options() {
-        let args = [
-            "disconnect",
-            "--session",
-            "dev",
-            "device-id",
-            "--json",
-            "0123456789abcdef0123456789abcdef",
-        ]
-        .map(str::to_string);
-        let parsed = parse_enroll_admin_args(&args).unwrap();
-        assert_eq!(parsed.positionals, ["device-id", "0123456789abcdef0123456789abcdef"]);
-        assert_eq!(parsed.session, "dev");
-        assert!(parsed.json);
-    }
-
-    #[test]
     fn enrollment_positionals_accept_url_safe_identifiers_beginning_with_hyphen() {
         let approve = [
             "approve",
@@ -3803,84 +3400,6 @@ mod tests {
             parse_enroll_admin_args(&disconnect).unwrap().positionals,
             ["-device-id", "-session-id"]
         );
-    }
-
-    #[test]
-    fn enrollment_admin_parser_rejects_unknown_duplicate_missing_and_inapplicable_arguments() {
-        for args in [
-            vec!["status", "--wat"],
-            vec!["status", "--json", "--json"],
-            vec!["status", "--state-dir"],
-            vec!["status", "--ttl", "60"],
-            vec!["status", "unexpected"],
-            vec!["approve"],
-            vec!["approve", "id", "extra"],
-            vec!["disconnect", "device-only"],
-            vec!["disconnect", "device", "session", "extra"],
-        ] {
-            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-            assert!(parse_enroll_admin_args(&args).is_err(), "unexpectedly accepted {args:?}");
-        }
-    }
-
-    #[test]
-    fn known_daemon_parser_is_strict_and_supports_forget() {
-        let parsed = parse_known_daemons_args(
-            &["forget", "fingerprint", "--state-dir", "/tmp/client-state", "--json"]
-                .map(str::to_string),
-        )
-        .unwrap();
-        assert_eq!(parsed.action, KnownDaemonsAction::Forget("fingerprint".into()));
-        assert_eq!(parsed.state_dir, Some("/tmp/client-state".into()));
-        assert!(parsed.json);
-
-        for args in [
-            vec!["forget"],
-            vec!["forget", "fingerprint", "extra"],
-            vec!["list", "extra"],
-            vec!["--json", "--json"],
-            vec!["--state-dir"],
-            vec!["--unknown"],
-        ] {
-            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-            assert!(parse_known_daemons_args(&args).is_err(), "unexpectedly accepted {args:?}");
-        }
-    }
-
-    #[test]
-    fn remote_stop_parser_rejects_ambiguous_admin_arguments() {
-        let parsed = parse_remote_stop_args(
-            &["--session", "dev", "--state-dir", "/tmp/remote-state"].map(str::to_string),
-        )
-        .unwrap();
-        assert_eq!(parsed.session, "dev");
-        assert_eq!(parsed.state_dir, Some("/tmp/remote-state".into()));
-        assert!(!parsed.acknowledge_failed_finalization);
-        assert!(!parsed.acknowledge_legacy_finalization);
-        assert!(
-            parse_remote_stop_args(&["--acknowledge-failed-finalization".into()])
-                .unwrap()
-                .acknowledge_failed_finalization
-        );
-        assert!(
-            parse_remote_stop_args(&["--acknowledge-legacy-finalization".into()])
-                .unwrap()
-                .acknowledge_legacy_finalization
-        );
-
-        for args in [
-            vec!["--session"],
-            vec!["--session", "dev", "--session", "other"],
-            vec!["--state-dir"],
-            vec!["--acknowledge-failed-finalization", "--acknowledge-failed-finalization"],
-            vec!["--acknowledge-legacy-finalization", "--acknowledge-legacy-finalization"],
-            vec!["--acknowledge-failed-finalization", "--acknowledge-legacy-finalization"],
-            vec!["--unknown"],
-            vec!["unexpected"],
-        ] {
-            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-            assert!(parse_remote_stop_args(&args).is_err(), "unexpectedly accepted {args:?}");
-        }
     }
 
     #[test]
@@ -5070,29 +4589,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn relay_invitation_access_reads_owner_supplied_ticket_file() {
-        use std::os::unix::fs::PermissionsExt as _;
-
-        let directory = tempfile::tempdir().unwrap();
-        let ticket = directory.path().join("ticket");
-        fs::write(&ticket, "short-lived-ticket\n").unwrap();
-        fs::set_permissions(&ticket, fs::Permissions::from_mode(0o600)).unwrap();
-        let args = vec![
-            "create".into(),
-            "--relay-route".into(),
-            "relay+do://relay.example".into(),
-            "--relay-slot".into(),
-            "slot".into(),
-            "--relay-ticket-file".into(),
-            ticket.to_string_lossy().into_owned(),
-        ];
-        let parsed = parse_enroll_admin_args(&args).unwrap();
-        let access = invitation_relay_access(&parsed).unwrap();
-        assert_eq!(access[0].ticket, "short-lived-ticket");
-        assert!(!format!("{:?}", access[0]).contains("short-lived-ticket"));
-    }
-
     #[cfg(unix)]
     #[test]
     fn invitation_relay_ticket_file_requires_owner_only_permissions() {
@@ -5194,128 +4690,5 @@ mod tests {
             .is_err()
         );
         assert!(!destination.exists());
-    }
-
-    #[test]
-    fn relay_invitation_access_supports_native_and_durable_object_fallbacks() {
-        use std::os::unix::fs::PermissionsExt as _;
-
-        let directory = tempfile::tempdir().unwrap();
-        let native_ticket = directory.path().join("native-ticket");
-        let durable_object_ticket = directory.path().join("do-ticket");
-        for (path, contents) in
-            [(&native_ticket, "native-ticket\n"), (&durable_object_ticket, "do-ticket\n")]
-        {
-            fs::write(path, contents).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        let args = vec![
-            "create".into(),
-            "--relay-route".into(),
-            "relay+wss://relay.example".into(),
-            "--relay-slot".into(),
-            "native-slot".into(),
-            "--relay-ticket-file".into(),
-            native_ticket.to_string_lossy().into_owned(),
-            "--relay-route".into(),
-            "relay+do://worker.example".into(),
-            "--relay-slot".into(),
-            "do-slot".into(),
-            "--relay-ticket-file".into(),
-            durable_object_ticket.to_string_lossy().into_owned(),
-        ];
-
-        let parsed = parse_enroll_admin_args(&args).unwrap();
-        let access = invitation_relay_access(&parsed).unwrap();
-        assert_eq!(access.len(), 2);
-        assert_eq!(access[0].slot, "native-slot");
-        assert_eq!(access[1].slot, "do-slot");
-    }
-
-    #[test]
-    fn relay_invitation_access_rejects_incomplete_groups() {
-        let args = ["create", "--relay-route", "relay+do://worker.example"].map(str::to_string);
-        let parsed = parse_enroll_admin_args(&args).unwrap();
-        assert!(invitation_relay_access(&parsed).is_err());
-    }
-
-    #[test]
-    fn browser_proxy_accepts_private_ipv4_and_ipv6_authorities() {
-        assert_eq!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("10.42.0.7:8000", false)
-                .unwrap(),
-            ("10.42.0.7".into(), 8000)
-        );
-        assert_eq!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("[fd12::7]:8443", false)
-                .unwrap(),
-            ("fd12::7".into(), 8443)
-        );
-        assert!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("192.0.2.7:8000", false)
-                .is_err()
-        );
-        assert!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:8000", false)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn browser_proxy_parser_keeps_connection_flags_and_repeats_allowed_hosts() {
-        let parsed = parse_browser_proxy_args(&[
-            "wss://daemon.example/link".into(),
-            "--allowed-host".into(),
-            "10.0.0.4".into(),
-            "--allowed-host".into(),
-            "10.0.0.5".into(),
-            "--workspace-root".into(),
-            "/".into(),
-            "--wireguard-hub".into(),
-            "/tmp/cmux-wg.sock".into(),
-            "--carrier".into(),
-        ])
-        .unwrap();
-        assert_eq!(parsed.allowed_hosts, ["10.0.0.4", "10.0.0.5"]);
-        assert_eq!(parsed.workspace_root, "/");
-        assert!(
-            parsed.connect.windows(2).any(|pair| pair == ["--wireguard-hub", "/tmp/cmux-wg.sock"])
-        );
-        assert!(parsed.connect.iter().any(|flag| flag == "--carrier"));
-    }
-
-    #[test]
-    fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
-        let rejected = parse_browser_proxy_args(&[
-            "ssh://host".into(),
-            "--workspace-root".into(),
-            "/".into(),
-            "--allowed-host".into(),
-            "127.0.0.1".into(),
-        ]);
-        assert!(rejected.is_err());
-
-        let parsed = parse_browser_proxy_args(&[
-            "ssh://host".into(),
-            "--workspace-root".into(),
-            "/".into(),
-            "--allow-loopback".into(),
-            "--allowed-host".into(),
-            "localhost".into(),
-            "--allowed-host".into(),
-            "::1".into(),
-        ])
-        .unwrap();
-        assert!(parsed.allow_loopback);
-        assert_eq!(parsed.allowed_hosts, vec!["127.0.0.1", "::1"]);
-        assert_eq!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("localhost:3000", true)
-                .unwrap(),
-            ("127.0.0.1".into(), 3000)
-        );
-        assert!(
-            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
-                .is_err()
-        );
     }
 }

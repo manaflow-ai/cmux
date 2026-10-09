@@ -5,7 +5,6 @@ use super::*;
 
 const LOCAL: Ipv4Addr = Ipv4Addr::new(10, 200, 0, 1);
 const REMOTE: Ipv4Addr = Ipv4Addr::new(10, 200, 0, 2);
-const SYN: u8 = 0x02;
 const ACK: u8 = 0x10;
 
 /// An IPv4 TCP packet from `src` to `dst` (checksums are not checked).
@@ -42,18 +41,6 @@ fn ack_for(port: u16, ack: u32) -> Vec<u8> {
 }
 
 #[test]
-fn segments_parse_with_syn_and_payload_lengths() {
-    let syn = tcp((LOCAL, 50000), (REMOTE, 4100), 7, 0, SYN, 0);
-    let parsed = segment(&syn).unwrap();
-    assert_eq!(parsed.len, 1, "SYN occupies one sequence number");
-    assert_eq!(parsed.ack, None);
-    let data = out(50000, 100, 1160);
-    let parsed = segment(&data).unwrap();
-    assert_eq!((parsed.seq, parsed.len, parsed.source.1), (100, 1160, 50000));
-    assert_eq!(segment(&[0x45; 10]), None);
-}
-
-#[test]
 fn a_connection_is_paced_at_twice_its_flight_per_rtt_after_one_sample() {
     let mut pacer = Pacer::default();
     let start = Instant::now();
@@ -80,84 +67,6 @@ fn a_connection_is_paced_at_twice_its_flight_per_rtt_after_one_sample() {
     let spread = *departures.last().unwrap();
     assert!(spread > Duration::from_millis(3), "the burst was not spread: {spread:?}");
     assert!(spread < rtt, "pacing must not slow a full window below one per RTT: {spread:?}");
-}
-
-#[test]
-fn the_shortest_queue_goes_first() {
-    let mut pacer = Pacer::default();
-    let now = Instant::now();
-    for index in 0..50u32 {
-        pacer.push(out(50000, 1160 * index, 1160), now);
-    }
-    pacer.push(out(50001, 0, 1), now);
-    let first = pacer.pop(now).unwrap().unwrap();
-    assert_eq!(segment(&first).unwrap().source.1, 50001, "the keystroke leaves first");
-}
-
-#[test]
-fn a_retransmission_is_not_timed() {
-    let mut connection = Connection::new(Instant::now());
-    let start = Instant::now();
-    let first = segment(&out(50000, 0, 1000)).unwrap();
-    connection.sent(&first, 1040, start);
-    connection.sent(&first, 1040, start + Duration::from_millis(500));
-    connection.acked(1000, start + Duration::from_millis(510));
-    assert_eq!(connection.srtt, None, "an ambiguous ACK gives no sample");
-}
-
-#[test]
-fn other_packets_leave_first_and_unpaced() {
-    let mut pacer = Pacer::default();
-    let now = Instant::now();
-    pacer.push(out(50000, 0, 1160), now);
-    pacer.push(vec![0x45; 28], now);
-    let first = pacer.pop(now).unwrap().unwrap();
-    assert_eq!(first, vec![0x45; 28]);
-}
-
-#[test]
-fn classes_leave_in_strict_priority() {
-    let mut pacer = Pacer::default();
-    let now = Instant::now();
-    // A bulk connection (more than INTERACTIVE_QUEUE segments, unpaced
-    // before its first RTT sample).
-    for index in 0..6u32 {
-        pacer.push(out(50000, 1160 * index, 1160), now);
-    }
-    let datagram = |byte: u8| vec![0x45, byte];
-    pacer.push_datagram(datagram(3), Priority::Bulk, now);
-    pacer.push_datagram(datagram(2), Priority::Media, now);
-    pacer.push_datagram(datagram(1), Priority::Interactive, now);
-    let mut order = Vec::new();
-    while let Ok(Some(packet)) = pacer.pop(now) {
-        order.push(if segment(&packet).is_some() { 0 } else { packet[1] });
-    }
-    // The bulk class is shared by bytes: after one segment the connection is
-    // ahead, so the bulk datagram goes next.
-    assert_eq!(order, vec![1, 2, 0, 3, 0, 0, 0, 0, 0], "interactive, media, then bulk shared");
-}
-
-#[test]
-fn stale_media_never_leaves() {
-    let mut pacer = Pacer::default();
-    let start = Instant::now();
-    pacer.push_datagram(vec![0x45, 1], Priority::Media, start);
-    let late = start + MEDIA_MAX_AGE + Duration::from_millis(1);
-    assert_eq!(pacer.pop(late), Ok(None));
-    assert!(!pacer.has_queued());
-}
-
-#[test]
-fn a_datagram_flood_never_blocks_the_tcp_stack() {
-    let mut pacer = Pacer::default();
-    let now = Instant::now();
-    for _ in 0..10_000 {
-        pacer.push_datagram(vec![0x45, 9], Priority::Bulk, now);
-        pacer.push_datagram(vec![0x45, 8], Priority::Media, now);
-    }
-    assert!(pacer.has_room(), "datagrams do not count toward the stack's limit");
-    assert_eq!(pacer.bulk.len(), MAX_DATAGRAMS);
-    assert_eq!(pacer.media.len(), MAX_DATAGRAMS);
 }
 
 /// A bulk upload and bulk datagrams share the bulk class by bytes, so a

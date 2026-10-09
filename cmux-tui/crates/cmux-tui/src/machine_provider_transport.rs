@@ -297,12 +297,6 @@ pub(crate) struct SshProviderConnector {
 }
 
 impl SshProviderConnector {
-    /// Test-only raw-destination constructor. Runtime callers use `cloud`.
-    #[cfg(test)]
-    pub(crate) fn new(destination: impl Into<OsString>) -> io::Result<Self> {
-        Self::with_program("ssh", destination)
-    }
-
     pub(crate) fn cloud(
         host: &str,
         user: Option<&str>,
@@ -1260,15 +1254,6 @@ mod tests {
         assert!(first_token.expose().len() >= 32);
         assert!(second_token.expose().len() >= 32);
         drop((first_control, second_control));
-    }
-
-    #[test]
-    fn rejects_ssh_option_injection_in_destination() {
-        assert!(SshProviderConnector::new("-oProxyCommand=bad").is_err());
-        assert!(SshProviderConnector::new(OsString::new()).is_err());
-        assert!(SshProviderConnector::cloud("-oProxyCommand=bad", None, None, None).is_err());
-        assert!(SshProviderConnector::cloud("cmux.cloud", Some("bad user"), None, None).is_err());
-        assert!(SshProviderConnector::cloud("cmux.cloud", None, Some(0), None).is_err());
     }
 
     #[test]

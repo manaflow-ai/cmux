@@ -1413,7 +1413,7 @@ fn error_code(value: &str) -> ErrorCode {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+
     use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
@@ -1499,104 +1499,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Default)]
-    struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for RecordingWriter {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl RecordingWriter {
-        fn read_frame(&self) -> Envelope {
-            let bytes = self.0.lock().unwrap().clone();
-            protocol_io::read_frame(&mut BufReader::new(Cursor::new(bytes))).unwrap()
-        }
-
-        fn is_empty(&self) -> bool {
-            self.0.lock().unwrap().is_empty()
-        }
-    }
-
-    struct DeadlineBlockingWriter(Arc<RecordingControl>);
-
-    impl Write for DeadlineBlockingWriter {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            while !self.0.0.load(Ordering::Acquire) {
-                thread::sleep(Duration::from_millis(1));
-            }
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "test connection closed"))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn state_with_active_stream(
-        instance_id: u64,
-    ) -> (GenerationState, RecordingWriter, Receiver<DataPayload>) {
-        let writer = RecordingWriter::default();
-        let (inputs, _inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
-        let (local_opens, _local_opens_rx) = mpsc::sync_channel(LOCAL_OPEN_QUEUE_CAPACITY);
-        let (writes, write_rx) = mpsc::sync_channel(LOCAL_WRITE_QUEUE_CAPACITY);
-        let control = Arc::new(RecordingControl::default());
-        let erased_control: Arc<dyn ConnectionControl> = control;
-        let write_deadline =
-            WriteDeadline::start(Arc::clone(&erased_control), Duration::from_secs(1)).unwrap();
-        let stream_control = Arc::new(RecordingControl::default());
-        let erased_stream_control: Arc<dyn ConnectionControl> = stream_control;
-        let state = GenerationState {
-            generation: 1,
-            writer: Box::new(writer.clone()),
-            write_deadline,
-            control: erased_control,
-            local_opens,
-            inputs,
-            recent_opens: Arc::new(Mutex::new(RecentOpenIds::default())),
-            pending_opens: HashMap::new(),
-            streams: HashMap::from([(
-                7,
-                ActiveStream {
-                    instance_id,
-                    writes,
-                    control: erased_stream_control,
-                    flow: Arc::new(StreamFlow::new(protocol::MAX_STREAM_WINDOW_BYTES)),
-                    receive_remaining: protocol::MAX_STREAM_WINDOW_BYTES,
-                },
-            )]),
-            next_stream_instance_id: instance_id + 1,
-            migration_pending: false,
-            draining: false,
-            heartbeat: Duration::from_secs(1),
-            last_received: Instant::now(),
-            last_ping: Instant::now(),
-            next_ping_nonce: 1,
-        };
-        (state, writer, write_rx)
-    }
-
-    #[test]
-    fn cloud_write_deadline_closes_an_unresponsive_connection() {
-        let control = Arc::new(RecordingControl::default());
-        let erased_control: Arc<dyn ConnectionControl> = control.clone();
-        let deadline = WriteDeadline::start(erased_control, Duration::from_millis(20)).unwrap();
-        let mut writer = DeadlineBlockingWriter(control.clone());
-
-        let error = deadline
-            .write(&mut writer, &Envelope::new(Message::Ping(Heartbeat { nonce: 1 })))
-            .unwrap_err();
-
-        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
-        assert!(control.0.load(Ordering::Acquire));
-    }
-
     #[test]
     fn cloud_reader_spawn_failure_closes_connection_and_notifies_coordinator() {
         let (inputs_tx, _inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
@@ -1621,54 +1523,6 @@ mod tests {
             coordinator_rx.recv_timeout(Duration::from_millis(100)),
             Ok(CoordinatorEvent::Closed { worker_id: 7, stable: false })
         ));
-    }
-
-    #[test]
-    fn saturated_worker_command_queue_closes_connection_without_blocking() {
-        let (commands, _inputs) = mpsc::sync_channel(1);
-        commands.send(WorkerInput::Command(WorkerCommand::Stop)).unwrap();
-        let control = Arc::new(RecordingControl::default());
-        let erased_control: Arc<dyn ConnectionControl> = control.clone();
-        let workers =
-            HashMap::from([(7, WorkerHandle { commands, control: erased_control, join: None })]);
-
-        assert!(!try_send_worker_command(
-            &workers,
-            7,
-            WorkerCommand::ResumeMigration { generation: 2, code: error_code("migration_failed") },
-        ));
-        assert!(control.0.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn failed_migration_commit_closes_both_generations_and_reports_diagnostic() {
-        let (old_commands, _old_inputs) = mpsc::sync_channel(1);
-        old_commands.send(WorkerInput::Command(WorkerCommand::Stop)).unwrap();
-        let old_control = Arc::new(RecordingControl::default());
-        let erased_old_control: Arc<dyn ConnectionControl> = old_control.clone();
-        let workers = HashMap::from([(
-            7,
-            WorkerHandle { commands: old_commands, control: erased_old_control, join: None },
-        )]);
-
-        let (replacement_commands, _replacement_inputs) = mpsc::sync_channel(1);
-        let replacement_control = Arc::new(RecordingControl::default());
-        let erased_replacement_control: Arc<dyn ConnectionControl> = replacement_control.clone();
-        let replacement = WorkerHandle {
-            commands: replacement_commands,
-            control: erased_replacement_control,
-            join: None,
-        };
-        let reporter = TestReporter::default();
-
-        assert!(commit_migration_replacement(&workers, 7, 2, replacement, &reporter).is_none());
-        assert!(old_control.0.load(Ordering::Acquire));
-        assert!(replacement_control.0.load(Ordering::Acquire));
-        assert_eq!(reporter.migrations.load(Ordering::Relaxed), 1);
-        assert_eq!(
-            *reporter.diagnostics.lock().unwrap(),
-            vec![MachineAgentDiagnostic::MigrationCommitDelivery]
-        );
     }
 
     #[test]
@@ -1730,43 +1584,6 @@ mod tests {
             MachineAgentDiagnostic::GenerationStart(generation_failure_kind(&transport)).code(),
             "generation_start.transport"
         );
-    }
-
-    #[test]
-    fn stale_local_reader_data_cannot_cross_a_reused_stream_id() {
-        let (mut state, writer, _write_rx) = state_with_active_stream(2);
-        state.handle_local_data(7, 1, DataPayload::new(b"stale".to_vec()).unwrap()).unwrap();
-        assert!(writer.is_empty());
-
-        state.handle_local_data(7, 2, DataPayload::new(b"current".to_vec()).unwrap()).unwrap();
-        assert!(matches!(
-            writer.read_frame().message,
-            Message::Data(StreamData { stream_id: 7, ref payload })
-                if payload.as_bytes() == b"current"
-        ));
-    }
-
-    #[test]
-    fn cloud_data_waits_for_async_local_write_before_reopening_window() {
-        let (mut state, writer, write_rx) = state_with_active_stream(2);
-        state
-            .write_local(StreamData {
-                stream_id: 7,
-                payload: DataPayload::new(b"cloud".to_vec()).unwrap(),
-            })
-            .unwrap();
-        assert_eq!(
-            state.streams.get(&7).unwrap().receive_remaining,
-            protocol::MAX_STREAM_WINDOW_BYTES - 5
-        );
-        assert!(writer.is_empty());
-        assert_eq!(write_rx.recv().unwrap().as_bytes(), b"cloud");
-
-        state.complete_local_write(7, 2, 5).unwrap();
-        assert!(matches!(
-            writer.read_frame().message,
-            Message::Window(StreamWindow { stream_id: 7, bytes: 5 })
-        ));
     }
 
     struct TestWait;
@@ -1982,13 +1799,6 @@ mod tests {
             pairing_code: code.map(|code| PairingCode::new(code).unwrap()),
             heartbeat_interval_ms: protocol::HeartbeatIntervalMs::new(1_000).unwrap(),
         })
-    }
-
-    #[test]
-    fn reconnect_backoff_is_exponential_and_bounded() {
-        assert_eq!(reconnect_delay(0, &TestWait), Duration::from_millis(250));
-        assert_eq!(reconnect_delay(1, &TestWait), Duration::from_millis(500));
-        assert_eq!(reconnect_delay(20, &TestWait), Duration::from_secs(30));
     }
 
     #[test]

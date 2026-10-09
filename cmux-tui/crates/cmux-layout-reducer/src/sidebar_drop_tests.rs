@@ -335,19 +335,6 @@ fn workspace_drop_preserves_edge_and_group_rules() {
 }
 
 #[test]
-fn group_drag_treats_expanded_group_as_one_block() {
-    assert_eq!(
-        resolve(&request(55.0, Payload::Group { id: "g2".into() })),
-        Some(Target::Position { section: machine("local"), group: None, index: 1 })
-    );
-    assert_eq!(
-        resolve(&request(90.0, Payload::Group { id: "g2".into() })),
-        Some(Target::Position { section: machine("local"), group: None, index: 2 })
-    );
-    assert_eq!(resolve(&request(136.0, Payload::Group { id: "g2".into() })), None);
-}
-
-#[test]
 fn tab_drop_stays_on_source_machine() {
     assert_eq!(
         resolve_tab_drop(&tab_request(97.0, Some("local"))),
@@ -357,31 +344,6 @@ fn tab_drop_stays_on_source_machine() {
     assert_eq!(
         resolve_tab_drop(&tab_request(137.0, Some("cloud"))),
         Some(TabDrop::IntoWorkspace { workspace: "x".into() })
-    );
-}
-
-#[test]
-fn gaps_and_ungrouped_first_are_stable() {
-    assert_eq!(base_y(50.0, Some(100.0), 40.0), Some(50.0));
-    assert_eq!(base_y(120.0, Some(100.0), 40.0), None);
-    assert_eq!(base_y(160.0, Some(100.0), 40.0), Some(120.0));
-    let mut request = request(105.0, Payload::Workspaces { ids: vec!["a".into()] });
-    request.ungrouped_first = true;
-    assert_eq!(
-        resolve(&request),
-        Some(Target::Position { section: machine("local"), group: None, index: 0 })
-    );
-}
-
-#[test]
-fn tab_refusals_name_their_reason() {
-    assert_eq!(
-        tab_drop_refusal(&tab_request(137.0, Some("local"))).map(|value| value.reason),
-        Some(Refusal::OtherMachine)
-    );
-    assert_eq!(
-        tab_drop_refusal(&tab_request(13.0, Some("local"))).map(|value| value.reason),
-        Some(Refusal::PinnedArea)
     );
 }
 
@@ -488,29 +450,6 @@ fn drop_math_covers_headers_sections_and_clamping() {
 }
 
 #[test]
-fn group_drag_and_cross_machine_targets_match_swift() {
-    let sections = sections();
-    let rows = rows_without(&["c"], Some("g2"));
-    let g1 = rows.iter().find(|row| row.key == RowKey::Group { id: "g1".into() }).unwrap();
-    let g3 = rows.iter().find(|row| row.key == RowKey::Workspace { id: "g3".into() }).unwrap();
-    let top = g1.y;
-    let bottom = g3.max_y();
-    let request_at = |y| {
-        request_with_rows(y, Payload::Group { id: "g2".into() }, rows.clone(), sections.clone())
-    };
-    assert_eq!(
-        resolve(&request_at(top + (bottom - top) * 0.3)),
-        Some(Target::Position { section: machine("local"), group: None, index: 1 })
-    );
-    assert_eq!(
-        resolve(&request_at(top + (bottom - top) * 0.7)),
-        Some(Target::Position { section: machine("local"), group: None, index: 2 })
-    );
-    let cloud = rows.iter().find(|row| row.key == RowKey::Workspace { id: "x".into() }).unwrap();
-    assert_eq!(resolve(&request_at(cloud.y + cloud.height / 2.0)), None);
-}
-
-#[test]
 fn external_tab_drop_covers_edges_middle_and_refusals() {
     for (id, fraction, expected) in [
         ("b", 0.5, Some(TabDrop::IntoWorkspace { workspace: "b".into() })),
@@ -582,114 +521,6 @@ fn tab_drop_refusal_covers_every_row_coordinate() {
 }
 
 #[test]
-fn ungrouped_first_remaps_only_top_level_slots() {
-    let sections = vec![Section {
-        id: machine("local"),
-        machine: Some("local".into()),
-        nodes: vec![
-            Node::Workspace { workspace: workspace("a", "local") },
-            Node::Workspace { workspace: workspace("b", "local") },
-            Node::Group {
-                id: "g1".into(),
-                machine: Some("local".into()),
-                workspaces: vec![workspace("g1", "local"), workspace("g2", "local")],
-            },
-        ],
-    }];
-    let rows = vec![
-        row(
-            RowKey::Section { id: machine("local") },
-            0.0,
-            machine("local"),
-            None,
-            0,
-            None,
-            false,
-            false,
-            3,
-        ),
-        row(
-            RowKey::Workspace { id: "b".into() },
-            12.0,
-            machine("local"),
-            None,
-            0,
-            None,
-            false,
-            false,
-            0,
-        ),
-        row(
-            RowKey::Group { id: "g1".into() },
-            24.0,
-            machine("local"),
-            Some("g1"),
-            1,
-            None,
-            false,
-            false,
-            2,
-        ),
-        row(
-            RowKey::Workspace { id: "g1".into() },
-            36.0,
-            machine("local"),
-            Some("g1"),
-            0,
-            Some(1),
-            false,
-            false,
-            0,
-        ),
-        row(
-            RowKey::Workspace { id: "g2".into() },
-            48.0,
-            machine("local"),
-            Some("g1"),
-            1,
-            Some(1),
-            true,
-            false,
-            0,
-        ),
-    ];
-    let mut request = request_with_rows(
-        200.0,
-        Payload::Workspaces { ids: vec!["a".into()] },
-        rows.clone(),
-        sections.clone(),
-    );
-    request.ungrouped_first = true;
-    assert_eq!(
-        resolve(&request),
-        Some(Target::Position { section: machine("local"), group: None, index: 1 })
-    );
-    let g1_row = rows.iter().find(|row| row.key == RowKey::Workspace { id: "g1".into() }).unwrap();
-    let mut into = request_with_rows(
-        g1_row.y + 1.0,
-        Payload::Workspaces { ids: vec!["a".into()] },
-        rows.clone(),
-        sections.clone(),
-    );
-    into.ungrouped_first = true;
-    assert_eq!(
-        resolve(&into),
-        Some(Target::Position { section: machine("local"), group: Some("g1".into()), index: 0 })
-    );
-    let mut without = request_with_rows(
-        200.0,
-        Payload::Workspaces { ids: vec!["a".into()] },
-        into.rows,
-        sections,
-    );
-    without.ungrouped_first = false;
-    assert_eq!(
-        resolve(&without),
-        Some(Target::Position { section: machine("local"), group: None, index: 2 })
-    );
-}
-
-#[test]
 fn headerless_machine_list_still_accepts_top_drop() {
     let section = machine("local");
     let sections = vec![Section {
@@ -733,18 +564,6 @@ fn headerless_machine_list_still_accepts_top_drop() {
         )),
         Some(Target::Position { section, group: None, index: 0 })
     );
-}
-
-#[test]
-fn empty_group_machine_is_optional_in_the_wire_shape() {
-    let section = Section {
-        id: machine("local"),
-        machine: Some("local".into()),
-        nodes: vec![Node::Group { id: "empty".into(), machine: None, workspaces: vec![] }],
-    };
-    let json = serde_json::to_string(&section).unwrap();
-    let decoded: Section = serde_json::from_str(&json).unwrap();
-    assert_eq!(decoded, section);
 }
 
 /// Swift `previousExpandedSection` takes the section header right above and

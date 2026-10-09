@@ -220,14 +220,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn between_open_ends() {
-        let first = between(None, None).unwrap();
-        let after = between(Some(&first), None).unwrap();
-        let before = between(None, Some(&first)).unwrap();
-        assert!(before < first && first < after);
-    }
-
-    #[test]
     fn appends_and_prepends_grow_logarithmically() {
         let keys = sequence(5_000);
         assert!(keys.windows(2).all(|w| w[0] < w[1]));

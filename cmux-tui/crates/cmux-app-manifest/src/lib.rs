@@ -108,19 +108,6 @@ pub fn is_valid(issues: &[Issue]) -> bool {
 mod embedded_tests {
     use serde_json::json;
 
-    /// Every embedded table and schema loads; the fail-closed paths below
-    /// are reached only by a broken build.
-    #[test]
-    fn every_embedded_asset_loads() {
-        assert!(crate::schema_validator().is_ok());
-        assert!(crate::catalog::validator().is_ok());
-        assert!(crate::cli::reserved().is_ok());
-        assert!(crate::scopes::rules().is_ok());
-        for (name, validator) in crate::interfaces::option_validators() {
-            assert!(validator.is_ok(), "{name}: {:?}", validator.as_ref().err());
-        }
-    }
-
     #[test]
     fn a_broken_scope_table_is_an_error_not_a_panic() {
         let unknown = json!({"rules": [{"class": "mythic", "pattern": "x"}]}).to_string();

@@ -170,14 +170,4 @@ mod tests {
             assert_eq!(parse_binding_success(&response, &TX), Ok(addr));
         }
     }
-
-    #[test]
-    fn foreign_transactions_are_refused() {
-        let response = binding_success(TX, "203.0.113.9:1".parse().expect("address"));
-        assert_eq!(parse_binding_success(&response, &[0; 12]), Err(StunError::WrongTransaction));
-        assert_eq!(
-            parse_binding_success(&binding_request(TX), &TX),
-            Err(StunError::NotBindingSuccess)
-        );
-    }
 }

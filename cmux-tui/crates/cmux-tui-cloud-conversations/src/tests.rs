@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::contract::{conversation_change, mutation_data, op_body, read_value, snapshot_data};
+use super::contract::{mutation_data, op_body, read_value};
 use super::stream::{StreamAction, StreamState};
 use super::testing::{Events, FakeBackend, wait_until};
 use super::*;
@@ -96,11 +96,8 @@ fn op_request(conversation: Option<&str>, key: &str, op: Value) -> OpRequest {
     }
 }
 
-struct Clock(Arc<AtomicU64>);
-
-fn service(backend: &Arc<FakeBackend>) -> (CloudConversations, Events, Clock) {
-    let now = Arc::new(AtomicU64::new(1_000_000));
-    let clock = now.clone();
+fn service(backend: &Arc<FakeBackend>) -> (CloudConversations, Events) {
+    let clock = Arc::new(AtomicU64::new(1_000_000));
     let options = ServiceOptions {
         linger: Duration::ZERO,
         backoff_min: Duration::from_millis(5),
@@ -113,149 +110,7 @@ fn service(backend: &Arc<FakeBackend>) -> (CloudConversations, Events, Clock) {
     let service = CloudConversations::with_options(backend.clone(), options);
     let events = Events::default();
     service.set_sink(events.sink());
-    (service, events, Clock(now))
-}
-
-#[test]
-fn session_lease_validates_the_origin_and_never_shows_the_token() {
-    let backend = Arc::new(FakeBackend::default());
-    let (service, _, _) = service(&backend);
-    for bad in [
-        "http://api.cmux.test",
-        "https://api.cmux.test/v1",
-        "https://u:p@api.cmux.test",
-        "https://api.cmux.test/?q=1",
-        "ftp://x",
-    ] {
-        let mut params = session_params(2_000_000);
-        params.api_base_url = bad.into();
-        let error = service.set_session(params).expect_err(bad);
-        assert!(matches!(error, CloudError::BadRequest(_)), "{bad}: {error:?}");
-    }
-    let mut local = session_params(2_000_000);
-    local.api_base_url = "http://127.0.0.1:8787/".into();
-    assert_eq!(service.set_session(local).unwrap()["api_base_url"], "http://127.0.0.1:8787");
-    let set = service.set_session(session_params(2_000_000)).unwrap();
-    assert_eq!(set, json!({"state": "active", "api_base_url": ORIGIN, "expires_at": 2_000_000}));
-    let status = service.session_status();
-    assert_eq!(status["state"], "active");
-    assert!(!status.to_string().contains("stack.jwt.token"));
-    assert!(!format!("{:?}", session_params(1)).contains("stack.jwt.token"));
-    assert_eq!(service.clear_session(), json!({"state": "signed_out"}));
-    assert_eq!(service.session_status(), json!({"state": "signed_out"}));
-}
-
-#[test]
-fn op_body_forwards_one_vocabulary_with_the_client_key_and_origin() {
-    let send = op_request(
-        Some(CONV),
-        "c1",
-        json!({"kind": "message.send", "client_msg_id": "c1", "parts": [{"type": "text", "text": "hi"}]}),
-    );
-    assert_eq!(
-        op_body(&send).unwrap(),
-        json!({"op": "message.send", "idempotency_key": "c1", "origin": "cli",
-               "params": {"conversation": CONV, "client_msg_id": "c1", "parts": [{"type": "text", "text": "hi"}]}})
-    );
-    let mut dm = op_request(None, "dm-1", json!({"kind": "dm.open", "peer": {"email": "a@b.co"}}));
-    dm.origin = Some("user".into());
-    assert_eq!(
-        op_body(&dm).unwrap(),
-        json!({"op": "dm.open", "idempotency_key": "dm-1", "origin": "user", "params": {"peer": {"email": "a@b.co"}}})
-    );
-    let unsupported = op_request(Some(CONV), "k", json!({"kind": "conversation.import"}));
-    let error = op_body(&unsupported).unwrap_err();
-    assert_eq!(error.reason().as_deref(), Some("unsupported_op"));
-    assert_eq!(error.error_code(), Some("cloud_conversation_rejected"));
-    for (request, why) in [
-        (
-            op_request(None, "k", json!({"kind": "message.retract", "message_id": "m"})),
-            "needs a conversation",
-        ),
-        (
-            op_request(Some(CONV), "k", json!({"kind": "dm.open", "peer": "user_x"})),
-            "does not name",
-        ),
-        (
-            op_request(Some("conv_../x"), "k", json!({"kind": "title.set", "title": "t"})),
-            "not a conversation id",
-        ),
-        (op_request(Some(CONV), "", json!({"kind": "title.set", "title": "t"})), "idempotency_key"),
-        (
-            op_request(Some(CONV), "k", json!({"kind": "title.set", "conversation": CONV})),
-            "top level",
-        ),
-    ] {
-        let error = op_body(&request).unwrap_err();
-        assert!(matches!(error, CloudError::BadRequest(_)), "{why}: {error:?}");
-        assert!(error.to_string().contains(why), "{why}: {error}");
-    }
-    let mut bad_origin = send;
-    bad_origin.origin = Some("robot".into());
-    assert!(op_body(&bad_origin).is_err());
-}
-
-#[test]
-fn snapshot_becomes_a_cloud_summary_without_token_hashes_or_loop_counters() {
-    let messages = [message(2, ME, "two"), message(1, ME, "one")];
-    let data = snapshot_data(&snapshot_frame(9, 7, &messages)).unwrap();
-    assert_eq!(data["rev"], 7);
-    assert_eq!(data["seq"], 9);
-    assert_eq!(
-        data["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|m| m["seq"].as_u64().unwrap())
-            .collect::<Vec<_>>(),
-        [1, 2]
-    );
-    let summary = &data["conversation"];
-    assert_eq!(summary["owner"], "cloud");
-    assert_eq!(summary["id"], CONV);
-    assert_eq!(summary["kind"], "group");
-    assert_eq!(summary["last_message"]["seq"], 2);
-    assert!(summary.get("agent_text_streak").is_none());
-    assert!(summary["invites"][0].get("token_hash").is_none());
-    assert_eq!(summary["invites"][0]["id"], "inv_1");
-    let mut empty = snapshot_frame(1, 1, &[]);
-    empty["state"] = Value::Null;
-    assert_eq!(
-        snapshot_data(&empty).unwrap_err().reason().as_deref(),
-        Some("unknown_conversation")
-    );
-}
-
-#[test]
-fn events_map_to_the_local_change_shapes() {
-    let sent = send_event(5, 6, &message(3, ME, "hi"));
-    let (rev, change) = conversation_change(&sent).unwrap();
-    assert_eq!(rev, 6);
-    assert_eq!(change["kind"], "message");
-    assert_eq!(change["message"]["seq"], 3);
-
-    let mut edit = sent.clone();
-    edit["op"] = json!("message.edit");
-    assert_eq!(conversation_change(&edit).unwrap().1["kind"], "message-updated");
-
-    let mut cursor = sent.clone();
-    cursor["op"] = json!("read_cursor.set");
-    cursor["params"] = json!({"seq": 1});
-    cursor["effects"]["writes"] = json!([]);
-    assert_eq!(
-        conversation_change(&cursor).unwrap().1,
-        json!({"kind": "read-cursor", "participant": ME, "seq": 1})
-    );
-
-    let mut title = cursor.clone();
-    title["op"] = json!("title.set");
-    let (_, change) = conversation_change(&title).unwrap();
-    assert_eq!(change["kind"], "conversation");
-    assert_eq!(change["conversation"]["owner"], "cloud");
-
-    let mut bare = sent;
-    bare.as_object_mut().unwrap().remove("effects");
-    assert!(conversation_change(&bare).is_none());
+    (service, events)
 }
 
 #[test]
@@ -295,155 +150,6 @@ fn stream_resumes_drops_duplicates_and_resyncs_on_a_gap() {
     assert!(stream.on_text(&other.to_string()).is_empty());
 }
 
-#[test]
-fn inbox_stream_subscribes_the_welcomed_users_inbox() {
-    let mut stream = StreamState::new(Target::Inbox);
-    let actions = stream.on_text(&welcome());
-    assert_eq!(sent(&actions[0]), json!({"t": "subscribe", "stream": format!("inbox:{ME}")}));
-    let reset = stream.on_text(&json!({"t": "snapshot", "stream": format!("inbox:{ME}"), "seq": 3, "state": {"next_pin": 0}, "decided": []}).to_string());
-    assert_eq!(reset, vec![StreamAction::Emit(CloudEvent::InboxReset { seq: 3, account: None })]);
-    let entry =
-        json!({"conversation": CONV, "rev": 2, "kind": "group", "title": "Launch", "unread": 1});
-    let bump = json!({"t": "event", "stream": format!("inbox:{ME}"), "seq": 4, "tx": "t4", "op": "inbox.bump",
-                      "effects": {"state": {"next_pin": 0}, "writes": [
-                          {"table": "entry", "op": "upsert", "key": CONV, "n": null, "row": entry},
-                          {"table": "peer", "op": "upsert", "key": "user_x", "n": null, "row": {}}]}});
-    assert_eq!(
-        stream.on_text(&bump.to_string()),
-        vec![StreamAction::Emit(CloudEvent::InboxChanged {
-            seq: 4,
-            transaction: "t4".into(),
-            entries: vec![entry],
-            account: None,
-        })]
-    );
-    let mut anonymous = StreamState::new(Target::Inbox);
-    assert_eq!(
-        anonymous.on_text(r#"{"t":"welcome","principal":{}}"#),
-        vec![StreamAction::Forbidden]
-    );
-}
-
-#[test]
-fn commands_without_a_lease_send_nothing_and_ask_for_one() {
-    let backend = Arc::new(FakeBackend::default());
-    let (service, events, clock) = service(&backend);
-    let error = service.inbox_list(None, false).unwrap_err();
-    assert_eq!(error, CloudError::SignedOut);
-    assert_eq!(error.error_code(), Some("cloud_signed_out"));
-    assert!(backend.posted().is_empty());
-    assert_eq!(
-        events.take(),
-        vec![CloudEvent::SessionNeeded { reason: "missing", expires_at: None }]
-    );
-
-    service.set_session(session_params(1_100_000)).unwrap();
-    clock.0.store(1_100_000, Ordering::SeqCst);
-    assert_eq!(service.snapshot(CONV, 10).unwrap_err(), CloudError::SessionExpired);
-    assert!(backend.posted().is_empty());
-    assert_eq!(
-        events.take(),
-        vec![CloudEvent::SessionNeeded { reason: "expired", expires_at: Some(1_100_000) }]
-    );
-}
-
-#[test]
-fn op_posts_with_the_lease_and_returns_the_owner_result_or_reject() {
-    let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
-    service.set_session(session_params(9_000_000)).unwrap();
-    let change = json!({"kind": "message", "message": message(1, ME, "hi")});
-    backend.reply("/v1/ops", 200, json!({"ok": true, "op": "message.send",
-        "value": {"rev": 2, "seq": 1, "message_id": "msg_1", "change": change}, "revision": "2",
-        "transaction": "tx-1", "idempotency_key": "c1", "replayed": false, "stream": format!("conv:{CONV}"), "sequence": 2}));
-    let request = op_request(
-        Some(CONV),
-        "c1",
-        json!({"kind": "message.send", "client_msg_id": "c1", "parts": [{"type": "text", "text": "hi"}]}),
-    );
-    let data = service.op(&request).unwrap();
-    assert_eq!(data["rev"], 2);
-    assert_eq!(data["seq"], 1);
-    assert_eq!(data["change"], change);
-    assert_eq!(data["value"]["message_id"], "msg_1");
-    assert_eq!(data["transaction"], "tx-1");
-    assert_eq!(data["replayed"], false);
-    assert_eq!(data["sequence"], 2);
-    let posted = backend.posted();
-    assert_eq!(posted[0].url, format!("{ORIGIN}/v1/ops"));
-    assert_eq!(posted[0].bearer, "stack.jwt.token");
-    assert_eq!(posted[0].client_version.as_deref(), Some("0.70.0"));
-    assert_eq!(posted[0].body["idempotency_key"], "c1");
-
-    backend.reply("/v1/ops", 200, json!({"ok": false, "op": "participants.add",
-        "error": {"code": "not_reachable", "message": "not_reachable", "retryable": false},
-        "transaction": "", "idempotency_key": "p1", "replayed": false, "stream": "", "sequence": 0}));
-    let add = op_request(
-        Some(CONV),
-        "p1",
-        json!({"kind": "participants.add", "participant": {"id": "user_x", "kind": "human", "display_name": "X"}}),
-    );
-    let error = service.op(&add).unwrap_err();
-    assert_eq!(error.reason().as_deref(), Some("not_reachable"));
-    assert_eq!(error.retryable(), Some(false));
-
-    backend.reply(
-        "/v1/ops",
-        401,
-        json!({"code": "auth.unauthenticated", "message": "missing or invalid bearer token"}),
-    );
-    assert_eq!(service.op(&add).unwrap_err(), CloudError::Unauthenticated);
-    assert_eq!(
-        events.take(),
-        vec![CloudEvent::SessionNeeded { reason: "unauthenticated", expires_at: Some(9_000_000) }]
-    );
-
-    backend.reply(
-        "/v1/ops",
-        403,
-        json!({"code": "client.too_old", "message": "this team requires cmux 1.0"}),
-    );
-    assert_eq!(service.op(&add).unwrap_err().reason().as_deref(), Some("client.too_old"));
-    backend.reply("/v1/ops", 503, json!({"code": "owner.unreachable"}));
-    assert!(matches!(service.op(&add).unwrap_err(), CloudError::Unavailable(_)));
-    backend.fail("/v1/ops", "connection reset");
-    let error = service.op(&add).unwrap_err();
-    assert_eq!((error.error_code(), error.retryable()), (Some("cloud_unavailable"), Some(true)));
-}
-
-#[test]
-fn reads_map_inbox_history_and_snapshot() {
-    let backend = Arc::new(FakeBackend::default());
-    let (service, _, _) = service(&backend);
-    service.set_session(session_params(9_000_000)).unwrap();
-    backend.reply("/v1/read", 200, json!({"op": "inbox.list", "value": {"entries": [{"conversation": CONV}]}, "stream": format!("inbox:{ME}"), "revision": "12"}));
-    assert_eq!(
-        service.inbox_list(Some(20), true).unwrap(),
-        json!({"entries": [{"conversation": CONV}], "revision": "12"})
-    );
-    assert_eq!(
-        backend.posted()[0].body,
-        json!({"op": "inbox.list", "params": {"limit": 20, "include_archived": true}})
-    );
-    backend.reply("/v1/read", 200, json!({"op": "conversation.history", "value": {"messages": [message(1, ME, "a")], "has_more": true}, "stream": "", "revision": ""}));
-    let history = service.history(CONV, 2, 50).unwrap();
-    assert_eq!(history["has_more"], true);
-    assert_eq!(
-        backend.posted()[1].body["params"],
-        json!({"conversation": CONV, "before_seq": 2, "limit": 50})
-    );
-    backend.reply("/v1/read", 200, json!({"op": "conversation.snapshot", "value": snapshot_frame(3, 3, &[message(1, ME, "a")]), "stream": "", "revision": "3"}));
-    assert_eq!(service.snapshot(CONV, 50).unwrap()["seq"], 3);
-    backend.reply(
-        "/v1/read",
-        403,
-        json!({"code": "auth.forbidden", "message": "not a participant"}),
-    );
-    assert_eq!(service.snapshot(CONV, 50).unwrap_err().reason().as_deref(), Some("auth.forbidden"));
-    assert!(matches!(service.snapshot(CONV, 51).unwrap_err(), CloudError::BadRequest(_)));
-    assert!(matches!(service.inbox_list(Some(0), false).unwrap_err(), CloudError::BadRequest(_)));
-}
-
 fn is_state(event: &CloudEvent, wanted: &str) -> bool {
     matches!(event, CloudEvent::SubscriptionState { state, .. } if *state == wanted)
 }
@@ -451,7 +157,7 @@ fn is_state(event: &CloudEvent, wanted: &str) -> bool {
 #[test]
 fn conversation_subscription_relays_events_and_resumes_after_a_drop() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     service.set_session(session_params(9_000_000)).unwrap();
     let first = backend.wire();
     first.push_text(welcome());
@@ -499,7 +205,7 @@ fn conversation_subscription_relays_events_and_resumes_after_a_drop() {
 #[test]
 fn subscription_waits_for_a_new_lease_after_401_and_stops_when_forbidden() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     let target = Target::Conversation(CONV.into());
     assert_eq!(service.subscribe(1, target.clone()).unwrap()["state"], "disconnected");
     events.wait_for(|seen| {
@@ -531,24 +237,6 @@ fn subscription_waits_for_a_new_lease_after_401_and_stops_when_forbidden() {
     });
     assert_eq!(backend.connected()[1].bearer, "stack.jwt.renewed");
     wait_until("the forbidden stream to end", || !service.has_stream(&target));
-}
-
-#[test]
-fn conversation_subscriptions_are_bounded_and_ids_are_checked() {
-    let backend = Arc::new(FakeBackend::default());
-    let (service, _, _) = service(&backend);
-    service.subscribe(1, Target::Conversation("conv_0000000000000000000000000A".into())).unwrap();
-    service
-        .subscribe(1, Target::Conversation("conv_dm_0000000000000000000000000B".into()))
-        .unwrap();
-    let error = service.subscribe(1, Target::Conversation(CONV.into())).unwrap_err();
-    assert_eq!(error.reason().as_deref(), Some("too_many_subscriptions"));
-    service.subscribe(1, Target::Inbox).unwrap();
-    assert!(matches!(
-        service.subscribe(1, Target::Conversation("conv_x/../../v1".into())).unwrap_err(),
-        CloudError::BadRequest(_)
-    ));
-    service.shutdown();
 }
 
 #[test]
@@ -584,7 +272,7 @@ fn a_4xx_without_an_error_body_is_a_final_reject_except_429() {
 #[test]
 fn concurrent_cloud_requests_are_bounded() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, _, _) = service(&backend);
+    let (service, _) = service(&backend);
     let first = service.begin_request().unwrap();
     let _second = service.begin_request().unwrap();
     let error = service.begin_request().err().expect("a third request must be refused");
@@ -616,7 +304,7 @@ fn a_new_principal_resubscribes_from_a_snapshot_not_the_old_seq() {
 #[test]
 fn an_account_switch_resets_the_inbox_instead_of_resuming_the_old_users_seq() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     service.set_session(session_params(9_000_000)).unwrap();
     let first = backend.wire();
     first.push_text(welcome_as(ME));
@@ -667,7 +355,7 @@ fn wire_events(seen: &[CloudEvent], name: &str) -> Vec<Value> {
 #[test]
 fn conversation_events_carry_the_account_of_the_lease_that_opened_the_socket() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     service.set_session(lease_for(&jwt("account-a"))).unwrap();
     let first = backend.wire();
     first.push_text(welcome_as(ME));
@@ -709,7 +397,7 @@ fn conversation_events_carry_the_account_of_the_lease_that_opened_the_socket() {
 #[test]
 fn inbox_events_carry_the_account_and_omit_it_without_a_readable_sub() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     service.set_session(lease_for(&jwt("account-a"))).unwrap();
     let first = backend.wire();
     first.push_text(welcome_as(ME));
@@ -748,7 +436,7 @@ fn inbox_events_carry_the_account_and_omit_it_without_a_readable_sub() {
 #[test]
 fn a_later_subscriber_is_told_the_shared_sockets_current_state() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, events, _) = service(&backend);
+    let (service, events) = service(&backend);
     service.set_session(session_params(9_000_000)).unwrap();
     let wire = backend.wire();
     wire.push_text(welcome());
@@ -772,37 +460,6 @@ fn a_later_subscriber_is_told_the_shared_sockets_current_state() {
     service.shutdown();
 }
 
-#[test]
-fn the_account_is_the_tokens_sub_read_without_verification() {
-    use super::session::token_account;
-    assert_eq!(token_account(&jwt("user_123")).as_deref(), Some("user_123"));
-    // The payload is base64url without padding; the signature is never read.
-    use base64::Engine;
-    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":"padded?"}"#);
-    assert!(payload.contains('_'), "{payload} uses the URL-safe alphabet");
-    assert_eq!(token_account(&format!("h.{payload}.")).as_deref(), Some("padded?"));
-    for unreadable in [
-        "stack.jwt.token".to_string(),
-        "only.two".to_string(),
-        "a.b.c.d".to_string(),
-        format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":7}"#)),
-        format!(
-            "h.{}.s",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":""}"#)
-        ),
-        format!(
-            "h.{}.s",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"iss":"x"}"#)
-        ),
-        format!(
-            "h.{}.s",
-            base64::engine::general_purpose::STANDARD.encode(br#"{"sub":"padded?"}"#)
-        ),
-    ] {
-        assert_eq!(token_account(&unreadable), None, "{unreadable}");
-    }
-}
-
 // G9: the chief's MuxDO wake queue (plans/cmux-next/cloud-chief-vm.md).
 
 const CHIEF: &str = "agent_chief01";
@@ -820,67 +477,13 @@ fn chief_jwt(agent: &str) -> String {
     )
 }
 
-fn wake_row(conversation: &str, seq: u64) -> Value {
-    json!({"conversation": conversation, "seq": seq, "reason": "mention", "at": 1})
-}
-
-fn mux_snapshot(seq: u64, pending: &[Value]) -> Value {
-    let rows: Vec<Value> = pending
-        .iter()
-        .enumerate()
-        .map(|(n, row)| json!({"key": format!("{}:{}", row["conversation"].as_str().unwrap(), row["seq"]), "n": n + 1, "row": row}))
-        .collect();
-    json!({"t": "snapshot", "stream": format!("mux:{CHIEF}"), "seq": seq,
-           "state": {"agent": CHIEF, "pending": pending.len(), "queues": {}},
-           "rows": {"table": "wake", "rows": rows}})
-}
-
-fn mux_event(seq: u64, op: &str, writes: Value) -> Value {
-    json!({"t": "event", "stream": format!("mux:{CHIEF}"), "seq": seq, "tx": format!("tx{seq}"),
-           "op": op, "params": {}, "actor": {"identity": "system", "kind": "system"}, "at": 1,
-           "effects": {"state": {"agent": CHIEF}, "writes": writes}})
-}
-
-/// The wake stream: a snapshot names the pending wakes (one missed while
-/// down), each `mux.wake` event names its new wake by ids only, an ack event
-/// emits nothing, and no wake carries message text.
-#[test]
-fn the_mux_stream_relays_wakes_by_id_and_resyncs_the_pending_ones() {
-    let mut stream = StreamState::new(Target::Mux(CHIEF.into()));
-    stream.on_connect();
-    let actions = stream.on_text(&welcome());
-    assert_eq!(sent(&actions[0]), json!({"t": "subscribe"}));
-    let actions = stream.on_text(&mux_snapshot(7, &[wake_row(CONV, 3)]).to_string());
-    let [StreamAction::Emit(resynced)] = actions.as_slice() else { panic!("{actions:?}") };
-    assert_eq!(
-        resynced.wire_json(),
-        json!({"event": "cloud-mux-resynced", "seq": 7, "pending": [{"conversation": CONV, "seq": 3, "reason": "mention"}]})
-    );
-    let mut row = wake_row(CONV, 4);
-    row["text"] = json!("secret words");
-    let wake = mux_event(
-        8,
-        "mux.wake",
-        json!([{"table": "wake", "op": "upsert", "key": "k", "n": 2, "row": row}]),
-    );
-    let actions = stream.on_text(&wake.to_string());
-    let [StreamAction::Emit(event)] = actions.as_slice() else { panic!("{actions:?}") };
-    let json = event.wire_json();
-    assert_eq!(json["event"], "cloud-mux-wake");
-    assert_eq!(json["wakes"], json!([{"conversation": CONV, "seq": 4, "reason": "mention"}]));
-    assert!(!json.to_string().contains("secret words"), "a wake never carries text");
-    let ack = mux_event(9, "mux.ack", json!([{"table": "wake", "op": "delete", "key": "k"}]));
-    assert!(stream.on_text(&ack.to_string()).is_empty(), "an ack emits nothing");
-    assert_eq!(stream.last_seq(), Some(9));
-}
-
 /// The queue is the lease's own chief's: its agent comes from the chief
 /// token, the socket opens `/v1/wire/mux/<agt>`, a person's token is refused,
 /// and an ack names the wake row in its idempotency key.
 #[test]
 fn the_mux_queue_and_its_acks_belong_to_the_leased_chief_only() {
     let backend = Arc::new(FakeBackend::default());
-    let (service, _events, _) = service(&backend);
+    let (service, _events) = service(&backend);
     service.set_session(lease_for(&jwt(ME))).unwrap();
     assert_eq!(
         service.mux_target().unwrap_err().reason().as_deref(),

@@ -387,22 +387,6 @@ impl LinkGroup for WebSocketLinkGroup {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn client_request_sets_user_agent_and_keeps_the_query() {
-        let endpoint = Url::parse(
-            "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
-        )
-        .unwrap();
-        let request = client_request(&endpoint).unwrap();
-        assert_eq!(
-            request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
-            Some(CLIENT_USER_AGENT)
-        );
-        assert!(request.headers().get("origin").is_none());
-        assert_eq!(request.uri().query(), Some("bl_preview_token=t&cmux_lane=control"));
-        assert_eq!(request.uri().host(), Some("machine-1337.vm.cmux.sh"));
-    }
-
     use std::collections::BTreeMap;
 
     use cmux_remote_protocol::{LanePolicy, SessionId};

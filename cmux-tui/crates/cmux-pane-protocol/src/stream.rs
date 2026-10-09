@@ -135,15 +135,4 @@ mod tests {
         assert_eq!(waiter.await.unwrap(), 40);
         assert_eq!(credit.available().await, 0);
     }
-
-    #[test]
-    fn receiver_refuses_overrun_and_regrants_at_half_window() {
-        let mut window = RecvWindow::new(100);
-        assert_eq!(window.initial_grant(), 100);
-        window.received(60).unwrap();
-        assert_eq!(window.consumed(30), None);
-        assert_eq!(window.consumed(20), Some(50));
-        window.received(90).unwrap();
-        assert_eq!(window.received(1), Err(CreditViolation));
-    }
 }

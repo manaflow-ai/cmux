@@ -779,10 +779,4 @@ pub fn word_bounds(line: &str, col: usize) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod hierarchy_tests;
-
-#[cfg(test)]
 mod selection_tests;

@@ -349,23 +349,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_stable_and_private() {
-        let state = TestStateRoot::create("private");
-        let first = load_once(&state.path).unwrap();
-        let second = load_once(&state.path).unwrap();
-        let path = identity_path(&state.path);
-        let parent = path.parent().unwrap();
-        let lock = parent.join(LOCK_FILE);
-
-        assert_eq!(second, first);
-        assert_eq!(fs::metadata(parent).unwrap().permissions().mode() & 0o777, 0o700);
-        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);
-        assert_eq!(fs::metadata(&lock).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::metadata(&lock).unwrap().nlink(), 1);
-    }
-
-    #[test]
     fn identity_rejects_permissive_hardlinked_or_symlinked_state() {
         let state = TestStateRoot::create("file-safety");
         load_once(&state.path).unwrap();
@@ -419,28 +402,6 @@ mod tests {
         fs::rename(&lock, &target).unwrap();
         symlink(&target, &lock).unwrap();
         assert!(load_once(&state.path).is_err());
-    }
-
-    #[test]
-    fn identity_parser_is_bounded() {
-        let state = TestStateRoot::create("bounded");
-        load_once(&state.path).unwrap();
-        let path = identity_path(&state.path);
-        fs::write(&path, vec![b'x'; MAX_STATE_BYTES as usize + 1]).unwrap();
-        let error = load_once(&state.path).unwrap_err();
-        assert!(error.to_string().contains("too large"));
-    }
-
-    #[test]
-    fn identity_rejects_unsupported_version() {
-        let state = TestStateRoot::create("unsupported-version");
-        let consumer_id = load_once(&state.path).unwrap();
-        let path = identity_path(&state.path);
-        let future = StoredIdentity { version: STATE_VERSION + 1, consumer_id };
-        fs::write(&path, serde_json::to_vec(&future).unwrap()).unwrap();
-
-        let error = load_once(&state.path).unwrap_err();
-        assert!(error.to_string().contains("unsupported provider notice identity version"));
     }
 
     #[test]

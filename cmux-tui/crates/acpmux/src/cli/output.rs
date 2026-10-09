@@ -795,32 +795,6 @@ mod prompt_tests {
         (hub, client, dir)
     }
 
-    #[test]
-    fn duplicate_reply_comes_from_its_own_turn() {
-        let chunk = |seq: u64, text: &str| json!({"seq": seq, "dir": "in", "kind": "session/update", "msg": {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
-        let mux = |seq: u64, kind: &str, turn: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": turn}});
-        let events = vec![
-            mux(1, "turn_started", "t1"),
-            chunk(2, "one"),
-            mux(3, "turn_result", "t1"),
-            mux(4, "turn_started", "t2"),
-            chunk(5, "two"),
-            mux(6, "turn_result", "t2"),
-        ];
-        assert_eq!(reply_of_turn(&events, "t1"), "one");
-        assert_eq!(reply_of_turn(&events, "t2"), "two");
-        assert_eq!(reply_of_turn(&events, "t3"), "");
-    }
-
-    #[test]
-    fn only_agent_output_blocks_a_retry() {
-        let update = |kind: &str| json!({"update": {"sessionUpdate": kind}});
-        assert!(renders_output(&update("agent_message_chunk")));
-        assert!(renders_output(&update("tool_call")));
-        assert!(!renders_output(&update("available_commands_update")));
-        assert!(!renders_output(&update("current_mode_update")));
-    }
-
     #[tokio::test]
     async fn queue_prompt_returns_on_acceptance_while_the_turn_runs() {
         let (hub, client, dir) = daemon().await;

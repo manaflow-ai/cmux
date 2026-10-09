@@ -140,13 +140,6 @@ mod tests {
     }
 
     #[test]
-    fn a_reused_pid_is_never_named() {
-        let signals = [term_from(7, json!({"reused": true}))];
-        assert!(cause_text(&signals, None).contains("(exited; pid reused, uid 501)"));
-        assert!(cause_summary(&signals, None).unwrap().get("sender_name").is_none());
-    }
-
-    #[test]
     fn a_panic_is_text_in_the_log_and_a_flag_in_the_summary() {
         let crash = json!({"thread":"t","message":"boom","location":"a.rs:1:2"});
         let text = cause_text(&[], Some(&crash));

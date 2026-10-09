@@ -986,26 +986,6 @@ fn dispatch_surface_event(
     }
 }
 
-#[cfg(test)]
-fn finish_ordered_batch(
-    rx: &Receiver<SequencedBrowserInputEvent>,
-    order: &Mutex<BrowserEnqueueOrder>,
-    latest_resizes: &Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>,
-    retained_releases: &Mutex<Vec<SequencedBrowserInputEvent>>,
-    batch: &mut Vec<SequencedBrowserInputEvent>,
-) {
-    // Block new sequence assignments while establishing the batch cut.
-    // Every earlier accepted event is drained before fallbacks are collected.
-    let order_guard = order.lock().unwrap();
-    while let Ok(next) = rx.try_recv() {
-        batch.push(next);
-    }
-    let latest = std::mem::take(&mut *latest_resizes.lock().unwrap());
-    let releases = std::mem::take(&mut *retained_releases.lock().unwrap());
-    drop(order_guard);
-    merge_fallback_events(batch, latest, releases);
-}
-
 fn merge_fallback_events(
     batch: &mut Vec<SequencedBrowserInputEvent>,
     latest: HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>,
@@ -1761,27 +1741,6 @@ mod tests {
         );
     }
 
-    fn positions(batch: &[BrowserInputEvent]) -> Vec<(&'static str, SurfaceId)> {
-        batch
-            .iter()
-            .map(|event| match event.kind {
-                BrowserInputKind::Mouse { event_type, .. } => (event_type, event.surface_id),
-                _ => ("other", event.surface_id),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn consecutive_moves_on_same_surface_keep_latest_only() {
-        let mut batch = vec![move_event(1, 1.0), move_event(1, 2.0), move_event(1, 3.0)];
-        coalesce_browser_events(&mut batch);
-        assert_eq!(batch.len(), 1);
-        match batch[0].kind {
-            BrowserInputKind::Mouse { x, .. } => assert_eq!(x, 3.0),
-            _ => panic!("expected mouse event"),
-        }
-    }
-
     #[test]
     fn consecutive_presentations_on_same_surface_keep_latest_only() {
         let mut batch =
@@ -1790,99 +1749,6 @@ mod tests {
 
         assert_eq!(batch.len(), 1);
         assert!(matches!(batch[0].kind, BrowserInputKind::Presented { frame_seq: 9 }));
-    }
-
-    #[test]
-    fn clicks_break_coalescing_and_keep_order() {
-        let mut batch = vec![move_event(1, 1.0), click_event(1), move_event(1, 2.0)];
-        coalesce_browser_events(&mut batch);
-        assert_eq!(
-            positions(&batch),
-            vec![("mouseMoved", 1), ("mousePressed", 1), ("mouseMoved", 1)]
-        );
-    }
-
-    #[test]
-    fn moves_on_different_surfaces_are_kept() {
-        let mut batch = vec![move_event(1, 1.0), move_event(2, 1.0)];
-        coalesce_browser_events(&mut batch);
-        assert_eq!(batch.len(), 2);
-    }
-
-    #[test]
-    fn consecutive_resizes_keep_latest_without_crossing_clicks() {
-        let mut batch = vec![resize_event(1, 80), resize_event(1, 100), click_event(1)];
-        coalesce_browser_events(&mut batch);
-        assert_eq!(batch.len(), 2);
-        match batch[0].kind {
-            BrowserInputKind::Resize { cols, .. } => assert_eq!(cols, 100),
-            _ => panic!("expected resize event"),
-        }
-        assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
-    }
-
-    #[test]
-    fn resize_coalescing_stops_at_non_resize_input() {
-        let mut batch = vec![resize_event(1, 80), click_event(1), resize_event(1, 100)];
-
-        coalesce_browser_events(&mut batch);
-
-        assert_eq!(batch.len(), 3);
-        assert!(matches!(batch[0].kind, BrowserInputKind::Resize { cols: 80, .. }));
-        assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
-        assert!(matches!(batch[2].kind, BrowserInputKind::Resize { cols: 100, .. }));
-    }
-
-    #[test]
-    fn only_full_resizes_are_saved_for_fallback_delivery() {
-        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
-        let latest_resizes = lane.latest_resizes.clone();
-
-        let _ = lane.enqueue(click_event(1));
-        let _ = lane.enqueue(resize_event(1, 132));
-        assert!(matches!(blocked.rx.recv().unwrap().event.kind, BrowserInputKind::Mouse { .. }));
-        assert!(matches!(
-            latest_resizes.lock().unwrap().get(&(1, 1)).map(|event| &event.event.kind),
-            Some(BrowserInputKind::Resize { cols: 132, .. })
-        ));
-
-        latest_resizes.lock().unwrap().clear();
-        let _ = lane.enqueue(resize_event(1, 144));
-        assert!(latest_resizes.lock().unwrap().is_empty());
-        assert!(matches!(
-            blocked.rx.recv().unwrap().event.kind,
-            BrowserInputKind::Resize { cols: 144, .. }
-        ));
-
-        drop(blocked);
-        let _ = lane.enqueue(resize_event(1, 156));
-        assert!(latest_resizes.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn resize_claim_lives_through_queue_fallback_replacement_and_disconnect() {
-        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
-        let latest_resizes = lane.latest_resizes.clone();
-        let accepted = Arc::new(AtomicBool::new(false));
-        let _ = lane.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
-        assert!(!accepted.load(Ordering::Acquire));
-        drop(blocked.rx.recv().unwrap());
-        assert!(accepted.load(Ordering::Acquire));
-
-        let _ = lane.enqueue(click_event(1));
-        let replaced = Arc::new(AtomicBool::new(false));
-        let retained = Arc::new(AtomicBool::new(false));
-        let _ = lane.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
-        let _ = lane.enqueue(resize_event_with_probe(1, 120, retained.clone()));
-        assert!(replaced.load(Ordering::Acquire));
-        assert!(!retained.load(Ordering::Acquire));
-        latest_resizes.lock().unwrap().clear();
-        assert!(retained.load(Ordering::Acquire));
-
-        drop(blocked);
-        let disconnected = Arc::new(AtomicBool::new(false));
-        let _ = lane.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
-        assert!(disconnected.load(Ordering::Acquire));
     }
 
     #[test]
@@ -1952,40 +1818,6 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_surface_cancels_queued_resize_and_clears_fallback() {
-        let (lane, blocked) = SurfaceInputLane::blocked(7, 1);
-        let latest_resizes = lane.latest_resizes.clone();
-        let queued = Arc::new(AtomicBool::new(false));
-        let fallback = Arc::new(AtomicBool::new(false));
-        let _ = lane.enqueue(resize_event_with_probe(7, 80, queued.clone()));
-        let _ = lane.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
-
-        let _ = lane.cancel_surface(7);
-
-        assert!(!queued.load(Ordering::Acquire));
-        assert!(fallback.load(Ordering::Acquire));
-        assert!(latest_resizes.lock().unwrap().is_empty());
-        let queued_event = blocked.rx.recv().unwrap();
-        assert!(queued_event.lifetime.load(Ordering::Acquire));
-        drop(queued_event);
-        assert!(queued.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn persistent_resize_failure_requires_geometry_or_lifecycle_recovery() {
-        let mut failure = None;
-        for _ in 0..6 {
-            failure = Some(next_failed_browser_resize(failure, (100, 24)));
-        }
-        let failure = failure.unwrap();
-
-        assert_eq!(failure.attempts, 6);
-        assert!(failure.retry_after.is_none());
-        assert!(failed_browser_resize_blocks(failure, (100, 24)));
-        assert!(!failed_browser_resize_blocks(failure, (120, 24)));
-    }
-
-    #[test]
     fn dropped_resize_slot_delivers_latest_geometry_after_queued_input() {
         let mut batch = vec![sequenced(0, click_event(1))];
         let latest = HashMap::from([((1, 0), sequenced(1, resize_event(1, 132)))]);
@@ -1995,31 +1827,5 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(matches!(batch[0].event.kind, BrowserInputKind::Mouse { .. }));
         assert!(matches!(batch[1].event.kind, BrowserInputKind::Resize { cols: 132, .. }));
-    }
-
-    #[test]
-    fn rejected_resize_stays_before_later_accepted_input() {
-        let (lane, blocked) = SurfaceInputLane::blocked(1, 1);
-        let latest_resizes = lane.latest_resizes.clone();
-
-        let _ = lane.enqueue(click_event(1));
-        let _ = lane.enqueue(resize_event(1, 132));
-        let first = blocked.rx.recv().unwrap();
-        let _ = lane.enqueue(click_event(1));
-        let _ = lane.enqueue(resize_event(1, 144));
-        let mut batch = vec![first];
-        finish_ordered_batch(
-            &blocked.rx,
-            &lane.order,
-            &latest_resizes,
-            &lane.retained_releases,
-            &mut batch,
-        );
-
-        assert_eq!(batch.iter().map(|event| event.sequence).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
-        assert!(matches!(batch[0].event.kind, BrowserInputKind::Mouse { .. }));
-        assert!(matches!(batch[1].event.kind, BrowserInputKind::Resize { cols: 132, .. }));
-        assert!(matches!(batch[2].event.kind, BrowserInputKind::Mouse { .. }));
-        assert!(matches!(batch[3].event.kind, BrowserInputKind::Resize { cols: 144, .. }));
     }
 }

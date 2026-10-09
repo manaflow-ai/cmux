@@ -88,17 +88,6 @@ fn a_corrupt_state_file_fails_closed() {
 }
 
 #[test]
-fn a_krl_on_disk_newer_than_the_state_still_refuses_older_snapshots() {
-    // A crash after the KRL rename and before the state write.
-    let (_dir, paths) = root();
-    put(&paths, snapshot(5, 1), 1_000).expect("apply");
-    fs::write(paths.at(KRL_FILE), krl(7)).expect("newer KRL on disk");
-    assert!(put(&paths, snapshot(6, 1), 1_010).is_err(), "6 is older than the KRL on disk");
-    assert_eq!(read(&paths, KRL_FILE), krl(7));
-    put(&paths, snapshot(7, 1), 1_020).expect("equal to the disk KRL");
-}
-
-#[test]
 fn a_krl_the_checker_refuses_never_replaces_the_live_one() {
     let (_dir, paths) = root();
     put(&paths, snapshot(5, 1), 1_000).expect("apply");

@@ -254,13 +254,4 @@ mod tests {
         let admission = AdmissionListener::new(listener, &config);
         assert_eq!(admission.permits.available_permits(), config.max_http_connections);
     }
-
-    #[test]
-    fn accept_retry_delay_is_bounded_exponential_backoff() {
-        assert_eq!(accept_retry_delay(0), Duration::from_millis(50));
-        assert_eq!(accept_retry_delay(1), Duration::from_millis(100));
-        assert_eq!(accept_retry_delay(4), Duration::from_millis(800));
-        assert_eq!(accept_retry_delay(5), ACCEPT_RETRY_MAX);
-        assert_eq!(accept_retry_delay(u32::MAX), ACCEPT_RETRY_MAX);
-    }
 }

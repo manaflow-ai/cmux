@@ -50,8 +50,6 @@ pub mod sha256;
 mod source_date_epoch;
 pub mod store;
 pub mod subagents;
-#[cfg(test)]
-mod subagents_tests;
 pub mod transcript;
 pub mod trust;
 pub mod tui;

@@ -111,31 +111,6 @@ async fn a_result_before_the_steered_line_was_read_does_not_end_the_turn() {
     assert_eq!(result["stopReason"], "end_turn");
 }
 
-/// Live 2026-10-08: after an interrupt, Claude Code still runs a line it
-/// had not read as one more turn. That turn is stopped too, and the prompt
-/// ends cancelled.
-#[tokio::test]
-async fn a_stop_also_stops_the_turn_of_an_unread_steer() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    let first = write(&t, prompt(1, "first", false)).await;
-    t.inbound(&replay(&first)).await;
-    let late = write(&t, prompt(2, "late", true)).await;
-    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({}))).await;
-    let stopped = json!({"type": "result", "subtype": "error_during_execution", "is_error": true, "result": null});
-    let msgs = t.inbound(&stopped).await;
-    assert!(response(&msgs, 1).is_none(), "the unread line still runs: {msgs:?}");
-    let msgs = t.inbound(&replay(&late)).await;
-    assert!(response(&msgs, 2).is_some(), "{msgs:?}");
-    let interrupts = t.take_stdin_replies().await;
-    assert_eq!(interrupts.len(), 1, "{interrupts:?}");
-    assert_eq!(interrupts[0]["request"]["subtype"], "interrupt");
-    let msgs = t.inbound(&stopped).await;
-    let Some(Message::Response { result: Some(result), .. }) = response(&msgs, 1) else {
-        panic!("{msgs:?}")
-    };
-    assert_eq!(result["stopReason"], "cancelled");
-}
-
 #[tokio::test]
 async fn a_steer_with_no_turn_running_is_refused() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");

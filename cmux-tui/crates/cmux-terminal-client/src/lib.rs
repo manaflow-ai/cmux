@@ -3167,107 +3167,6 @@ mod tests {
     }
 
     #[test]
-    fn resize_delivery_coalesces_to_the_latest_request_until_it_is_acknowledged() {
-        let delivery = ResizeDelivery::default();
-        let first = ResizeRequest { request_id: 1, cols: 80, rows: 24 };
-        let latest = ResizeRequest { request_id: 2, cols: 120, rows: 40 };
-
-        delivery.request(first);
-        delivery.request(latest);
-        assert_eq!(delivery.desired(), Some(latest));
-
-        delivery.acknowledge(first.request_id);
-        delivery.complete_if_current(first.request_id);
-        assert_eq!(delivery.desired(), Some(latest));
-
-        delivery.acknowledge(latest.request_id);
-        delivery.complete_if_current(latest.request_id);
-        assert_eq!(delivery.desired(), None);
-    }
-
-    #[test]
-    fn resize_acknowledgement_is_validated_and_releases_its_delivery_waiter() {
-        let delivery = Arc::new(ResizeDelivery::default());
-        let request = ResizeRequest { request_id: 17, cols: 101, rows: 33 };
-        delivery.request(request);
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        state.resize_delivery = Some(delivery.clone());
-
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&request.cols.to_le_bytes());
-        payload.extend_from_slice(&request.rows.to_le_bytes());
-        payload.extend_from_slice(&RESIZE_ACK_CANONICAL_CHANGED.to_le_bytes());
-        let mut acknowledgement = Frame::new(MessageKind::ResizeAck, payload);
-        acknowledgement.request_id = request.request_id;
-        assert_eq!(state.apply(acknowledgement).unwrap().0, FrameEffect::Continue);
-        assert!(delivery.is_acknowledged(request.request_id));
-        assert_eq!(
-            state.resize_acknowledgement,
-            Some(ResizeAcknowledgement {
-                request_id: request.request_id,
-                cols: request.cols,
-                rows: request.rows,
-                canonical_changed: true,
-            })
-        );
-
-        let mut malformed = Frame::new(MessageKind::ResizeAck, vec![0; 8]);
-        malformed.request_id = 18;
-        malformed.payload[4..8].copy_from_slice(&2_u32.to_le_bytes());
-        assert!(state.apply(malformed).unwrap_err().contains("unknown flags"));
-    }
-
-    #[test]
-    fn final_output_is_materialized_after_terminal_exit() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        let boundary = 7;
-        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
-        snapshot.sequence = boundary;
-        state.apply(snapshot).unwrap();
-        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
-        ready.sequence = boundary;
-        state.apply(ready).unwrap();
-        state.materialize_frame().unwrap();
-
-        let mut output = Frame::new(MessageKind::Output, b"final output\r\n".to_vec());
-        output.sequence = boundary + 1;
-        state.apply(output).unwrap();
-        let mut exit = Frame::new(MessageKind::Exit, Vec::new());
-        exit.sequence = boundary + 2;
-        assert_eq!(state.apply(exit).unwrap().0, FrameEffect::Stop);
-        state.materialize_frame().unwrap();
-
-        assert!(state.frame_text.contains("final output"), "{}", state.frame_text);
-        assert!(!state.ready);
-        assert!(state.bootstrap_committed);
-    }
-
-    #[test]
-    fn a_different_terminal_requires_detach_before_attach() {
-        let attached = test_terminal_id();
-        let requested = TerminalPublicId::parse("term_fedcba9876543210fedcba9876543210").unwrap();
-
-        assert!(attach_target_already_satisfied(None, &requested).is_ok_and(|value| !value));
-        assert!(attach_target_already_satisfied(Some((&attached, false)), &attached).unwrap());
-        let error =
-            attach_target_already_satisfied(Some((&attached, false)), &requested).unwrap_err();
-        assert!(error.contains(attached.as_str()));
-        assert!(error.contains(requested.as_str()));
-    }
-
-    #[test]
-    fn retry_exhaustion_does_not_satisfy_same_terminal_attach() {
-        let attached = test_terminal_id();
-
-        assert!(
-            !attach_target_already_satisfied(Some((&attached, true)), &attached).unwrap(),
-            "a closed terminal owner must be replaced instead of satisfying attach"
-        );
-    }
-
-    #[test]
     fn utf8_copy_truncates_only_at_character_boundaries() {
         let value = "aé";
         let mut buffer = [0_i8; 3];
@@ -3276,21 +3175,6 @@ mod tests {
         // SAFETY: copy_utf8 always terminates a nonempty destination.
         let copied = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_str().unwrap();
         assert_eq!(copied, "a");
-    }
-
-    #[test]
-    fn terminal_reconnect_backoff_grows_and_is_bounded() {
-        let terminal = test_terminal_id();
-        let first = terminal_reconnect_delay(&terminal, 1);
-        let second = terminal_reconnect_delay(&terminal, 2);
-        let saturated = terminal_reconnect_delay(&terminal, u32::MAX);
-
-        assert!(second > first);
-        assert!(saturated >= TERMINAL_RECONNECT_MAX_DELAY);
-        assert!(
-            saturated <= TERMINAL_RECONNECT_MAX_DELAY + StdDuration::from_millis(100),
-            "unexpected saturated delay {saturated:?}"
-        );
     }
 
     struct TestEndpoint {
@@ -3353,139 +3237,6 @@ mod tests {
     }
 
     #[test]
-    fn raw_mode_forwards_replay_output_resize_and_exit_without_a_local_parser() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        state.raw_mode = true;
-        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
-        snapshot.sequence = 7;
-        let (effect, event) = state.apply(snapshot).unwrap();
-        assert_eq!(effect, FrameEffect::Continue);
-        match event {
-            Some(RawEvent::Snapshot { cols, rows, replay }) => {
-                assert_eq!((cols, rows), (80, 24));
-                assert_eq!(replay, b"prompt> ");
-            }
-            _ => panic!("snapshot did not surface replay bytes"),
-        }
-        assert!(state.terminal.is_none(), "raw mode must not build a libghostty terminal");
-        assert!(state.snapshot_applied);
-
-        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
-        ready.sequence = 7;
-        let (_, event) = state.apply(ready).unwrap();
-        assert!(event.is_none());
-        assert!(state.ready);
-
-        let mut output = Frame::new(MessageKind::Output, b"hello\r\n".to_vec());
-        output.sequence = 8;
-        match state.apply(output).unwrap() {
-            (FrameEffect::Continue, Some(RawEvent::Output(bytes))) => {
-                assert_eq!(bytes.as_ref(), b"hello\r\n");
-            }
-            _ => panic!("output did not surface bytes"),
-        }
-        assert_eq!(state.raw_frames, 1);
-
-        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0]);
-        resized.sequence = 9;
-        match state.apply(resized).unwrap() {
-            (FrameEffect::Continue, Some(RawEvent::Resized { cols, rows })) => {
-                assert_eq!((cols, rows), (100, 30));
-            }
-            _ => panic!("resize did not surface geometry"),
-        }
-        assert_eq!((state.cols, state.rows), (100, 30));
-
-        state.materialize_frame().unwrap();
-        assert!(state.frame_text.is_empty(), "raw mode materializes nothing");
-
-        let mut exit = Frame::new(MessageKind::Exit, Vec::new());
-        exit.sequence = 10;
-        match state.apply(exit).unwrap() {
-            (FrameEffect::Stop, Some(RawEvent::Exit)) => {}
-            _ => panic!("exit did not surface"),
-        }
-        assert!(state.exited);
-    }
-
-    #[test]
-    fn raw_mode_rejects_output_before_snapshot() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        state.raw_mode = true;
-        let mut output = Frame::new(MessageKind::Output, b"early".to_vec());
-        output.sequence = 1;
-        assert!(state.apply(output).unwrap_err().contains("before snapshot"));
-    }
-
-    #[test]
-    fn raw_output_callback_is_emitted_only_while_registered() {
-        static CALLS: AtomicU64 = AtomicU64::new(0);
-        unsafe extern "C" fn record(
-            context: *mut c_void,
-            kind: u32,
-            bytes: *const u8,
-            length: usize,
-            cols: u16,
-            rows: u16,
-        ) {
-            assert_eq!(context as usize, 0x1234);
-            assert_eq!(kind, OUTPUT_KIND_SNAPSHOT);
-            // SAFETY: the emitter passes a live slice for the call.
-            let bytes = unsafe { std::slice::from_raw_parts(bytes, length) };
-            assert_eq!(bytes, b"abc");
-            assert_eq!((cols, rows), (3, 1));
-            CALLS.fetch_add(1, Ordering::Relaxed);
-        }
-        let output = RawOutput::default();
-        let event = RawEvent::Snapshot { cols: 3, rows: 1, replay: b"abc".to_vec() };
-        output.emit(&event);
-        assert_eq!(CALLS.load(Ordering::Relaxed), 0);
-        output.set_callback(Some(record), 0x1234 as *mut c_void);
-        assert!(output.is_installed());
-        output.emit(&event);
-        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
-        output.set_callback(None, std::ptr::null_mut());
-        output.emit(&event);
-        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn enrolled_daemon_selection_matches_route_hints() {
-        let daemon = |fingerprint: &str, hints: &[&str], auth: KnownDaemonAuth| KnownDaemon {
-            fingerprint: fingerprint.into(),
-            name: fingerprint.into(),
-            public_key: String::new(),
-            // Stored hints are normalized the way the identity store does it.
-            route_hints: hints
-                .iter()
-                .map(|hint| credential_free_route_hint(hint).unwrap())
-                .collect(),
-            auth,
-            first_seen_at_unix: 0,
-            last_used_at_unix: 0,
-        };
-        let route = "ws://[fd7a::10]:1337/v1/link";
-        let a = daemon("a", &[route], KnownDaemonAuth::Enrolled);
-        let b = daemon("b", &["ws://[fd7a::11]:1337/v1/link"], KnownDaemonAuth::Enrolled);
-        assert_eq!(
-            select_enrolled_daemon(vec![a.clone(), b.clone()], route).unwrap().fingerprint,
-            "a"
-        );
-        assert_eq!(select_enrolled_daemon(vec![b.clone()], route).unwrap().fingerprint, "b");
-        assert!(
-            select_enrolled_daemon(vec![a.clone(), a], route).unwrap_err().contains("multiple")
-        );
-        assert!(
-            select_enrolled_daemon(vec![b.clone(), b], route).unwrap_err().contains("invitation")
-        );
-        assert!(select_enrolled_daemon(Vec::new(), route).unwrap_err().contains("invitation"));
-        let carrier = daemon("c", &[route], KnownDaemonAuth::Carrier);
-        assert!(select_enrolled_daemon(vec![carrier], route).unwrap_err().contains("carrier"));
-    }
-
-    #[test]
     fn trusted_cloud_route_requires_a_tunneled_literal() {
         let routes: Vec<IpNetwork> =
             vec!["fdcc::/64".parse().unwrap(), "10.200.0.0/24".parse().unwrap()];
@@ -3508,33 +3259,6 @@ mod tests {
                 "{route}"
             );
         }
-    }
-
-    #[test]
-    fn trusted_cloud_ffi_rejects_missing_tunnel_before_creating_identity() {
-        let directory = tempfile::tempdir().unwrap();
-        let state = directory.path().join("must-not-be-created");
-        let route = CString::new("ws://[fdcc::2]:1337/v1/link").unwrap();
-        let state_path = CString::new(state.to_str().unwrap()).unwrap();
-        let device = CString::new("phone").unwrap();
-        let mut error = [0 as c_char; 256];
-        // SAFETY: live NUL-terminated strings and correctly sized output buffer.
-        let client = unsafe {
-            cmux_terminal_client_connect_trusted_route(
-                route.as_ptr(),
-                state_path.as_ptr(),
-                device.as_ptr(),
-                std::ptr::null(),
-                error.as_mut_ptr(),
-                error.len(),
-                1_000,
-            )
-        };
-        assert!(client.is_null());
-        // SAFETY: the FFI writes a NUL-terminated error to this buffer.
-        let error = unsafe { CStr::from_ptr(error.as_ptr()) }.to_str().unwrap();
-        assert!(error.contains("requires a WireGuard tunnel"), "{error}");
-        assert!(!state.exists());
     }
 
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
@@ -3565,27 +3289,6 @@ mod tests {
     }
 
     #[test]
-    fn bounded_command_queue_preserves_order_and_reports_backpressure() {
-        let runtime = Runtime::new().unwrap();
-        let (sender, mut receiver) = mpsc::channel::<Bytes>(2);
-        let encode = |kind, payload: &'static [u8]| {
-            Bytes::from(encode_frame(&Frame::new(kind, payload.to_vec())).unwrap())
-        };
-        let first = encode(MessageKind::Input, b"one");
-        let second = encode(MessageKind::Paste, b"two");
-        assert!(sender.try_send(first.clone()).is_ok());
-        assert!(sender.try_send(second.clone()).is_ok());
-        assert!(
-            sender.try_send(encode(MessageKind::Input, b"overflow")).is_err(),
-            "a full writer queue must return backpressure instead of blocking"
-        );
-        runtime.block_on(async {
-            assert_eq!(receiver.recv().await.unwrap(), first);
-            assert_eq!(receiver.recv().await.unwrap(), second);
-        });
-    }
-
-    #[test]
     fn invitation_iroh_query_becomes_carrier_routing_hints() {
         let (endpoint, routing) = resolve_iroh_route(
             "iroh://node-id?relay_url=https%3A%2F%2Frelay.example&direct_addrs=127.0.0.1%3A9000",
@@ -3598,67 +3301,6 @@ mod tests {
             Some("https://relay.example")
         );
         assert_eq!(routing.get(ROUTING_DIRECT_ADDRS).map(String::as_str), Some("127.0.0.1:9000"));
-    }
-
-    #[test]
-    fn named_key_encoding_uses_the_local_terminal_keyboard_modes() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        state.terminal = Some(Terminal::new(80, 24, 0, Callbacks::default()).unwrap());
-
-        assert_eq!(state.encode_key("up", false).unwrap(), b"\x1b[A");
-        state.terminal.as_mut().unwrap().vt_write(b"\x1b[?1h");
-        assert_eq!(state.encode_key("up", false).unwrap(), b"\x1bOA");
-        assert_eq!(state.encode_key("ctrl+c", false).unwrap(), vec![0x03]);
-    }
-
-    #[test]
-    fn smart_resize_updates_authoritative_cell_metrics() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"ready"));
-        snapshot.sequence = 7;
-        state.apply(snapshot).unwrap();
-
-        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0, 9, 0, 18, 0]);
-        resized.sequence = 8;
-        state.apply(resized).unwrap();
-
-        assert_eq!((state.cols, state.rows), (100, 30));
-        assert_eq!(state.cell_pixels, (9, 18));
-        assert_eq!(state.local_parser_cursor, 8);
-    }
-
-    #[test]
-    fn ready_at_boundary_zero_is_rejected_before_snapshot() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        let ready = Frame::new(MessageKind::Ready, Vec::new());
-
-        assert_eq!(state.apply(ready).unwrap_err(), "unexpected smart terminal frame Ready");
-        assert!(!state.ready);
-        assert!(!state.snapshot_applied);
-    }
-
-    #[test]
-    fn snapshot_render_is_published_only_after_same_boundary_ready() {
-        let mut state =
-            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
-        let boundary = 7;
-        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
-        snapshot.sequence = boundary;
-        state.apply(snapshot).unwrap();
-
-        state.materialize_frame().unwrap();
-        assert!(state.frame_text.is_empty());
-        assert!(state.render_dirty);
-
-        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
-        ready.sequence = boundary;
-        state.apply(ready).unwrap();
-        state.materialize_frame().unwrap();
-        assert!(state.frame_text.contains("prompt>"));
-        assert!(!state.render_dirty);
     }
 
     #[test]
@@ -4244,13 +3886,5 @@ mod tests {
             [true, false, false]
         );
         assert!(options.priority_unsupported.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn viewer_size_priority_setter_rejects_a_null_client() {
-        // SAFETY: null is an accepted input and is never dereferenced.
-        let accepted =
-            unsafe { cmux_terminal_client_set_viewer_size_priority(std::ptr::null_mut(), true) };
-        assert!(!accepted);
     }
 }

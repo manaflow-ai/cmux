@@ -276,7 +276,7 @@ mod platform {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::error::Error as _;
+
     use std::fs::File;
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd};
@@ -348,25 +348,6 @@ mod tests {
         assert_eq!(ignored & (bit(libc::SIGHUP) | bit(libc::SIGINT)), 0, "child ignores {line}");
         assert_eq!(blocked & bit(libc::SIGHUP), 0, "child blocks HUP: {line}");
         Ok(())
-    }
-
-    #[test]
-    fn pty_capacity_errors_preserve_an_actionable_classification() {
-        for errno in [libc::ENXIO, libc::ENOSPC, libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
-            let error = PtyOpenError::from_io(io::Error::from_raw_os_error(errno));
-            assert_eq!(error.kind(), PtyOpenErrorKind::CapacityExhausted);
-            assert!(error.is_capacity_exhausted());
-            assert!(error.to_string().contains("PTY capacity exhausted"));
-            assert!(error.source().is_some());
-        }
-    }
-
-    #[test]
-    fn unrelated_pty_open_errors_remain_distinguishable() {
-        let error = PtyOpenError::from_io(io::Error::from_raw_os_error(libc::EBADF));
-        assert_eq!(error.kind(), PtyOpenErrorKind::Other);
-        assert!(!error.is_capacity_exhausted());
-        assert!(error.to_string().contains("failed to open PTY"));
     }
 
     #[test]

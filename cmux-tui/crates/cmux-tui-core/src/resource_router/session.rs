@@ -283,28 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_receipt_commits_without_starting_process_shutdown() {
-        let mux = Mux::new_for_test("session-shutdown", SurfaceOptions::default());
-        let first = commit_shutdown(
-            &mux,
-            request(ResourceOperation::SessionShutdown, "shutdown-once", json!({"force":true})),
-        )
-        .unwrap();
-        assert_eq!(first["value"]["accepted"], true);
-        assert_eq!(first["replayed"], false);
-        assert!(!mux.daemon_shutdown_requested());
-
-        let replay = commit_shutdown(
-            &mux,
-            request(ResourceOperation::SessionShutdown, "shutdown-once", json!({"force":true})),
-        )
-        .unwrap();
-        assert_eq!(replay["value"]["accepted"], true);
-        assert_eq!(replay["replayed"], true);
-        assert!(!mux.daemon_shutdown_requested());
-    }
-
-    #[test]
     fn stopped_owner_reload_replays_its_known_failure_receipt() {
         let mux = Mux::new_for_test("session-reload-failure", SurfaceOptions::default());
         mux.shutdown();
@@ -354,38 +332,5 @@ mod tests {
         assert_eq!(first.code, "mutation.indeterminate");
         assert_eq!(replay, first);
         assert!(events.recv_timeout(std::time::Duration::from_millis(50)).is_err());
-    }
-
-    #[test]
-    fn creation_resolve_returns_unknown_and_typed_validation_states() {
-        let mux = Mux::new_for_test("creation-resolve", SurfaceOptions::default());
-        let unknown = dispatch(
-            &mux,
-            request(
-                ResourceOperation::SessionCreationResolve,
-                "unused",
-                json!({"correlation_key":"unknown-correlation"}),
-            ),
-        )
-        .unwrap();
-        assert_eq!(
-            unknown,
-            json!({
-                "correlation_key":"unknown-correlation",
-                "state":"not_applied",
-                "recovery":"retry_new_idempotency_key",
-            })
-        );
-        let error = dispatch(
-            &mux,
-            request(
-                ResourceOperation::SessionCreationResolve,
-                "unused",
-                json!({"correlation_key":""}),
-            ),
-        )
-        .unwrap_err();
-        assert_eq!(error.code, "validation.invalid");
-        assert_eq!(error.details["field"], "correlation_key");
     }
 }

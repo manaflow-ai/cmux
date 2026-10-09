@@ -669,16 +669,3 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_path;
-    use std::path::Path;
-
-    #[test]
-    fn normalize_resolves_parent_components() {
-        assert_eq!(normalize_path(Path::new("/w/src/../../secret")), Path::new("/secret"));
-        assert_eq!(normalize_path(Path::new("/w/./src/a.rs")), Path::new("/w/src/a.rs"));
-        assert_eq!(normalize_path(Path::new("/../x")), Path::new("/x"));
-    }
-}

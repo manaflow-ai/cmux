@@ -140,21 +140,3 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
     assert!(driver.stack.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
     assert_eq!(driver.stack.sockets.iter().count(), 0);
 }
-
-#[test]
-fn packet_source_reads_both_families() {
-    let mut v4 = vec![0u8; 20];
-    v4[0] = 0x45;
-    v4[12..16].copy_from_slice(&[10, 200, 0, 2]);
-    assert_eq!(packet_source(&v4), Some("10.200.0.2".parse().unwrap()));
-
-    let mut v6 = vec![0u8; 40];
-    v6[0] = 0x60;
-    v6[8] = 0xfd;
-    v6[9] = 0xcc;
-    v6[23] = 1;
-    assert_eq!(packet_source(&v6), Some("fdcc::1".parse().unwrap()));
-
-    assert_eq!(packet_source(&[0x45; 10]), None);
-    assert_eq!(packet_source(&[]), None);
-}

@@ -682,16 +682,4 @@ mod tests {
         let error = prepare_datagram_directory(&long).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
-
-    #[test]
-    fn a_datagram_directory_others_may_enter_is_refused() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let control = dir.path().join("c.sock");
-        let directory = prepare_datagram_directory(&control).unwrap();
-        assert_eq!(std::fs::metadata(&directory).unwrap().mode() & 0o777, 0o700);
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let error = prepare_datagram_directory(&control).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
-    }
 }

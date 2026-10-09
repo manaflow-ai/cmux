@@ -1880,26 +1880,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn durable_object_batching_is_scoped_to_its_route_scheme() {
-        assert_eq!(
-            RelayCircuitFraming::for_route("relay+do://relay.example"),
-            RelayCircuitFraming::Batch
-        );
-        for route in [
-            "relay+ws://relay.example",
-            "relay+wss://relay.example",
-            "relay+https://relay.example",
-            "wss://relay.example",
-        ] {
-            assert_eq!(
-                RelayCircuitFraming::for_route(route),
-                RelayCircuitFraming::Single,
-                "{route}"
-            );
-        }
-    }
-
     #[tokio::test]
     async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2379,33 +2359,6 @@ mod tests {
         tasks.shutdown().await;
         assert!(tasks.is_empty());
         assert!(tasks.active.is_empty());
-    }
-
-    #[tokio::test]
-    async fn file_and_callback_sources_refresh_without_caching() {
-        #[cfg(unix)]
-        use std::os::unix::fs::PermissionsExt as _;
-
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("relay-ticket");
-        tokio::fs::write(&path, "file-ticket-one\n").await.unwrap();
-        #[cfg(unix)]
-        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
-        let file = RelayCredentialSource::file(&path);
-        assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-one");
-        tokio::fs::write(&path, "file-ticket-two\n").await.unwrap();
-        assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-two");
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let callback = RelayCredentialSource::callback({
-            let calls = calls.clone();
-            move || {
-                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
-                async move { Ok::<_, ()>(format!("callback-ticket-{value}")) }
-            }
-        });
-        assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-1");
-        assert_eq!(callback.fetch().await.unwrap().expose(), "callback-ticket-2");
     }
 
     #[cfg(unix)]

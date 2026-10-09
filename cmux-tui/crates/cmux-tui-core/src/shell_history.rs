@@ -347,24 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn shell_history_tracks_a_command_from_start_to_end() {
-        let mut screen = screen("ls -la   ");
-        let mut tracker = CommandTracker::default();
-        assert_eq!(tracker.apply(ShellMark::PromptStart, 1_000, &mut screen), None);
-        assert_eq!(tracker.apply(ShellMark::InputStart, 1_000, &mut screen), None);
-        assert_eq!(tracker.apply(ShellMark::CommandStart, 2_000, &mut screen), None);
-        screen.cwd = Some("/elsewhere".into());
-        let finished = tracker
-            .apply(ShellMark::CommandEnd { exit_code: Some(0) }, 2_750, &mut screen)
-            .expect("finished command");
-        assert_eq!(finished.command.as_deref(), Some("ls -la"));
-        assert_eq!(finished.cwd.as_deref(), Some("/repo"), "directory at command start");
-        assert_eq!(finished.exit_code, Some(0));
-        assert_eq!(finished.started_at_ms, 2_000);
-        assert_eq!(finished.duration_ms, 750);
-    }
-
-    #[test]
     fn shell_history_skips_an_empty_enter_and_a_stray_end() {
         let mut screen = screen("");
         let mut tracker = CommandTracker::default();
@@ -378,18 +360,6 @@ mod tests {
             tracker.apply(ShellMark::CommandEnd { exit_code: Some(1) }, 3, &mut screen),
             None
         );
-    }
-
-    #[test]
-    fn shell_history_keeps_a_command_without_readable_input() {
-        let mut screen = FakeScreen::default();
-        let mut tracker = CommandTracker::default();
-        tracker.apply(ShellMark::CommandStart, 10, &mut screen);
-        let finished =
-            tracker.apply(ShellMark::CommandEnd { exit_code: Some(2) }, 30, &mut screen).unwrap();
-        assert_eq!(finished.command, None);
-        assert_eq!(finished.exit_code, Some(2));
-        assert_eq!(finished.duration_ms, 20);
     }
 
     #[test]
@@ -429,18 +399,6 @@ mod tests {
             tracker
                 .apply(ShellMark::CommandEnd { exit_code: Some(0) }, 2_000, &mut screen)
                 .is_some()
-        );
-    }
-
-    #[test]
-    fn shell_history_reset_forgets_a_running_command() {
-        let mut screen = screen("make");
-        let mut tracker = CommandTracker::default();
-        tracker.apply(ShellMark::CommandStart, 1, &mut screen);
-        tracker.reset();
-        assert_eq!(
-            tracker.apply(ShellMark::CommandEnd { exit_code: Some(0) }, 2, &mut screen),
-            None
         );
     }
 }

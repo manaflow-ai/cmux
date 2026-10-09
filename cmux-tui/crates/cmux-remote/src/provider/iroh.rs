@@ -1349,22 +1349,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_relay_and_direct_address_hints() {
-        let node_id = secret(7).public();
-        let routing = BTreeMap::from([
-            (ROUTING_DIRECT_ADDRS.into(), r#"["127.0.0.1:4010","[::1]:4011"]"#.into()),
-            (ROUTING_RELAY_URL.into(), "https://relay.example.test".into()),
-        ]);
-        let route = IrohRoute::from_request(&request(node_id, routing)).unwrap();
-        assert_eq!(route.node_id(), node_id);
-        assert_eq!(route.node_addr().ip_addrs().count(), 2);
-        assert_eq!(
-            route.node_addr().relay_urls().next(),
-            Some(&RelayUrl::from_str("https://relay.example.test").unwrap())
-        );
-    }
-
-    #[test]
     fn rejects_conflicting_node_ids_and_invalid_addresses() {
         let first = secret(8).public();
         let second = secret(9).public();

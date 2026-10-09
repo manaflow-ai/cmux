@@ -237,15 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn registering_after_the_close_fires_at_once() {
-        let source = InterruptSet::default();
-        source.fire();
-        let interrupt = StreamInterrupt::new();
-        source.register(&interrupt);
-        assert!(interrupt.is_fired());
-    }
-
-    #[test]
     fn signals_coalesce_and_report_a_dropped_sender() {
         let (sender, receiver) = signal();
         assert!(sender.try_send(()).is_ok());

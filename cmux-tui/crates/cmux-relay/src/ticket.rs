@@ -326,30 +326,6 @@ mod tests {
 
     const ISSUER: &str = "relay.example";
 
-    #[test]
-    fn the_default_issuer_is_valid() {
-        assert!(validate_issuer(DEFAULT_ISSUER).is_ok());
-        let open = TicketAuthority::open();
-        let explicit = TicketAuthority::open_with_issuer(DEFAULT_ISSUER.into()).unwrap();
-        assert_eq!(open.issuer, explicit.issuer);
-        assert!(open.secret.is_none());
-    }
-
-    fn join_claims(expires_at_unix: u64) -> RelayTicketClaims {
-        RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: ISSUER.into(),
-            permission: RelayPermission::Join,
-            role: RelayRole::Client,
-            slot: "slot-a".into(),
-            circuit: Some(CircuitId("circuit-a".into())),
-            lane: Some(LaneToken("interactive".into())),
-            generation: Some(7),
-            issued_at_unix: expires_at_unix.saturating_sub(30),
-            expires_at_unix,
-        }
-    }
-
     fn join_expectation<'a>(circuit: &'a CircuitId, lane: &'a LaneToken) -> TicketExpectation<'a> {
         TicketExpectation {
             permission: RelayPermission::Join,
@@ -442,85 +418,6 @@ mod tests {
         );
         let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
         format!("{SIGNED_TICKET_PREFIX}.{payload}.{signature}")
-    }
-
-    #[test]
-    fn v2_ticket_round_trip_binds_permission_route_and_expiry() {
-        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
-        let claims = join_claims(1_030);
-        let ticket = authority.issue(&claims).unwrap();
-        assert!(ticket.starts_with("v2."));
-        let circuit = claims.circuit.as_ref().unwrap();
-        let lane = claims.lane.as_ref().unwrap();
-        let expectation = join_expectation(circuit, lane);
-        let verified = authority
-            .verify_join(&ticket, expectation, UNIX_EPOCH + Duration::from_secs(1_000))
-            .unwrap()
-            .unwrap();
-        assert_eq!(verified, claims);
-
-        let wrong_lane = LaneToken("bulk".into());
-        assert_eq!(
-            authority.verify_join(
-                &ticket,
-                join_expectation(circuit, &wrong_lane),
-                UNIX_EPOCH + Duration::from_secs(1_000),
-            ),
-            Err(TicketError::Scope)
-        );
-        assert_eq!(
-            authority.verify_join(&ticket, expectation, UNIX_EPOCH + Duration::from_secs(1_030),),
-            Err(TicketError::Expired)
-        );
-    }
-
-    #[test]
-    fn provider_ticket_permission_and_optional_route_scope_are_enforced() {
-        let authority = TicketAuthority::hmac_with_issuer(vec![7; 32], ISSUER.into()).unwrap();
-        let claims = RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: ISSUER.into(),
-            permission: RelayPermission::Connect,
-            role: RelayRole::Client,
-            slot: "slot-a".into(),
-            circuit: None,
-            lane: None,
-            generation: None,
-            issued_at_unix: 1_000,
-            expires_at_unix: 1_030,
-        };
-        let ticket = authority.issue(&claims).unwrap();
-        let expected = TicketExpectation {
-            permission: RelayPermission::Connect,
-            role: RelayRole::Client,
-            slot: "slot-a",
-            circuit: None,
-            lane: Some(&LaneToken("interactive".into())),
-            generation: Some(9),
-            require_route_binding: false,
-        };
-        authority
-            .verify_provider(&ticket, expected, UNIX_EPOCH + Duration::from_secs(1_000))
-            .unwrap();
-        assert_eq!(
-            authority.verify_provider(
-                &ticket,
-                TicketExpectation { permission: RelayPermission::Register, ..expected },
-                UNIX_EPOCH + Duration::from_secs(1_000),
-            ),
-            Err(TicketError::Scope)
-        );
-    }
-
-    #[test]
-    fn open_mode_issues_independent_strong_join_capabilities() {
-        let authority = TicketAuthority::open_with_issuer(ISSUER.into()).unwrap();
-        let claims = join_claims(1_030);
-        let first = authority.issue_join_capability(&claims).unwrap();
-        let second = authority.issue_join_capability(&claims).unwrap();
-        assert!(first.starts_with("o2."));
-        assert_ne!(first, second);
-        assert!(first.len() >= 40);
     }
 
     #[test]

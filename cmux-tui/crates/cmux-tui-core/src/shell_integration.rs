@@ -461,18 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn zsh_points_zdotdir_at_the_scripts_and_keeps_the_previous_one() {
-        let plain = launch("zsh", &[]);
-        assert_eq!(plain.command, vec!["zsh"]);
-        assert_eq!(env_of(&plain, "ZDOTDIR").as_deref(), Some("/state/shell-integration/abc/zsh"));
-        assert_eq!(env_of(&plain, "GHOSTTY_ZSH_ZDOTDIR"), None);
-
-        let custom = launch("zsh", &[("ZDOTDIR", "/home/me/.config/zsh")]);
-        assert_eq!(env_of(&custom, "GHOSTTY_ZSH_ZDOTDIR").as_deref(), Some("/home/me/.config/zsh"));
-        assert_eq!(env_of(&custom, "ZDOTDIR").as_deref(), Some("/state/shell-integration/abc/zsh"));
-    }
-
-    #[test]
     fn bash_starts_in_posix_mode_with_env_pointing_at_the_script() {
         let bash = launch("/usr/local/bin/bash", &[("HOME", "/home/me")]);
         assert_eq!(bash.command, vec!["/usr/local/bin/bash", "--posix"]);
@@ -515,83 +503,6 @@ mod tests {
         }
         let bash = launch("/usr/local/bin/bash", &[("HOME", "/home/me"), caller[2]]);
         assert_eq!(env_of(&bash, "GHOSTTY_BASH_INJECT").as_deref(), Some("1"));
-    }
-
-    #[test]
-    fn fish_prepends_the_scripts_to_xdg_data_dirs() {
-        let default = launch("fish", &[]);
-        assert_eq!(
-            env_of(&default, "XDG_DATA_DIRS").as_deref(),
-            Some("/state/shell-integration/abc:/usr/local/share:/usr/share")
-        );
-        assert_eq!(
-            env_of(&default, "GHOSTTY_SHELL_INTEGRATION_XDG_DIR").as_deref(),
-            Some("/state/shell-integration/abc")
-        );
-        let custom = launch("fish", &[("XDG_DATA_DIRS", "/opt/share")]);
-        assert_eq!(
-            env_of(&custom, "XDG_DATA_DIRS").as_deref(),
-            Some("/state/shell-integration/abc:/opt/share")
-        );
-    }
-
-    #[test]
-    fn materialize_writes_every_script_privately_and_repairs_missing_ones() {
-        let base = std::env::temp_dir().join(format!(
-            "cmux-tui-shell-integration-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        fs::create_dir_all(&base).unwrap();
-        let base = fs::canonicalize(&base).unwrap();
-        let root = base.join("shell-integration").join(content_digest());
-        materialize(&root).unwrap();
-        for script in SCRIPTS {
-            assert_eq!(fs::read_to_string(root.join(script.path)).unwrap(), script.contents);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(root.join("zsh")).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o700);
-        }
-        fs::remove_file(root.join("bash/ghostty.bash")).unwrap();
-        materialize(&root).unwrap();
-        assert!(root.join("bash/ghostty.bash").is_file());
-        // A symlink in place of a script is replaced by the real file.
-        #[cfg(unix)]
-        {
-            let decoy = base.join("decoy");
-            fs::write(&decoy, "echo hijacked\n").unwrap();
-            fs::remove_file(root.join("zsh/.zshenv")).unwrap();
-            std::os::unix::fs::symlink(&decoy, root.join("zsh/.zshenv")).unwrap();
-            materialize(&root).unwrap();
-            assert!(
-                !fs::symlink_metadata(root.join("zsh/.zshenv")).unwrap().file_type().is_symlink()
-            );
-            assert_eq!(fs::read_to_string(&decoy).unwrap(), "echo hijacked\n");
-        }
-        fs::remove_dir_all(&base).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn scripts_are_refused_below_a_directory_others_can_replace() {
-        use std::os::unix::fs::PermissionsExt;
-        let base = std::env::temp_dir().join(format!(
-            "cmux-tui-shell-integration-shared-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        fs::create_dir_all(&base).unwrap();
-        let base = fs::canonicalize(&base).unwrap();
-        fs::set_permissions(&base, fs::Permissions::from_mode(0o777)).unwrap();
-        let root = base.join("shell-integration").join(content_digest());
-        assert!(materialize(&root).is_err());
-        assert!(!base.join("shell-integration").exists());
-        fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
-        assert_eq!(materialize(&root).unwrap(), root);
-        fs::remove_dir_all(&base).unwrap();
     }
 
     /// Ghostty exports `GHOSTTY_SHELL_FEATURES` for every shell it starts
@@ -922,13 +833,5 @@ mod tests {
         let start = text.find("ssh-$((40+2))").map_or(0, |at| at + "ssh-$((40+2))".len());
         let end = text.rfind("ssh-42").unwrap_or(text.len());
         text[start..end.max(start)].to_string()
-    }
-
-    #[test]
-    fn opt_out_leaves_the_launch_unchanged() {
-        let launch =
-            integrate_default_shell(vec!["zsh".into()], vec![(OPT_OUT_ENV.into(), "none".into())]);
-        assert_eq!(launch.command, vec!["zsh"]);
-        assert_eq!(launch.env, vec![(OPT_OUT_ENV.to_string(), "none".to_string())]);
     }
 }

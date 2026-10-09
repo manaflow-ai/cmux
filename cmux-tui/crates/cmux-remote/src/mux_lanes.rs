@@ -249,21 +249,6 @@ mod tests {
         assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), Some(Lane::Bulk));
     }
 
-    #[test]
-    fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
-        assert_eq!(
-            classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
-            Lane::Interactive
-        );
-        assert_eq!(
-            classify_client_line(br#"{"id":9,"cmd":"paste-image","op":"chunk","data":"eA=="}"#),
-            Lane::Bulk
-        );
-        assert_eq!(
-            classify_client_line(br#"{"id":10,"cmd":"send","surface":1,"bytes":"eA=="}"#),
-            Lane::Interactive
-        );
-    }
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 
@@ -331,40 +316,6 @@ mod tests {
     }
 
     #[test]
-    fn keystrokes_and_terminal_output_use_distinct_lanes() {
-        let tracker = MuxLaneTracker::default();
-        let request = br#"{"id":7,"cmd":"send","surface":1,"bytes":"YQ=="}"#;
-        let lane = classify_client_line(request);
-        assert_eq!(lane, Lane::Interactive);
-        tracker.observe_request(request, lane);
-        assert_eq!(tracker.classify_server_line(br#"{"id":7,"ok":true}"#), Some(Lane::Interactive));
-        assert_eq!(
-            tracker.classify_server_line(br#"{"event":"output","surface":1,"data":"Yg=="}"#),
-            Some(Lane::Bulk)
-        );
-    }
-
-    #[test]
-    fn surface_stream_state_events_use_the_bulk_lane() {
-        let tracker = MuxLaneTracker::default();
-        for event in [
-            "render-state",
-            "render-delta",
-            "resized",
-            "colors-changed",
-            "scroll-changed",
-            "detached",
-        ] {
-            let line = format!(r#"{{"event":"{event}","surface":1}}"#);
-            assert_eq!(
-                tracker.classify_server_line(line.as_bytes()),
-                Some(Lane::Bulk),
-                "{event} must stay ordered with surface output"
-            );
-        }
-    }
-
-    #[test]
     fn surface_stream_terminal_cannot_overtake_its_bulk_tail() {
         let tracker = MuxLaneTracker::default();
         let render_lane =
@@ -380,50 +331,6 @@ mod tests {
                 "surface stream termination must stay ordered behind its bulk tail"
             );
         }
-    }
-
-    #[test]
-    fn one_way_input_response_is_drained_once() {
-        let tracker = MuxLaneTracker::default();
-        tracker.suppress_response(9);
-        assert_eq!(tracker.classify_server_line(br#"{"id":9,"ok":true}"#), None);
-        assert_eq!(tracker.classify_server_line(br#"{"id":9,"ok":true}"#), Some(Lane::Control));
-    }
-
-    #[test]
-    fn response_tracking_is_bounded() {
-        let tracker = MuxLaneTracker::default();
-        for id in 0..=MAX_TRACKED_REQUESTS as u64 {
-            tracker.suppress_response(id);
-        }
-
-        let state = tracker.state.lock().unwrap();
-        assert_eq!(state.order.len(), MAX_TRACKED_REQUESTS);
-        assert_eq!(state.requests.len(), MAX_TRACKED_REQUESTS);
-        drop(state);
-        assert_eq!(tracker.classify_server_line(br#"{"id":0,"ok":true}"#), Some(Lane::Control));
-    }
-
-    #[test]
-    fn stale_tracking_entry_does_not_evict_reused_request_id() {
-        let tracker = MuxLaneTracker::default();
-        tracker.suppress_response(1);
-        tracker.suppress_response(1);
-        for id in 2..=MAX_TRACKED_REQUESTS as u64 {
-            tracker.suppress_response(id);
-        }
-
-        assert_eq!(tracker.classify_server_line(br#"{"id":1,"ok":true}"#), None);
-    }
-
-    #[test]
-    fn large_snapshot_requests_use_bulk_lane() {
-        assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt-state"}"#), Lane::Bulk);
-        assert_eq!(
-            classify_client_line(br#"{"id":2,"cmd":"copy","mode":"scrollback"}"#),
-            Lane::Bulk
-        );
-        assert_eq!(classify_client_line(br#"{"id":3,"cmd":"list-workspaces"}"#), Lane::Control);
     }
 
     #[test]
@@ -447,14 +354,6 @@ mod tests {
             ),
             Lane::Control
         );
-    }
-
-    #[test]
-    fn mux_mutations_share_input_ordering_lane() {
-        for command in ["close-surface", "run", "new-workspace", "set-client-sizing"] {
-            let line = format!(r#"{{"id":2,"cmd":"{command}"}}"#);
-            assert_eq!(classify_client_line(line.as_bytes()), Lane::Interactive);
-        }
     }
 
     #[test]

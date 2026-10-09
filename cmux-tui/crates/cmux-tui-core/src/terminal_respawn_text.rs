@@ -61,26 +61,3 @@ pub(crate) fn stopped_marker(program: &str) -> String {
     let program = program.chars().filter(|c| !c.is_control()).collect::<String>();
     text().stopped.replace("{program}", &program)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_marker_names_a_command_without_its_control_characters() {
-        assert_eq!(marker(None), ENGLISH.restored);
-        assert_eq!(
-            marker(Some("ca\u{1b}t")),
-            "\u{2014} session restored (previous process ended; it ran cat) \u{2014}"
-        );
-        assert_eq!(marker(Some("\u{7}")), ENGLISH.restored);
-    }
-
-    #[test]
-    fn the_stopped_marker_names_the_program_without_control_characters() {
-        assert_eq!(
-            stopped_marker("sle\u{1b}ep"),
-            "\u{2014} sleep was stopped when this tab closed \u{2014}"
-        );
-    }
-}

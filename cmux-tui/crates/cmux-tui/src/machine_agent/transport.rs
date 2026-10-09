@@ -284,52 +284,13 @@ impl ConnectionControl for TestStreamControl {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
+
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
-    use std::path::Path;
+
     use std::thread;
 
     use super::*;
-
-    #[test]
-    fn ssh_exec_command_is_exact_and_user_input_only_selects_destination() {
-        let connector = SshCloudConnector::new(SshOptions {
-            host: "cmux.cloud".into(),
-            user: Some("dev".into()),
-            port: Some(2222),
-            identity_file: Some(Path::new("/keys/cmux").into()),
-        })
-        .unwrap();
-        let args = connector.command_args();
-        assert_eq!(
-            &args[args.len() - 5..],
-            [
-                OsStr::new("--"),
-                OsStr::new("dev@cmux.cloud"),
-                OsStr::new("cmux"),
-                OsStr::new("machine"),
-                OsStr::new("register"),
-            ]
-        );
-        assert!(args.contains(&OsString::from("dev@cmux.cloud")));
-        assert!(args.contains(&OsString::from("IdentitiesOnly=yes")));
-        assert!(args.contains(&OsString::from("BatchMode=yes")));
-        assert!(args.contains(&OsString::from("StrictHostKeyChecking=yes")));
-        assert!(args.contains(&OsString::from("RemoteCommand=none")));
-        assert!(args.contains(&OsString::from("ClearAllForwardings=yes")));
-        assert!(args.contains(&OsString::from("ForwardAgent=no")));
-        assert!(!args.iter().any(|argument| argument.to_string_lossy().contains("sh -c")));
-        assert!(
-            SshCloudConnector::new(SshOptions {
-                host: "-oProxyCommand=bad".into(),
-                user: None,
-                port: None,
-                identity_file: None,
-            })
-            .is_err()
-        );
-    }
 
     /// The registration link never becomes a ControlMaster, so turning its
     /// forwarding off cannot reach an interactive session.

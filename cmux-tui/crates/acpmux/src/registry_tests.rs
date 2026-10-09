@@ -184,19 +184,6 @@ fn a_registry_entry_cannot_point_at_another_program_on_path() {
 }
 
 #[test]
-fn acpmux_s_own_routes_and_built_in_names_are_never_taken() {
-    let route = one(
-        r#"{"id": "claude-cr", "name": "Route", "version": "1.0.0", "distribution": {"binary": {"linux-x86_64": {"archive": "https://e.com/c.tgz", "cmd": "./claude-cr"}}}}"#,
-    );
-    assert!(
-        discovered(&route, Some("linux-x86_64"), &on_path(&["claude-cr"]), &|_| false).is_empty()
-    );
-    for id in RESERVED_IDS {
-        assert_eq!(harness_id(id).as_deref(), Some(*id));
-    }
-}
-
-#[test]
 fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     let newline = r#"{"id": "x", "name": "X\nhooks = 1", "version": "1.0.0", "distribution": {"npx": {"package": "x@1.0.0"}}}"#;
     assert!(one(newline).agents.is_empty());

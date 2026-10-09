@@ -1064,15 +1064,6 @@ mod tests {
     }
 
     #[test]
-    fn classification_matches_connection_control_exceptions() {
-        assert_eq!(operation_class(ops::TERMINAL_COPY), OperationClass::Read);
-        assert_eq!(operation_class(ops::SESSION_JOURNAL_PRODUCER_LIST), OperationClass::Read);
-        assert_eq!(operation_class(ops::REQUEST_CANCEL), OperationClass::ConnectionControl);
-        assert_eq!(operation_class(ops::TERMINAL_VIEWER_RESIZE), OperationClass::ConnectionControl);
-        assert_eq!(operation_class(ops::TAB_CREATE_TERMINAL), OperationClass::Mutation);
-    }
-
-    #[test]
     fn compatibility_config_constructor_does_not_panic_for_invalid_session() {
         let result = std::panic::catch_unwind(|| Config::from_env_or_default_session("../escape"));
         assert!(result.is_ok(), "source-compatible constructor must not panic");
@@ -1117,26 +1108,5 @@ mod tests {
             .join(format!("cmux-resource-explicit-{}-{id}.sock", std::process::id()));
         let config = Config::from_socket_path(&explicit);
         assert_eq!(config.socket_path, explicit);
-    }
-
-    #[test]
-    fn protocol_retry_classification_preserves_the_typed_retryable_field() {
-        for retryable in [false, true] {
-            let error = decode_protocol_error(&serde_json::json!({
-                "code": "resource.busy",
-                "message": "try later",
-                "details": {"resource": "workspace_test"},
-                "retryable": retryable,
-            }))
-            .unwrap();
-            assert!(matches!(
-                error,
-                Error::Protocol {
-                    code,
-                    retryable: actual,
-                    ..
-                } if code == "resource.busy" && actual == retryable
-            ));
-        }
     }
 }

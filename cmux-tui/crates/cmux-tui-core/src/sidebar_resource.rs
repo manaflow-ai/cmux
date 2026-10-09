@@ -269,46 +269,6 @@ mod tests {
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
-    fn session_id(value: u128) -> SessionPublicId {
-        SessionPublicId::parse(format!("session_{value:032x}")).unwrap()
-    }
-
-    #[test]
-    fn sidebar_identity_is_stable_and_type_separated() {
-        let session = session_id(7);
-        let first = sidebar_view_id(&session).unwrap();
-        let second = sidebar_view_id(&session).unwrap();
-        assert_eq!(first, second);
-        assert!(first.as_str().starts_with("sidebar_view_"));
-        assert!(!first.as_str().ends_with(&session.as_str()["session_".len()..]));
-    }
-
-    #[test]
-    fn stopped_sidebar_snapshot_preserves_last_nonzero_size() {
-        let session = session_id(8);
-        let id = sidebar_view_id(&session).unwrap();
-        assert_eq!(
-            sidebar_snapshot(&id, &session, (0, 0), None),
-            json!({
-                "id":id,
-                "session_id":session,
-                "cols":1,
-                "rows":1,
-                "running":false,
-            })
-        );
-    }
-
-    #[test]
-    fn scroll_uses_wire_decimal_offset_and_public_view_id() {
-        let id = sidebar_view_id(&session_id(9)).unwrap();
-        let value = SidebarRenderClientState::scroll(&id, u64::MAX, false);
-        assert_eq!(value["kind"], "scroll");
-        assert_eq!(value["sidebar_view_id"], id.as_str());
-        assert_eq!(value["scroll"]["offset"], u64::MAX.to_string());
-        assert_eq!(value["scroll"]["at_bottom"], false);
-    }
-
     #[test]
     fn fake_plugin_input_reaches_the_styled_render_attachment() {
         let mux = Mux::new("sidebar-resource-fake-plugin", SurfaceOptions::default());

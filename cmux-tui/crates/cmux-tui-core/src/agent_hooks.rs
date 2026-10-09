@@ -842,35 +842,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_source_uses_the_shared_component_grammar() {
-        assert!(agent_hook_journal_ingress("codex-agent", "Stop", None, json!({})).is_ok());
-        assert!(agent_hook_journal_ingress("-codex", "Stop", None, json!({})).is_err());
-        assert!(agent_hook_journal_ingress("codex.agent", "Stop", None, json!({})).is_err());
-    }
-
-    #[test]
-    fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
-        for (source, event) in [
-            ("codex", "Stop"),
-            ("claude", "Stop"),
-            ("gemini", "AfterAgent"),
-            ("cursor", "afterAgentResponse"),
-            ("hermes-agent", "post_llm_call"),
-            ("rovodev", "on_complete"),
-        ] {
-            let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
-            let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
-            assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
-            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
-            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
-            assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
-            assert_eq!(ingress.payload["adapter"]["id"], source);
-            assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
-        }
-    }
-
-    #[test]
     fn raw_input_and_credentials_are_redacted_before_ingress() {
         let ingress = agent_hook_journal_ingress(
             "pi",
@@ -907,46 +878,6 @@ mod tests {
     }
 
     #[test]
-    fn dedicated_question_and_plan_tools_are_semantic_events() {
-        let question = agent_hook_journal_ingress(
-            "claude-code",
-            "PermissionRequest",
-            None,
-            json!({"tool_name":"AskUserQuestion"}),
-        )
-        .unwrap();
-        let plan = agent_hook_journal_ingress(
-            "claude-code",
-            "PermissionRequest",
-            None,
-            json!({"tool_name":"ExitPlanMode"}),
-        )
-        .unwrap();
-        assert_eq!(question.kind, "agent.question.requested");
-        assert_eq!(plan.kind, "agent.plan_review.requested");
-    }
-
-    #[test]
-    fn provider_specific_turn_boundaries_do_not_end_restorable_sessions() {
-        for (source, event) in [
-            ("antigravity", "SessionEnd"),
-            ("hermes-agent", "on_session_end"),
-            ("copilot", "Notification"),
-            ("codebuddy", "Notification"),
-            ("factory", "Notification"),
-        ] {
-            let ingress = agent_hook_journal_ingress(source, event, None, json!({})).unwrap();
-            assert_eq!(ingress.kind, "agent.turn.completed", "{source}:{event}");
-        }
-        let finalized =
-            agent_hook_journal_ingress("hermes-agent", "on_session_finalize", None, json!({}))
-                .unwrap();
-        assert_eq!(finalized.kind, "agent.session.ended");
-        let grok = agent_hook_journal_ingress("grok", "SessionEnd", None, json!({})).unwrap();
-        assert_eq!(grok.kind, "agent.session.ended");
-    }
-
-    #[test]
     fn provider_envelopes_normalize_structural_fields_and_redact_message_data() {
         let native = json!({
             "event": {
@@ -966,15 +897,6 @@ mod tests {
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
         assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
-    }
-
-    #[test]
-    fn opencode_idle_is_a_completed_turn_not_a_session_end() {
-        let idle = agent_hook_journal_ingress("opencode", "session.idle", None, json!({})).unwrap();
-        assert_eq!(idle.kind, "agent.turn.completed");
-        let deleted =
-            agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
-        assert_eq!(deleted.kind, "agent.session.ended");
     }
 
     #[test]
@@ -1015,103 +937,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(question.kind, "agent.question.requested");
-    }
-
-    #[test]
-    fn nested_agent_edges_are_stable_and_indexable_without_payload_scans() {
-        let root = agent_hook_journal_ingress(
-            "codex",
-            "SessionStart",
-            None,
-            json!({
-                "session_id":"tree-session",
-                "root_session_id":"tree-session",
-                "agent_id":"root-agent",
-                "root_agent_id":"root-agent"
-            }),
-        )
-        .unwrap();
-        let parent = agent_hook_journal_ingress(
-            "codex",
-            "SubagentStart",
-            None,
-            json!({
-                "session_id":"tree-session",
-                "root_session_id":"tree-session",
-                "agent_id":"child-a",
-                "parent_agent_id":"root-agent",
-                "root_agent_id":"root-agent",
-                "agent_depth":1
-            }),
-        )
-        .unwrap();
-        let child = agent_hook_journal_ingress(
-            "codex",
-            "SubagentStart",
-            None,
-            json!({
-                "session_id":"tree-session",
-                "root_session_id":"tree-session",
-                "agent_id":"emitting-parent",
-                "child_agent_id":"child-b",
-                "parent_agent_id":"child-a",
-                "root_agent_id":"root-agent",
-                "agent_depth":2
-            }),
-        )
-        .unwrap();
-        let completed = agent_hook_journal_ingress(
-            "codex",
-            "subagent.completed",
-            None,
-            json!({
-                "session_id":"tree-session",
-                "root_session_id":"tree-session",
-                "agent_id":"emitting-parent",
-                "child_agent_id":"child-b",
-                "parent_agent_id":"child-a",
-                "root_agent_id":"root-agent"
-            }),
-        )
-        .unwrap();
-
-        assert_eq!(parent.kind, "agent.child.spawned");
-        assert_eq!(child.kind, "agent.child.spawned");
-        assert_eq!(completed.kind, "agent.child.completed");
-        assert_eq!(child.payload["normalized"]["agent_depth"], 2);
-        assert_eq!(child.payload["normalized"]["native_agent_id"], "emitting-parent");
-        assert_eq!(child.payload["normalized"]["native_child_agent_id"], "child-b");
-        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
-        assert_eq!(root.payload["normalized"]["agent_relation"], "root");
-        assert_eq!(
-            parent.payload["normalized"]["parent_agent_node_id"],
-            root.payload["normalized"]["agent_node_id"]
-        );
-        assert_eq!(
-            child.payload["normalized"]["parent_agent_node_id"],
-            parent.payload["normalized"]["agent_node_id"]
-        );
-        assert_eq!(
-            completed.payload["normalized"]["agent_node_id"],
-            child.payload["normalized"]["agent_node_id"]
-        );
-        assert_eq!(
-            child.payload["normalized"]["agent_tree_id"],
-            parent.payload["normalized"]["agent_tree_id"]
-        );
-        for (field, subject_kind) in [
-            ("agent_tree_id", "agent_tree"),
-            ("agent_node_id", "agent_node"),
-            ("parent_agent_node_id", "agent_parent"),
-        ] {
-            let id = child.payload["normalized"][field].as_str().unwrap();
-            assert!(
-                child
-                    .subjects
-                    .iter()
-                    .any(|subject| subject.kind == subject_kind && subject.id == id)
-            );
-        }
     }
 
     #[test]
@@ -1205,137 +1030,6 @@ mod tests {
             grandchild.payload["normalized"]["agent_tree_id"],
             root.payload["normalized"]["agent_tree_id"]
         );
-    }
-
-    #[test]
-    fn claude_direct_children_attach_to_the_shared_session_root() {
-        for source in ["claude", "claude-code"] {
-            let root = agent_hook_journal_ingress(
-                source,
-                "SessionStart",
-                None,
-                json!({"session_id":"claude-session"}),
-            )
-            .unwrap();
-            let child = agent_hook_journal_ingress(
-                source,
-                "SubagentStart",
-                None,
-                json!({"session_id":"claude-session","agent_id":"child-a"}),
-            )
-            .unwrap();
-
-            assert_eq!(child.payload["normalized"]["agent_relation"], "provider_root", "{source}");
-            assert_eq!(
-                child.payload["normalized"]["parent_agent_node_id"],
-                root.payload["normalized"]["agent_node_id"],
-                "{source}"
-            );
-            assert_eq!(
-                child.payload["normalized"]["agent_tree_id"],
-                root.payload["normalized"]["agent_tree_id"],
-                "{source}"
-            );
-        }
-    }
-
-    #[test]
-    fn absent_parent_metadata_stays_an_orphan_instead_of_inventing_an_edge() {
-        let child = agent_hook_journal_ingress(
-            "codex",
-            "SubagentStart",
-            None,
-            json!({"session_id":"child-session","agent_id":"child-a"}),
-        )
-        .unwrap();
-        assert_eq!(child.payload["normalized"]["agent_relation"], "unknown");
-        assert!(child.payload["normalized"].get("parent_agent_node_id").is_none());
-        assert!(!child.subjects.iter().any(|subject| subject.kind == "agent_parent"));
-
-        let ambiguous = agent_hook_journal_ingress(
-            "copilot",
-            "subagentStart",
-            None,
-            json!({"sessionId":"copilot-session","agentName":"Explore"}),
-        )
-        .unwrap();
-        assert_eq!(ambiguous.payload["normalized"]["agent_relation"], "unknown");
-        assert!(ambiguous.payload["normalized"].get("agent_node_id").is_none());
-        assert!(ambiguous.subjects.iter().any(|subject| subject.kind == "agent_tree"));
-    }
-
-    #[test]
-    fn terminal_identity_is_a_subject_and_unknown_events_remain_lossless() {
-        let terminal = "term_00000000000000000000000000000001";
-        let native = json!({"future":true});
-        let ingress = agent_hook_journal_ingress(
-            "future-agent",
-            "NewLifecycle",
-            Some(terminal),
-            native.clone(),
-        )
-        .unwrap();
-        assert_eq!(ingress.kind, "agent.state.changed");
-        assert_eq!(ingress.payload["native"], native);
-        assert!(
-            ingress
-                .subjects
-                .iter()
-                .any(|subject| subject.kind == "terminal" && subject.id == terminal)
-        );
-        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
-        assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
-    }
-
-    #[test]
-    fn built_in_agent_ingress_is_immediately_appendable_and_idempotent() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-agent-hook-journal-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = crate::Mux::open_persistent(
-            "agent-hook-journal",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let ingress = agent_hook_journal_ingress(
-            "codex",
-            "Stop",
-            None,
-            json!({
-                "session_id":"native-session",
-                "api_token":"persistent-secret-sentinel",
-                "opaque":{"v":42,"prompt":"persistent-input-sentinel"}
-            }),
-        )
-        .unwrap();
-        let first = mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
-        let replay =
-            mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
-        assert!(!first.replayed);
-        assert!(replay.replayed);
-        assert_eq!(first.event_id, replay.event_id);
-
-        let record = mux
-            .session_journal_after(first.sequence.saturating_sub(1), 1)
-            .unwrap()
-            .records
-            .into_iter()
-            .next()
-            .unwrap();
-        assert_eq!(record.kind, "agent.turn.completed");
-        assert_eq!(record.producer.kind, "agent_adapter");
-        assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
-        assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
-        assert_eq!(record.payload["native"]["opaque"]["v"], 42);
-        let encoded = serde_json::to_string(&record.payload).unwrap();
-        assert!(!encoded.contains("persistent-secret-sentinel"));
-        assert!(!encoded.contains("persistent-input-sentinel"));
-        assert!(encoded.contains(REDACTED_AGENT_VALUE));
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

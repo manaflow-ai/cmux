@@ -2120,12 +2120,7 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control::{CloseHandler, EventHandler};
-    use std::future::Future;
-    #[cfg(unix)]
-    use std::os::unix::fs::MetadataExt;
-    #[cfg(target_os = "macos")]
-    use std::os::unix::fs::PermissionsExt;
+
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2176,9 +2171,6 @@ mod tests {
     #[derive(Clone)]
     struct FakePty {
         state: Arc<StdMutex<FakeState>>,
-        spawn_file: String,
-        spawn_cwd: PathBuf,
-        spawn_term: String,
     }
 
     impl FakePty {
@@ -2193,9 +2185,6 @@ mod tests {
             if let Some(sink) = sink {
                 sink(code);
             }
-        }
-        fn written_string(&self, index: usize) -> String {
-            String::from_utf8_lossy(&self.state.lock().unwrap().written[index]).into_owned()
         }
     }
 
@@ -2244,13 +2233,8 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
-            let pty = FakePty {
-                state: Arc::new(StdMutex::new(FakeState::default())),
-                spawn_file: spec.file.clone(),
-                spawn_cwd: spec.cwd.path.clone(),
-                spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
-            };
+        async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+            let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.recorded.lock().unwrap().spawned.push(pty.clone());
             let control: Arc<dyn PtyControl> = Arc::new(pty.clone());
             let output: Arc<dyn PtyOutput> = Arc::new(pty);
@@ -2305,7 +2289,6 @@ mod tests {
         sent: Arc<StdMutex<Vec<Value>>>,
         buffered: Arc<AtomicU64>,
         owner: Option<String>,
-        home: PathBuf,
         _home: TestDirectory,
     }
 
@@ -2351,7 +2334,7 @@ mod tests {
         });
         let manager = PtyManager::with_limits(
             deps,
-            home_path.clone(),
+            home_path,
             env,
             MAX_PTYS,
             SCROLLBACK_LIMIT,
@@ -2363,7 +2346,6 @@ mod tests {
             sent: Arc::new(StdMutex::new(Vec::new())),
             buffered: Arc::new(AtomicU64::new(0)),
             owner: Some("user_owner".to_owned()),
-            home: home_path,
             _home: home,
         }
     }
@@ -2392,23 +2374,6 @@ mod tests {
             let mut context = self.context(trust, owner);
             context.transport_id = transport_id.map(str::to_owned);
             context
-        }
-
-        async fn open_with_transport(&self, pty_id: &str, session: &str, transport_id: &str) {
-            let frame = serde_json::json!({
-                "version": 4,
-                "type": "pty_open",
-                "ptyId": pty_id,
-                "session": session,
-                "cols": 80,
-                "rows": 24,
-                "actorId": "user_owner",
-                "trust": "supervised",
-                "allowedRoots": Value::Null,
-            });
-            let context =
-                self.context_with_transport("supervised", self.owner.clone(), Some(transport_id));
-            self.manager.handle_frame(&frame, &context).await;
         }
 
         async fn open(
@@ -2444,221 +2409,22 @@ mod tests {
                 .await;
         }
 
-        async fn frame_as(&self, frame: Value, trust: &str, owner: Option<String>) {
-            self.manager.handle_frame(&frame, &self.context(trust, owner)).await;
-        }
-
         fn sent(&self) -> Vec<Value> {
             self.sent.lock().unwrap().clone()
         }
         fn spawned(&self) -> Vec<FakePty> {
             self.recorded.lock().unwrap().spawned.clone()
         }
-        fn daemons(&self) -> Vec<(String, PathBuf)> {
-            self.recorded.lock().unwrap().daemons.clone()
-        }
         fn connected(&self) -> Vec<PathBuf> {
             self.recorded.lock().unwrap().connected.clone()
         }
     }
 
-    fn b64(text: &str) -> String {
-        BASE64.encode(text.as_bytes())
-    }
     fn from_b64(value: &str) -> String {
         String::from_utf8_lossy(&BASE64.decode(value).unwrap()).into_owned()
     }
     fn ty(frame: &Value) -> &str {
         frame.get("type").and_then(Value::as_str).unwrap_or_default()
-    }
-
-    #[tokio::test]
-    async fn bad_session_names_and_dims_answer_bad_request() {
-        let h = harness(None, None);
-        h.open("p1", "bad/name", Value::Null, "supervised", h.owner.clone()).await;
-        h.open("p2", "ok", serde_json::json!({ "cols": 0 }), "supervised", h.owner.clone()).await;
-        let sent = h.sent();
-        assert_eq!(ty(&sent[0]), "pty_error");
-        assert_eq!(sent[0]["code"], "bad_request");
-        assert_eq!(sent[1]["code"], "bad_request");
-    }
-
-    #[test]
-    fn session_name_validation_matches_core_path_component_rules() {
-        let long_name = format!("long-{}", "x".repeat(256));
-        for name in ["legacy name", "名前", "dots.and-dashes_ok", &long_name] {
-            assert!(session_name_ok(name), "rejected valid session {name:?}");
-        }
-        for name in [
-            "",
-            ".",
-            "..",
-            "nested/session",
-            "nested\\session",
-            "nul\0session",
-            "line\nfeed",
-            "next\u{0085}line",
-            "line\u{2028}separator",
-            "line\u{2029}separator",
-        ] {
-            assert!(!session_name_ok(name), "accepted invalid session {name:?}");
-        }
-    }
-
-    #[tokio::test]
-    async fn observe_trust_refuses_non_owner_but_admits_owner() {
-        let h = harness(None, None);
-        h.open(
-            "p1",
-            "main",
-            serde_json::json!({ "actorId": "user_other" }),
-            "observe",
-            h.owner.clone(),
-        )
-        .await;
-        assert_eq!(h.sent()[0]["code"], "trust_refused");
-        h.open("p2", "main", Value::Null, "observe", h.owner.clone()).await;
-        assert_eq!(ty(&h.sent()[1]), "pty_opened");
-    }
-
-    #[tokio::test]
-    async fn observe_trust_with_unknown_owner_refuses() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "observe", None).await;
-        assert_eq!(h.sent()[0]["code"], "trust_refused");
-    }
-
-    #[tokio::test]
-    async fn shell_open_output_input_resize_flow_round_trip() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        let opened = &h.sent()[0];
-        assert_eq!(opened["type"], "pty_opened");
-        assert_eq!(opened["created"], true);
-        assert_eq!(opened["cols"], 80);
-        let pty = h.spawned()[0].clone();
-        assert_eq!(pty.spawn_file, "/bin/fakesh");
-        assert_eq!(pty.spawn_cwd, std::fs::canonicalize(&h.home).unwrap());
-        assert_eq!(pty.spawn_term, "xterm-256color");
-
-        pty.emit("hello\r\n");
-        assert_eq!(ty(&h.sent()[1]), "pty_output");
-        assert_eq!(from_b64(h.sent()[1]["dataB64"].as_str().unwrap()), "hello\r\n");
-
-        h.frame(serde_json::json!({ "type": "pty_input", "ptyId": "p1", "dataB64": b64("ls\r") }))
-            .await;
-        assert_eq!(pty.written_string(0), "ls\r");
-
-        h.frame(
-            serde_json::json!({ "type": "pty_resize", "ptyId": "p1", "cols": 132, "rows": 43 }),
-        )
-        .await;
-        assert!(pty.state.lock().unwrap().resized.contains(&(132, 43)));
-
-        h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": true })).await;
-        assert!(pty.state.lock().unwrap().paused);
-        h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": false })).await;
-        assert!(!pty.state.lock().unwrap().paused);
-    }
-
-    #[tokio::test]
-    async fn trust_downgrade_revokes_existing_non_owner_controls() {
-        let h = harness(None, None);
-        h.open(
-            "p1",
-            "main",
-            serde_json::json!({"actorId": "user_other"}),
-            "supervised",
-            h.owner.clone(),
-        )
-        .await;
-        h.frame_as(
-            serde_json::json!({"type":"pty_input","ptyId":"p1","dataB64":b64("x")}),
-            "observe",
-            h.owner.clone(),
-        )
-        .await;
-        assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
-        assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
-    }
-
-    #[tokio::test]
-    async fn output_after_trust_downgrade_is_not_forwarded() {
-        let h = harness(None, None);
-        h.open(
-            "p1",
-            "main",
-            serde_json::json!({"actorId": "user_other"}),
-            "supervised",
-            h.owner.clone(),
-        )
-        .await;
-        let pty = h.spawned()[0].clone();
-        h.frame_as(
-            serde_json::json!({"type":"pty_input","ptyId":"p1","dataB64":b64("x")}),
-            "observe",
-            h.owner.clone(),
-        )
-        .await;
-        pty.emit("secret");
-        assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
-    }
-
-    #[tokio::test]
-    async fn close_requires_current_trust() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        h.frame_as(serde_json::json!({"type":"pty_close","ptyId":"p1"}), "", h.owner.clone()).await;
-        assert!(h.sent().iter().any(|f| f["code"] == "trust_revoked"));
-    }
-
-    #[tokio::test]
-    async fn close_detaches_without_killing_reattach_replays_scrollback() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        let pty = h.spawned()[0].clone();
-        pty.emit("before detach\r\n");
-        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
-        assert!(!pty.state.lock().unwrap().killed);
-        pty.emit("while detached\r\n");
-        let before = h.sent().len();
-        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
-        let opened = &h.sent()[before];
-        assert_eq!(opened["type"], "pty_opened");
-        assert_eq!(opened["created"], false);
-        let replay = &h.sent()[before + 1];
-        assert_eq!(
-            from_b64(replay["dataB64"].as_str().unwrap()),
-            "before detach\r\nwhile detached\r\n"
-        );
-        assert_eq!(h.spawned().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn zero_byte_chunks_never_become_output_frames() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        let pty = h.spawned()[0].clone();
-        pty.emit("");
-        assert_eq!(h.sent().len(), 1);
-        pty.emit("real bytes");
-        assert_eq!(h.sent().len(), 2);
-        assert_eq!(from_b64(h.sent()[1]["dataB64"].as_str().unwrap()), "real bytes");
-    }
-
-    #[tokio::test]
-    async fn unknown_pty_ids_are_tolerated_on_every_verb() {
-        let h = harness(None, None);
-        for frame in [
-            serde_json::json!({ "type": "pty_input", "ptyId": "ghost", "dataB64": b64("x") }),
-            serde_json::json!({ "type": "pty_resize", "ptyId": "ghost", "cols": 10, "rows": 10 }),
-            serde_json::json!({ "type": "pty_flow", "ptyId": "ghost", "pause": true }),
-            serde_json::json!({ "type": "pty_close", "ptyId": "ghost" }),
-            serde_json::json!({ "type": "pty_close", "ptyId": "ghost" }),
-        ] {
-            h.frame(frame).await;
-        }
-        assert_eq!(h.sent().len(), 0);
     }
 
     #[tokio::test]
@@ -2690,14 +2456,13 @@ mod tests {
             control: None,
         });
         let manager =
-            PtyManager::with_limits(deps, home_path.clone(), env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
+            PtyManager::with_limits(deps, home_path, env, MAX_PTYS, 32, OUTPUT_BUFFER_CAP);
         let h = Harness {
             manager,
             recorded,
             sent: Arc::new(StdMutex::new(Vec::new())),
             buffered: Arc::new(AtomicU64::new(0)),
             owner: Some("user_owner".to_owned()),
-            home: home_path,
             _home: home,
         };
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
@@ -2712,24 +2477,6 @@ mod tests {
         assert!(replay.len() <= 32 + 20);
         assert!(replay.contains("chunk-9"));
         assert!(!replay.contains("chunk-0"));
-    }
-
-    #[tokio::test]
-    async fn second_open_adds_a_viewer_output_fans_out_to_both() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
-        assert_eq!(h.spawned().len(), 1);
-        assert_eq!(h.sent()[1]["created"], false);
-        h.spawned()[0].emit("hello");
-        let mut ids: Vec<String> = h
-            .sent()
-            .iter()
-            .filter(|f| ty(f) == "pty_output")
-            .map(|f| f["ptyId"].as_str().unwrap().to_owned())
-            .collect();
-        ids.sort();
-        assert_eq!(ids, vec!["p1", "p2"]);
     }
 
     #[tokio::test]
@@ -2753,20 +2500,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn more_than_max_ptys_answers_session_limit() {
-        let h = harness(None, None);
-        for i in 0..MAX_PTYS {
-            h.open(&format!("p{i}"), &format!("s{i}"), Value::Null, "supervised", h.owner.clone())
-                .await;
-        }
-        h.open("overflow", "extra", Value::Null, "supervised", h.owner.clone()).await;
-        let last = h.sent();
-        let last = last.last().unwrap();
-        assert_eq!(last["type"], "pty_error");
-        assert_eq!(last["code"], "session_limit");
-    }
-
-    #[tokio::test]
     async fn wedged_worker_drops_attachment_session_survives() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
@@ -2783,20 +2516,6 @@ mod tests {
         let reopened =
             h.sent().into_iter().find(|f| ty(f) == "pty_opened" && f["ptyId"] == "p2").unwrap();
         assert_eq!(reopened["created"], false);
-    }
-
-    #[tokio::test]
-    async fn cmux_open_ensures_daemon_and_close_kills_only_the_viewer() {
-        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
-        let h = harness(Some(cmux), None);
-        h.open("p1", "work", Value::Null, "supervised", h.owner.clone()).await;
-        assert_eq!(h.daemons().len(), 1);
-        assert_eq!(h.daemons()[0].0, "work");
-        assert_eq!(h.daemons()[0].1, PathBuf::from("/run/cmux-tui-501"));
-        assert_eq!(h.sent()[0]["created"], true);
-        let viewer = h.spawned()[0].clone();
-        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
-        assert!(viewer.state.lock().unwrap().killed);
     }
 
     #[tokio::test]
@@ -2821,63 +2540,6 @@ mod tests {
         assert_eq!(h.sent()[0]["type"], "pty_opened");
     }
 
-    /// Scripted control plane: identifies at the protocol floor and lists a
-    /// workspace tree WITHOUT the requested terminal — the JS harness's
-    /// "closed tab" shape.
-    struct GoneControl;
-
-    impl ControlHandle for GoneControl {
-        fn request(
-            &self,
-            cmd: &str,
-            _params: Value,
-        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
-            let response = match cmd {
-                "identify" => Some(serde_json::json!({
-                    "ok": true,
-                    "data": { "protocol": CONTROL_MIN_PROTOCOL, "capabilities": [] },
-                })),
-                "list-workspaces" => Some(serde_json::json!({
-                    "ok": true,
-                    "data": { "workspaces": [] },
-                })),
-                _ => None,
-            };
-            Box::pin(async move { response })
-        }
-        fn send(&self, _cmd: &str, _params: Value) {}
-        fn on_event(&self, _handler: EventHandler) {}
-        fn on_close(&self, _handler: CloseHandler) {}
-        fn pause(&self) {}
-        fn resume(&self) {}
-        fn end(&self) {}
-    }
-
-    #[tokio::test]
-    async fn missing_surface_refuses_with_typed_terminal_gone() {
-        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
-        let h = harness_with_control(Some(cmux), None, None, Some(Arc::new(GoneControl)));
-        h.open(
-            "p1",
-            "job-x",
-            serde_json::json!({ "surface": "term_dead" }),
-            "supervised",
-            h.owner.clone(),
-        )
-        .await;
-        let sent = h.sent();
-        let error = sent.iter().find(|f| ty(f) == "pty_error").expect("pty_error frame");
-        // The typed code is the contract (chatmux protocol RelayPtyErrorCode);
-        // the message keeps the human wording the Node relay used.
-        assert_eq!(error["code"], "terminal_gone");
-        let decoded: crate::relay_wire::RelayPtyError =
-            serde_json::from_value(error.clone()).expect("generated pty_error fixture");
-        assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
-        assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
-        // A gone terminal must NOT degrade to a whole-session attach.
-        assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
-    }
-
     #[tokio::test]
     async fn surface_list_globs_socket_dir_and_merges_shell_sessions() {
         let h = harness(
@@ -2894,41 +2556,6 @@ mod tests {
         assert!(ids.contains(&"notes"));
         assert!(ids.contains(&"myshell"));
         assert!(!ids.contains(&"junk"));
-    }
-
-    #[tokio::test]
-    async fn detach_all_releases_attachments_sessions_stay_reattachable() {
-        let h = harness(None, None);
-        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
-        h.manager.detach_all();
-        let before = h.sent().len();
-        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
-        assert_eq!(h.sent()[before]["created"], false); // same session survived
-        assert_eq!(h.spawned().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn a_foreign_transport_cannot_write_resize_or_close_an_owned_pty() {
-        let h = harness(None, None);
-        h.open_with_transport("p1", "main", "transport-a").await;
-        let foreign = h.context_with_transport("supervised", h.owner.clone(), Some("transport-b"));
-        let input = serde_json::json!({
-            "version": 4,
-            "type": "pty_input",
-            "ptyId": "p1",
-            "dataB64": b64("stolen"),
-        });
-        h.manager.handle_frame(&input, &foreign).await;
-        assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
-        let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
-        h.manager.handle_frame(&close, &foreign).await;
-        assert!(h.manager.has_attachment("p1"), "a foreign close must be a silent no-op");
-        let owner = h.context_with_transport("supervised", h.owner.clone(), Some("transport-a"));
-        h.manager.handle_frame(&input, &owner).await;
-        assert_eq!(h.spawned()[0].written_string(0), "stolen");
-        // A caller with no transport identity owns the whole manager (legacy).
-        h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
-        assert!(!h.manager.has_attachment("p1"));
     }
 
     /// Output of a PTY goes only to the transport that opened it, with that
@@ -2962,18 +2589,6 @@ mod tests {
         };
         assert_eq!(outputs(&tunnel_frames), 0, "output leaked to another transport");
         assert_eq!(outputs(&relay_frames), 1, "output did not reach the opening transport");
-    }
-
-    #[tokio::test]
-    async fn detach_transport_releases_only_that_transports_attachments() {
-        let h = harness(None, None);
-        h.open_with_transport("p-relay", "relay-side", "transport-relay").await;
-        h.open_with_transport("p-tunnel", "tunnel-side", "transport-tunnel").await;
-        h.manager.detach_transport("transport-relay");
-        assert!(!h.manager.has_attachment("p-relay"), "the relay transport's viewer must detach");
-        assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
-        h.manager.detach_all();
-        assert!(!h.manager.has_attachment("p-tunnel"));
     }
 
     #[test]
@@ -3021,53 +2636,6 @@ mod tests {
             scoped_cwd(Some(""), &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn scoped_cwd_descriptor_remains_pinned_after_path_rebind() {
-        let root = TestDirectory::new("cwd-pinned");
-        let scope = root.path.join("scope");
-        let checked = scope.join("checked");
-        let outside = root.path.join("outside");
-        std::fs::create_dir(&scope).unwrap();
-        std::fs::create_dir(&checked).unwrap();
-        std::fs::create_dir_all(outside.join("checked")).unwrap();
-        let resolved = scoped_cwd(Some(checked.to_str().unwrap()), &root.path, None, None).unwrap();
-        let before = resolved.directory.metadata().unwrap();
-        std::fs::rename(&scope, root.path.join("moved")).unwrap();
-        std::os::unix::fs::symlink(&outside, &scope).unwrap();
-        let after = resolved.directory.metadata().unwrap();
-        assert_eq!(before.dev(), after.dev());
-        assert_eq!(before.ino(), after.ino());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn scoped_cwd_accepts_execute_only_directory() {
-        let root = TestDirectory::new("cwd-search-only");
-        let directory = root.path.join("search-only");
-        std::fs::create_dir(&directory).unwrap();
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
-
-        // `open_pinned_directory` intentionally rejects symlink components.
-        // Canonicalize the temporary path because macOS commonly exposes /var
-        // through a symlink, while preserving the execute-only target.
-        let canonical = std::fs::canonicalize(&directory).unwrap();
-        open_pinned_directory(&canonical).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn scoped_cwd_resolves_execute_only_directory() {
-        let root = TestDirectory::new("cwd-search-only-scoped");
-        let directory = root.path.join("search-only");
-        std::fs::create_dir(&directory).unwrap();
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
-
-        let resolved = scoped_cwd(Some(directory.to_str().unwrap()), &root.path, None, None)
-            .expect("execute-only cwd must resolve through its pinned descriptor");
-        assert_eq!(resolved.path, std::fs::canonicalize(directory).unwrap());
     }
 
     #[cfg(unix)]

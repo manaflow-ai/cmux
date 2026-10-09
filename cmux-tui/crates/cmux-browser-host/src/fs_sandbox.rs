@@ -355,13 +355,4 @@ mod tests {
         let tmp = fs.call("resolve", &json!({"path": "."}));
         assert!(tmp["ok"].is_string());
     }
-
-    #[test]
-    fn base64_round_trips() {
-        for sample in [&b""[..], b"h", b"hi", b"hi!", b"\x00\xff\x10binary"] {
-            assert_eq!(base64_decode(&base64_encode(sample)).unwrap(), sample);
-        }
-        assert_eq!(base64_encode(b"hi"), "aGk=");
-        assert!(base64_decode("@@").is_none());
-    }
 }

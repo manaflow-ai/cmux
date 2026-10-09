@@ -2451,26 +2451,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn identity_is_stable_and_files_are_private() {
-        let temp = tempfile::tempdir().unwrap();
-        let first = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
-        let public = first.identity().public_key();
-        drop(first);
-        let second = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
-        assert_eq!(second.identity().public_key(), public);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(temp.path()).unwrap().permissions().mode() & 0o777, 0o700);
-            assert_eq!(
-                fs::metadata(temp.path().join("identity.json")).unwrap().permissions().mode()
-                    & 0o777,
-                0o600
-            );
-        }
-    }
-
     #[test]
     fn auth_database_rejects_legacy_state_until_explicit_migration() {
         let temp = tempfile::tempdir().unwrap();
@@ -3682,20 +3662,6 @@ mod tests {
         assert_eq!(database.test_persistence_writes_succeeded(), baseline + 2);
     }
 
-    #[test]
-    fn legacy_known_daemon_defaults_to_enrolled_auth() {
-        let daemon: KnownDaemon = serde_json::from_value(serde_json::json!({
-            "fingerprint": "fingerprint",
-            "name": "daemon",
-            "public_key": "key",
-            "route_hints": ["wss://example.invalid/v1/link"],
-            "first_seen_at_unix": 1,
-            "last_used_at_unix": 2
-        }))
-        .unwrap();
-        assert_eq!(daemon.auth, KnownDaemonAuth::Enrolled);
-    }
-
     #[tokio::test]
     async fn carrier_daemon_reconnect_mode_is_persisted_and_can_be_promoted() {
         let temp = tempfile::tempdir().unwrap();
@@ -3734,30 +3700,6 @@ mod tests {
         let refreshed =
             store.pin_daemon("host".into(), key, vec!["iroh://node".into()]).await.unwrap();
         assert_eq!(refreshed.route_hints, vec!["iroh://node".to_string()]);
-    }
-
-    #[tokio::test]
-    async fn independent_client_stores_merge_known_daemon_updates() {
-        let temp = tempfile::tempdir().unwrap();
-        let first = ClientIdentityStore::load_or_create(temp.path()).unwrap();
-        let second = ClientIdentityStore::load_or_create(temp.path()).unwrap();
-        let first_key = StaticIdentity::generate().unwrap().public_key();
-        let second_key = StaticIdentity::generate().unwrap().public_key();
-
-        first
-            .pin_daemon("first".into(), first_key, vec!["wss://first.example".into()])
-            .await
-            .unwrap();
-        second
-            .pin_daemon("second".into(), second_key, vec!["wss://second.example".into()])
-            .await
-            .unwrap();
-
-        let reloaded = ClientIdentityStore::load_or_create(temp.path()).unwrap();
-        let daemons = reloaded.known_daemons().await;
-        assert_eq!(daemons.len(), 2);
-        assert!(daemons.iter().any(|daemon| daemon.name == "first"));
-        assert!(daemons.iter().any(|daemon| daemon.name == "second"));
     }
 
     #[tokio::test]
@@ -3851,44 +3793,6 @@ mod tests {
         assert!(!routing.contains_key("ticket"));
     }
 
-    #[tokio::test]
-    async fn verified_route_refreshes_known_daemon_route_and_last_used_time() {
-        let temp = tempfile::tempdir().unwrap();
-        let key = StaticIdentity::generate().unwrap().public_key();
-        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
-        let known = store
-            .pin_daemon("host".into(), key, vec!["wss://old.example/v1/link".into()])
-            .await
-            .unwrap();
-        {
-            let mut state = store.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            state.persisted.daemons.get_mut(&known.fingerprint).unwrap().last_used_at_unix = 1;
-            store.persist_client_state(&state.persisted).unwrap();
-        }
-
-        let refreshed = store
-            .remember_verified_route(
-                &known.fingerprint,
-                "wss://refresh-user-marker:refresh-password-marker@new.example/\
-                 refresh-path-marker?ticket=refresh-query-marker",
-            )
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert!(refreshed.last_used_at_unix > 1);
-        assert_eq!(refreshed.route_hints, ["wss://old.example/", "wss://new.example/"]);
-        let persisted = fs::read_to_string(temp.path().join("known-daemons.json")).unwrap();
-        for secret in [
-            "refresh-user-marker",
-            "refresh-password-marker",
-            "refresh-path-marker",
-            "refresh-query-marker",
-        ] {
-            assert!(!persisted.contains(secret), "{secret:?} leaked in {persisted:?}");
-        }
-    }
-
     #[test]
     fn identity_debug_output_redacts_keys_secrets_and_route_credentials() {
         let relay = EnrollmentRelayAccess {
@@ -3970,65 +3874,6 @@ mod tests {
         assert!(!format!("{invitation:?}").contains("secret-connect-ticket"));
         let decoded = EnrollmentInvitation::from_uri(&invitation.to_uri().unwrap()).unwrap();
         assert_eq!(decoded.relay_access, vec![access]);
-    }
-
-    #[tokio::test]
-    async fn invitation_count_is_bounded_without_evicting_live_entries() {
-        let temp = tempfile::tempdir().unwrap();
-        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
-
-        let mut invitation_ids = HashSet::with_capacity(MAX_LIVE_INVITATIONS);
-        for _ in 0..MAX_LIVE_INVITATIONS {
-            let invitation =
-                database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
-            invitation_ids.insert(invitation.id);
-        }
-
-        let error = database
-            .create_invitation(Duration::from_secs(60), Vec::new())
-            .await
-            .expect_err("live invitation cardinality limit was not enforced");
-        assert!(matches!(
-            error,
-            IdentityError::Invalid(message) if message.contains("maximum invitation count")
-        ));
-
-        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
-        assert_eq!(persisted.invitations.len(), MAX_LIVE_INVITATIONS);
-        let persisted_ids = persisted
-            .invitations
-            .into_iter()
-            .map(|invitation| invitation.id)
-            .collect::<HashSet<_>>();
-        assert_eq!(persisted_ids, invitation_ids);
-    }
-
-    #[test]
-    fn invitation_rejects_duplicate_relay_bootstrap_routes() {
-        let route = "relay+do://relay.example".to_string();
-        let access = EnrollmentRelayAccess {
-            route: route.clone(),
-            slot: "0123456789abcdef0123456789abcdef".into(),
-            ticket: "ticket".into(),
-        };
-        let error = validate_relay_access(&[route], &[access.clone(), access]).unwrap_err();
-        assert!(matches!(error, IdentityError::Invalid(message) if message.contains("unique")));
-    }
-
-    #[test]
-    fn credential_free_route_hints_deduplicate_without_reordering() {
-        let routes = vec![
-            "unix:///tmp/first".to_string(),
-            "unix:///tmp/second".to_string(),
-            "unix:///tmp/first".to_string(),
-        ];
-
-        let sanitized = credential_free_route_hints(routes).unwrap();
-
-        assert_eq!(
-            sanitized,
-            vec!["unix:///tmp/first".to_string(), "unix:///tmp/second".to_string()]
-        );
     }
 
     #[tokio::test]

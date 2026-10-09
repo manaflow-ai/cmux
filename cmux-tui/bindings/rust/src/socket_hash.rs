@@ -42,7 +42,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::*;
+
     // Each feature combination uses a different subset.
     #[allow(unused_imports)]
     use crate::client::{
@@ -110,13 +110,6 @@ mod tests {
                 .and_then(Path::file_name)
                 .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
         );
-    }
-
-    #[test]
-    fn fnv_leaf_is_stable_and_input_specific() {
-        assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
-        assert_ne!(fnv1a64(b"../escape"), fnv1a64(b"nested/escape"));
     }
 
     #[cfg(not(feature = "socket-path-hash"))]

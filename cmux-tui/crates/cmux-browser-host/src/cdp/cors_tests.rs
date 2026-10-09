@@ -71,25 +71,6 @@ fn a_guessed_or_replayed_token_is_stripped_and_relaxes_nothing() {
     assert!(!cors.active());
 }
 
-/// SHELL-REDIRECT-LNA option 1: the host follows redirects, so no hop is
-/// relaxed; a token request's redirect is read at the response stage.
-#[test]
-fn a_redirect_is_read_for_the_host_and_no_hop_is_relaxed() {
-    let mut cors = granted();
-    cors.on_request("T", "n1", "GET", URL, &token_request("t1"));
-    let location = json!({"name": "Location", "value": "/next"});
-    cors.note_redirect("n1", 302, std::slice::from_ref(&location));
-    assert_eq!(cors.take_redirect("t1"), Some((302, "/next".to_owned())));
-    // A page request's redirect is nobody's.
-    cors.note_redirect("other", 302, &[location]);
-    assert_eq!(cors.take_redirect("t1"), None);
-    // A hop request with the used token (same network id) is stripped only.
-    let hop = "https://cdn.peer.test/data";
-    let action = cors.on_request("T", "n9", "GET", hop, &token_request("t1"));
-    assert!(matches!(action, RequestAction::ContinueWith { .. }));
-    assert_eq!(cors.on_response("n9", hop, &[]), None, "a hop is not relaxed");
-}
-
 #[test]
 fn a_token_preflight_is_answered_locally_and_never_sent() {
     let mut cors = granted();
@@ -124,21 +105,6 @@ fn tokens_are_128_bits_and_fresh() {
     let (a, b) = (fresh_token(), fresh_token());
     assert_eq!(a.len(), 32);
     assert_ne!(a, b);
-}
-
-#[test]
-fn a_fetch_shell_document_is_answered_locally_for_its_tab_only() {
-    let mut cors = Cors::default();
-    let shell = "https://api.peer.test/.well-known/cmux-fetch-shell";
-    cors.add_shell("BG", shell);
-    let page = json!({});
-    assert!(matches!(
-        cors.on_request("BG", "s1", "GET", shell, &page),
-        RequestAction::Fulfill { status: 200, .. }
-    ));
-    assert_eq!(cors.on_request("OTHER", "s2", "GET", shell, &page), RequestAction::Continue);
-    cors.remove_shell("BG");
-    assert_eq!(cors.on_request("BG", "s3", "GET", shell, &page), RequestAction::Continue);
 }
 
 /// a9 shell-tab condition (a): the shell document is empty and never

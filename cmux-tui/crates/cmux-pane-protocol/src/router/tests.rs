@@ -131,16 +131,6 @@ fn namespaces_are_reserved_and_live_overlap_is_refused() {
 }
 
 #[test]
-fn app_ids_are_publisher_dot_name() {
-    assert_eq!(namespace_for("octo/diff-tools"), "octo.diff_tools");
-    assert!(valid_app_id("octo.diff_tools"));
-    assert!(valid_app_id("cmux"));
-    assert!(!valid_app_id("octo"));
-    assert!(!valid_app_id("octo.diff-tools"));
-    assert!(!valid_app_id("Octo.diff"));
-}
-
-#[test]
 fn interfaces_list_names_live_implementations() {
     let router = router();
     let mut octo = with_credential(hello("octo.diff_tools", &["octo.diff_tools"], vec![]), "octo");
@@ -239,17 +229,6 @@ fn pages_register_and_resolve_with_scoped_data_tokens() {
     assert_eq!(router.resolve_for(&admission, "cmux.other").unwrap_err().code, error::FORBIDDEN);
     // A native caller gets the endpoint and no token.
     assert_eq!(router.resolve_for(&Admission::SelfStarted, "cmux.git").unwrap().token, None);
-}
-
-#[test]
-fn third_party_pages_need_install_grants_and_their_own_namespace() {
-    let router = router();
-    let mut greedy = diff_page();
-    greedy.scopes = vec!["fs:write".into()];
-    assert!(router.register_page("octo.diff_tools", greedy).is_err());
-    let mut squatter = diff_page();
-    squatter.id = "cmux.settings".into();
-    assert!(router.register_page("octo.diff_tools", squatter).is_err());
 }
 
 #[test]

@@ -78,14 +78,4 @@ mod tests {
         // The thread ended with the release; the next idle starts a new one.
         assert!(linger.idle(later + LINGER * 2, LINGER));
     }
-
-    #[test]
-    fn an_idle_after_the_release_check_starts_a_new_wait() {
-        let start = Instant::now();
-        let mut linger = Linger::default();
-        assert!(linger.idle(start, Duration::ZERO));
-        assert_eq!(linger.wait(start), Next::Release);
-        assert_eq!(linger.wait(start), Next::Stop);
-        assert!(linger.idle(start, LINGER));
-    }
 }

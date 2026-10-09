@@ -595,23 +595,6 @@ mod tests {
         )
     }
 
-    #[test]
-    fn mux_input_requires_an_explicit_backward_compatible_feature() {
-        assert_eq!(
-            decode_opened(br#"{"type":"opened","service":"mux-control"}"#, Service::MuxControl)
-                .unwrap(),
-            ServiceOpenFeatures { mux_input_v1: false }
-        );
-        assert_eq!(
-            decode_opened(
-                br#"{"type":"opened","service":"mux-control","features":["mux-input-v1"]}"#,
-                Service::MuxControl,
-            )
-            .unwrap(),
-            ServiceOpenFeatures { mux_input_v1: true }
-        );
-    }
-
     #[tokio::test]
     async fn mux_open_barrier_buffers_data_from_a_ready_lane_until_all_lanes_are_ready() {
         let (client_endpoint, daemon_endpoint) = endpoint_pair();

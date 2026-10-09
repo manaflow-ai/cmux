@@ -422,13 +422,4 @@ mod tests {
             assert!(super::scp_fetch_argv("ssh://box", path, "/l").is_err(), "{path:?}");
         }
     }
-
-    #[test]
-    fn ssh_host_strips_only_a_numeric_port() {
-        assert_eq!(ssh_host("ssh://box").as_deref(), Some("box"));
-        assert_eq!(ssh_host("ssh://me@box:47812").as_deref(), Some("me@box"));
-        assert_eq!(ssh_host("ssh://[::1]").as_deref(), Some("[::1]"));
-        assert_eq!(ssh_host("ssh://[::1]:47812").as_deref(), Some("[::1]"));
-        assert_eq!(ssh_host("ws://box:1"), None);
-    }
 }

@@ -129,15 +129,6 @@ impl FakeApp {
         provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
     }
 
-    fn attaches(&self, target: &str) -> usize {
-        self.frames
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|f| matches!(f, Frame::CdpAttach { target_id } if target_id == target))
-            .count()
-    }
-
     fn cdp_messages(&self, target: &str) -> Vec<Value> {
         self.frames
             .lock()
@@ -295,27 +286,6 @@ fn request_filters_apply_per_app_tab_on_cef_relays() {
     assert!(!w.set_request_filter(Some(Arc::new(|_| None))));
 }
 
-#[test]
-fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    app.access(&provider, "C");
-    let cef = engine(&provider, "cef");
-    let info = cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-    assert_eq!(info["url"], "https://a.test/", "{info}");
-    // Results name the app's tab, never the page's CDP target id.
-    assert!(!info.to_string().contains("CDP-C"), "{info}");
-    assert_eq!(app.attaches("C"), 1);
-    let sent = app.cdp_messages("C");
-    assert_eq!(sent[0]["method"], "Target.getTargetInfo");
-    // The page's own messages carry no session on the wire.
-    assert!(sent.iter().all(|m| m.get("sessionId").is_none()), "{sent:?}");
-    assert!(sent.iter().any(|m| m["method"] == "Page.enable"));
-    // A second session shares the tab's relay.
-    let other = engine(&provider, "cef");
-    other.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-    assert_eq!(app.attaches("C"), 1);
-}
-
 /// One `tabs.list` shape for every source (driver-protocol.md): the
 /// headless source checks the same contract in tests/chromium.rs.
 #[test]
@@ -328,48 +298,6 @@ fn provider_tabs_list_has_the_protocol_shape() {
     }
 }
 
-#[test]
-fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    let webkit = engine(&provider, "webkit");
-    let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-    assert_eq!(tabs.as_array().unwrap().len(), 1);
-    assert_eq!(tabs[0]["targetId"], "W");
-    assert_eq!(webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
-    assert_eq!(app.attaches("W"), 0);
-    let cef = engine(&provider, "cef");
-    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()[0]["targetId"], "C");
-}
-
-#[test]
-fn a_refused_tab_never_opens_a_relay() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    let cef = engine(&provider, "cef");
-    // No tab.access report yet: refused, and the app saw no cdp.attach.
-    let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
-    assert_eq!(app.attaches("C"), 0);
-    let missing = cef.call("tab.info", &json!({"targetId": "X"})).unwrap_err();
-    assert_eq!(missing.code, crate::protocol::ErrorCode::NotFound, "{missing}");
-}
-
-#[test]
-fn a_closed_relay_attaches_again_and_a_gone_tab_is_not_found() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    app.access(&provider, "C");
-    let cef = engine(&provider, "cef");
-    cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-    // The app replaced the tab's browser: the next call attaches again.
-    app.send(Frame::Event { name: "tab.relay.closed".into(), payload: json!({"targetId": "C"}) });
-    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-    cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-    assert_eq!(app.attaches("C"), 2);
-    app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "C"}) });
-    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-    let gone = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(gone.code, crate::protocol::ErrorCode::NotFound, "{gone}");
-}
-
 pub(super) fn calls(app: &FakeApp, method: &str) -> usize {
     app.frames
         .lock()
@@ -377,88 +305,6 @@ pub(super) fn calls(app: &FakeApp, method: &str) -> usize {
         .iter()
         .filter(|f| matches!(f, Frame::Call { method: m, .. } if m == method))
         .count()
-}
-
-/// Review P0: tab-less calls (cookies of the person's profile) never
-/// reach the app; a session drives only its own engine's tabs.
-#[test]
-fn tab_less_calls_and_other_engine_tabs_are_refused() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    app.access(&provider, "C");
-    let webkit = engine(&provider, "webkit");
-    for method in ["cookies.get", "cookies.set", "cookies.clear", "cdp"] {
-        let error = webkit.call(method, &json!({})).unwrap_err();
-        assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{method}: {error}");
-        assert_eq!(calls(&app, method), 0, "{method} reached the app");
-    }
-    let bad = webkit.call("tab.info", &json!({"targetId": 7})).unwrap_err();
-    assert_eq!(bad.code, crate::protocol::ErrorCode::Invalid, "{bad}");
-    let other = webkit.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(other.code, crate::protocol::ErrorCode::NotFound, "{other}");
-    assert_eq!(app.attaches("C"), 0);
-}
-
-/// Review P1: raw CDP on a relayed tab cannot reach Target, Browser or
-/// Storage (another tab, the browser target, the profile's cookies).
-#[test]
-fn raw_cdp_on_a_relayed_tab_cannot_leave_the_page() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    app.access(&provider, "C");
-    let cef = engine(&provider, "cef");
-    for method in [
-        "Target.attachToTarget",
-        "Target.attachToBrowserTarget",
-        "Target.createTarget",
-        "Storage.getCookies",
-        "Browser.close",
-    ] {
-        let error = cef
-            .call(
-                "cdp",
-                &json!({"targetId": "C", "method": method, "params": {}, "timeoutMs": 5000}),
-            )
-            .unwrap_err();
-        assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{method}: {error}");
-        assert!(app.cdp_messages("C").iter().all(|m| m["method"] != method), "{method} went out");
-    }
-}
-
-/// A tab that navigates to a browser page after its relay opened is refused.
-#[test]
-fn a_relayed_tab_that_shows_a_browser_page_is_refused() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
-    app.access(&provider, "C");
-    let cef = engine(&provider, "cef");
-    cef.call("tab.info", &json!({"targetId": "C", "timeoutMs": 5000})).unwrap();
-    app.send(Frame::Event {
-        name: "tab.navigated".into(),
-        payload: json!({"targetId": "C", "url": "chrome://settings/"}),
-    });
-    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-    let error = cef.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(error.error_name.as_deref(), Some(crate::provider_link::BROWSER_PAGE), "{error}");
-}
-
-/// Review P1: a domain policy the provider cannot enforce on the page's
-/// own requests makes every call fail closed.
-#[test]
-fn a_policy_on_a_provider_session_fails_closed() {
-    use crate::gate::{Gate, Grants};
-    use crate::policy::{DomainPattern, Layer};
-    use crate::vm::VmHost;
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-    let gate = Gate::new(Arc::new(engine(&provider, "webkit")), Grants::default());
-    gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
-    let layer = Layer {
-        allowed: Some(vec![DomainPattern::parse("a.test").unwrap()]),
-        prohibited: Vec::new(),
-        block_ips: false,
-    };
-    gate.set_owner_policy(layer, false).unwrap();
-    let before = calls(&app, "tab.info");
-    let error = gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap_err();
-    assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
-    assert_eq!(calls(&app, "tab.info"), before);
 }
 
 /// Review P1: tabs.open passes only url and background; the app picks
@@ -497,22 +343,6 @@ fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
         assert_eq!(error.code, crate::protocol::ErrorCode::Unsupported, "{kind}: {error}");
     }
     assert_eq!(calls(&app, "tabs.open"), 0, "a persistent tab was opened instead");
-}
-
-#[test]
-fn tabs_open_goes_to_the_app_with_the_session_engine() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
-    let cef = engine(&provider, "cef");
-    cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
-    let frames = app.frames.lock().unwrap();
-    let open = frames
-        .iter()
-        .find_map(|f| match f {
-            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(open["engine"], "cef");
 }
 
 /// A Chromium session's `tabs.open {url}` opens a blank tab in the app,

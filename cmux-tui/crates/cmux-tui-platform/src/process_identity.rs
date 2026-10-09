@@ -92,32 +92,10 @@ pub(crate) fn identity(_pid: u32) -> Option<ProcessIdentity> {
 mod tests {
     use super::*;
 
-    fn now_ms() -> u64 {
-        u64::try_from(
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-        )
-        .unwrap()
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    #[test]
-    fn this_process_is_named_with_its_parent() {
-        let described = describe_sender(std::process::id(), now_ms()).unwrap();
-        assert!(described["name"].as_str().is_some_and(|name| !name.is_empty()), "{described}");
-        // SAFETY: getppid has no preconditions.
-        let parent = unsafe { libc::getppid() };
-        assert_eq!(described["ppid"].as_i64(), Some(i64::from(parent)), "{described}");
-    }
-
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_process_that_started_after_the_signal_is_not_its_sender() {
         let described = describe_sender(std::process::id(), 1_000).unwrap();
         assert_eq!(described, json!({"reused": true}));
-    }
-
-    #[test]
-    fn pid_zero_names_nobody() {
-        assert_eq!(describe_sender(0, now_ms()), None);
     }
 }

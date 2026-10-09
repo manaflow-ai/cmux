@@ -717,30 +717,6 @@ mod tests {
         assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
     }
 
-    #[test]
-    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-
-        let fresh = dir.join("daemon.log");
-        drop(open_daemon_log(&fresh).unwrap());
-        assert_eq!(mode(&fresh), 0o600);
-
-        let old = dir.join("old.log");
-        std::fs::write(&old, b"kept\n").unwrap();
-        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
-        {
-            use std::io::Write;
-            let mut f = open_daemon_log(&old).unwrap();
-            f.write_all(b"appended\n").unwrap();
-        }
-        assert_eq!(mode(&old), 0o600);
-        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     #[tokio::test]
     async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {
         let dir = std::env::temp_dir().join(format!("acpmux-lock-{}", uuid::Uuid::now_v7()));

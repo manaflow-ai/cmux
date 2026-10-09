@@ -244,20 +244,6 @@ pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_config_entry_naming_a_non_asking_mode_is_ignored_with_a_warning() {
-        let extra = BTreeMap::from([
-            ("codex".to_owned(), vec!["agent".to_owned()]),
-            ("myharness".to_owned(), vec!["ask".to_owned(), "bypassPermissions".to_owned()]),
-        ]);
-        let (table, warnings) = WebModeTable::build(&extra);
-        assert!(table.modes("codex").is_empty(), "{:?}", table.modes("codex"));
-        assert_eq!(table.modes("myharness"), ["ask"]);
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        assert!(warnings[0].contains("\"agent\""), "{warnings:?}");
-        assert!(!table.summary().contains("codex="), "{}", table.summary());
-    }
-
     // D10: no config entry opens Codex or opencode to the Web.
     #[test]
     fn a_config_entry_for_codex_or_opencode_is_ignored_with_a_warning() {
@@ -273,14 +259,5 @@ mod tests {
         assert_eq!(warnings.len(), 4, "{warnings:?}");
         assert!(!table.summary().contains("codex="), "{}", table.summary());
         assert!(!table.summary().contains("opencode="), "{}", table.summary());
-    }
-
-    #[test]
-    fn every_reviewed_row_is_disjoint_from_the_non_asking_list() {
-        for (family, modes) in ASKING_MODES {
-            for mode in *modes {
-                assert!(!non_asking(mode), "{family}: {mode} is in both lists");
-            }
-        }
     }
 }

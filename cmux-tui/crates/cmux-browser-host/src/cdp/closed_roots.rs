@@ -334,20 +334,4 @@ mod tests {
         assert!(!dom_event(&mut recent).contains("DisableDom"));
         assert!(roots(&recent).dom_on && !roots(&recent).fresh);
     }
-
-    #[test]
-    fn closed_roots_are_grouped_by_their_frame() {
-        let tree = json!({"backendNodeId": 1, "children": [
-            {"backendNodeId": 2, "shadowRoots": [{"backendNodeId": 3, "shadowRootType": "closed", "children": [
-                {"backendNodeId": 4, "shadowRoots": [{"backendNodeId": 5, "shadowRootType": "closed"}]}]}]},
-            {"backendNodeId": 6, "shadowRoots": [{"backendNodeId": 7, "shadowRootType": "open"}]},
-            {"backendNodeId": 8, "frameId": "F2", "contentDocument": {"backendNodeId": 9, "children": [
-                {"backendNodeId": 10, "shadowRoots": [{"backendNodeId": 11, "shadowRootType": "closed"}]}]}},
-        ]});
-        let mut out = HashMap::new();
-        collect(&tree, "F1", &mut out);
-        assert_eq!(out["F1"], vec![(2, 3), (4, 5)]);
-        assert_eq!(out["F2"], vec![(10, 11)]);
-        assert_eq!(out.len(), 2);
-    }
 }

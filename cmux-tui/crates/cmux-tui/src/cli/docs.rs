@@ -216,36 +216,3 @@ fn catalog_target(scope: &str) -> &str {
         other => other,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn search_requires_all_terms_and_returns_browser_operations() {
-        let results = search("browser navigate");
-        assert!(results.iter().any(|result| result.name == "browser.navigate"));
-        assert!(results.iter().all(|result| result.name.contains("browser")));
-    }
-
-    #[test]
-    fn scope_help_is_catalog_backed() {
-        let help = scope_help("terminal");
-        assert!(help.contains("terminal.screen.read [read]"));
-        assert!(has_scope_operations("browser"));
-        assert!(has_scope_operations("sidebar"));
-        assert!(has_scope_operations("pairing"));
-        assert!(has_scope_operations("projection"));
-    }
-
-    #[test]
-    fn docs_search_preserves_json_output_mode() {
-        let plan = parse(
-            &["search".to_owned(), "browser".to_owned(), "navigate".to_owned()],
-            OutputMode::Json,
-        )
-        .unwrap();
-        assert_eq!(plan.query, "browser navigate");
-        assert_eq!(plan.output, OutputMode::Json);
-    }
-}

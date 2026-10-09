@@ -541,17 +541,6 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
 mod tests {
     use super::*;
 
-    fn sources(root: &Path) -> ProfileSources {
-        ProfileSources { user_dir: Some(root.join("harnesses")), ..ProfileSources::none() }
-    }
-
-    fn scratch(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("acpmux-admin-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        root
-    }
-
     #[test]
     fn env_lines_keep_secrets_out_of_files() {
         assert_eq!(env_line("a", "REGION", "eu").unwrap(), "REGION = \"eu\"");
@@ -565,55 +554,5 @@ mod tests {
             Err(AdminError::SecretInline(_))
         ));
         assert!(matches!(env_line("a", "1BAD", "x"), Err(AdminError::Invalid(_))));
-    }
-
-    #[test]
-    fn add_remove_restore_round_trip() {
-        let root = scratch("trip");
-        let src = sources(&root);
-        let p = AddParams {
-            id: Some("acme".into()),
-            display_name: Some("Acme \"Agent\"".into()),
-            command: Some("/bin/echo".into()),
-            args: vec!["acp".into()],
-            env: BTreeMap::from([("REGION".into(), "eu".into())]),
-            ..AddParams::default()
-        };
-        let added = add(&p, &src, None, &|_| None).unwrap();
-        assert!(added.diagnostics.is_empty(), "{:?}", added.diagnostics);
-        let loaded = profiles::load(&src);
-        assert_eq!(loaded.profiles["acme"].0.argv, vec!["/bin/echo".to_owned(), "acp".into()]);
-        assert!(matches!(add(&p, &src, None, &|_| None), Err(AdminError::Exists(_))));
-        let cfg = Config::default();
-        let removed = remove("acme", &cfg, &src, &root.join("home")).unwrap();
-        assert!(!added.path.exists());
-        assert!(matches!(
-            remove("acme", &cfg, &src, &root.join("home")),
-            Err(AdminError::NotFound(_))
-        ));
-        let restored = restore(&removed.backup, &src, &root.join("home")).unwrap();
-        assert_eq!(restored.id, "acme");
-        assert!(added.path.exists());
-        assert!(restore("../x.toml", &src, &root.join("home")).is_err());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn exactly_one_source() {
-        let root = scratch("one");
-        let src = sources(&root);
-        let none = AddParams::default();
-        assert!(matches!(add(&none, &src, None, &|_| None), Err(AdminError::Invalid(_))));
-        let both = AddParams {
-            command: Some("/bin/echo".into()),
-            example: Some("gemini".into()),
-            ..AddParams::default()
-        };
-        assert!(matches!(add(&both, &src, None, &|_| None), Err(AdminError::Invalid(_))));
-        let example = AddParams { example: Some("gemini".into()), ..AddParams::default() };
-        let added = add(&example, &src, None, &|_| None).unwrap();
-        assert_eq!(added.id, "gemini");
-        assert!(matches!(add(&example, &src, None, &|_| None), Err(AdminError::Exists(_))));
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

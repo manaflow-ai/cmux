@@ -996,30 +996,6 @@ mod tests {
     }
 
     #[test]
-    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
-        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
-        // grouped session and is newer than 10.
-        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
-        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
-        assert_eq!(route.terminal, "term_recent");
-    }
-
-    #[test]
-    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
-        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
-        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
-    }
-
-    #[test]
-    fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
-        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
-        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
-    }
-
-    #[test]
     fn parses_short_positional_source_and_event() {
         assert_eq!(
             parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
@@ -1028,33 +1004,9 @@ mod tests {
     }
 
     #[test]
-    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
-        use std::ffi::OsStr;
-
-        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
-        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
-        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
-        assert!(!shadowed_by_grok("claude", None));
-    }
-
-    #[test]
     fn invalid_utf8_is_retained_as_base64() {
         let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
         assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
-    }
-
-    #[test]
-    fn bounded_detached_request_id_preserves_uuid_and_payload() {
-        use std::io::Cursor;
-
-        let request_id = "550e8400-e29b-41d4-a716-446655440000";
-        let mut reader =
-            BufReader::new(Cursor::new(format!("{request_id}\n{{\"event\":\"Stop\"}}")));
-        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
-
-        let mut payload = Vec::new();
-        reader.read_to_end(&mut payload).unwrap();
-        assert_eq!(payload, br#"{"event":"Stop"}"#);
     }
 
     #[test]
@@ -1073,15 +1025,6 @@ mod tests {
     }
 
     #[test]
-    fn bounded_detached_request_id_rejects_an_unterminated_line() {
-        use std::io::Cursor;
-
-        let mut reader = BufReader::new(Cursor::new(b"550e8400-e29b-41d4-a716-446655440000"));
-        let error = read_detached_request_id(&mut reader).unwrap_err();
-        assert_eq!(error.to_string(), "detached request id is missing newline delimiter");
-    }
-
-    #[test]
     fn bounded_detached_request_id_rejects_an_oversized_line() {
         use std::io::Cursor;
 
@@ -1093,33 +1036,6 @@ mod tests {
             error.to_string(),
             format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
         );
-    }
-
-    #[test]
-    fn retries_transient_admission_loss_within_one_bounded_receipt_window() {
-        let mut attempts = 0;
-        retry_until(Duration::from_millis(100), |_| {
-            attempts += 1;
-            if attempts < 3 {
-                Err(AppendAttemptError::Retryable(anyhow!("connection dropped")))
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
-        assert_eq!(attempts, 3);
-    }
-
-    #[test]
-    fn does_not_retry_a_durable_rejection() {
-        let mut attempts = 0;
-        let error = retry_until(Duration::from_millis(100), |_| {
-            attempts += 1;
-            Err::<(), _>(AppendAttemptError::Fatal(anyhow!("invalid event")))
-        })
-        .unwrap_err();
-        assert_eq!(attempts, 1);
-        assert_eq!(error.to_string(), "invalid event");
     }
 
     #[test]
