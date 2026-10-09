@@ -12,6 +12,9 @@ use std::fs;
 #[cfg(not(target_os = "linux"))]
 use std::process::Command;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
+
+use super::{HOST_KILL_WAIT, HostShared};
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -128,23 +131,73 @@ fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
 
 #[cfg(not(target_os = "linux"))]
 fn session_groups(session: libc::pid_t) -> Vec<libc::pid_t> {
-    let Ok(output) = Command::new("ps").args(["-axo", "pid=,sid=,pgid=,stat="]).output() else {
+    // Darwin ps does not expose a numeric session ID. Use it only to list
+    // non-zombie PIDs, then query their session and group through libc.
+    let Ok(output) = Command::new("/bin/ps").args(["-axo", "pid=,stat="]).output() else {
         return Vec::new();
     };
+    if !output.status.success() {
+        return Vec::new();
+    }
     let mut groups = HashSet::new();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         let mut fields = line.split_whitespace();
-        let Some(_pid) = fields.next() else { continue };
-        let Some(sid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
-            continue;
-        };
-        let Some(pgid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+        let Some(pid) = fields.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
             continue;
         };
         let Some(stat) = fields.next() else { continue };
-        if sid == session && pgid > 0 && !stat.starts_with('Z') {
+        if pid <= 0 || stat.starts_with('Z') {
+            continue;
+        }
+        // SAFETY: both calls query a positive PID; an exited process returns -1.
+        let sid = unsafe { libc::getsid(pid) };
+        let pgid = unsafe { libc::getpgid(pid) };
+        // Query the session again after the group to reject a PID that left
+        // the session (or was reused) between the first query and getpgid.
+        if sid == session && pgid > 0 && unsafe { libc::getsid(pid) } == session {
             groups.insert(pgid);
         }
     }
     groups.into_iter().collect()
+}
+
+impl HostShared {
+    pub(super) fn signal_terminal_process_groups(&self, signal: libc::c_int) {
+        let mut groups = Vec::with_capacity(2);
+        // The wait thread observes exit with WNOWAIT, then takes this lock
+        // before reaping. While we hold it, `!child_reaped` means the
+        // original PID/PGID is still kernel-reserved and cannot have been
+        // reused between validation and killpg.
+        let _signal = self.child_signal_lock.lock().unwrap();
+        let child_reserved = !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
+        // SAFETY: getpgrp has no preconditions.
+        let host_group = unsafe { libc::getpgrp() };
+        self.session_cleanup.signal(self.adopted_session, self.pid, signal, host_group);
+        if child_reserved
+            && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
+        {
+            groups.push(pid);
+        }
+        // Query the PTY each time rather than trusting the original group:
+        // a foreground job or retained descendant may own a different
+        // group by the time explicit Terminate escalates.
+        if child_reserved
+            && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+        {
+            groups.push(foreground);
+        }
+        groups.sort_unstable();
+        groups.dedup();
+        // Signal validated groups, excluding the terminal host's own group.
+        for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
+            // SAFETY: validated positive process-group ids owned by this
+            // PTY session; signal is a platform constant from this module.
+            let _ = unsafe { libc::killpg(group, signal) };
+        }
+    }
+
+    pub(super) fn finish_group_escalation(&self) {
+        let _ = self.session_cleanup.wait_for_exit(HOST_KILL_WAIT);
+        self.publish_child_wait_predicate(&self.group_escalation_complete);
+    }
 }

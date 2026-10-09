@@ -3552,41 +3552,6 @@ mod unix {
             self.publish_child_wait_predicate(&self.pty_drained);
         }
 
-        fn signal_terminal_process_groups(&self, signal: libc::c_int) {
-            let mut groups = Vec::with_capacity(2);
-            // The wait thread observes exit with WNOWAIT, then takes this lock
-            // before reaping. While we hold it, `!child_reaped` means the
-            // original PID/PGID is still kernel-reserved and cannot have been
-            // reused between validation and killpg.
-            let _signal = self.child_signal_lock.lock().unwrap();
-            let child_reserved =
-                !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
-            // SAFETY: getpgrp has no preconditions.
-            let host_group = unsafe { libc::getpgrp() };
-            self.session_cleanup.signal(self.adopted_session, self.pid, signal, host_group);
-            if child_reserved
-                && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
-            {
-                groups.push(pid);
-            }
-            // Query the PTY each time rather than trusting the original group:
-            // a foreground job or retained descendant may own a different
-            // group by the time explicit Terminate escalates.
-            if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
-            {
-                groups.push(foreground);
-            }
-            groups.sort_unstable();
-            groups.dedup();
-            // Signal validated groups, excluding the terminal host's own group.
-            for group in groups.into_iter().filter(|group| *group > 0 && *group != host_group) {
-                // SAFETY: validated positive process-group ids owned by this
-                // PTY session; signal is a platform constant from this module.
-                let _ = unsafe { libc::killpg(group, signal) };
-            }
-        }
-
         fn request_forced_pty_drain(&self) {
             self.force_pty_drain.store(true, Ordering::Release);
             // Wake the otherwise blocking poll in the sole PTY reader. The
@@ -3615,11 +3580,6 @@ mod unix {
                 // accepted Terminate into an unbounded or ignored request.
                 self.terminate_and_wait();
             }
-        }
-
-        fn finish_group_escalation(&self) {
-            let _ = self.session_cleanup.wait_for_exit(HOST_KILL_WAIT);
-            self.publish_child_wait_predicate(&self.group_escalation_complete);
         }
 
         fn publish_exit_if_drained(&self) {
