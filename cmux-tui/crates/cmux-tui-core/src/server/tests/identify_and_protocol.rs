@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[cfg(target_os = "linux")]
+use super::super::cmd_server::machine_listening_tcp_json;
+
 #[test]
 fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
     let mux = test_mux();

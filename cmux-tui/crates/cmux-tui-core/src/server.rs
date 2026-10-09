@@ -165,8 +165,6 @@ mod cmd_screens;
 mod cmd_server;
 #[cfg(test)]
 use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-#[cfg(all(test, target_os = "linux"))]
-use cmd_server::machine_listening_tcp_json;
 mod cmd_frontend;
 mod cmd_sizing;
 mod cmd_subscribe;
