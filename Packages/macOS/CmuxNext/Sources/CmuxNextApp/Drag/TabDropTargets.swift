@@ -116,7 +116,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     /// `ownGroup` is the group a center drop on `controller` keeps.
     private func proposal(screenPoint: CGPoint, dragKey: String,
                           ownGroup: (PaneController) -> String?) -> TabDropProposal? {
-        guard let content = window?.content, let layout = content.layoutView, let nsWindow = layout.window,
+        guard let content = window?.content, case let layout = content.layoutView, let nsWindow = layout.window,
               !layout.bounds.isEmpty else { return nil }
         let local = layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)
         let inside = layout.bounds.insetBy(dx: 0.5, dy: 0.5)

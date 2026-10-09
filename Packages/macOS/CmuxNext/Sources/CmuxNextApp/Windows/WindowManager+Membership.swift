@@ -262,7 +262,7 @@ extension WindowManager {
     /// load state, or the Cloud machine list changes.
     func observeMembership() {
         let machines = services.machines
-        let cloud = services.cloud!
+        let cloud = services.cloud
         membershipObservation?.cancel()
         membershipObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
@@ -350,7 +350,7 @@ extension WindowManager {
 
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
-        guard let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
+        guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
         guard cloud.hasLoadedMachines else { return false }
         return services.machines.cloud.allSatisfy { !$0.machine.status.isLive || $0.daemon.store.isLoaded }
     }

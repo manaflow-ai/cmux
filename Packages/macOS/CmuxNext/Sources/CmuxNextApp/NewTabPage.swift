@@ -346,7 +346,7 @@ extension NewTabPage {
                 : ChromiumInternalURL(typed: text)?.url ?? resolver.destination(for: request.text)?.url
             let engine = BrowserEngineTag.engine(for: url)
             // A session-local browser tab is made and selected right away.
-            if services.cache.browserTabs?.isAvailable() == true {
+            if services.cache.browserTabs.isAvailable() == true {
                 pane.newBrowserTab(url: url, engine: engine, then: closePage)
             } else {
                 // A refused tab (a Chromium page without Chromium) keeps the page.

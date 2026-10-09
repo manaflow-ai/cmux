@@ -129,8 +129,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     private func observeWorkspace() {
         let machines = services.machines
-        let cloud = services.cloud!
-        let windows = services.windows!
+        let cloud = services.cloud
+        let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in

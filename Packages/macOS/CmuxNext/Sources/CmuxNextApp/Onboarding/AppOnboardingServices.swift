@@ -98,7 +98,7 @@ final class AppOnboardingServices: OnboardingServices {
     /// the sidebar keeps the list's order; any macOS privacy prompts for
     /// Desktop or Documents come now, together, as the step said.
     func openProjects(_ folders: [URL]) {
-        guard let windows = services.windows else { return }
+        let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         // Every folder counts as opening now, so chats picked meanwhile wait for it.
         let spawns = folders.map { ($0, folderSpawn($0)) }
@@ -121,7 +121,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
-        let cache = services.cache!
+        let cache = services.cache
         let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
             cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
         }

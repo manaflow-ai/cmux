@@ -20,7 +20,7 @@ enum TabLifecycle {
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
         noteUserChoice(.terminal, ctx, invocation, pane: focused)
-        if invocation.origin == .user, opensWorkspace, let windows = ctx.services.windows,
+        if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
             let start = cwd ?? ctx.services.paneController(for: focused)?.selectedTab?.cwd ?? focused.tabs.first?.cwd
@@ -146,7 +146,7 @@ enum TabLifecycle {
         if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
             return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
         }
-        if engine == .cef, let reason = ctx.services.cache.browserTabs?.cefUnavailableReason() {
+        if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {
             return ctx.refuse(reason)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
@@ -176,7 +176,7 @@ enum TabLifecycle {
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
-        if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
+        if case .open? = ctx.services.cache.browserTabs.resolve(requested: engine) {
             noteUserChoice(.browser(engine: plan.recordedEngine), ctx, invocation, pane: pane)
         }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
@@ -218,7 +218,7 @@ enum TabLifecycle {
             else { controller.newBrowserTab(url: url, engine: engine, then: then) }
             return
         }
-        let browserTabs = ctx.services.cache.browserTabs!
+        let browserTabs = ctx.services.cache.browserTabs
         guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine) {
@@ -248,7 +248,7 @@ enum TabLifecycle {
             controller.newBrowserTab(url: url, engine: engine, profile: profile, then: agentTab)
             return
         }
-        guard let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
+        guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable() else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }
         let choice: BrowserEngineChoice

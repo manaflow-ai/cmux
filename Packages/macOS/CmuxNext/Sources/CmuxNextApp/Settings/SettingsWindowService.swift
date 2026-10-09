@@ -68,9 +68,9 @@ final class SettingsWindowService: InternalPageProvider {
             showTopPage(in: window, route: route)
             return
         }
-        guard let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
+        guard case let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
             waiting = (target, setting, focus)
-            if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
+            if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
         waiting = nil

@@ -126,7 +126,7 @@ enum WorkspaceGroupHandlers {
 
     /// New workspace in the window's room, then into personal group `id`.
     private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let local = context.services.machines.local
         Task {

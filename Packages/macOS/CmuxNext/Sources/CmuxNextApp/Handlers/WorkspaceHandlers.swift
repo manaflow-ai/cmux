@@ -59,7 +59,7 @@ enum WorkspaceHandlers {
                               newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
-        let windows = services.windows!
+        let windows = services.windows
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
@@ -116,7 +116,7 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
-        let browserTabs = context.services.cache.browserTabs!
+        let browserTabs = context.services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks
         let address = context.services.newTabAddress(for: choice)

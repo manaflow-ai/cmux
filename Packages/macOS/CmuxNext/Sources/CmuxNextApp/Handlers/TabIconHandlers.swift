@@ -75,7 +75,7 @@ enum TabIconHandlers {
             return true
         }, offerUndo: { message, undo in
             let windows = ctx.services.windows
-            guard let window = shownIn.window ?? windows?.active?.window ?? NSApp.mainWindow else { return }
+            guard let window = shownIn.window ?? windows.active?.window ?? NSApp.mainWindow else { return }
             let handle = CmuxToastCenter.shared.show(CmuxToast(id: undoToastID, message: message, action: .undo()), in: window)
             handle.onAction = { undo() }
         })

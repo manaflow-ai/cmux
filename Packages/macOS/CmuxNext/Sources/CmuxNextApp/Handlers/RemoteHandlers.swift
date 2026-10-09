@@ -11,7 +11,7 @@ import CmuxNextRemote
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh!
+        let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         ssh.offerInstall = { [weak registry] session in

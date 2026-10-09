@@ -81,7 +81,7 @@ final class AccountsService: AccountsServices {
     }
 
     var client: CodeRouterClient? {
-        guard let cloud = services.cloud else { return nil }
+        let cloud = services.cloud
         let auth = cloud.auth, labels = labels
         return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
                                 teamID: { await auth.teamID }, labeler: { await labels.labeler() })
@@ -98,7 +98,7 @@ final class AccountsService: AccountsServices {
 
     func signInToCmux() {
         if let showcaseMock { showcaseMock.signInToCmux(); model.refresh(); return }
-        guard let cloud = services.cloud else { return }
+        let cloud = services.cloud
         // task-owner: one hosted sign-in; ends when the browser flow returns
         Task { [weak self] in
             _ = await cloud.auth.signIn()

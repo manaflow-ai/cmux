@@ -8,7 +8,7 @@ import CmuxNextDaemon
 // restore, fork, and snapshot deletion.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the

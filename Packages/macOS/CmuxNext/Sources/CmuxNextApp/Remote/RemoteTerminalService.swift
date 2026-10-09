@@ -180,7 +180,7 @@ final class RemoteTerminalService {
         let machines = services.machines
         if let ssh = machines.sshSession(daemon.machineID) {
             let service = services.ssh
-            return { service?.reconnect(ssh) }
+            return { service.reconnect(ssh) }
         }
         if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
         if let server = machines.server(daemon.machineID) { return { server.connect() } }

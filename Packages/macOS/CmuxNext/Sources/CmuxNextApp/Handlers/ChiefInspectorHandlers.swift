@@ -93,7 +93,7 @@ enum ChiefInspectorHandlers {
     private static func openInNewColumn(_ url: URL, anchor: PaneModel, context: AppActionContext) async throws {
         let handle = anchor.handle
         let connection = try context.requireConnection()
-        guard let browserTabs = context.services.cache.browserTabs,
+        guard case let browserTabs = context.services.cache.browserTabs,
               case .open(let choice) = browserTabs.resolve(requested: nil) else {
             throw ActionWorkFailure(MiscHandlerStrings.noBrowser)
         }

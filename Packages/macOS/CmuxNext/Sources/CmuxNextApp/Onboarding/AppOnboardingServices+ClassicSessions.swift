@@ -14,7 +14,7 @@ extension AppOnboardingServices {
     /// Recreates local workspace shells and terminal tabs. Classic commands,
     /// scrollback, and remote panels are intentionally ignored.
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {
-        guard let windows = services.windows else { return }
+        let windows = services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         Task { @MainActor [weak self] in
             guard let self else { return }

@@ -98,7 +98,7 @@ final class AppsService {
             return
         }
         waitingStore = (appID, installed, focus)
-        if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
+        if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
     /// The first window opened or a window mounted a pane: a request that

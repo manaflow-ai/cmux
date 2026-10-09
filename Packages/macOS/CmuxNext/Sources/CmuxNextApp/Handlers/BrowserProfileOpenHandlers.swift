@@ -28,7 +28,7 @@ enum BrowserProfileOpenHandlers {
         }
         bind("browserProfile.newWindow") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
-            let windows = context.services.windows!
+            let windows = context.services.windows
             let windowID = UUID().uuidString.lowercased()
             var spawn = WorkspaceSpawn()
             spawn.browserProfile = record.id
@@ -36,7 +36,7 @@ enum BrowserProfileOpenHandlers {
         }
         bind("browserProfile.newWorkspace") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
-            let windows = context.services.windows!
+            let windows = context.services.windows
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             var spawn = WorkspaceSpawn()
             spawn.browserProfile = record.id
