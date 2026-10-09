@@ -428,8 +428,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 if let slot = o.checkedIndex(j) { o[slot] = job(w.2, w.1, cachedTimes[checked: j] ?? nil) }
             }
         }
-        for (j, (l, k, _)) in work.enumerated() {
-            guard let r = out[j] else { continue }
+        for ((l, k, _), result) in zip(work, out) { // cmux: no index math
+            guard let r = result else { continue }
             stats.syncRenders += 1
             cache.insert(timeKey(k), r.time)
             cache.insert(k, r.text)
@@ -599,7 +599,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     if let w = work[checked: j], let slot = out.checkedIndex(j) { out[slot] = SidebarController.tilePart(w.0, w.1, ctx) } // cmux
                 }
             }
-            for (j, w) in work.enumerated() { if let img = images[j] { cache.insert(w.0, img); stats.tiles += 1 } }
+            for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // cmux: no index math
         }
         for t in pinnedItems.indices { configureTile(t) }
         CATransaction.commit()
@@ -900,8 +900,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                     }
                 }
             }
-            for (j, w) in rowWork.enumerated() { if let r = rowsOut[j] { out.rows.append((w.0, r.time, r.text)) } }
-            for (j, w) in tileWork.enumerated() { if let img = tilesOut[j] { out.tiles.append((w.0, img)) } }
+            for (w, result) in zip(rowWork, rowsOut) { if let r = result { out.rows.append((w.0, r.time, r.text)) } } // cmux
+            for (w, image) in zip(tileWork, tilesOut) { if let img = image { out.tiles.append((w.0, img)) } } // cmux
             return out
         }
     }

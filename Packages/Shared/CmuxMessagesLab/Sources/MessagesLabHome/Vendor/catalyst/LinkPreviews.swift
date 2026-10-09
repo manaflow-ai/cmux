@@ -45,7 +45,7 @@ final class LinkPreviews: LinkPreviewFetching {
             let now = Date().timeIntervalSince1970
             for (k, v) in saved {
                 if v.ok { cache.updateValue(.some(LinkMetadata(title: v.title, site: v.site, image: v.image)), forKey: k) } // cmux
-                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache[k] = .some(nil); negativeAt[k] = at }
+                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache.updateValue(Optional<LinkMetadata>.none, forKey: k); /* a known failure: the stored value is nil */ negativeAt.updateValue(at, forKey: k) } // cmux
             }
         }
     }
@@ -277,7 +277,7 @@ final class LinkPreviews: LinkPreviewFetching {
     private func save() {
         var out: [String: Saved] = [:]
         for (k, v) in cache {
-            if let v, v.title != nil { out[k] = Saved(ok: true, title: v.title, site: v.site, image: v.image, at: nil) }
+            if let v, v.title != nil { out.updateValue(Saved(ok: true, title: v.title, site: v.site, image: v.image, at: nil), forKey: k) } // cmux
             else { out.updateValue(Saved(ok: false, title: nil, site: nil, image: nil, at: negativeAt[k] ?? Date().timeIntervalSince1970), forKey: k) } // cmux
         }
         if let d = try? JSONEncoder().encode(out) { try? d.write(to: index, options: .atomic) }

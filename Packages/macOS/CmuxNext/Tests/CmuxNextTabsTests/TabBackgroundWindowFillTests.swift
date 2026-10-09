@@ -20,8 +20,10 @@ import Testing
     @Test func theStripFollowsItsWindowBecomingAndLeavingMain() {
         let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
         let selected = h.strip.cells[TabID("t0")]!
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: h.window)
         #expect(selected.fillsSelection)
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
         NotificationCenter.default.post(name: NSWindow.didResignMainNotification, object: h.window)
         #expect(!selected.fillsSelection)
     }

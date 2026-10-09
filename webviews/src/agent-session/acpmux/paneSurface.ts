@@ -15,6 +15,8 @@ export const QUICK_MESSAGES = {
   dismiss: "quick.dismiss",
   /// ⌘Return: show this chat in a window.
   openInWindow: "quick.openInWindow",
+  /// Return (Start Agent): the chat has started; put it in the sidebar and hide the panel.
+  startInBackground: "quick.startInBackground",
 } as const;
 
 /// Calls `onDismiss` for an Escape no open menu, picker, palette or panel took. Those handle Escape
