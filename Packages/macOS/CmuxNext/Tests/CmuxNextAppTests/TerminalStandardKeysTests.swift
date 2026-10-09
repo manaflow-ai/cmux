@@ -49,6 +49,8 @@ struct TerminalStandardKeysTests {
     /// Outside a terminal the same chords keep their cmux meaning, and Cmd-K runs nothing.
     @Test func outsideATerminalTheChordsKeepTheirCmuxMeaning() throws {
         #expect(owner(try K.key("=", keyCode: 24, [.command]), Self.agent) == .action("agentPaneZoomIn"))
+        #expect(owner(try K.key("-", keyCode: 27, [.command]), Self.agent) == .action("agentPaneZoomOut"))
+        #expect(owner(try K.key("0", keyCode: 29, [.command]), Self.agent) == .action("agentPaneZoomReset"))
         // Cmd-Shift-G's grouping needs a workspace selection this harness has no store for; the live
         // check (scripts/cmux-next/terminal-keys-e2e.py) covers it in a real window.
         if case .action(let id) = owner(try K.key("k", keyCode: 40, [.command]), Self.agent) {

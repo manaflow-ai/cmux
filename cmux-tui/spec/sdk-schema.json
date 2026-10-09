@@ -7310,7 +7310,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "install: and the stable install id of the machine whose acpmux runs the session."
+     "description": "install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it."
     },
     "session": {
      "type": {

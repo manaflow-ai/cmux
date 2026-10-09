@@ -69297,58 +69297,6 @@
         }
       }
     },
-  "settings.sidebar.allChatsRows": {
-        "extractionState": "manual",
-        "localizations": {
-          "ar": { "stringUnit": { "state": "translated", "value": "صفوف كل المحادثات" } },
-          "bs": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (bs)" } },
-          "da": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (da)" } },
-          "de": { "stringUnit": { "state": "translated", "value": "Zeilen in „Alle Chats“" } },
-          "en": { "stringUnit": { "state": "translated", "value": "All Chats Rows" } },
-          "es": { "stringUnit": { "state": "translated", "value": "Filas de Todos los chats" } },
-          "fr": { "stringUnit": { "state": "translated", "value": "Lignes de « Tous les chats »" } },
-          "it": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (it)" } },
-          "ja": { "stringUnit": { "state": "translated", "value": "すべてのチャットの行数" } },
-          "km": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (km)" } },
-          "ko": { "stringUnit": { "state": "translated", "value": "모든 채팅 행 수" } },
-          "nb": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (nb)" } },
-          "pl": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (pl)" } },
-          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (pt-BR)" } },
-          "ru": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (ru)" } },
-          "th": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (th)" } },
-          "tr": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (tr)" } },
-          "uk": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (uk)" } },
-          "vi": { "stringUnit": { "state": "needs_review", "value": "All Chats Rows (vi)" } },
-          "zh-Hans": { "stringUnit": { "state": "translated", "value": "所有聊天的行数" } },
-          "zh-Hant": { "stringUnit": { "state": "translated", "value": "所有聊天的列數" } }
-        }
-      },
-  "settings.sidebar.allChatsRows.help": {
-        "extractionState": "manual",
-        "localizations": {
-          "ar": { "stringUnit": { "state": "translated", "value": "عدد المحادثات التي يعرضها قسم كل المحادثات قبل أن يبدأ التمرير." } },
-          "bs": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (bs)" } },
-          "da": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (da)" } },
-          "de": { "stringUnit": { "state": "translated", "value": "Wie viele Chats der Bereich „Alle Chats“ zeigt, bevor er scrollt." } },
-          "en": { "stringUnit": { "state": "translated", "value": "How many chats the All chats section shows before it scrolls." } },
-          "es": { "stringUnit": { "state": "translated", "value": "Cuántos chats muestra la sección Todos los chats antes de desplazarse." } },
-          "fr": { "stringUnit": { "state": "translated", "value": "Nombre de chats affichés par la section « Tous les chats » avant le défilement." } },
-          "it": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (it)" } },
-          "ja": { "stringUnit": { "state": "translated", "value": "「すべてのチャット」セクションがスクロールする前に表示するチャットの数。" } },
-          "km": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (km)" } },
-          "ko": { "stringUnit": { "state": "translated", "value": "모든 채팅 섹션이 스크롤되기 전에 표시하는 채팅 수입니다." } },
-          "nb": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (nb)" } },
-          "pl": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (pl)" } },
-          "pt-BR": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (pt-BR)" } },
-          "ru": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (ru)" } },
-          "th": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (th)" } },
-          "tr": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (tr)" } },
-          "uk": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (uk)" } },
-          "vi": { "stringUnit": { "state": "needs_review", "value": "How many chats the All chats section shows before it scrolls. (vi)" } },
-          "zh-Hans": { "stringUnit": { "state": "translated", "value": "“所有聊天”部分在滚动前显示的聊天数。" } },
-          "zh-Hant": { "stringUnit": { "state": "translated", "value": "「所有聊天」區段在捲動前顯示的聊天數。" } }
-        }
-      },
   "settings.choice.newTabTemplateTerminal": {
       "extractionState": "manual",
       "localizations": {
