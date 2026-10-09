@@ -348,8 +348,9 @@ enum Source {
     Note,
     /// A subagent's report (section 9).
     Spawn(crate::state::SpawnRef),
-    /// The note that resumes a turn a host stop cut (`HostState::resumes`).
-    Resume { remote: bool },
+    /// The note that resumes a turn a host stop cut (`HostState::resumes`),
+    /// with the cut messages' full text for the turn's prompt.
+    Resume { remote: bool, cut: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,6 +551,7 @@ impl Brain {
                 text: recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    cut: resume.messages,
                 },
                 images: Vec::new(),
                 conversation: resume.conversation,
