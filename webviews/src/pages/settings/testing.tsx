@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import type { Root } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
 import { createMockClient, type MockOptions, type MockSettingsProvider } from "./mockProvider";
-import type { AgentsState, HarnessesState } from "./ops";
 import { SettingsStore } from "./store";
 import { setLocale } from "./strings";
 
@@ -40,19 +39,10 @@ export async function settle(): Promise<void> {
 }
 
 export async function renderPage(
-  options: {
-    mock?: MockOptions;
-    path?: string;
-    locale?: string;
-    agents?: Partial<AgentsState>;
-    harnesses?: HarnessesState;
-  } = {},
+  options: { mock?: MockOptions; path?: string; locale?: string } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
   const mock = createMockClient(options.mock);
-  if (options.agents)
-    mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(options.agents) };
-  if (options.harnesses) mock.provider.harnesses = structuredClone(options.harnesses);
   const store = new SettingsStore(mock.client);
   await act(async () => {
     await store.start();

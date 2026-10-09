@@ -32,9 +32,13 @@ for (const [name, state] of Object.entries(settings.variants)) {
     const page = await renderPage({
       mock: structuredClone(state.options ?? {}),
       path: sectionHref(state.section, state.focus),
-      agents: state.agents,
-      harnesses: state.harnesses,
     });
+    if (state.agents) {
+      page.provider.agents.state = { ...page.provider.agents.state, ...structuredClone(state.agents) };
+      for (const listener of page.provider.agents.listeners) listener(page.provider.agents.state);
+    }
+    if (state.harnesses) page.provider.setHarnesses(structuredClone(state.harnesses));
+    await settle();
     try {
       await run(async () => {
         page.provider.setHost({ ...page.provider.host, ...structuredClone(state.host ?? {}) });
