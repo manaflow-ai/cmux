@@ -24,7 +24,7 @@ fn turn_result() -> Value {
 }
 
 fn response(msgs: &[Message], want: i64) -> Option<&Message> {
-    msgs.iter().find(|m| matches!(m, Message::Response { id, .. } if *id == Value::from(want)))
+    msgs.iter().find(|m| matches!(m, Message::Response { id, .. } if id.as_i64() == Some(want)))
 }
 
 #[test]

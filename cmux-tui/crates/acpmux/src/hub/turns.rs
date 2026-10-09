@@ -174,6 +174,12 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        if steer && opts.steer_only && !steer_now {
+            return Err(RpcError::invalid_params(
+                "steer.unavailable: the session has no running turn that its agent can steer",
+            )
+            .with_data(json!({"reason": "steer.unavailable"})));
+        }
         if steer_now {
             self.check_steer(session, control)?;
             // A running turn has a live agent.

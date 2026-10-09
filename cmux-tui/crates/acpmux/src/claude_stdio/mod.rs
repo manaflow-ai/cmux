@@ -118,6 +118,9 @@ pub fn spawn_plan(
         "stream-json".into(),
         "--verbose".into(),
         "--include-partial-messages".into(),
+        // Claude Code echoes each user line when it reads it: a steered
+        // message (written during a turn) is confirmed by its echo.
+        "--replay-user-messages".into(),
         "--permission-prompt-tool".into(),
         "stdio".into(),
     ]);
@@ -160,6 +163,11 @@ pub struct Translator {
     model: Mutex<String>,
     effort: Mutex<String>,
     in_turn: AtomicBool,
+    /// The turn's prompt line has not been echoed yet (`isReplay`).
+    prompt_echo_due: AtomicBool,
+    /// Steered prompts (user lines written during a turn) Claude Code has
+    /// not echoed yet, oldest first: each is answered at its echo.
+    steers: Mutex<std::collections::VecDeque<String>>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -205,6 +213,8 @@ impl Translator {
             model: Mutex::new(model.to_owned()),
             effort: Mutex::new(effort.to_owned()),
             in_turn: AtomicBool::new(false),
+            prompt_echo_due: AtomicBool::new(false),
+            steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             stdin_replies: Mutex::new(Vec::new()),
@@ -219,13 +229,29 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        self.pending
-            .lock()
-            .await
-            .drain()
-            .map(|(id, _)| {
+        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
+        ids.extend(self.steers.lock().await.drain(..));
+        ids.into_iter()
+            .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(id, RpcError::internal(message))
+            })
+            .collect()
+    }
+
+    /// Error answers for the steered prompts Claude Code never echoed: the
+    /// turn ended without reading them (no echo support).
+    async fn fail_steers(&self) -> Vec<Message> {
+        self.steers
+            .lock()
+            .await
+            .drain(..)
+            .map(|id| {
+                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+                Message::err(
+                    id,
+                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
+                )
             })
             .collect()
     }

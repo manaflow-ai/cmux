@@ -118,6 +118,16 @@ impl Translator {
                     }
                 }
             }
+            // Claude Code's echo of a user line it read (`--replay-user-messages`):
+            // first the turn's prompt, then each steered line in order.
+            "user" if line.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+                if !self.prompt_echo_due.swap(false, Ordering::SeqCst)
+                    && let Some(k) = self.steers.lock().await.pop_front()
+                {
+                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                }
+            }
             "user" => {
                 for c in line
                     .pointer("/message/content")
@@ -235,7 +245,7 @@ impl Translator {
                         "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
-                        "_meta": {"steering": {"supported": false}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
+                        "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
@@ -287,6 +297,16 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A steered line Claude Code has not read yet: it runs it as
+                // one more turn of this prompt, whose result ends it (when
+                // echoes come at all; without them the steer fails below).
+                let unread = !self.steers.lock().await.is_empty();
+                if unread && !self.prompt_echo_due.load(Ordering::SeqCst) {
+                    self.cancelled.store(false, Ordering::SeqCst);
+                    return out;
+                }
+                out.extend(self.fail_steers().await);
+                self.prompt_echo_due.store(false, Ordering::SeqCst);
                 self.in_turn.store(false, Ordering::SeqCst);
                 let waiting: Vec<String> = self
                     .pending
