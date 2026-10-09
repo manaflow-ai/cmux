@@ -588,7 +588,9 @@ fn the_sessions_last_opened_tab_is_active_in_its_list() {
     session.call("tabs.open", &json!({"url": "https://a.test/a"})).unwrap();
     session.call("tabs.open", &json!({"url": "https://a.test/b"})).unwrap();
     let rows = session.call("tabs.list", &json!({})).unwrap();
-    let active = |id: &str| rows.as_array().unwrap().iter().find(|r| r["targetId"] == id).unwrap()["active"].clone();
+    let active = |id: &str| {
+        rows.as_array().unwrap().iter().find(|r| r["targetId"] == id).unwrap()["active"].clone()
+    };
     assert_eq!(active("b"), true, "{rows}");
     assert_eq!(active("a"), false, "{rows}");
     assert_eq!(active("W"), true, "the person's shown tab stays active: {rows}");
