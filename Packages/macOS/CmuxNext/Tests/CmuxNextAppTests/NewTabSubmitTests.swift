@@ -26,6 +26,20 @@ import Testing
         #expect(plan("!ls", search: true) == .terminal(command: "ls"))
     }
 
+    /// The palette (a user's typing) fixes `.con` as the omnibar does; CLI,
+    /// MCP and scripts load what they were given.
+    @Test func paletteTextFixesHostTyposButAgentTextDoesNot() {
+        let palette = { (text: String) in
+            NewTabSubmit.plan(text: text, search: false, agent: nil, resolver: OmniboxResolver(), home: self.home, fixesHostTypos: true)
+        }
+        #expect(palette("example.con/docs?q=1") == .browser(URL(string: "https://example.com/docs?q=1")!))
+        #expect(palette("example.com'") == .browser(URL(string: "https://example.com")!))
+        #expect(palette("!ls example.con") == .terminal(command: "ls example.con"))
+        #expect(plan("example.con") == .browser(URL(string: "https://example.con")!))
+        #expect(NewTabSubmit.plan(text: "example.con", search: true, agent: nil, resolver: resolver, home: home, fixesHostTypos: true)
+            == .browser(resolver.searchEngine.searchURL(for: "example.con")!))
+    }
+
     @Test func theActionReachesPaletteCLIAndMCPWithTypedArguments() throws {
         let action = try #require(ActionCatalog.all.first { $0.id == NewTabSubmit.action })
         #expect(action.cliName == "tab new-from-text")
