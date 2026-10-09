@@ -1195,6 +1195,56 @@ struct BrowserReplSessionResourceTests {
         #expect(!error.contains("timed out"), "\(error)")
         #expect(session.endedReason?.contains("the session's JavaScript heap") == true)
     }
+
+    /// r42 native: a browser call's parameters and a fetch's request are
+    /// JavaScript strings the session copies into native memory. The copy
+    /// is reserved in the session's ledger (``BrowserReplResource/hostCallBytes``)
+    /// by the string's length before it is made, so one that does not fit
+    /// the session's memory is refused with nothing copied.
+    @Test("Browser call parameters and fetch requests are reserved before they are copied out of JavaScript")
+    func callArgumentsAreReservedBeforeConversion() async throws {
+        let session = BrowserReplSession(
+            id: "call-admission-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "admission.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.hostCallBytes, 1 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const waiting = new Map();
+            const previous = globalThis.__cmuxHostOnResult;
+            globalThis.__cmuxHostOnResult = (id, error, result) => {
+              const done = waiting.get(id);
+              if (!done) return previous(id, error, result);
+              waiting.delete(id);
+              done(error ? "refused " + JSON.parse(error).message : "ok");
+            };
+            const answer = (id) => new Promise((resolve) => waiting.set(id, resolve));
+            const pad = "x".repeat(2 << 20);
+            const call = answer(90001);
+            native.driverCall(90001, "tabs.list", JSON.stringify({ pad }));
+            const request = answer(90002);
+            native.fetch(90002, JSON.stringify({ url: "http://127.0.0.1:9/", method: "POST", credentials: "omit", bodyBase64: pad }));
+            console.log("call", await call);
+            console.log("fetch", await request);
+            const small = answer(90003);
+            native.driverCall(90003, "tabs.list", "{}");
+            console.log("small", await small);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 3, "\(lines)")
+        for prefix in ["call refused", "fetch refused"] {
+            let line = lines.first { $0.hasPrefix(prefix) }
+            #expect(line?.contains("REPL session limit") == true && line?.contains("at most 1 MiB at once") == true, "\(prefix): \(lines)")
+        }
+        #expect(lines.last == "small ok", "\(lines)")
+        #expect(session.ledger.held(.hostCallBytes) == 0)
+    }
 }
 
 /// Answers `big` with a JSON string of `resultCharacters` characters once
