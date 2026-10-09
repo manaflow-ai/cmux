@@ -47,7 +47,7 @@ afterAll(() => {
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { ComposerPickers, Picker, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
 const { webKitPress } = await import("./popoverTriggerTesting");
 
@@ -472,6 +472,38 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=menu]")).toBeNull();
     expect(doc.activeElement).toBe(mode);
     expect(calls).toEqual(["mode bypassPermissions"]);
+  });
+
+  test("the composer action picker jumps to its first and last row with Home and End", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Picker, {
+          label: "Actions",
+          className: "acpmux-composer-plus",
+          button: "Actions",
+          align: "start",
+          sections: [
+            {
+              choices: [
+                { id: "attach", name: "Attach" },
+                { id: "mention", name: "Mention" },
+                { id: "plan", name: "Plan" },
+              ],
+              current: "mention",
+              onPick: () => undefined,
+            },
+          ],
+        }),
+      ),
+    );
+    const trigger = doc.querySelector<HTMLButtonElement>('[aria-label="Actions"]')!;
+    await key(trigger, "ArrowDown");
+    const rows = [...doc.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[1]?.id);
+    await key(trigger, "End");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows.at(-1)!.id);
+    await key(trigger, "Home");
+    expect(trigger.getAttribute("aria-activedescendant")).toBe(rows[0]!.id);
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
