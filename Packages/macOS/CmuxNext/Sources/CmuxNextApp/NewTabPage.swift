@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -36,8 +37,6 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Opens the existing onboarding import and project/history sync flow.
-    var importAndSync: () -> Void = {}
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
 
@@ -121,7 +120,7 @@ enum NewTabPage {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.welcomeChecklist", "palette.openCmuxSettingsFile", "keybindings.open"]
+        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
         let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
             AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
         }
@@ -182,6 +181,23 @@ enum NewTabPage {
     /// session cwd still arrives immediately from the pane handshake.
     static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
 
+    /// Choose Folder…: a folder panel, a sheet on `window` when there is
+    /// one; nil when the person cancels.
+    static func chooseFolder(in window: NSWindow?) async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        let response = await withCheckedContinuation { done in
+            if let window {
+                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
+            } else {
+                panel.begin { done.resume(returning: $0) }
+            }
+        }
+        return response == .OK ? panel.url : nil
+    }
+
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
     /// and the chat record go through `services`.
@@ -198,7 +214,7 @@ enum NewTabPage {
             becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) },
             browseProject: { [weak services] in
                 guard let services else { return nil }
-                return await AppOnboardingServices(owner: services.onboarding).chooseFolder()?.path
+                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
@@ -207,7 +223,6 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            importAndSync: { [weak services] in services?.onboarding.show(step: .projects) },
             action: { [weak services] id in
                 guard let services else { return }
                 _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))

@@ -186,9 +186,10 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        let firstWorkspace = FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover)
-        if firstWorkspace {
-            services.onboarding.freshWorkspaceID = await createWorkspace(newTabPage: true)
+        // The workspace a launch gives an empty tree, on its New Tab page.
+        var firstWorkspace: String?
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
+            firstWorkspace = await createWorkspace(newTabPage: true)
         }
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
@@ -218,8 +219,9 @@ final class WindowManager {
         sessionRegistrar.start()
         registry.isLaunching = false
         // A first launch (or a tree emptied since) goes straight to the new
-        // workspace's New Tab page, not the Home page.
-        if firstWorkspace { services.onboarding.landOnFirstWorkspace() }
+        // workspace's New Tab page, not the Home page: nothing was chosen
+        // yet (Lawrence 2026-10-09: "drop user into main screen asap").
+        if let firstWorkspace, services.machines.workspace(id: firstWorkspace) != nil { _ = reveal(workspaceID: firstWorkspace) }
     }
 
     /// The launch window takes the frontmost saved window's identity and

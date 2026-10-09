@@ -272,7 +272,6 @@ test("the page is one field: no project chooser or Import button above it", asyn
   const { container, root } = await mount({
     cwd: "/src/old",
     projects: [{ cwd: "/src/new", label: "new" }],
-    onImport: () => {},
     onBrowseProject: async () => "/src/picked",
   });
   expect(container.querySelector(".nt-project")).toBeNull();

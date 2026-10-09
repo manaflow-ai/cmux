@@ -228,8 +228,8 @@ type Props = {
   onShowAll(): void;
   onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
-  onImport?(): void;
-  onBrowseProject?(): void;
+  /// Choose Folder…: the host's folder panel; resolves to the picked folder.
+  onBrowseProject?(): Promise<string | undefined>;
   /// Opens the host's Integrate a harness flow (`palette.addHarness`).
   onAddHarness?(): void;
   now?: number;
@@ -255,7 +255,6 @@ export function NewTabPage({
   onOpenSession,
   onShowAll,
   onEditShortcut,
-  onImport,
   onBrowseProject,
   onAddHarness,
   inputToken,
@@ -446,7 +445,13 @@ export function NewTabPage({
                 currentLabel={selectedProject}
                 icon={<FolderIcon />}
                 onPick={setProjectCwd}
-                onBrowse={onBrowseProject}
+                onBrowse={
+                  onBrowseProject &&
+                  (() =>
+                    void onBrowseProject().then((picked) => {
+                      if (picked) setProjectCwd(picked);
+                    }))
+                }
               />
             )}
             {kind === "terminal" && (
@@ -533,11 +538,6 @@ export function NewTabPage({
           {t(NEW_TAB_LABELS.allSessions)}
           <ChevronRight />
         </button>
-        {onImport && (
-          <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {t("newtab.importAndSync")}
-          </button>
-        )}
         {onAddHarness && (
           <button type="button" className="acpmux-newtab-all" onClick={onAddHarness}>
             {t("newtab.addHarness")}

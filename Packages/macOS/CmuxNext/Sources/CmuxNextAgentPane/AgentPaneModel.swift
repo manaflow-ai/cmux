@@ -48,8 +48,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
-    /// Opens onboarding's existing project and agent-history import flow.
-    @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// The chat's own menu for a right-click on empty space (Change Background, zoom, Find...),
     /// detached items the App renders from its action placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
@@ -304,10 +302,6 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
-        case .importAndSync:
-            guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
-            onImportAndSync()
-            return AgentPaneReply.success()
         case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }

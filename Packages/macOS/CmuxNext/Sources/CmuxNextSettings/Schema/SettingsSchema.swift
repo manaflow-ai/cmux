@@ -51,7 +51,7 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "onboarding.continueSetup", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]

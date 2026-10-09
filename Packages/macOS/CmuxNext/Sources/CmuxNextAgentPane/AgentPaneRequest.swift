@@ -64,8 +64,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// The empty-chat action opens the existing onboarding project/history import flow.
-    case importAndSync
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

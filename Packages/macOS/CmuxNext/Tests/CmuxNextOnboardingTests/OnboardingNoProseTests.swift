@@ -3,9 +3,8 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextOnboarding
 
-/// Leo, 2026-10-06: labels and actions only. The default Accounts and
-/// Import screens (the ones a Release first run shows) say nothing about
-/// where data goes or what a profile becomes.
+/// Leo, 2026-10-06: labels and actions only. The Import from Browser
+/// screen says nothing about where data goes or what a profile becomes.
 @MainActor
 @Suite(.serialized) struct OnboardingNoProseTests {
     static let prose = ["Sign-ins cmux found", "Nothing is uploaded", "Nothing leaves this Mac", "Each profile becomes",
@@ -26,12 +25,10 @@ import Testing
         return found
     }
 
-    @Test(arguments: [OnboardingModel.Step.accounts, .importData, .classicSessions, .chats])
-    func theDefaultScreenHasNoProse(_ step: OnboardingModel.Step) async {
-        let services = MockOnboardingServices.gallerySample(themes: [], accountsView: NSView())
-        services.canImportClassicSessions = true
-        let model = OnboardingModel(services: services, start: step)
-        let controller = OnboardingWindowController(model: model, variant: step.variants[0])
+    @Test func theImportScreenHasNoProse() async {
+        let step = OnboardingModel.Step.importData
+        let model = OnboardingModel(services: MockOnboardingServices(), step: step)
+        let controller = OnboardingWindowController(model: model)
         guard let window = controller.window, let content = window.contentView else {
             Issue.record("no window for \(step)")
             return

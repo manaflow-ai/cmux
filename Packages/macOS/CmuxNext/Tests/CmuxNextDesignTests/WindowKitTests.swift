@@ -125,7 +125,7 @@ import Testing
 
     @Test func rawValuesAreTheSnapshotKinds() {
         #expect(WindowKind.allCases.map(\.rawValue) == [
-            "main", "settings", "debugSettings", "appStore", "onboarding", "onboardingGallery",
+            "main", "settings", "debugSettings", "appStore", "onboarding",
             "browserPopup", "devTools", "pageInfo", "terminalDebug", "browserDebug",
         ])
     }

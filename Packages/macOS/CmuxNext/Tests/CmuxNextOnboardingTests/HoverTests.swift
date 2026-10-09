@@ -156,42 +156,4 @@ import Testing
         row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
         #expect(row.hover.state == ChromeHover.State() && toggles == 0)
     }
-
-    @Test func aCheckRowHoversInsideItsBoundsAndClicksItsBox() {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
-        defer { h.window.close() }
-        let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-        box.translatesAutoresizingMaskIntoConstraints = false
-        let row = ImportCheckRow(title: "Chrome", font: OnboardingMetrics.bodyFont, box: box, separated: false)
-        h.host(row, width: 300)
-        let inside = NSPoint(x: 20, y: 20)
-        row.mouseEntered(with: h.event(.mouseEntered, at: inside, in: row))
-        #expect(row.hover.state.hovering)
-        #expect(row.hover.fillFrame == row.bounds, "the list's clip view would cut off a fill past the row")
-        row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
-        row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
-        #expect(box.state == .on)
-    }
-
-    @Test func aCheckRowThatLocksUnderThePointerDropsItsHover() {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        let h = Harness()
-        defer { h.window.close() }
-        let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-        box.translatesAutoresizingMaskIntoConstraints = false
-        let row = ImportCheckRow(title: "Chrome", font: OnboardingMetrics.bodyFont, box: box, separated: false)
-        h.host(row, width: 300)
-        let inside = NSPoint(x: 20, y: 20)
-        row.mouseEntered(with: h.event(.mouseEntered, at: inside, in: row))
-        row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
-        box.isEnabled = false
-        row.syncEnabled()
-        #expect(row.hover.state == ChromeHover.State())
-        #expect(fillAlpha(row.hover) == 0)
-        row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
-        #expect(box.state == .off)
-    }
 }

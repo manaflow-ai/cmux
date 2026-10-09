@@ -3,8 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextOnboarding
 
-/// The computer use step: shown only when the App has the helper's grants,
-/// each row Allow until macOS has the grant, the drag tile only while a
+/// The computer use step: each row Allow until macOS has the grant, the drag tile only while a
 /// grant is pending, and the grants followed only while the step shows.
 @MainActor
 @Suite struct ComputerUseStepTests {
@@ -12,19 +11,11 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func theStepIsLeftOutWithoutTheHelper() {
-        #expect(!OnboardingModel(services: MockOnboardingServices(), start: .computerUse).steps.contains(.computerUse))
-        let services = MockOnboardingServices()
-        services.computerUseSource = MockComputerUsePermissionSource()
-        #expect(OnboardingModel(services: services, start: .computerUse).steps == [.computerUse])
-        #expect(!OnboardingModel(services: services).steps.contains(.computerUse), "the first run asks for no grants")
-    }
-
     @Test func rowsFollowTheGrantsWhileTheStepShows() async {
         let source = MockComputerUsePermissionSource()
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         model.stepDidAppear()
         source.current.accessibility = true
         await settle { model.computerUse.permissions.accessibility }
@@ -54,7 +45,7 @@ import Testing
         let source = MockComputerUsePermissionSource()
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         model.stepDidAppear()
         model.computerUse.allow(.screenRecording)
         #expect(source.opened == [.screenRecording])
@@ -74,7 +65,7 @@ import Testing
         let source = MockComputerUsePermissionSource(helperAppURL: nil)
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         model.stepDidAppear()
         let view = ComputerUseStepView(model: model.computerUse)
         view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
@@ -94,7 +85,7 @@ import Testing
         let source = MockComputerUsePermissionSource(current: .helperVersionMismatch)
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         let view = ComputerUseStepView(model: model.computerUse)
         view.frame = NSRect(x: 0, y: 0, width: 520, height: 260)
         model.stepDidAppear()
@@ -117,7 +108,7 @@ import Testing
         let source = MockComputerUsePermissionSource()
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         model.stepDidAppear()
         model.computerUse.allow(.accessibility)
         model.computerUse.dismissHelper()
@@ -140,7 +131,7 @@ import Testing
         let source = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         let services = MockOnboardingServices()
         services.computerUseSource = source
-        let model = OnboardingModel(services: services, start: .computerUse)
+        let model = OnboardingModel(services: services, step: .computerUse)
         model.stepDidAppear()
         await settle { model.computerUse.permissions.accessibility }
         let view = ComputerUseStepView(model: model.computerUse)

@@ -19,60 +19,17 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func twoStepsWithAccountsOneWithout() async {
-        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.importData])
+    /// The import window: Find Browsers, then Import, then Done ends it.
+    @Test func importFindsBrowsersThenDoneEndsTheWindow() async {
         let services = MockOnboardingServices()
-        services.accountsView = NSView()
-        let model = OnboardingModel(services: services)
-        #expect(model.steps == [.accounts, .importData])
-        model.next()
-        #expect(model.step == .importData && model.isLast)
-        model.back()
-        #expect(model.step == .accounts)
-        model.next()
+        let model = OnboardingModel(services: services, step: .importData)
+        var ended: Bool?
+        model.onEnd = { ended = $0 }
+        #expect(model.steps == [.importData])
         model.next()  // Find Browsers (LAUNCH-NO-TCC-PROMPTS)
         await settle { model.importer.phase == .ready }
         model.next()
-        #expect(services.ended == true && model.ended)
-    }
-
-    @Test func themeAppliesLiveAndSkipRevertsIt() async {
-        let services = MockOnboardingServices()
-        services.selectedThemeName = "Nord"
-        services.themeChoices = [ThemeChoice(name: "Nord", input: .ghosttyDefault), ThemeChoice(name: "Vesper", input: .ghosttyDefault)]
-        let model = OnboardingModel(services: services, start: .theme)
-        model.stepDidAppear()
-        await settle { model.theme.choices.count == 3 }
-        #expect(model.theme.choices.map(\.name) == [nil, "Nord", "Vesper"])
-        model.theme.select("Vesper")
-        #expect(services.selectedThemeName == "Vesper")
-        model.skipStep()
-        #expect(services.selectedThemeName == "Nord")
-    }
-
-    @Test func withoutAThemeOfTheirOwnTheDefaultIsAppleSystem() {
-        let services = MockOnboardingServices()
-        services.ghosttyHasOwnTheme = false
-        services.selectedThemeName = "Nord"
-        let model = OnboardingModel(services: services, start: .theme)
-        #expect(OnboardingStrings.themeName(model.theme.choices[0]) == "Apple System (follows appearance)")
-        model.theme.select(nil)
-        #expect(services.selectedThemeName == nil, "choosing the default writes no theme")
-        #expect(OnboardingStrings.themeName(OnboardingModel(services: MockOnboardingServices(), start: .theme).theme.choices[0]) == "Your Ghostty Theme")
-    }
-
-    @Test func continueKeepsTheThemeClosingBeforeRevertsIt() {
-        let services = MockOnboardingServices()
-        let model = OnboardingModel(services: services, start: .theme)
-        model.theme.select("Vesper")
-        model.next()
-        #expect(services.selectedThemeName == "Vesper" && services.ended == true)
-
-        let other = MockOnboardingServices()
-        let closing = OnboardingModel(services: other, start: .theme)
-        closing.theme.select("Vesper")
-        closing.finish(completed: false)
-        #expect(other.selectedThemeName == nil && other.ended == false)
+        #expect(ended == true && model.ended)
     }
 
     @Test func importChecksEverythingAndImportRunsInPlace() async {
@@ -82,7 +39,7 @@ import Testing
         let firefox = profile("Profiles/x", browser: .firefox, kinds: [.cookies])
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [empty, work]),
                             BrowserSource(browser: .firefox, appURL: nil, profiles: [firefox])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -98,7 +55,7 @@ import Testing
         #expect(model.step == .importData, "Import stays on the step so its rows show the result")
         #expect(model.primaryTitle == OnboardingStrings.done)
         model.next()
-        #expect(services.ended == true)
+        #expect(model.ended)
         #expect(services.plans.count == 1, "Done after an import does not run it again")
     }
 
@@ -108,7 +65,7 @@ import Testing
                                           path: URL(fileURLWithPath: "/tmp/Safari"),
                                           availability: [:])
         services.sources = [BrowserSource(browser: .safari, appURL: nil, profiles: [safari], needsFullDiskAccess: true)]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -121,14 +78,14 @@ import Testing
         let services = MockOnboardingServices()
         let work = profile("Profile 1")
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
         model.importer.toggle(work)
         #expect(model.primaryTitle == OnboardingStrings.done)
         model.next()
-        #expect(services.ended == true && services.plans.isEmpty)
+        #expect(model.ended && services.plans.isEmpty)
     }
 
     @Test func rowsShowEachProfilesProgressThenItsCounts() async {
@@ -148,7 +105,7 @@ import Testing
                                                                proposedProfileID: "w", targetProfileID: "w"))
         workBatch.history = (0..<7).map { ImportedHistoryEntry(url: URL(string: "https://a.test/\($0)")!, title: nil, visitCount: 1, lastVisit: .now) }
         services.summary = ImportSummary(batches: [workBatch], failures: [side.id: "locked"])
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -175,7 +132,7 @@ import Testing
         let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
         let home = profile("Default", browser: .chrome, kinds: [.bookmarks, .passwords])
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [home]), BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -206,7 +163,7 @@ import Testing
         services.passwordAuthorization = false
         let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
         services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -234,7 +191,7 @@ import Testing
         services.holdsAuthorization = true
         let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
         services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -266,7 +223,7 @@ import Testing
         services.passwordAuthorization = false
         let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
         services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -281,7 +238,7 @@ import Testing
         services.passwordStore = true
         let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
         services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -297,7 +254,7 @@ import Testing
     @Test func noPasswordStoreNoPasswordChoice() async {
         let services = MockOnboardingServices()
         services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [profile("Default", browser: .edge, kinds: [.bookmarks, .passwords])])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -314,7 +271,7 @@ import Testing
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [chrome]),
                             BrowserSource(browser: .edgeBeta, appURL: nil, profiles: [edgeBeta]),
                             BrowserSource(browser: .edge, appURL: nil, profiles: [edge])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -325,7 +282,7 @@ import Testing
         let services = MockOnboardingServices()
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [profile("Default")])]
         services.holdsImport = true
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         model.importer.detect()  // Find Browsers
         await settle { model.importer.phase == .ready }
@@ -336,26 +293,5 @@ import Testing
         services.importGate?.resume()
         await settle { if case .finished = model.importer.phase { true } else { false } }
         #expect({ if case .finished = model.importer.phase { true } else { false } }())
-    }
-
-    @Test func defaultBrowserClaimUsesTheRegistry() async {
-        let registry = RecordingDefaultApps(appBundleURL: Self.app, schemes: ["https": URL(fileURLWithPath: "/Applications/Safari.app")])
-        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry), start: .defaultBrowser)
-        model.stepDidAppear()
-        #expect(model.defaults.currentBrowserName == "Safari")
-        model.defaults.request(.webBrowser)
-        await settle { model.defaults.pending.isEmpty }
-        #expect(model.defaults.isClaimed(.webBrowser))
-        #expect(registry.log == ["scheme:http", "scheme:https"])
-    }
-
-    @Test func refusedBrowserPromptLeavesItUnclaimedWithoutAnError() async {
-        let registry = RecordingDefaultApps(appBundleURL: Self.app)
-        registry.refusedSchemes = ["http"]
-        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry), start: .defaultBrowser)
-        model.defaults.request(.webBrowser)
-        await settle { model.defaults.pending.isEmpty }
-        #expect(!model.defaults.isClaimed(.webBrowser))
-        #expect(model.defaults.errors.isEmpty)
     }
 }

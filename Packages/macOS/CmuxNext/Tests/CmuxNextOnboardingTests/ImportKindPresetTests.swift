@@ -22,7 +22,7 @@ import Testing
         services.passwordStore = true
         let home = profile("Default", browser: .chrome)
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [home])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.importer.preset(kinds: [.cookies])
         model.importer.detect()
         await settle { model.importer.phase == .ready }
@@ -39,7 +39,7 @@ import Testing
     @Test func thePersonCanStillCheckOtherKinds() async {
         let services = MockOnboardingServices()
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [profile("Default", browser: .chrome)])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.importer.preset(kinds: [.cookies])
         model.importer.detect()
         await settle { model.importer.phase == .ready }
@@ -52,7 +52,7 @@ import Testing
     @Test func aCardPresetImportsIntoTheTabsProfileAndOtherOpeningsDoNot() async throws {
         let services = MockOnboardingServices()
         services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [profile("Default", browser: .chrome)])]
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         let tabProfile = "0b6f3c2e-6a51-4d1f-9a3e-2f6b1c9d7e40"
         model.importer.preset(kinds: [.cookies], into: tabProfile)
         model.importer.detect()

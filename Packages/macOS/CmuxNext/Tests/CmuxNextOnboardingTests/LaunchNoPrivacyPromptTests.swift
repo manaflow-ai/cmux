@@ -138,22 +138,10 @@ import Testing
         #expect(!recorder.listings.withLock { $0 }.contains(home.standardizedFileURL.path))
     }
 
-    @Test func theChatScanNeverProbesAProtectedFolder() throws {
-        defer { try? FileManager.default.removeItem(at: home) }
-        try writeTranscripts(guardedCwds)
-        let recorder = Recorder(links: [path("linked"): path("Documents")])
-        var projects = AgentProjectScan(home: home)
-        projects.fileSystem = recorder.fileSystem
-        let chats = AgentChatScan(projects: projects).run()
-
-        #expect(promptingProbes(recorder) == [])
-        #expect(chats.count == guardedCwds.count)
-    }
-
     /// The Import step shows without reading other apps' data; Find Browsers (a person) reads it.
     @MainActor @Test func theImportStepReadsBrowserDataOnlyWhenAPersonAsks() async {
         let services = MockOnboardingServices()
-        let model = OnboardingModel(services: services, start: .importData)
+        let model = OnboardingModel(services: services, step: .importData)
         model.stepDidAppear()
         for _ in 0..<50 { await Task.yield() }
         #expect(services.detections == 0)

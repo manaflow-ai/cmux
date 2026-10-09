@@ -44,10 +44,7 @@ struct SecondaryWindowCloseButtonTests {
     }
 
     @Test func onboardingWindowHasACloseButton() {
-        let services = MockOnboardingServices()
-        services.accountsView = NSView()
-        services.firstTaskView = NSView()
-        let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .accounts))
-        Self.expectCloseButton(controller.window, "Onboarding")
+        let controller = OnboardingWindowController(model: OnboardingModel(services: MockOnboardingServices(), step: .importData))
+        Self.expectCloseButton(controller.window, "Import from Browser")
     }
 }

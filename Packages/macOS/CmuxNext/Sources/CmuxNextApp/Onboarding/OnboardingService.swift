@@ -1,24 +1,21 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextOnboarding
-import os
 
-/// Owns the onboarding window: it opens only from the palette, the menu,
-/// the import and default-app actions and the browser-data offer, never at
-/// launch (Lawrence 2026-10-09: a launch goes straight to the main window).
-/// Also feeds imported history to the omnibar at launch.
+/// Owns the tool window (Import from Browser, Computer Use setup), the
+/// browser-data import offer, the default-app registry and the imported
+/// data, and feeds imported history to the omnibar at launch. Nothing opens
+/// at launch (Lawrence 2026-10-09: a launch goes straight to the main
+/// window).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
-    /// The state file's one writer (`OnboardingStateFile` per channel).
-    let state: OnboardingStateQueue
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
-    /// The one onboarding window (set up in `init`).
+    /// The one tool window (set up in `init`).
     private let presenter = OnboardingWindowPresenter()
     var controller: OnboardingWindowController? { presenter.controller }
     /// The browser-data import offer on the first browser tab of a launch.
@@ -26,20 +23,13 @@ final class OnboardingService {
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
-    /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
+    /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
-
-    /// Whether an open window can show `step` (`OnboardingWindowPresenter`).
-    static func reusesWindow(showing steps: [OnboardingModel.Step], for step: OnboardingModel.Step?) -> Bool {
-        OnboardingWindowPresenter.reusesWindow(showing: steps, for: step)
-    }
 
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateQueue(file: OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID))
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -70,68 +60,19 @@ final class OnboardingService {
             guard let self else { return }
             projectFolders = folders
         }
-        presenter.makeModel = { [weak self] start, resume in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), start: start, resumingFirstRunAt: resume) }
+        presenter.makeModel = { [weak self] step in
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
         }
-        presenter.onWindowClose = { [weak self] in
-            // The task's session stays in acpmux (the agent may still be working); only the page closes.
-            self?.firstTask?.view.close()
-            self?.firstTask = nil
-        }
-    }
-
-    /// The first task's chat, kept while the window is open so the step
-    /// shows the same chat when the user comes back to it.
-    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
-
-    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
-        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
-        firstTask?.view.close()
-        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
-        firstTask = view.map { (cwd, prompt, $0) }
-        return view
     }
 
     var isShowing: Bool { controller != nil }
-    private(set) var gallery: OnboardingGalleryController?
-    /// The review tool's state: picks, notes, position
-    /// (`~/Library/Application Support/cmux/<tag>/onboarding-feedback.json`).
-    private(set) lazy var galleryStore = GalleryReviewStore(url: Self.galleryFile(tag: services.environment.tag))
 
-    static func galleryFile(tag: String?) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appending(path: "cmux").appending(path: tag ?? "default").appending(path: "onboarding-feedback.json")
-    }
-
-    /// The onboarding review tool (DEBUG builds): one window, every screen's variants.
-    func showGallery() {
-        if let gallery { return gallery.present() }
-        let picks = AppOnboardingServices(owner: self)
-        // task-owner: one-shot theme file load for the samples
-        Task { [weak self] in
-            let themes = await picks.loadThemeChoices()
-            let ownTheme = await Task.detached { GhosttyOwnTheme.isSet() }.value
-            guard let self, gallery == nil else { return }
-            let accounts: () -> NSView? = { [weak self] in self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil }
-            let gallery = OnboardingGalleryController(store: galleryStore, makeServices: { store in
-                let sample = MockOnboardingServices.gallerySample(themes: themes, accountsView: accounts())
-                sample.ghosttyTheme = ThemeStore.shared.input
-                sample.ghosttyHasOwnTheme = ownTheme
-                for step in OnboardingModel.Step.allCases { sample.variantIDs[step] = store.pick(for: step) }
-                return sample
-            }, previewAppearance: { [weak self] dark in self?.services.terminalTheme.preview(dark: dark) })
-            gallery.onClose = { [weak self] in self?.gallery = nil }
-            self.gallery = gallery
-            gallery.present()
-        }
-    }
-
-    /// Opens onboarding at `step` (or brings the open one to that step).
+    /// Opens the tool window for `step` (or brings the open one forward).
     /// `importKinds` checks only those kinds on the import step and
-    /// `importTarget` names the cmux browser profile they go into (the cookie
-    /// import card: cookies, into the tab's profile); without kinds the step
+    /// `importTarget` names the cmux browser profile they go into (the
+    /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step? = nil, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
+    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
         presenter.show(step: step) { model, reused in
             if let importKinds {
                 model.importer.preset(kinds: importKinds, into: importTarget)
@@ -139,70 +80,6 @@ final class OnboardingService {
                 model.importer.resetTarget()
             }
         }
-    }
-
-    /// The first run is at `step`: kept so a relaunch (or Continue Setup)
-    /// resumes it there. A finished run stays finished.
-    func recordProgress(_ step: OnboardingModel.Step, interacted: Bool) {
-        state.write("onboarding progress") { try $0.markProgress(step, interacted: interacted) }
-    }
-
-    /// Continue Setup (Help menu, palette, Settings): the open first run as
-    /// it is, else the first run at its saved step (from its start when
-    /// none is saved). Finished or not, it stays as it was.
-    func continueSetup() {
-        // task-owner: one queued file read, then the window opens
-        Task { [weak self] in
-            guard let state = self?.state else { return }
-            let resume = await state.perform { $0.resumeStep() }
-            self?.presenter.showFirstRun(resumingAt: resume)
-        }
-    }
-
-    func markDone(completed: Bool) {
-        state.write("onboarding state") { try $0.markDone(completed: completed) }
-    }
-
-    /// The workspace this launch created on the New Tab page because the
-    /// tree had none (`FirstWorkspace`): the first run lands on it instead
-    /// of opening a second one. Cleared once onboarding landed.
-    var freshWorkspaceID: String?
-
-    /// Onboarding ended (Skip or Done): records it, then lands (D3).
-    func didEnd(completed: Bool) {
-        // Only the first run's Skip or Done ends the first run; another
-        // window's (Import and Sync, a single step) leaves it as it is.
-        let firstRun = controller?.model.isFirstRun ?? true
-        if firstRun { markDone(completed: completed) }
-        land(firstRun: firstRun)
-    }
-
-    /// A launch that gave the tree its first workspace (`FirstWorkspace`)
-    /// shows it on its New Tab page at once, not the Home page: nothing
-    /// was chosen yet, and no window opens before it (Lawrence 2026-10-09:
-    /// "drop user into main screen asap").
-    func landOnFirstWorkspace() {
-        guard let fresh = freshWorkspaceID, services.machines.workspace(id: fresh) != nil else { return }
-        _ = services.windows.reveal(workspaceID: fresh)
-    }
-
-    /// D3 (cx-aha.2): Skip and Done of the first run (also when Continue
-    /// Setup reopened it) land on a New Tab page, one path for both
-    /// buttons (`OnboardingLanding`). Selecting a workspace only changes
-    /// what the window shows: no window is ordered front, so the person
-    /// stays on their Space and a fullscreen window keeps its Space; with
-    /// no window open, a new one opens on the current Space.
-    private func land(firstRun: Bool) {
-        let windows = services.windows
-        let fresh = freshWorkspaceID.flatMap { services.machines.workspace(id: $0) == nil ? nil : $0 }
-        let landing = OnboardingLanding.decide(firstRun: firstRun, hasOpenWindow: !windows.registry.value.openWindows.isEmpty,
-                                               shown: windows.active?.shownTopPage, fresh: fresh)
-        switch landing {
-        case .stay: return
-        case .select(let id): _ = windows.reveal(workspaceID: id)
-        case .newWorkspace: services.registry.perform("newTab")
-        }
-        freshWorkspaceID = nil
     }
 
     /// Imported history and bookmarks go into each browser profile's

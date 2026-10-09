@@ -326,11 +326,6 @@ final class AgentTabStore {
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
             return await handler.listProjects(query)
         }
-        model.onImportAndSync = { [weak self] in
-            guard let self else { return }
-            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
-            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
-        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)

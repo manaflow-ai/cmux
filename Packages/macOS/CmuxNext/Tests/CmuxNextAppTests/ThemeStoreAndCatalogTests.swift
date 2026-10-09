@@ -1,14 +1,8 @@
 import Testing
-@testable import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextOnboarding
 
-/// Terminal themes (app-local) and the theme list every picker offers.
+/// Terminal themes (app-local).
 @MainActor @Suite struct ThemeStoreAndCatalogTests {
-    @Test func pickersOfferOnboardingsThemes() {
-        #expect(ActionArgument.curatedThemes == ThemeChoice.curated)
-    }
-
     @Test func terminalThemesSetClearAndPrune() {
         let store = TerminalThemeStore(url: nil)
         let a = TerminalThemeStore.key(machine: "local", tab: "tab_a")

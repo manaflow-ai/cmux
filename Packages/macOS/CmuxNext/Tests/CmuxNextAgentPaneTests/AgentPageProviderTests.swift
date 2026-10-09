@@ -111,17 +111,12 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
         model.onListProjects = { _ in ["/project"] }
         model.onBrowseProject = { "/chosen" }
-        var imported = false
-        model.onImportAndSync = { imported = true }
         let (router, _) = router(model)
 
         let listed = await call(router, "cmux.agent.project.list")
         #expect(listed["value"]?["projects"] == .array([.string("/project")]))
         let browsed = await call(router, "cmux.agent.project.browse")
         #expect(browsed["value"]?["cwd"]?.stringValue == "/chosen")
-        let reply = await call(router, "cmux.agent.onboarding.importAndSync")
-        #expect(reply["t"]?.stringValue == "ok")
-        #expect(imported)
     }
 
     @Test func sessionPersistRecordsTheSession() async {
@@ -144,7 +139,7 @@ import Testing
     @Test func aModelRefusalIsAnErrorEnvelope() async {
         // action.run is allowed only on a new tab page; a chat tab refuses it.
         let (router, _) = router(AgentPaneModel(host: MockAgentPaneHost(), sessionId: "s1"))
-        let reply = await call(router, "cmux.agent.action.run", ["id": "palette.welcomeChecklist"])
+        let reply = await call(router, "cmux.agent.action.run", ["id": "palette.addHarness"])
         #expect(reply["t"]?.stringValue == "err")
         #expect(reply["code"]?.stringValue == "unsupported")
         #expect(reply["message"]?.stringValue?.isEmpty == false)

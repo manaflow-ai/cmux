@@ -32,7 +32,6 @@ struct WindowKindMatrixTests {
         .debugSettings: .ownWindow,
         .appStore: .ownWindow,
         .onboarding: .ownWindow,
-        .onboardingGallery: .ownWindow,
         .browserPopup: .ownWindow,
         .devTools: .ownWindow,
         .pageInfo: .ownWindow,

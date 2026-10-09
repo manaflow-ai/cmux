@@ -1,5 +1,4 @@
 import Foundation
-@testable import CmuxNextOnboarding
 @testable import CmuxNextTerminal
 import Testing
 
@@ -31,10 +30,8 @@ import Testing
     @Test func bothDefaultThemesShipWithGhostty() throws {
         for (name, background) in [(GhosttyRuntime.defaultDarkThemeName, "#1e1e1e"), (GhosttyRuntime.defaultLightThemeName, "#feffff")] {
             let file = Self.themesFolder.appending(path: name)
-            let text = try String(contentsOf: file, encoding: .utf8)
-            let input = try #require(GhosttyThemeFile.parse(text), "\(name) does not parse")
-            #expect(String(format: "#%02x%02x%02x", Int(input.background.red * 255), Int(input.background.green * 255),
-                           Int(input.background.blue * 255)) == background, "\(name)")
+            let colors = try #require(Self.colors("theme = \(file.path)\n"), "\(name) does not load")
+            #expect(Self.hex(colors.background) == background, "\(name)")
         }
         #expect(GhosttyRuntime.defaultThemeSpec == "light:Apple System Colors Light,dark:Apple System Colors")
     }
