@@ -285,10 +285,11 @@ test("the picker groups the folder's profiles by state; a needs-enable pick send
     const names = [...doc.querySelectorAll(".acpmux-mp-harness")].map((row) => row.querySelector("span")?.textContent);
     expect(names.slice(-3)).toEqual(["Acme Agent", "Lint Bot", "Broken Agent"]);
     expect(names).toContain("Codex");
-    expect(menu()?.querySelector(".acpmux-mp-section")?.textContent).toBe("This folder");
-    expect(harnessRow("Acme Agent")?.textContent).toContain("Enable…");
-    expect(harnessRow("Lint Bot")?.textContent).toContain("Needs trust");
-    expect(harnessRow("Broken Agent")?.textContent).toContain("Unavailable");
+    // The rail is icons only: a hairline names the folder's group, each state is in the tooltip.
+    expect(menu()?.querySelector("hr")?.getAttribute("aria-label")).toBe("This folder");
+    expect(harnessRow("Acme Agent")?.getAttribute("title")).toContain("Enable…");
+    expect(harnessRow("Lint Bot")?.getAttribute("title")).toContain("Needs trust");
+    expect(harnessRow("Broken Agent")?.getAttribute("title")).toContain("Unavailable");
 
     // Needs trust and broken rows start nothing; they say why in place of models.
     await act(async () => harnessRow("Lint Bot")!.click());

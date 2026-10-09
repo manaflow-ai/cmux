@@ -150,17 +150,11 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
 
 Deviation: `tell` reaches a running subagent after its current turn (acpmux
 queues the prompt; claude-sr has no steering), not between its tool calls.
-A Claude spawn of several subagents is single-flight on the shared view: the
-first subagent starts alone, its first message marked at the view's last whole
-block with the turns' TTL (`Brain::turn_cache_ttl`, 1 hour by default; none once
-a route refused our marks), and the subagent directory's project settings
-give Claude Code the same TTL (`promptCacheTtl`, as the turns' session
-directory; acpmux takes no TTL variable in a session's env), so the API never
-sees a 1h mark after a 5m one. A spawn in a directory of the user's gets no
-mark: that directory is not ours to write. The rest start when its response began
-streaming (the view's cache entry then exists), at most `WARM_WAIT` (20 s)
-later, and read that entry. The trace's `spawn.warm` says whether the first
-spoke and how long the wait took.
+A subagent's first message carries no cache mark of ours, and all of a
+spawn's subagents start at once: Claude Code marks its two system blocks and
+the last two messages of every later request in a session, the API takes at
+most 4 marks, and a subagent's long tool loop needs Claude Code's own rolling
+marks (decision 2026-10-08; see Cache marks and TTL).
 
 ## Engine: harness, model and effort per turn
 
@@ -666,6 +660,19 @@ through it. Two rules keep that true:
   warm-session key follow it, so a warm session started under the other TTL
   is not reused. 1h and 5m entries are one cache (measured), so a node reads
   what a turn wrote either way.
+
+**At most 4 marks.** Claude Code 2.1.287 marks its two system blocks and
+the last message of a session's first request, and the last TWO messages of
+every later request in the session (a tool step, a size-loop follow-up, a
+steered message), on the subscription login and through `sr` alike
+(measured 2026-10-08). Our view mark stays in the first message's history,
+so it would make 5 on the session's second request, which the API refuses.
+So a turn or a compactor node that carries our mark runs with
+`DISABLE_PROMPT_CACHING=1` in its directory's settings env: Claude Code
+places none, every request of the session reads up to our mark, and a
+turn's tool steps send their own tail uncached. A turn or node too small
+for a mark keeps Claude Code's own. Subagents never carry our mark: their
+sessions are long, and Claude Code's own marks cache them step by step.
 
 `turn.start` records the marked piece and the TTL (`layout.mark`,
 `layout.ttl`) and the inspector lays the prompt out from them.

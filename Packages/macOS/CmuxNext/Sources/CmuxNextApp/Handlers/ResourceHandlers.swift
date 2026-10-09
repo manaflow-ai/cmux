@@ -17,7 +17,7 @@ enum ResourceHandlers {
         registry.bind("workspace.showResources", run: { invocation in
             let (workspace, _) = try ctx.workspace(invocation)
             // Each window's sidebar lists only its own workspaces.
-            let manager = ctx.services.windows!
+            let manager = ctx.services.windows
             let lists = { (window: WindowController) in manager.registry.members(of: window.state.id).contains(workspace.id) }
             let window = manager.active.flatMap { lists($0) ? $0 : nil } ?? manager.controllers.first(where: lists)
             guard let window, window.sidebar.container.sidebarView.showHoverCard(for: SidebarWorkspaceID(workspace.id)) else {
