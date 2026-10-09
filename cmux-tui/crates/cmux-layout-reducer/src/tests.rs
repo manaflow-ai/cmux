@@ -90,6 +90,43 @@ fn move_tab_reorders_moves_and_collapses_the_emptied_pane() {
     );
 }
 
+/// Cmd+D (S3): a new pane with a new tab beside the target, in the target's
+/// column; the other tabs and panes do not move.
+#[test]
+fn a_split_new_puts_a_new_pane_with_a_new_tab_beside_the_target() {
+    let (state, next_id) = build(&[vec![vec![vec![2, 1]]]]);
+    let fresh = NewTab {
+        tab: next_id + 1,
+        content: TabContent { runtime: 999, terminal: None, dead: false },
+    };
+    let split = LayoutOpKind::SplitNew {
+        pane: 3,
+        edge: Edge::Right,
+        new_pane: next_id,
+        new_tab: fresh.clone(),
+    };
+    let (next, events) = apply(&state, &op("cmd-d", split.clone())).unwrap();
+    assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![3, next_id, 6]);
+    assert_eq!(tabs_of(&next, next_id), vec![next_id + 1]);
+    assert_eq!(tabs_of(&next, 3), tabs_of(&state, 3));
+    assert_eq!(tabs_of(&next, 6), tabs_of(&state, 6));
+    assert_eq!(next.tabs[&(next_id + 1)], fresh.content);
+    assert!(events.contains(&LayoutEvent::PaneCreated { pane: next_id, screen: 2 }));
+    assert!(events.contains(&LayoutEvent::TabCreated { tab: next_id + 1, pane: next_id }));
+    assert_eq!(split.created_tabs(), BTreeSet::from([next_id + 1]));
+    let left = LayoutOpKind::SplitNew {
+        pane: 3,
+        edge: Edge::Left,
+        new_pane: next_id,
+        new_tab: fresh.clone(),
+    };
+    let (next, _) = apply(&state, &op("cmd-d-left", left)).unwrap();
+    assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![next_id, 3, 6]);
+    // A reused id is refused and nothing changes.
+    let reused = LayoutOpKind::SplitNew { pane: 3, edge: Edge::Right, new_pane: 6, new_tab: fresh };
+    assert!(apply(&state, &op("reused", reused)).is_err());
+}
+
 /// User requirement 2026-10-02: a pane's only tab dropped on one of its own
 /// pane's edges splits the pane, and a fresh tab of the same kind takes its
 /// place (the respawn, created by the same op).
@@ -382,6 +419,11 @@ enum Step {
         edge: Edge,
         respawn: bool,
     },
+    /// Cmd+D: a new pane with a new tab.
+    SplitNew {
+        pane: usize,
+        edge: Edge,
+    },
     Column {
         tab: usize,
         pane: usize,
@@ -421,6 +463,7 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(tab, pane, index)| Step::MoveTab { tab, pane, index }),
         3 => (pick.clone(), pick.clone(), edge(), any::<bool>())
             .prop_map(|(tab, pane, edge, respawn)| Step::Split { tab, pane, edge, respawn }),
+        2 => (pick.clone(), edge()).prop_map(|(pane, edge)| Step::SplitNew { pane, edge }),
         2 => (pick.clone(), pick.clone(), prop::option::of(pick.clone()))
             .prop_map(|(tab, pane, after)| Step::Column { tab, pane, after }),
         1 => (pick.clone(), prop::option::of(0..4usize))
@@ -482,6 +525,14 @@ fn concrete(
                 }
             });
             LayoutOpKind::MoveTabToSplit { tab, pane, edge: *edge, new_pane, respawn }
+        }
+        Step::SplitNew { pane: p, edge } => {
+            let pane = pane(*p)?;
+            let new_pane = fresh();
+            let id = fresh();
+            let new_tab =
+                NewTab { tab: id, content: TabContent { runtime: id * 10, terminal: None, dead: false } };
+            LayoutOpKind::SplitNew { pane, edge: *edge, new_pane, new_tab }
         }
         Step::Column { tab: t, pane: p, after } => {
             let anchor = pane(*p)?;
