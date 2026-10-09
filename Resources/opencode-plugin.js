@@ -299,10 +299,10 @@ const createCMUXFeed = async (ctx, options = {}) => {
     if (!sessionId || !message || disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
     if (options.tui) {
       try {
-        await ctx.client.session.prompt({ sessionID: sessionId, text: { text: message, resume: false } });
+        await ctx.client.session.prompt({ sessionID: sessionId, text: message, resume: false });
         return;
       } catch (_) {}
-      await ctx.client.session.synthetic({ sessionID: sessionId, text: { text: message, resume: false } });
+      await ctx.client.session.synthetic({ sessionID: sessionId, text: message, resume: false });
       return;
     }
     try {

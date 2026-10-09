@@ -57,6 +57,12 @@ if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session adm
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
 const observed = [];
+const observedWaiters = [];
+const waitForObserved = (predicate) => {
+  const existing = observed.find(predicate);
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => observedWaiters.push({ predicate, resolve }));
+};
 const delayedResponses = new Map();
 let holdNextResponse = false;
 const server = net.createServer((connection) => {
@@ -68,10 +74,18 @@ const server = net.createServer((connection) => {
       const frame = JSON.parse(line);
       const event = frame.params.event;
       observed.push(event);
+      for (let index = observedWaiters.length - 1; index >= 0; index--) {
+        const waiter = observedWaiters[index];
+        if (!waiter.predicate(event)) continue;
+        observedWaiters.splice(index, 1);
+        waiter.resolve(event);
+      }
       if (frame.params.wait_timeout_seconds === 0) continue;
       const decision = event.hook_event_name === "PermissionRequest"
         ? { kind: "permission", mode: "once" }
-        : { kind: "question", selections: ["yes"] };
+        : event.hook_event_name === "ExitPlanMode"
+          ? { kind: "exit_plan", mode: "deny", feedback: "please revise" }
+          : { kind: "question", selections: ["yes"] };
       const response = () => {
         if (!connection.destroyed) connection.write(JSON.stringify({ result: { request_id: event._opencode_request_id, status: "resolved", decision } }) + "\n");
       };
@@ -91,7 +105,7 @@ const deferred = () => {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 };
-const repliesA = { permission: deferred(), form: deferred(), question: deferred(), routeForm: deferred() };
+const repliesA = { permission: deferred(), form: deferred(), question: deferred(), routeForm: deferred(), plan: deferred(), feedback: deferred() };
 const repliesB = { permission: deferred() };
 const makeLive = (name, environment, replies) => {
   const live = makeContext(name);
@@ -100,6 +114,11 @@ const makeLive = (name, environment, replies) => {
   live.data.listen = (callback) => { live.emit = callback; return () => {}; };
   live.client = {
     permission: { reply: async (value) => { replies.permission?.resolve(value); } },
+    session: {
+      update: async () => {},
+      prompt: async (value) => { replies.feedback?.resolve(value); },
+      synthetic: async (value) => { replies.feedback?.resolve(value); },
+    },
     _client: {
       post: async (request) => {
         if (request.url === "/question/{requestID}/reply") {
@@ -109,7 +128,7 @@ const makeLive = (name, environment, replies) => {
     },
   };
   live.data.session.form = { reply: async (value, location) => {
-    const target = value.formID === "form-route" ? replies.routeForm : replies.form;
+    const target = value.formID === "form-route" ? replies.routeForm : value.formID === "form-plan" ? replies.plan : replies.form;
     target?.resolve({ value, location });
   } };
   live.environment = environment;
@@ -138,16 +157,18 @@ liveA.emit({ details: { type: "question.asked", data: { sessionID: "child-a", id
 const questionA = await Promise.race([repliesA.question.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("legacy question reply timed out")), 2000))]);
 if (questionA.requestID !== "question-a" || JSON.stringify(questionA.answers) !== JSON.stringify([["yes"]])) throw new Error("legacy question reply used the wrong TUI contract");
 
+liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-plan", title: "Build Agent", fields: [{ key: "decision", type: "string", question: "Plan at /tmp/plan.md is complete.", options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] }] } } } });
+const planA = await Promise.race([repliesA.plan.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("plan form reply timed out")), 2000))]);
+if (planA.value.formID !== "form-plan" || planA.value.answer.decision !== "no") throw new Error("plan exit form used the wrong reply path");
+const feedbackA = await Promise.race([repliesA.feedback.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("plan feedback timed out")), 2000))]);
+if (feedbackA.sessionID !== "child-a" || feedbackA.text?.resume !== undefined || feedbackA.resume !== false || typeof feedbackA.text !== "string") throw new Error("plan feedback used the wrong prompt contract");
+
 liveA.emit({ details: { type: "session.inbox.enqueued", data: { sessionID: "child-a", item: { type: "user", payload: { text: "hello from v2" } } } } });
 liveA.emit({ details: { type: "session.text.ended", data: { sessionID: "child-a", text: "assistant preamble" } } });
 
 holdNextResponse = true;
 liveA.emit({ details: { type: "form.created", data: { form: { sessionID: "child-a", id: "form-route", fields: [{ key: "choice", type: "string", options: [{ value: "yes-value", label: "yes" }] }] } } } });
-const routeFrameDeadline = Date.now() + 2000;
-while (!observed.some((event) => event._opencode_request_id === "form-route")) {
-  if (Date.now() > routeFrameDeadline) throw new Error("route-change form frame timed out");
-  await new Promise((resolve) => setImmediate(resolve));
-}
+await waitForObserved((event) => event._opencode_request_id === "form-route");
 liveA.ui.router.current = () => fixture.starterClosed.route;
 delayedResponses.get("form-route")?.();
 const routeForm = await Promise.race([repliesA.routeForm.promise, new Promise((_, reject) => setTimeout(() => reject(new Error("route-change form reply timed out")), 2000))]);
@@ -160,11 +181,8 @@ liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", 
 await new Promise((resolve) => setImmediate(resolve));
 if (observed.length !== beforeClosed) throw new Error("closed starter surface retained Feed ownership");
 
-const telemetryDeadline = Date.now() + 2000;
-while (observed.filter((event) => event.hook_event_name === "SessionStart" || event.hook_event_name === "Stop").length < 2) {
-  if (Date.now() > telemetryDeadline) throw new Error(`Feed telemetry timed out (${JSON.stringify(observed)})`);
-  await new Promise((resolve) => setImmediate(resolve));
-}
+await waitForObserved((event) => event.hook_event_name === "SessionStart");
+await waitForObserved((event) => event.hook_event_name === "Stop");
 const sessionStart = observed.find((event) => event.hook_event_name === "SessionStart");
 const stop = observed.find((event) => event.hook_event_name === "Stop");
 if (sessionStart?.surface_id !== "surface-a" || sessionStart?.workspace_id !== "workspace-a") throw new Error("Feed event was routed to the wrong surface");
@@ -174,11 +192,7 @@ const prompt = observed.find((event) => event.hook_event_name === "UserPromptSub
 if (prompt?.tool_input?.prompt !== "hello from v2" || prompt?.context?.lastUserMessage !== "hello from v2") throw new Error("V2 inbox prompt was dropped from Feed context");
 const sessionEnd = observed.find((event) => event.hook_event_name === "SessionEnd");
 if (!sessionEnd) {
-  await new Promise((resolve, reject) => {
-    const deadline = setTimeout(() => reject(new Error("archived session Feed event timed out")), 2000);
-    const check = () => observed.some((event) => event.hook_event_name === "SessionEnd") ? (clearTimeout(deadline), resolve()) : setImmediate(check);
-    check();
-  });
+  await waitForObserved((event) => event.hook_event_name === "SessionEnd");
 }
 if (observed.find((event) => event.hook_event_name === "SessionEnd")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");

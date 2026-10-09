@@ -34725,15 +34725,7 @@ export default {
     }
 
     private func bundledOpenCodeTUIPluginSource() throws -> String {
-        let fileManager = FileManager.default
-        var candidates: [URL] = []
-        if let url = Bundle.main.url(forResource: "opencode-tui-plugin", withExtension: "js") { candidates.append(url) }
-        if let root = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"], !root.isEmpty {
-            candidates.append(URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent("src/Resources/opencode-tui-plugin.js"))
-        }
-        let sourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/opencode-tui-plugin.js")
-        candidates.append(sourceURL)
-        for url in candidates where fileManager.fileExists(atPath: url.path) {
+        for url in openCodePluginResourceCandidates(filename: "opencode-tui-plugin.js") {
             if let source = try? String(contentsOf: url, encoding: .utf8) { return source }
         }
         throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
@@ -41536,10 +41528,11 @@ export default {
         throw CLIError(message: String(localized: "cli.hooks.error.bundledPluginUnavailable", defaultValue: "cmux could not install the selected agent integration. Reinstall cmux or run the hook installation command again."))
     }
 
-    private func openCodePluginResourceCandidates() -> [URL] {
+    private func openCodePluginResourceCandidates(filename: String = "opencode-plugin.js") -> [URL] {
         let fileManager = FileManager.default
         var candidates: [URL] = []
         var seen: Set<String> = []
+        let resourceName = (filename as NSString).deletingPathExtension
 
         func appendIfExisting(_ url: URL?) {
             guard let url else { return }
@@ -41549,30 +41542,31 @@ export default {
             candidates.append(standardized)
         }
 
-        appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
-        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
+        appendIfExisting(Bundle.main.url(forResource: resourceName, withExtension: "js"))
+        appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent(filename, isDirectory: false))
 
         if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
            !runtimeRoot.isEmpty {
             appendIfExisting(
                 URL(fileURLWithPath: runtimeRoot, isDirectory: true)
-                    .appendingPathComponent("src/Resources/opencode-plugin.js")
+                    .appendingPathComponent("src/Resources", isDirectory: true)
+                    .appendingPathComponent(filename, isDirectory: false)
             )
         }
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
-            for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {
+            for relativePath in [filename, "../\(filename)", "../../Resources/\(filename)", "../../../Contents/Resources/\(filename)"] {
                 appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL)
             }
 
             var current = execDir
             for _ in 0..<4 {
                 if current.pathExtension == "app" {
-                    appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
+                    appendIfExisting(current.appendingPathComponent("Contents/Resources", isDirectory: true).appendingPathComponent(filename, isDirectory: false))
                     break
                 }
                 let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
-                let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+                let repoResource = current.appendingPathComponent("Resources", isDirectory: true).appendingPathComponent(filename, isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoResource.path) {
                     appendIfExisting(repoResource)
@@ -41585,7 +41579,8 @@ export default {
         let devRelative = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Resources/opencode-plugin.js")
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
         appendIfExisting(devRelative)
         return candidates
     }
