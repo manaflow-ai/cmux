@@ -363,6 +363,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.startAgentGlobalHotKey.help",
+        "text" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.startAgentGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "start agent",
+        "agent",
+        "quick",
+        "chat",
+        "launcher",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "startAgentGlobalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.startAgentGlobalHotKey",
+        "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "same-kind",
         "terminal",
         "browser",
@@ -16227,7 +16279,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6b0103f3c76d6fccb6ae08dd6e3683c8724c31a784084ddc3c30d5c88fe3d69d",
+  "schema_hash" : "770d9f35a30c35504782204f31128281d075cba9d359be8b54a95d1a2ce100a1",
   "sections" : [
     {
       "id" : "general",
