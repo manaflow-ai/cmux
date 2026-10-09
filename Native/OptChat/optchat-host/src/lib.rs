@@ -29,7 +29,7 @@ pub use config::{
 };
 pub use db::{Appended, NewMessage, StateWrite};
 pub use fault::{fault, FAULT_ENV};
-pub use model::{CompactModel, Followup, ModelError, Reply};
+pub use model::{error_class, CompactModel, ErrorClass, Followup, ModelError, Reply};
 pub use report::{Report, Reporter};
 
 pub use optchat_core::{CompactPrompt, CompactRequest, Kind, NodeId, RenderedView, ZoomError};
@@ -39,3 +39,7 @@ use std::time::Duration;
 /// Wait before a failed compactor node is tried again: fixed, never
 /// exponential, because the next turn waits on the compactor (section 4.1).
 pub const RETRY: Duration = Duration::from_secs(10);
+/// Wait before retrying a node whose call failed with a request error the
+/// same call repeats (`ErrorClass::permanent`): it no longer holds any turn,
+/// so it is retried rarely, in case a new build or setting fixed it.
+pub const STUCK_RETRY: Duration = Duration::from_secs(300);
