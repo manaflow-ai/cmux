@@ -329,6 +329,8 @@
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
         return t.withTab(`${base(msg.uid)}?${q}`, async (page) => {
           t.assertSignedIn("gmail.send", page, SIGN_IN);
+          // A compose tab redirected off Gmail fails target_mismatch here.
+          await t.readBack(page, () => true);
           const box = composerBox(page);
           await box.first().waitFor({ timeout: 30000 });
           if ((await box.count()) !== 1) throw unverified("expected one Gmail compose window");
@@ -341,16 +343,24 @@
               await page.keyboard.insertText(msg[field].join(", "));
             }
             if (msg.subject) await (await oneIn(win, ['input[name="subjectbox"]'], "subject field")).fill(msg.subject);
-            // The body goes before Gmail's signature, at the composer's start.
-            await box.evaluate((el) => {
+            // The body goes before Gmail's signature and quoted text, in
+            // the composer's first line (a new empty one when the composer
+            // starts with them, as Gmail's own new line does).
+            await box.evaluate((el, own) => {
               el.focus();
+              let line = el.firstChild;
+              if (!line || (line.nodeType === 1 && line.matches(own))) {
+                line = document.createElement("div");
+                line.appendChild(document.createElement("br"));
+                el.insertBefore(line, el.firstChild);
+              }
               const range = document.createRange();
-              range.setStart(el, 0);
+              range.setStart(line, 0);
               range.collapse(true);
               const selection = getSelection();
               selection.removeAllRanges();
               selection.addRange(range);
-            });
+            }, GMAIL_OWN);
             await page.keyboard.insertText(msg.body);
           };
           return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { fill, submit: sendButton(page), account: () => composeAccount(page, msg) });
