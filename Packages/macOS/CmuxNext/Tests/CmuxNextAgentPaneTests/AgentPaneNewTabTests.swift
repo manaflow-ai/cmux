@@ -275,6 +275,32 @@ import Testing
         #expect(picked == ["agent"])
     }
 
+    /// The template dots (cx-yabk): the handshake says which template is
+    /// saved, and a pick reaches the App only while the tab is still the page.
+    @Test func theTemplateDotsReachTheAppWhileThePageIsShown() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .agent, template: "console"))
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect((value["newTab"] as? [String: Any])?["template"] as? String == "console")
+        var picked: [String] = []
+        model.onSetNewTabTemplate = { picked.append($0) }
+        #expect(await model.respond(to: .setNewTabTemplate("threads"))["ok"] as? Bool == true)
+        _ = await model.respond(to: .persistSession("s-1"))
+        #expect(await model.respond(to: .setNewTabTemplate("terminal"))["ok"] as? Bool == false)
+        #expect(picked == ["threads"])
+    }
+
+    @Test func templateRequestsParseBoundedNames() {
+        func request(_ params: [String: Any]) -> AgentPaneRequest {
+            AgentPaneRequest(body: ["method": "newTab.setTemplate", "params": params] as [String: Any])
+        }
+        #expect(request(["template": "classic"]) == .setNewTabTemplate("classic"))
+        #expect(request(["template": ""]) == .unsupported("newTab.setTemplate"))
+        #expect(request(["template": 3]) == .unsupported("newTab.setTemplate"))
+        #expect(request(["template": String(repeating: "a", count: 40)]) == .unsupported("newTab.setTemplate"))
+        // The page reaches it through the `cmux.agent.` op namespace too.
+        #expect(AgentPageOps.methods["newTab.setTemplate"] == "newTab.setTemplate")
+    }
+
     @Test func theHandshakeCarriesTheLocationAndLosslessSuggestions() async throws {
         let tabs = (0..<50).map { AgentPaneOmnibar.Tab(id: "t\($0)", kind: .terminal, title: "t\($0)") }
         let page = AgentPaneNewTab(kind: .browser, location: "https://vite.dev/guide/", omnibar: AgentPaneOmnibar(
