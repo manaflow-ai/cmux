@@ -30,6 +30,7 @@ struct QuickComposerControllerTests {
         let window = FakeWindow()
         var chatsMade = 0
         var opened: [String?] = []
+        var started: [AgentPaneQuickStart] = []
         var canHostChat = true
         var canOpen = true
         lazy var controller = QuickComposerController(
@@ -41,6 +42,10 @@ struct QuickComposerControllerTests {
             makeWindow: { [unowned self] in self.window },
             openInWindow: { [unowned self] session in
                 self.opened.append(session)
+                return self.canOpen
+            },
+            startInBackground: { [unowned self] start in
+                self.started.append(start)
                 return self.canOpen
             }
         )
@@ -117,6 +122,37 @@ struct QuickComposerControllerTests {
         _ = await chat.model.respond(to: .persistSession("s-1"))
         _ = await chat.model.respond(to: .quickOpenInWindow(sessionId: nil))
         #expect(harness.opened == ["s-1"])
+        #expect(controller.chat === chat)
+    }
+
+    /// Start Agent's Return (cx-hkat): the started chat goes to the
+    /// sidebar in the background, the panel hides without bringing a window
+    /// forward, and the next show is a fresh chat.
+    @Test func returnStartsTheChatInTheBackgroundAndStartsOver() async throws {
+        let harness = Harness()
+        let controller = harness.controller
+        controller.show()
+        let model = try #require(controller.chat?.model)
+        let start = AgentPaneQuickStart(sessionId: "s-9", cwd: "/repo", name: "fix the flaky test")
+        _ = await model.respond(to: .quickStartInBackground(start))
+        #expect(harness.started == [start])
+        #expect(harness.opened.isEmpty)
+        #expect(!controller.isShown)
+        #expect(controller.chat == nil)
+
+        controller.show()
+        #expect(harness.chatsMade == 2)
+        #expect(controller.chat?.model.sessionId == nil)
+    }
+
+    /// No daemon to hold the session: the chat stays in the panel with its draft.
+    @Test func aBackgroundStartWithNowhereToGoKeepsTheChat() async throws {
+        let harness = Harness()
+        harness.canOpen = false
+        let controller = harness.controller
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-9", cwd: nil, name: nil)))
         #expect(controller.chat === chat)
     }
 

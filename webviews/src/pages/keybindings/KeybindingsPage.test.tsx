@@ -93,6 +93,16 @@ describe("KeybindingsPage", () => {
     expect(dom.window.document.activeElement).toBe($(".keys-search"));
   });
 
+  test("a system-wide key another app holds is marked on its row", async () => {
+    const provider = new MockKeybindingsProvider(sampleLayers());
+    provider.heldElsewhere = new Set(["palette.files"]);
+    await render(provider);
+    const marks = $$(".keys-held-elsewhere");
+    expect(marks).toHaveLength(1);
+    expect(rowOf("Go to File").contains(marks[0])).toBe(true);
+    expect(marks[0].getAttribute("title")).toBe("Another app holds this key, so it does nothing outside cmux.");
+  });
+
   test("Japanese strings", async () => {
     await render(undefined, "ja");
     expect($(".keys-title")?.textContent).toBe("キーボードショートカット");

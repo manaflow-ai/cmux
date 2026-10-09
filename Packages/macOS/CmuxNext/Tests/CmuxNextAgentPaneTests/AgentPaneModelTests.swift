@@ -270,6 +270,37 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(model.sessionId == "s-6")
     }
 
+    /// `quick.startInBackground` (Start Agent's Return, cx-hkat): the
+    /// started session, its folder and a name from the prompt. A missing
+    /// session is refused; an empty folder or name is none.
+    @Test func quickStartInBackgroundDecodes() {
+        let body: [String: Any] = ["method": "quick.startInBackground",
+                                   "params": ["sessionId": "s-8", "cwd": "/repo", "name": "fix the flaky test"]]
+        #expect(AgentPaneRequest(body: body) == .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-8", cwd: "/repo", name: "fix the flaky test")))
+        let bare: [String: Any] = ["method": "quick.startInBackground", "params": ["sessionId": "s-8", "cwd": "", "name": ""]]
+        #expect(AgentPaneRequest(body: bare) == .quickStartInBackground(AgentPaneQuickStart(sessionId: "s-8", cwd: nil, name: nil)))
+        #expect(AgentPaneRequest(body: ["method": "quick.startInBackground"] as [String: Any]) == .unsupported("quick.startInBackground"))
+    }
+
+    /// The quick panel's page hands its started session to the host and
+    /// adopts it, like `quick.openInWindow`; a tab refuses it.
+    @Test func quickStartInBackgroundReachesItsClosure() async {
+        let model = AgentPaneModel(host: RecordingHost())
+        var started: [AgentPaneQuickStart] = []
+        var reported: [String] = []
+        model.onQuickStartInBackground = { started.append($0) }
+        model.onSessionChange = { reported.append($0) }
+        let start = AgentPaneQuickStart(sessionId: "s-9", cwd: "/repo", name: "ship it")
+        #expect(await model.respond(to: .quickStartInBackground(start))["ok"] as? Bool == true)
+        #expect(started == [start])
+        #expect(reported == ["s-9"])
+        #expect(model.sessionId == "s-9")
+
+        let tab = AgentPaneModel(host: MockAgentPaneHost())
+        let reply = await tab.respond(to: .quickStartInBackground(start))
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
+    }
+
     /// A pane tab is not the quick panel: it refuses both messages.
     @Test func aTabRefusesQuickPanelMessages() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())

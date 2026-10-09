@@ -93,6 +93,8 @@ const snapshot = (sessionId: string | undefined, rows: AcpmuxSnapshot["rows"] = 
 
 let root: ReturnType<typeof createRoot>;
 let calls: [string, Record<string, unknown>][];
+/// `project.list` reads: the folder picker's choices, counted apart from the calls under test.
+let projectLists = 0;
 /// Mounts the page against a host whose `ready` reply carries `surface`, then shows `first`.
 const mount = async (
   surface: string | undefined,
@@ -116,7 +118,12 @@ const mount = async (
     }),
     "chat.send": record("chat.send"),
     "quick.dismiss": record("quick.dismiss"),
+    "project.list": async () => {
+      projectLists += 1;
+      return { projects: ["/repo"] };
+    },
     "quick.openInWindow": record("quick.openInWindow"),
+    "quick.startInBackground": record("quick.startInBackground"),
   };
   await act(async () => root.render(createElement(AcpmuxApp)));
   await act(async () => host.cmuxAcpmuxBridge!.receive(first));
@@ -135,6 +142,7 @@ const key = (name: string, init: KeyboardEventInit = {}) =>
 
 beforeEach(() => {
   calls = [];
+  projectLists = 0;
   root = createRoot(container());
 });
 afterEach(async () => {
@@ -156,7 +164,8 @@ test("a ready reply with surface quick shows only the composer and its key hints
   expect(page.querySelector(".acpmux-quick-thread")).toBeNull();
   const hints = page.querySelector(".acpmux-quick-keys")!;
   expect([...hints.querySelectorAll(".acpmux-keycap")].map((cap) => cap.textContent)).toEqual(["↩", "⌘↩", "esc"]);
-  expect(hints.textContent).toBe("↩send·⌘↩open in window·escclose");
+  // Start Agent (cx-hkat): Return starts in the background, ⌘Return starts and opens.
+  expect(hints.textContent).toBe("↩start·⌘↩start and open·escclose");
 });
 
 test("the quick surface shows the chat's transcript above the composer once it has a prompt", async () => {
@@ -190,6 +199,51 @@ test("Escape that closes the command menu does not dismiss the quick surface", a
   // A second Escape, with nothing left open, dismisses.
   await key("Escape");
   expect(methods()).toEqual(["quick.dismiss"]);
+});
+
+test("Return in the quick surface sends, then starts the chat in the background once its session exists", async () => {
+  await mount("quick", snapshot(undefined));
+  await type("fix the flaky test\nin the sidebar suite");
+  await key("Enter");
+  expect(methods()).toEqual(["chat.send"]);
+  await act(async () =>
+    host.cmuxAcpmuxBridge!.receive({
+      ...snapshot("s6", [{ id: "u1", version: 1, at: 1, kind: "user", text: "fix the flaky test" }]),
+      summary: { sessionId: "s6", turnCount: 1, cwd: "/repo" },
+    }),
+  );
+  expect(calls.slice(1)).toEqual([
+    ["quick.startInBackground", { sessionId: "s6", cwd: "/repo", name: "fix the flaky test" }],
+  ]);
+});
+
+test("a failed send keeps the quick chat: no background start", async () => {
+  await mount("quick", snapshot(undefined));
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    throw new Error("acpmux went away");
+  };
+  await type("start something");
+  await key("Enter");
+  await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("s7")));
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("Return in a tab's pane only sends", async () => {
+  await mount(undefined, snapshot("s1"));
+  await type("hello");
+  await key("Enter");
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("the quick surface lists projects and shows its folder row above the prompt", async () => {
+  await mount("quick", snapshot(undefined));
+  expect(projectLists).toBeGreaterThan(0);
+  const page = container();
+  const context = page.querySelector(".acpmux-quick .acpmux-composer-context");
+  expect(context).not.toBeNull();
+  // The pickers head the panel (Start Agent's header): the folder row comes before the prompt.
+  expect(context!.compareDocumentPosition(prompt()) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("⌘Return sends the prompt, then asks to open the chat in a window", async () => {
