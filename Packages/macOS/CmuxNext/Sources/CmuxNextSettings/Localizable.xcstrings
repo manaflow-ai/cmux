@@ -67870,6 +67870,120 @@
             "state": "translated",
             "value": "Computer Use ドライバー"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "برنامج تشغيل Computer Use"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upravljački program za Computer Use"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use-driver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer-Use-Treiber"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controlador de Computer Use"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pilote Computer Use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Driver di Computer Use"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបញ្ជា Computer Use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 드라이버"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use-driver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sterownik Computer Use"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Driver do Computer Use"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Драйвер Computer Use"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไดรเวอร์ Computer Use"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use sürücüsü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Драйвер Computer Use"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình điều khiển Computer Use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 驱动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 驅動程式"
+          }
         }
       }
     },
@@ -67886,6 +68000,120 @@
           "stringUnit": {
             "state": "translated",
             "value": "「レガシー」は現在のcmux Computer Useヘルパーを実行します。「アップストリーム」はアップストリームのCua Driverを使った新しいヘルパーを実行し、macOSはその許可を別に求めます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يشغّل الخيار «قديم» مساعد cmux Computer Use الحالي. ويشغّل الخيار «المصدر الأصلي» المساعد الجديد المبني على Cua Driver الأصلي؛ ويطلب macOS أذوناته بشكل منفصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naslijeđeno pokreće trenutnog pomoćnika cmux Computer Use. Izvorno pokreće novog pomoćnika zasnovanog na izvornom Cua Driveru; macOS posebno traži njegove dozvole."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ældre kører den nuværende cmux Computer Use-hjælper. Upstream kører den nye hjælper bygget på upstream Cua Driver; macOS beder om dens tilladelser separat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Legacy“ startet den aktuellen cmux-Computer-Use-Helfer. „Upstream“ startet den neuen Helfer auf Basis des Upstream-Cua-Drivers; macOS fragt dessen Berechtigungen separat ab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Heredado ejecuta el asistente actual de cmux Computer Use. Upstream ejecuta el nuevo asistente basado en Cua Driver de upstream; macOS pide sus permisos por separado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hérité lance l’assistant cmux Computer Use actuel. Upstream lance le nouvel assistant basé sur Cua Driver en amont ; macOS demande ses autorisations séparément."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legacy avvia l’helper cmux Computer Use attuale. Upstream avvia il nuovo helper basato su Cua Driver upstream; macOS chiede i suoi permessi separatamente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legacy ដំណើរការកម្មវិធីជំនួយ cmux Computer Use បច្ចុប្បន្ន។ Upstream ដំណើរការកម្មវិធីជំនួយថ្មីដែលផ្អែកលើ Cua Driver ដើម; macOS សុំការអនុញ្ញាតរបស់វាដាច់ដោយឡែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레거시는 현재 cmux Computer Use 도우미를 실행합니다. 업스트림은 업스트림 Cua Driver 기반의 새 도우미를 실행하며, macOS가 그 권한을 따로 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eldre kjører den nåværende cmux Computer Use-hjelperen. Upstream kjører den nye hjelperen bygget på upstream Cua Driver; macOS ber om tillatelsene separat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starszy uruchamia obecnego pomocnika cmux Computer Use. Upstream uruchamia nowego pomocnika opartego na Cua Driver z upstreamu; macOS osobno prosi o jego uprawnienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legado executa o auxiliar atual do cmux Computer Use. Upstream executa o novo auxiliar baseado no Cua Driver upstream; o macOS pede as permissões dele separadamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Прежний» запускает текущий помощник cmux Computer Use. «Апстрим» запускает новый помощник на основе Cua Driver из апстрима; macOS запрашивает его разрешения отдельно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบเดิมจะเรียกใช้ตัวช่วย cmux Computer Use ปัจจุบัน แบบอัปสตรีมจะเรียกใช้ตัวช่วยใหม่ที่สร้างบน Cua Driver ต้นทาง โดย macOS จะขอสิทธิ์ของตัวช่วยนี้แยกต่างหาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eski, mevcut cmux Computer Use yardımcısını çalıştırır. Upstream, upstream Cua Driver üzerine kurulu yeni yardımcıyı çalıştırır; macOS onun izinlerini ayrıca ister."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Попередній» запускає поточного помічника cmux Computer Use. «Апстрим» запускає нового помічника на основі Cua Driver з апстриму; macOS запитує його дозволи окремо."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cũ chạy trình trợ giúp cmux Computer Use hiện tại. Upstream chạy trình trợ giúp mới dựa trên Cua Driver gốc; macOS sẽ hỏi quyền của nó riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“旧版”运行当前的 cmux Computer Use 辅助程序。“上游”运行基于上游 Cua Driver 的新辅助程序；macOS 会单独请求它的权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「舊版」執行目前的 cmux Computer Use 輔助程式。「上游」執行以上游 Cua Driver 建立的新輔助程式；macOS 會另外要求它的權限。"
           }
         }
       }
@@ -67904,6 +68132,120 @@
             "state": "translated",
             "value": "レガシー"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قديم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naslijeđeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ældre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legacy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Heredado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hérité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legacy"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legacy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레거시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eldre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прежний"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eski"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередній"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cũ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧版"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "舊版"
+          }
         }
       }
     },
@@ -67920,6 +68262,120 @@
           "stringUnit": {
             "state": "translated",
             "value": "アップストリーム"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المصدر الأصلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvorno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업스트림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Апстрим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปสตรีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Апстрим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upstream"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上游"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上游"
           }
         }
       }

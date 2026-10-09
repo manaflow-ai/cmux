@@ -1785,6 +1785,70 @@
     },
     {
       "accepts" : [
+        "legacy",
+        "upstream"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.driver.legacy",
+            "text" : "Legacy"
+          },
+          "value" : "legacy"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.driver.upstream",
+            "text" : "Upstream"
+          },
+          "value" : "upstream"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "legacy",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.driver.help",
+        "text" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.driver",
+      "keywords" : [
+        "computer use",
+        "driver",
+        "cua",
+        "upstream",
+        "legacy",
+        "helper"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "driver"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.computerUse.driver",
+        "text" : "Computer Use Driver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -15992,7 +16056,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "871c83cb0e29ba68ccd5d289f2d4e311c4356e93ed011fa3188644555bd80d4e",
+  "schema_hash" : "d4b871f32bbd9e1887803facd441ee2824a2f0ce808066c59a185c3d621b9a9f",
   "sections" : [
     {
       "id" : "general",
