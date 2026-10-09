@@ -11,8 +11,9 @@ import Testing
 
     private func item(_ registry: ActionRegistry, _ menu: ActionMenuContext) throws -> NSMenuItem {
         let title = try #require(registry.title(for: Self.id))
-        let items = registry.makeContextMenu(for: menu).items
-        return try #require(items.first { $0.title == title })
+        // The menus' Options folder holds it: look through submenus too.
+        func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + all($0.submenu?.items ?? []) } }
+        return try #require(all(registry.makeContextMenu(for: menu).items).first { $0.title == title })
     }
 
     @Test func theToggleIsInTheSidebarAndWorkspaceRowMenus() {
