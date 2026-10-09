@@ -53,10 +53,14 @@ impl FakeApp {
                         })
                     }
                     // tabs.open answers the tab named by the URL's last
-                    // path segment (tests announce it up front).
+                    // path segment, or `new` without a URL (tests announce
+                    // it up front).
                     Frame::Call { id, method, params } if method == "tabs.open" => {
                         let url = params["url"].as_str().unwrap_or("");
-                        let target = url.rsplit('/').next().unwrap_or("").to_owned();
+                        let target = match url.rsplit('/').next().unwrap_or("") {
+                            "" => "new".to_owned(),
+                            last => last.to_owned(),
+                        };
                         Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method, "targetId": target})),
@@ -448,7 +452,7 @@ fn a_policy_on_a_provider_session_fails_closed() {
 /// the profile and workspace.
 #[test]
 fn tabs_open_drops_agent_chosen_profile_and_workspace() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call(
         "tabs.open",
@@ -463,7 +467,7 @@ fn tabs_open_drops_agent_chosen_profile_and_workspace() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
+    assert_eq!(open, json!({"engine": "cef"}));
 }
 
 /// Private data P1: an incognito tab opens only in a non-persistent store.
@@ -484,7 +488,7 @@ fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
 
 #[test]
 fn tabs_open_goes_to_the_app_with_the_session_engine() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
     let frames = app.frames.lock().unwrap();
@@ -496,6 +500,57 @@ fn tabs_open_goes_to_the_app_with_the_session_engine() {
         })
         .unwrap();
     assert_eq!(open["engine"], "cef");
+}
+
+/// A Chromium session's `tabs.open {url}` opens a blank tab in the app,
+/// then navigates it through the tab's CDP relay and waits for the commit,
+/// as a headless tab does: the reply means the document committed, and the
+/// navigation passes the session's checks like any other. Before, the URL
+/// went to the app, which loaded nothing for a Chromium tab until the first
+/// CDP touch, and never waited for the commit.
+#[test]
+fn a_cef_tabs_open_with_a_url_navigates_the_blank_tab_through_cdp() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
+    let cef = engine(&provider, "cef");
+    let opened = cef.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    assert_eq!(opened["targetId"], "new");
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"engine": "cef"}), "the app opens a blank Chromium tab");
+    let navigations: Vec<Value> = app
+        .cdp_messages("new")
+        .into_iter()
+        .filter(|m| m["method"] == "Page.navigate")
+        .collect();
+    assert_eq!(navigations.len(), 1, "one CDP navigation: {navigations:?}");
+    assert_eq!(navigations[0]["params"]["url"], "https://b.test/page");
+}
+
+/// A WebKit session's URL still goes to the app (its driver navigates).
+#[test]
+fn a_webkit_tabs_open_passes_the_url_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("page", "webkit")]);
+    let webkit = engine(&provider, "webkit");
+    webkit.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"url": "https://b.test/page", "engine": "webkit"}));
 }
 
 /// A CEF tab's automation.input names the tab as the app knows it, so
