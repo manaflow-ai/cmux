@@ -641,9 +641,9 @@ fn download_path_answers_from_the_apps_finished_event() {
     let path = cef.call("download.path", &json!({"downloadId": "d1"})).unwrap();
     assert_eq!(path, json!({"path": "/tmp/d1.txt"}));
     // A path asked for before the download ends waits for it.
-    let late = std::thread::spawn({
-        let provider = provider.clone();
-        move || engine(&provider, "cef").call("download.path", &json!({"downloadId": "d2", "timeoutMs": 5000}))
+    let late = std::thread::spawn(move || {
+        engine(&provider, "cef")
+            .call("download.path", &json!({"downloadId": "d2", "timeoutMs": 5000}))
     });
     std::thread::sleep(std::time::Duration::from_millis(50));
     app.send(finished("d2", json!({"error": "canceled"})));
