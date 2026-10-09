@@ -130,7 +130,7 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::trusted_local_resource_client;
+use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -7287,46 +7287,6 @@ const fn journal_class_index(class: JournalClass) -> usize {
         JournalClass::Effect => 2,
         JournalClass::Checkpoint => 3,
     }
-}
-
-const fn handles_resource_connection_operation(operation: ResourceOperation) -> bool {
-    matches!(
-        operation,
-        ResourceOperation::SessionEvents
-            | ResourceOperation::SessionJournalSubscribe
-            | ResourceOperation::SessionJournalProducerList
-            | ResourceOperation::SessionJournalProducerPut
-            | ResourceOperation::SessionJournalAppend
-            | ResourceOperation::SessionJournalHookList
-            | ResourceOperation::SessionJournalHookPut
-            | ResourceOperation::SessionJournalCheckpointCreate
-            | ResourceOperation::SessionJournalCheckpointList
-            | ResourceOperation::SessionJournalRestorePreview
-            | ResourceOperation::SessionJournalSegmentList
-            | ResourceOperation::SessionJournalSegmentSeal
-            | ResourceOperation::SessionShutdown
-            | ResourceOperation::PairingRequestList
-            | ResourceOperation::PairingRequestResolve
-            | ResourceOperation::RequestCancel
-            | ResourceOperation::ClientList
-            | ResourceOperation::ClientGet
-            | ResourceOperation::ClientMetadataUpdate
-            | ResourceOperation::ClientSizingSet
-            | ResourceOperation::ClientSizingRelease
-            | ResourceOperation::ClientCellPixelsSet
-            | ResourceOperation::ClientDetach
-            | ResourceOperation::TerminalRendererGrantCreate
-            | ResourceOperation::TerminalViewerResize
-            | ResourceOperation::TerminalViewerRelease
-            | ResourceOperation::TerminalAttach
-            | ResourceOperation::BrowserViewerResize
-            | ResourceOperation::BrowserViewerRelease
-            | ResourceOperation::BrowserAttach
-            | ResourceOperation::SidebarViewAttach
-            | ResourceOperation::StreamCancel
-            | ResourceOperation::OriginConfirmationIssue
-    ) || conversation_resource::handles(operation)
-        || chief_control::handles(operation)
 }
 
 fn handle_resource_session_shutdown(
