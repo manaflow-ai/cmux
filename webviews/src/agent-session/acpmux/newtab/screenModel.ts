@@ -26,18 +26,17 @@ export type ScreenRow =
   | { type: "run"; text: string }
   | { type: "ask"; text: string };
 
-/// Agents shown per query; more installed harnesses stay in the composer's picker.
-export const MAX_AGENT_ROWS = 4;
 /// Open tabs, workspaces, chats, folders, commands and history matches shown under the typed rows.
 export const MAX_MATCH_ROWS = 4;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
-/// The catalog's agents in its order, the remembered one first, capped.
+/// The catalog's agents in its order, the remembered one first. Every installed harness stays
+/// reachable from the Ask list, even when it is beyond the old four-row display cap.
 export function orderedAgents(agents: readonly ScreenAgent[], lastAgent?: string): ScreenAgent[] {
   const remembered = agents.find((agent) => agent.id === lastAgent);
   const rest = agents.filter((agent) => agent !== remembered);
-  return (remembered ? [remembered, ...rest] : rest).slice(0, MAX_AGENT_ROWS);
+  return remembered ? [remembered, ...rest] : rest;
 }
 
 /// The rows under the field. Empty text: none (the cards show). `!`: none (the tab is already
