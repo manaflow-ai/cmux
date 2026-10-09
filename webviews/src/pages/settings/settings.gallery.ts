@@ -475,6 +475,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/HarnessesCard.tsx",
+    "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
