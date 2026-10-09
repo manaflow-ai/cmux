@@ -14,6 +14,7 @@ import { applyAgentTheme } from "../shared/theme";
 import {
   diffRows,
   layoutConversation,
+  headerTone,
   paneHeader,
   placeRows,
   transcriptRowWidth,
@@ -2677,7 +2678,11 @@ function AcpmuxPane() {
                 className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
               >
                 <header className="acpmux-header">
-                  <ChatHeaderStatus status={header.status} detail={header.detail} />
+                  <ChatHeaderStatus
+                    status={header.status}
+                    detail={header.detail}
+                    tone={headerTone(composerSnapshot.connection)}
+                  />
                   <div className="acpmux-handoff-header-tools">
                     {preview && (
                       <span

@@ -559,7 +559,10 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The header status's tone for a connection: a retry warns, a lost or failed connection is an error.
-export function headerTone(_connection: string): "warning" | "error" | undefined {
+export function headerTone(connection: string): "warning" | "error" | undefined {
+  if (connection.startsWith("connecting:") || connection === "reconnecting") return "warning";
+  if (connection === "disconnected" || connection === "fork failed" || /^(error|failed)(:|$)/i.test(connection))
+    return "error";
   return undefined;
 }
 

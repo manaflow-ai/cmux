@@ -82,6 +82,20 @@ export function ChatHeaderTools({
         onClick={onChanges}
       >
         <Icon name="diff.file" size={15} />
+        {changes && (
+          // Readable at a glance (the label already carries them for assistive tech). A narrow pane keeps
+          // the icon only, so the tools never crowd the status.
+          <span
+            className="acpmux-header-changes-counts flex items-center gap-1 text-[12px] leading-none tabular-nums @max-[520px]:hidden"
+            aria-hidden="true"
+          >
+            <span className="text-fg">+{changes.additions}</span>
+            <span className="text-muted">
+              {"\u2212"}
+              {changes.deletions}
+            </span>
+          </span>
+        )}
       </button>
       {tabTools && (
         <>

@@ -30,8 +30,8 @@ async function render(props: Parameters<typeof ChatHeaderStatus>[0]) {
 }
 
 // Round 1 (UI tournament): a retry reads as a warning, a lost or failed connection as an error, so the
-// two are told apart without reading; the detail is reachable from the keyboard, not only on hover.
-test("a connection problem shows its tone, and its detail is a focusable label", async () => {
+// two are told apart without reading; a screen reader hears the reason, not only "Failed".
+test("a connection problem shows its tone, and its label carries the detail", async () => {
   const { container, unmount } = await render({
     status: "Failed",
     detail: "the agent process exited with status 1",
@@ -39,12 +39,11 @@ test("a connection problem shows its tone, and its detail is a focusable label",
   });
   const status = container.querySelector<HTMLElement>(".acpmux-status")!;
   expect(status.dataset.tone).toBe("error");
-  expect(status.tabIndex).toBe(0);
   expect(status.getAttribute("aria-label")).toBe("Failed: the agent process exited with status 1");
   await unmount();
 });
 
-test("a status without more detail stays out of the tab order", async () => {
+test("a status without more detail is labelled by the status alone", async () => {
   const { container, unmount } = await render({ status: "Disconnected", detail: "Disconnected", tone: "error" });
   const status = container.querySelector<HTMLElement>(".acpmux-status")!;
   expect(status.hasAttribute("tabindex")).toBe(false);

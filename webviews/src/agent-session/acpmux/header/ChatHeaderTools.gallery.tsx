@@ -127,6 +127,10 @@ export default componentEntry<HeaderToolsProps>({
       note: "Changes carries the last turn's counts and its pressed state while the split tools stay fixed.",
       props: { ...base, changes: { additions: 42, deletions: 9 }, changesOpen: true },
     },
+    "large-changes": {
+      note: "Round 1: big counts stay readable with tabular digits; the button grows, the tools after it stay put.",
+      props: { ...base, changes: { additions: 1284, deletions: 312 }, changesOpen: false },
+    },
     "menu-open": {
       note: "The real tab menu includes navigation actions and keeps Close as the final tab-owned row.",
       props: base,
