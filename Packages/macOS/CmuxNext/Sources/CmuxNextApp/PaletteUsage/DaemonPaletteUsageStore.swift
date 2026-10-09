@@ -109,7 +109,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             Self.logger.info("palette usage: daemon away, one run not recorded")
         case .daemon(let client, _):
             let idempotencyKey = "palette-usage:\(UUID().uuidString)"
-            Task { [weak self] in
+            Task { [weak self] in // task-owner: one bounded record request; completion triggers the mirror refresh.
                 do {
                     _ = try await client.record(key: key, query: query, idempotencyKey: idempotencyKey)
                     self?.fetch()
