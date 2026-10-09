@@ -1373,6 +1373,65 @@ describe("direct client session state", () => {
     expect(latest().summary?.usage).toBeUndefined();
   });
 
+  /// The session's reasoning option at `level`, as an agent lists it.
+  const effortOption = (level: string) => [
+    {
+      id: "reasoning_effort",
+      name: "Reasoning",
+      category: "thought_level",
+      currentValue: level,
+      options: [
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+      ],
+    },
+  ];
+  const level = () => (latest().summary?.configOptions as { currentValue?: string }[] | undefined)?.[0]?.currentValue;
+
+  test("a picked reasoning level reaches the session, and the summary shows what the agent set", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") {
+        const reply = attachReply(params.sessionId);
+        return { ...reply, session: { ...reply.session, configOptions: effortOption("medium") } };
+      }
+      // The agent answers with its whole option list (ACP SetSessionConfigOptionResponse).
+      if (method === "session/set_config_option") return { configOptions: effortOption(String(params.value)) };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    expect(level()).toBe("medium");
+    await client.setConfig("reasoning_effort", "high");
+    const sent = ScriptedSocket.current.sent.filter((request) => request.method === "session/set_config_option");
+    expect(sent.map((request) => request.params)).toEqual([
+      { sessionId: "a", configId: "reasoning_effort", value: "high" },
+    ]);
+    expect(level()).toBe("high");
+  });
+
+  test("the agent's own config option update moves the summary's level", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") {
+        const reply = attachReply(params.sessionId);
+        return { ...reply, session: { ...reply.session, configOptions: effortOption("medium") } };
+      }
+      return {};
+    };
+    await connect();
+    await settle();
+    const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
+    expect(attach.params.kinds).toContain("config_option_update");
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "config_option_update", configOptions: effortOption("low") },
+      _meta: { acpmux: { seq: 7 } },
+    });
+    expect(level()).toBe("low");
+  });
+
   test("commands older than the attach page are fetched by kind, and a session switch drops them", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
