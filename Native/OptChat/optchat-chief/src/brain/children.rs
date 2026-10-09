@@ -309,6 +309,7 @@ impl Brain {
                     source,
                     images: Vec::new(),
                     conversation: None,
+                    logged: false,
                 }
             }
             None => self.queue(text, source),

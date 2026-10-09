@@ -27,7 +27,7 @@ private func postOffMain(_ name: Notification.Name, object: AnyObject?, on cente
 
 /// One post handed to a background thread (`Thread.detachNewThread`, never
 /// main); the object is only passed through.
-private final class OffMainPost: @unchecked Sendable {
+private nonisolated final class OffMainPost: @unchecked Sendable {
     let name: Notification.Name
     let object: AnyObject?
     let center: NotificationCenter

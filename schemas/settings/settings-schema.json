@@ -16,7 +16,8 @@
             "rows" : [
               "window.titlebar",
               "window.titlebarButtons",
-              "app.globalHotKey"
+              "app.globalHotKey",
+              "app.startAgentGlobalHotKey"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -300,7 +301,6 @@
               "sidebar.showChats",
               "sidebar.allChatsRows",
               "sidebar.showProjects",
-              "sidebar.groupBy",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -1227,6 +1227,58 @@
       "title" : {
         "key" : "settings.app.globalHotKey",
         "text" : "Global Hot Key"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.startAgentGlobalHotKey.help",
+        "text" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.startAgentGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "summon",
+        "start agent",
+        "agent",
+        "quick",
+        "chat",
+        "launcher",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "startAgentGlobalHotKey"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.startAgentGlobalHotKey",
+        "text" : "Start Agent from Any App"
       },
       "validation" : "portable"
     },
@@ -9664,67 +9716,6 @@
     },
     {
       "accepts" : [
-        "none",
-        "folder"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.groupByNone",
-            "text" : "None"
-          },
-          "value" : "none"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.groupByFolder",
-            "text" : "Folder"
-          },
-          "value" : "folder"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "none",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.groupBy",
-      "keywords" : [
-        "sidebar",
-        "projects",
-        "group",
-        "folder",
-        "directory",
-        "cwd"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "groupBy"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.sidebar.groupBy",
-        "text" : "Group Projects By"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -17313,7 +17304,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1c05a84ec12f896cb04d2d6be01e5c8a0fe471fb4d535661e2e49c40ecf791c3",
+  "schema_hash" : "08bda11786ad5981022f57f2e2e93a67f34d71401a41b7ffe79d633a2dae17b9",
   "sections" : [
     {
       "id" : "general",

@@ -59,7 +59,7 @@ extension HomeScene {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (_, row) in visible {
-            if let i = visibleIndex[ObjectIdentifier(row)], i < model.count { decorateProgress(row, model.rows[i].spec) }
+            if let i = visibleIndex[ObjectIdentifier(row)], let spec = model.rows[checked: i]?.spec { decorateProgress(row, spec) }
         }
         CATransaction.commit()
     }
@@ -68,7 +68,7 @@ extension HomeScene {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (_, row) in visible where row.mediaHash == hash {
-            if let i = visibleIndex[ObjectIdentifier(row)], i < model.count { decorateMedia(row, model.rows[i].spec) }
+            if let i = visibleIndex[ObjectIdentifier(row)], let spec = model.rows[checked: i]?.spec { decorateMedia(row, spec) }
         }
         CATransaction.commit()
     }

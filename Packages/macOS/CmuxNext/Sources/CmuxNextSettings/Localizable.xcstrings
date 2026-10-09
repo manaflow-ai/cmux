@@ -71995,6 +71995,268 @@
           }
         }
       }
+    },
+    "settings.app.startAgentGlobalHotKey.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「エージェントを開始」（⌃⌥⌘Space）を、ほかのアプリが前面にあるときにも使えます。キーは「キーボードショートカット」で変更できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل «بدء وكيل» (⌃⌥⌘Space) أثناء وجود تطبيق آخر في المقدمة. غيّر مفتاحه في اختصارات لوحة المفاتيح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta (⌃⌥⌘Space) radi dok je druga aplikacija u prvom planu. Prečicu promijenite u Prečicama tastature."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker, mens en anden app er forrest. Skift tasten under Tastaturgenveje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Agent starten“ (⌃⌥⌘Space) funktioniert, während eine andere App im Vordergrund ist. Die Taste änderst du unter Tastaturkurzbefehle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona mientras otra app está en primer plano. Cambia su atajo en Atajos de teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent (⌃⌥⌘Space) fonctionne lorsqu’une autre app est au premier plan. Modifiez son raccourci dans Raccourcis clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente (⌃⌥⌘Space) funziona mentre un’altra app è in primo piano. Cambia il tasto in Scorciatoie da tastiera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារ (⌃⌥⌘Space) ដំណើរការ ពេលកម្មវិធីផ្សេងនៅខាងមុខ។ ប្តូរគ្រាប់ចុចរបស់វានៅក្នុងផ្លូវកាត់ក្តារចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 앱이 앞에 있어도 에이전트 시작(⌃⌥⌘Space)이 작동합니다. 키는 키보드 단축키에서 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent (⌃⌥⌘Space) virker mens en annen app er foran. Endre tasten under Tastatursnarveier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta (⌃⌥⌘Space) działa, gdy na pierwszym planie jest inna aplikacja. Klawisz zmienisz w Skrótach klawiszowych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente (⌃⌥⌘Space) funciona enquanto outro app está em primeiro plano. Altere a tecla em Atalhos de teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустить агента» (⌃⌥⌘Space) работает, когда впереди другое приложение. Клавишу можно изменить в разделе «Сочетания клавиш»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์ (⌃⌥⌘Space) ใช้งานได้ขณะที่แอปอื่นอยู่ด้านหน้า เปลี่ยนปุ่มได้ในปุ่มลัดแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Başlat (⌃⌥⌘Space), başka bir uygulama öndeyken de çalışır. Tuşunu Klavye Kısayolları'ndan değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Запустити агента» (⌃⌥⌘Space) працює, коли попереду інша програма. Клавішу можна змінити в розділі «Сполучення клавіш»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử (⌃⌥⌘Space) hoạt động khi một ứng dụng khác ở phía trước. Đổi phím trong Phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他应用在前台时也可使用“启动智能体”（⌃⌥⌘Space）。可在“键盘快捷键”中更改按键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 App 在前景時也可使用「啟動代理」（⌃⌥⌘Space）。可在「鍵盤快速鍵」中更改按鍵。"
+          }
+        }
+      }
+    },
+    "settings.app.startAgentGlobalHotKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Agent from Any App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもエージェントを開始"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدء وكيل من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni agenta iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent aus jeder App starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Démarrer un agent depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvia agente da qualsiasi app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមភ្នាក់ងារពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 에이전트 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start agent fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom agenta z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciar agente de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเอเจนต์จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herhangi Bir Uygulamadan Ajan Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запуск агента з будь-якої програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tác tử từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意应用启动智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 啟動代理"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

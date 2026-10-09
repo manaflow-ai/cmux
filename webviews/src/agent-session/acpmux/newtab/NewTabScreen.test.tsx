@@ -367,16 +367,40 @@ test("each screen template keeps the field and changes only what shows around it
     return result;
   };
   expect(await shown()).toEqual({
-    focused: true, cards: 2, variant: "cards", tools: true, harness: true, prompt: null, template: "default",
+    focused: true,
+    cards: 2,
+    variant: "cards",
+    tools: true,
+    harness: true,
+    prompt: null,
+    template: "default",
   });
   expect(await shown("composer")).toEqual({
-    focused: true, cards: 0, variant: null, tools: false, harness: false, prompt: null, template: "composer",
+    focused: true,
+    cards: 0,
+    variant: null,
+    tools: false,
+    harness: false,
+    prompt: null,
+    template: "composer",
   });
   expect(await shown("threads")).toEqual({
-    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: null, template: "threads",
+    focused: true,
+    cards: 2,
+    variant: "list",
+    tools: false,
+    harness: false,
+    prompt: null,
+    template: "threads",
   });
   expect(await shown("console")).toEqual({
-    focused: true, cards: 2, variant: "list", tools: false, harness: false, prompt: ">", template: "console",
+    focused: true,
+    cards: 2,
+    variant: "list",
+    tools: false,
+    harness: false,
+    prompt: ">",
+    template: "console",
   });
 });
 

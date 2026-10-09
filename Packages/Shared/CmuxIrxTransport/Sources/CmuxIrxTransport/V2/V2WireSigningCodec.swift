@@ -96,10 +96,11 @@ public struct V2WireSigningCodec: Sendable {
         if let value = value as? NSNumber {
             if CFGetTypeID(value) == CFBooleanGetTypeID() { return value.boolValue ? "true" : "false" }
             let number = value.doubleValue
-            guard number.isFinite, number.rounded() == number, abs(number) <= 9_007_199_254_740_991 else {
+            // Int64(exactly:) is nil for a fraction, NaN or infinity.
+            guard abs(number) <= 9_007_199_254_740_991, let integer = Int64(exactly: number) else {
                 throw V2ControlFailure.invalidWireData
             }
-            return String(Int64(number))
+            return String(integer)
         }
         if let array = value as? [Any] { return "[" + (try array.map(canonical)).joined(separator: ",") + "]" }
         if let object = value as? [String: Any] {

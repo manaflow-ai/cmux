@@ -396,11 +396,6 @@ export const matchTier = {
 /** Points per tier: above the largest quality, usage and bias sum, so the class always decides first. */
 const tierScale = 1_000;
 const maximumQuality = 880;
-/** Lifts a row with a shortcut over its unbound siblings ("Split Right" over "Split Up"); far less than a tier. */
-const shortcutBonus = 40;
-/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
- * ranks with a command that has the query as a whole word, below one that starts with it. */
-const demotion = 2;
 /** The typo pass runs only when the strict pass found fewer rows than this at the substring tier or better. */
 const typoPassThreshold = 3;
 
@@ -574,7 +569,12 @@ function textTier(
   return tier < 0 ? null : tiered(tier);
 }
 
-/** The row's tier: its text, or its action id when that is better; a demoted row one tier lower. */
+/** A demoted row (a setting) drops this many tier units: a setting that starts with the query
+ * ties a command one match class weaker ("Color" ties "Set Workspace Color…"), and the
+ * command wins the tie. */
+const demotion = 3;
+
+/** The row's tier: its text, or its action id when that is better; a demoted row 3 units lower. */
 function entryTier(
   entry: PaletteRankEntry,
   id: readonly string[] | null,
@@ -746,7 +746,15 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
   const now = request.now ?? 0;
   const gated = entries.some((entry) => entry.queryPrefix != null || entry.hidesWhenTyping === true);
   const prepared = fieldsForEntries(entries, request.version);
-  const scored: Array<{ index: number; score: number; highlights: number[] }> = [];
+  const scored: Array<{
+    index: number;
+    score: number;
+    tier: number;
+    enabled: boolean;
+    demoted: boolean;
+    shortcut: boolean;
+    highlights: number[];
+  }> = [];
   const rank = (allowsTypo: boolean) => {
     let strong = 0;
     entries.forEach((entry, index) => {
@@ -756,9 +764,16 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
       if (!match) return;
       if (match.tier >= matchTier.substring) strong++;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
-      if (entry.hasShortcut) score += shortcutBonus;
       if (entry.isEnabled === false) score -= disabledPenalty;
-      scored.push({ index, score, highlights: match.highlights });
+      scored.push({
+        index,
+        score,
+        tier: match.tier,
+        enabled: entry.isEnabled !== false,
+        demoted: entry.demoted === true,
+        shortcut: entry.hasShortcut === true,
+        highlights: match.highlights,
+      });
     });
     return strong;
   };
@@ -785,7 +800,18 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     });
   } else {
     // Equal scores keep the provider order (the catalog lists the common command of a family first).
-    scored.sort((left, right) => right.score - left.score || left.index - right.index);
+    // Enabled rows first, then the match tier. Inside a tier a command comes before a demoted row
+    // (a setting) whatever their quality, then the score; equal scores prefer a row with a
+    // shortcut (Split Right over Split Up), then the provider order.
+    scored.sort(
+      (left, right) =>
+        Number(right.enabled) - Number(left.enabled) ||
+        right.tier - left.tier ||
+        Number(left.demoted) - Number(right.demoted) ||
+        right.score - left.score ||
+        Number(right.shortcut) - Number(left.shortcut) ||
+        left.index - right.index,
+    );
   }
   const rowLimit = request.rowLimit ?? 400;
   const highlightLimit = request.highlightLimit ?? 60;
