@@ -113,6 +113,17 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
     }
 
+    /// The "+" glass circle, for the apps menu to morph out of and back into.
+    func plusGlassFrame(in view: UIView) -> CGRect {
+        plusGlass.convert(plusGlass.bounds, to: view)
+    }
+
+    /// Hidden while the apps menu has taken the "+" circle's place.
+    var isPlusGlassHidden: Bool {
+        get { plusGlass.isHidden }
+        set { plusGlass.isHidden = newValue }
+    }
+
     var hasContent: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
     }

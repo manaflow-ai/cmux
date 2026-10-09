@@ -1,11 +1,15 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import Photos
 import UIKit
 import UniformTypeIdentifiers
 
-/// The "+" apps menu: a glass panel anchored above the + button over a
-/// blurred, dimmed transcript.
+/// The "+" apps menu: Messages' send menu popover. The "+" glass circle
+/// itself grows into the menu (one glass shape whose frame, corner radius and
+/// contents animate on ChatKit's springs) and shrinks back into the circle on
+/// dismiss. Width and height ride separate springs, as in ChatKit, so the
+/// shape stretches sideways a beat after it rises. See `SendMenuGeometry`.
 final class AppsMenuOverlay: UIView {
     struct Item {
         var title: String
@@ -16,81 +20,242 @@ final class AppsMenuOverlay: UIView {
         var handler: () -> Void
     }
 
-    private let backdrop = UIVisualEffectView(effect: nil)
-    private let panel = makeGlassView(cornerRadius: 36)
-    private let stack = UIStackView()
+    private typealias G = SendMenuGeometry
+    /// Groups the menu with the glass it grows out of, so the shapes blend
+    /// as one (`UIGlassContainerEffect` on iOS 26 and later).
+    private let glassContainer: UIVisualEffectView
+    private let panel = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2)
+    /// The rows at their open size, scaled to the panel's current size
+    /// (horizontal and vertical scale on separate springs).
+    private let contentX = UIView()
+    private let contentY = UIView()
+    private let rows = UIStackView()
+    /// The "+" carried along inside the panel: it doubles and fades out.
+    private let plusX = UIView()
+    private let plusY = UIImageView()
     private let anchor: CGRect
-    private var blurAnimator: UIViewPropertyAnimator?
+    private var openFrame: CGRect = .zero
+    private var isDismissing = false
+    /// Called once the menu has folded back into the "+" circle.
+    var onDismissed: (() -> Void)?
 
-    init(frame: CGRect, anchor: CGRect, items: [Item]) {
+    init(frame: CGRect, anchor: CGRect, plusImage: UIImage?, items: [Item]) {
         self.anchor = anchor
+        if #available(iOS 26.0, *) {
+            glassContainer = UIVisualEffectView(effect: UIGlassContainerEffect())
+        } else {
+            glassContainer = UIVisualEffectView(effect: nil)
+        }
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.appsMenu"
         accessibilityViewIsModal = true
-        backdrop.frame = bounds
-        addSubview(backdrop)
-        addSubview(panel)
-        stack.axis = .vertical
-        panel.contentView.addSubview(stack)
-        for item in items {
-            let row = UIButton(type: .custom)
-            let icon = UIImageView(image: item.customIcon ?? UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)))
-            icon.tintColor = .white
-            icon.contentMode = .center
-            icon.backgroundColor = item.color
-            icon.layer.cornerRadius = 16
-            icon.frame = CGRect(x: 26, y: 15.5, width: 32, height: 32)
-            row.addSubview(icon)
-            let label = UILabel(frame: CGRect(x: 80, y: 0, width: 190, height: 63))
-            label.text = item.title
-            label.font = .systemFont(ofSize: 20)
-            label.textColor = .label
-            row.addSubview(label)
-            row.heightAnchor.constraint(equalToConstant: 63).isActive = true
-            row.accessibilityLabel = item.title
-            row.accessibilityIdentifier = "conversation.apps.\(item.symbol)"
-            row.addAction(UIAction { [weak self] _ in self?.dismiss(then: item.handler) }, for: .touchUpInside)
-            stack.addArrangedSubview(row)
-        }
+        glassContainer.frame = bounds
+        glassContainer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(glassContainer)
+        glassContainer.contentView.addSubview(panel)
+        panel.contentView.addSubview(contentX)
+        contentX.addSubview(contentY)
+        rows.axis = .vertical
+        contentY.addSubview(rows)
+        panel.contentView.addSubview(plusX)
+        plusX.addSubview(plusY)
+        plusY.image = plusImage
+        plusY.tintColor = .label
+        plusY.contentMode = .center
+        for item in items { rows.addArrangedSubview(makeRow(item)) }
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged)))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func present() {
-        let height = CGFloat(stack.arrangedSubviews.count) * 63 + 32
-        let width: CGFloat = 284
-        // Anchored to the + button's corner; covers the composer like Messages.
-        panel.frame = CGRect(x: 16, y: anchor.maxY - height + 4, width: width, height: height)
-        stack.frame = panel.bounds.insetBy(dx: 0, dy: 16)
-        // A partial blur, as in Messages: the transcript fades but stays legible.
-        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
-            self.backdrop.effect = UIBlurEffect(style: .systemThinMaterial)
+    private func makeRow(_ item: Item) -> UIView {
+        let row = UIButton(type: .custom)
+        let iconSize = G.iconSize
+        let icon = UIImageView(image: item.customIcon ?? UIImage(systemName: item.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 25, weight: .semibold)))
+        icon.tintColor = .white
+        icon.contentMode = .center
+        icon.backgroundColor = item.color
+        icon.layer.cornerRadius = iconSize / 2
+        icon.frame = CGRect(x: G.iconLeading, y: (G.rowHeight - iconSize) / 2, width: iconSize, height: iconSize)
+        row.addSubview(icon)
+        let labelX = G.iconLeading + iconSize + G.iconToLabel
+        let label = UILabel(frame: CGRect(x: labelX, y: 0, width: G.maximumWidth - labelX - 16, height: G.rowHeight))
+        label.text = item.title
+        label.font = .systemFont(ofSize: G.labelFontSize)
+        // `sendMenuListItemTextColor`.
+        label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.7) : UIColor(white: 0.06, alpha: 1) }
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.6
+        row.addSubview(label)
+        row.heightAnchor.constraint(equalToConstant: G.rowHeight).isActive = true
+        row.accessibilityLabel = item.title
+        row.accessibilityIdentifier = "conversation.apps.\(item.symbol)"
+        row.addAction(UIAction { [weak self] _ in self?.dismiss(then: item.handler) }, for: .touchUpInside)
+        row.configurationUpdateHandler = { button in
+            button.backgroundColor = button.isHighlighted ? UIColor.label.withAlphaComponent(0.06) : .clear
         }
-        animator.pausesOnCompletion = true
-        animator.fractionComplete = 0.22
-        blurAnimator = animator
-        backdrop.alpha = 0
-        panel.alpha = 0
-        panel.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(translationX: -width * 0.25, y: height * 0.3).scaledBy(x: 0.5, y: 0.5)
-        UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0) {
-            self.backdrop.alpha = 1
-            self.panel.alpha = 1
-            self.panel.transform = .identity
+        return row
+    }
+
+    func present() {
+        let insets = superview?.safeAreaInsets ?? .zero
+        openFrame = G.openFrame(anchor: anchor, in: bounds, safeArea: (insets.top, insets.left, insets.bottom, insets.right), itemCount: rows.arrangedSubviews.count)
+        let size = openFrame.size
+        for view in [contentX, contentY] { view.bounds = CGRect(origin: .zero, size: size) }
+        contentY.center = CGPoint(x: size.width / 2, y: size.height / 2)
+        rows.frame = CGRect(x: 0, y: G.verticalInset, width: size.width, height: CGFloat(rows.arrangedSubviews.count) * G.rowHeight)
+        plusX.bounds = CGRect(origin: .zero, size: anchor.size)
+        plusY.frame = plusX.bounds
+
+        if UIAccessibility.isReduceMotionEnabled {
+            state = .open
+            apply(State.open, frame: openFrame)
+            panel.alpha = 0
+            UIView.animate(withDuration: 0.25) { self.panel.alpha = 1 }
+            return
+        }
+        // The "+" circle, exactly: the menu starts as it.
+        state = .closed
+        apply(.closed, frame: anchor)
+        animate(to: .open, frame: openFrame, springs: .present)
+    }
+
+    /// Folds the menu back into the "+" circle, then runs `completion`.
+    func dismiss(then completion: (() -> Void)? = nil) {
+        guard !isDismissing else { return }
+        isDismissing = true
+        isUserInteractionEnabled = false
+        // An item opens its own UI as the menu closes, as in Messages.
+        completion?()
+        if UIAccessibility.isReduceMotionEnabled {
+            UIView.animate(withDuration: 0.2) { self.panel.alpha = 0 } completion: { _ in self.finish() }
+            return
+        }
+        animate(to: .closed, frame: anchor, springs: .dismiss) { [weak self] in self?.finish() }
+    }
+
+    private func finish() {
+        removeFromSuperview()
+        onDismissed?()
+    }
+
+    // MARK: Morph
+
+    /// What the morph animates besides the frame.
+    private struct State {
+        var plusScale: CGFloat
+        var plusAlpha: CGFloat
+        var contentAlpha: CGFloat
+        static let closed = State(plusScale: 1, plusAlpha: 1, contentAlpha: 0)
+        static let open = State(plusScale: G.plusSymbolScale, plusAlpha: 0, contentAlpha: 1)
+    }
+
+    private struct Springs {
+        var horizontal: G.Spring
+        var vertical: G.Spring
+        var plus: G.Spring
+        var content: G.Spring
+        /// Before the "+" fades and the rows fade in.
+        var contentDelay: Double = 0
+        static let present = Springs(horizontal: G.Present.horizontal, vertical: G.Present.vertical, plus: G.Present.plusFade, content: G.Present.content, contentDelay: G.Present.contentDelay)
+        static let dismiss = Springs(horizontal: G.Dismiss.horizontal, vertical: G.Dismiss.vertical, plus: G.Dismiss.plusOpacity, content: G.Dismiss.content)
+    }
+
+    /// One spring-driven value, sampled every frame.
+    private struct Track {
+        var from: CGFloat
+        var to: CGFloat
+        var spring: G.Spring
+        var delay: Double = 0
+        func value(_ elapsed: Double) -> CGFloat { from + (to - from) * spring.progress(at: elapsed - spring.delay - delay) }
+        func isDone(_ elapsed: Double) -> Bool { elapsed - spring.delay - delay >= spring.settlingDuration }
+    }
+
+    private struct Morph {
+        /// Set by the first frame drawn, so building the menu costs no motion.
+        var start: CFTimeInterval?
+        var centerX, width, centerY, height, plusScaleX, plusScaleY, plusAlpha, contentAlpha: Track
+        /// The popover never leaves the space between where it starts and
+        /// where it lands: the springs' overshoot shows only in the plus and
+        /// contents, as in the recorded Messages frames.
+        var bounds: CGRect
+        var completion: (() -> Void)?
+    }
+
+    private var morph: Morph?
+    private var displayLink: CADisplayLink?
+    private var state = State.closed
+    private var currentFrame: CGRect = .zero
+
+    private func animate(to target: State, frame: CGRect, springs: Springs, completion: (() -> Void)? = nil) {
+        let from = currentFrame
+        morph = Morph(
+            start: nil,
+            centerX: Track(from: from.midX, to: frame.midX, spring: springs.horizontal),
+            width: Track(from: from.width, to: frame.width, spring: springs.horizontal),
+            centerY: Track(from: from.midY, to: frame.midY, spring: springs.vertical),
+            height: Track(from: from.height, to: frame.height, spring: springs.vertical),
+            plusScaleX: Track(from: state.plusScale, to: target.plusScale, spring: springs.horizontal),
+            plusScaleY: Track(from: state.plusScale, to: target.plusScale, spring: springs.vertical),
+            plusAlpha: Track(from: state.plusAlpha, to: target.plusAlpha, spring: springs.plus, delay: springs.contentDelay),
+            contentAlpha: Track(from: state.contentAlpha, to: target.contentAlpha, spring: springs.content, delay: springs.contentDelay),
+            bounds: from.union(frame),
+            completion: completion
+        )
+        if displayLink == nil {
+            let link = CADisplayLink(target: DisplayLinkTarget(self), selector: #selector(DisplayLinkTarget.tick))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
         }
     }
 
-    func dismiss(then completion: (() -> Void)? = nil) {
-        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
-            self.backdrop.alpha = 0
-            self.panel.alpha = 0
-            self.panel.transform = UIAccessibility.isReduceMotionEnabled ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
-        } completion: { _ in
-            self.blurAnimator?.stopAnimation(true)
-            self.blurAnimator = nil
-            self.removeFromSuperview()
-            completion?()
+    fileprivate func step() {
+        guard var morph else { return }
+        // Sample at the time the frame reaches the screen.
+        let now = displayLink?.targetTimestamp ?? CACurrentMediaTime()
+        if morph.start == nil {
+            morph.start = now
+            self.morph = morph
+        }
+        let elapsed = now - (morph.start ?? now)
+        let width = morph.width.value(elapsed), height = morph.height.value(elapsed)
+        var frame = CGRect(x: morph.centerX.value(elapsed) - width / 2, y: morph.centerY.value(elapsed) - height / 2, width: width, height: height)
+        frame = frame.intersection(morph.bounds)
+        state = State(plusScale: morph.plusScaleY.value(elapsed), plusAlpha: morph.plusAlpha.value(elapsed), contentAlpha: morph.contentAlpha.value(elapsed))
+        apply(state, frame: frame, plusScaleX: morph.plusScaleX.value(elapsed))
+        let tracks = [morph.centerX, morph.width, morph.centerY, morph.height, morph.plusAlpha, morph.contentAlpha]
+        if tracks.allSatisfy({ $0.isDone(elapsed) }) {
+            self.morph = nil
+            displayLink?.invalidate()
+            displayLink = nil
+            morph.completion?()
+        }
+    }
+
+    private func stopMorph() {
+        morph = nil
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    /// Lays the panel out at `frame`, its rows scaled from their open size.
+    private func apply(_ state: State, frame: CGRect, plusScaleX: CGFloat? = nil) {
+        currentFrame = frame
+        UIView.performWithoutAnimation {
+            panel.frame = frame
+            panel.layer.cornerRadius = G.cornerRadius(for: frame.size, closed: anchor.size, open: openFrame.size)
+            let mid = CGPoint(x: frame.width / 2, y: frame.height / 2)
+            contentX.center = mid
+            contentX.transform = CGAffineTransform(scaleX: max(frame.width / openFrame.width, 0.001), y: 1)
+            contentY.transform = CGAffineTransform(scaleX: 1, y: max(frame.height / openFrame.height, 0.001))
+            contentX.alpha = state.contentAlpha
+            plusX.center = mid
+            plusX.transform = CGAffineTransform(scaleX: plusScaleX ?? state.plusScale, y: 1)
+            plusY.transform = CGAffineTransform(scaleX: 1, y: state.plusScale)
+            plusX.alpha = state.plusAlpha
         }
     }
 
@@ -102,9 +267,43 @@ final class AppsMenuOverlay: UIView {
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
         if !panel.frame.contains(tap.location(in: self)) { dismiss() }
     }
+
+    /// Swiping down (on the menu or around it) shrinks the menu toward the
+    /// "+"; letting go far or fast enough closes it, otherwise it springs
+    /// back open.
+    @objc private func dragged(_ pan: UIPanGestureRecognizer) {
+        guard !isDismissing, !UIAccessibility.isReduceMotionEnabled else { return }
+        let translation = pan.translation(in: self).y
+        switch pan.state {
+        case .began:
+            stopMorph()
+        case .changed:
+            let frame = G.draggedFrame(open: openFrame, anchor: anchor, translation: translation)
+            apply(state, frame: frame)
+        case .ended, .cancelled, .failed:
+            let velocity = pan.velocity(in: self).y
+            if pan.state == .ended, translation > 40 || velocity > 500 {
+                dismiss()
+            } else {
+                animate(to: .open, frame: openFrame, springs: .present)
+            }
+        default:
+            break
+        }
+    }
+}
+
+/// Breaks the display link's strong reference to the overlay.
+private final class DisplayLinkTarget: NSObject {
+    weak var overlay: AppsMenuOverlay?
+    init(_ overlay: AppsMenuOverlay) { self.overlay = overlay }
+    @MainActor @objc func tick() { overlay?.step() }
 }
 
 extension ConversationViewController {
+    /// Messages' order (iOS 26 and 27 agree on these): Camera, Photos,
+    /// Audio, then the iMessage apps. Items Messages lists that cmux has no
+    /// counterpart for are left out.
     func presentAppsMenu() {
         dismissPhotoDrawer()
         view.endEditing(true)
@@ -117,17 +316,17 @@ extension ConversationViewController {
         items.append(.init(title: String(localized: "conversation.apps.photos", defaultValue: "Photos", bundle: .module), symbol: "photo.on.rectangle", color: .systemBlue) { [weak self] in
             self?.presentPhotoDrawer()
         })
-        items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .systemIndigo) { [weak self] in
-            self?.presentFilePicker()
-        })
         items.append(.init(title: String(localized: "conversation.apps.audio", defaultValue: "Audio", bundle: .module), symbol: "waveform", color: UIColor(red: 1, green: 0.43, blue: 0.32, alpha: 1)) { [weak self] in
             self?.audioComposer.start()
         })
         items.append(pollsAppsMenuItem())
         items.append(sendLaterMenuItem())
-        let anchor = composer.plusButton.convert(composer.plusButton.bounds, to: view)
-        let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, items: items)
+        view.layoutIfNeeded()
+        let anchor = composer.plusGlassFrame(in: view)
+        let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, plusImage: composer.plusButton.image(for: .normal), items: items)
+        overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
         view.addSubview(overlay)
+        composer.isPlusGlassHidden = true
         overlay.present()
     }
 
@@ -225,12 +424,6 @@ extension ConversationViewController {
     private func presentCamera() {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
-        picker.delegate = cameraDelegate
-        present(picker, animated: true)
-    }
-
-    private func presentFilePicker() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
         picker.delegate = cameraDelegate
         present(picker, animated: true)
     }
