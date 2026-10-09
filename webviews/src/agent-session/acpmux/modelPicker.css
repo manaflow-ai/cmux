@@ -70,13 +70,13 @@
   min-width: 210px;
   max-height: min(360px, 60vh);
   overflow: auto;
-  padding: var(--ui-popup-padding);
+  padding: 6px;
   box-sizing: border-box;
-  border-radius: var(--ui-popup-radius);
+  border-radius: 12px;
   background: var(--acpmux-menu-bg);
   box-shadow:
     inset 0 0 0 0.5px var(--acpmux-composer-edge),
-    var(--ui-popup-shadow);
+    0 10px 30px var(--agent-shadow, rgb(0 0 0 / 0.35));
 }
 .acpmux-mp-cascade .acpmux-mp-sub:has(.acpmux-mp-sub) {
   overflow: visible;
