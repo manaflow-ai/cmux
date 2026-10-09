@@ -148,12 +148,10 @@ describe("buildPickerCatalog", () => {
     expect(picker.harnesses.some((harness) => harness.id === "corp-claude")).toBe(false);
   });
 
-  test("catalog models list in order; an alias the harness probed maps to its model; new probed models are added", () => {
-    expect(byId("claude").models.map((model) => model.id)).toEqual([
-      "claude-opus-5-5",
-      "claude-sonnet-5",
-      "claude-next-1",
-    ]);
+  // cx-jqkx: a family's newest model is offered under the harness's alias ("opus"), so picking it
+  // runs whatever Claude Code calls its latest Opus, even after a release cmux has not catalogued.
+  test("catalog models list in order, the newest of a family under its alias; new probed models are added", () => {
+    expect(byId("claude").models.map((model) => model.id)).toEqual(["opus", "claude-sonnet-5", "claude-next-1"]);
     expect(byId("claude").models[0]).toMatchObject({
       name: "Claude Opus 5.5",
       shortName: "Opus 5.5",
@@ -167,6 +165,43 @@ describe("buildPickerCatalog", () => {
     });
     expect(byId("claude").models[0]?.searchText).toContain("opus");
     expect(byId("claude").models[2]).toMatchObject({ name: "Next 1", efforts: [], fast: false });
+  });
+
+  test("the version the harness names for an alias wins over the catalog's", () => {
+    const later = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: normalizeCatalog({ harnesses: { claude: { family: "claude", models: [{ id: "opus", name: "Opus 6" }] } } }),
+    });
+    expect(later.harnesses[0]?.models[0]).toMatchObject({ id: "opus", name: "Opus 6", shortName: "Opus 6" });
+  });
+
+  // cx-jqkx: the harness is the authority. A model the running session's own model option lists is
+  // offered even when neither the catalog nor acpmux's model list has it.
+  test("a model the session's model option reports is offered even when the catalog lacks it", () => {
+    const live = buildPickerCatalog({
+      catalog: CATALOG,
+      acpmux: ACPMUX,
+      session: {
+        harness: "claude-sr",
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            currentValue: "claude-pinned-1",
+            options: [
+              { value: "opus", name: "Opus 5.5" },
+              { value: "claude-haiku-9", name: "Haiku 9" },
+            ],
+          },
+        ] as never,
+      },
+    });
+    const ids = live.harnesses[0]?.models.map((model) => model.id);
+    expect(ids).toContain("claude-haiku-9");
+    expect(ids).toContain("claude-pinned-1");
+    expect(ids?.filter((id) => id === "opus")).toHaveLength(1);
+    expect(live.harnesses[0]?.models.find((model) => model.id === "claude-haiku-9")?.name).toBe("Haiku 9");
   });
 
   test("acpmux reasons are kept; a catalog harness acpmux lacks lists as not installed", () => {
@@ -249,7 +284,7 @@ describe("buildPickerCatalog", () => {
     expect(layered.harnesses.map((harness) => harness.id)).toEqual(["claude", "codex", "opencode"]);
     expect(layered.harnesses[0]).toMatchObject({ name: "Claude (work)" });
     expect(layered.harnesses[0]?.models.map((model) => [model.id, model.name, model.defaultEffort])).toEqual([
-      ["claude-opus-5-5", "Opus", "max"],
+      ["opus", "Opus", "max"],
     ]);
     expect(layered.harnesses[1]?.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-6-local"]);
     expect(layered.harnesses[2]?.models[1]).toMatchObject({

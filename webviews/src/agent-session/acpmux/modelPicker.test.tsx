@@ -132,7 +132,7 @@ describe("T3 model picker", () => {
     expect(doc.activeElement).toBe(input);
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
     const first = labels();
-    expect(first).toEqual(["Opus 4.1", "Opus 5.5", "Sonnet 5.5"]);
+    expect(first).toEqual(["Opus 5.5", "Sonnet 5.5"]);
     Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(input, "sonnet");
     await act(async () => input.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
     expect(labels()).toEqual(["Sonnet 5.5"]);
@@ -146,12 +146,13 @@ describe("T3 model picker", () => {
     await render();
     await act(async () => modelButton().click());
     const input = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    await key(input, "ArrowUp");
     expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await ctrlKey(input, "n");
     expect(modelRows()[1]!.getAttribute("aria-selected")).toBe("true");
+    await key(input, "ArrowUp");
+    expect(modelRows()[0]!.getAttribute("aria-selected")).toBe("true");
     await key(input, "1");
-    expect(calls).toEqual(["model claude-opus-4-1"]);
+    expect(calls).toEqual(["model claude-opus-5-5"]);
   });
 
   test("a different harness shows its models, then starts that harness on a model pick", async () => {
@@ -162,8 +163,8 @@ describe("T3 model picker", () => {
     )!;
     await act(async () => codex.click());
     expect(modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
-      "o3",
       "GPT-6-Astra",
+      "o3",
     ]);
     await act(async () => modelRows()[0]!.click());
     expect(calls).toEqual(["harness codex"]);
@@ -264,14 +265,14 @@ describe("T3 model picker", () => {
     const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
     const sonnet = modelRows().find((row) => row.textContent?.includes("Sonnet 5.5"))!;
     await act(async () => sonnet.parentElement!.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!.click());
-    expect(labels()).toEqual(["Sonnet 5.5", "Opus 4.1", "Opus 5.5"]);
+    expect(labels()).toEqual(["Sonnet 5.5", "Opus 5.5"]);
     const sections = [...menu()!.querySelectorAll(".acpmux-mp-models .acpmux-mp-section")].map((s) => s.textContent);
     expect(sections[0]).toBe("Starred");
     const codex = [...menu()!.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
       (row) => row.textContent === "Codex",
     )!;
     await act(async () => codex.click());
-    expect(labels()).toEqual(["o3", "GPT-6-Astra"]);
+    expect(labels()).toEqual(["GPT-6-Astra", "o3"]);
   });
 
   // Leo (dogfood 2026-10-08, A1): after picking Claude Code the chip drew the Codex mark beside
@@ -295,4 +296,54 @@ describe("T3 model picker", () => {
     expect(modelButton().textContent).toContain("Codex");
     expect(modelButton().textContent).not.toContain("Opus 5.5");
   });
+
+  // cx-jqkx (Lawrence 2026-10-09): the list ran oldest first, so Opus 5.5 sat below the fold.
+  test("the newest models come first; older versions sit under a collapsed Older models row", async () => {
+    await render();
+    await act(async () => modelButton().click());
+    const labels = () => modelRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const older = menu()!.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
+    expect(older.textContent).toContain("Older models");
+    expect(older.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => older.click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.1"]);
+    // A new opening starts collapsed; a search looks through every model, older ones included.
+    await act(async () => modelButton().click());
+    await act(async () => modelButton().click());
+    expect(labels()).toEqual(["Opus 5.5", "Sonnet 5.5"]);
+    const search = menu()!.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "4.1");
+    await act(async () => search.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+    expect(labels()).toEqual(["Opus 4.1"]);
+  });
+
+  test("a single harness gets no harness column", async () => {
+    const value = snapshot();
+    value.catalog = value.catalog.filter((entry) => entry.id === "claude");
+    await render(value);
+    await act(async () => modelButton().click());
+    expect(menu()!.querySelector(".acpmux-mp-harnesses")).toBeNull();
+    expect(modelRows().length).toBeGreaterThan(0);
+  });
+
+  test("the catalog refresh sits in the search row and every row ends in its hint slot", async () => {
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: snapshot(),
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          catalogRefresh: { status: "idle", refresh: () => {} },
+        }),
+      ),
+    );
+    await act(async () => modelButton().click());
+    expect(menu()!.querySelector(".acpmux-mp-search .acpmux-mp-refresh")).not.toBeNull();
+    expect(menu()!.querySelector(".acpmux-mp-footer")).toBeNull();
+    // The checked row and the others end the same way, so the ⌘ hints line up in one column.
+    for (const row of modelRows()) expect(row.lastElementChild?.className).toBe("acpmux-mp-hotkey");
+  });
 });
+

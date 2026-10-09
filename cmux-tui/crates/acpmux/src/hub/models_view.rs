@@ -269,6 +269,21 @@ mod tests {
         );
     }
 
+    // cx-jqkx: the models Claude Code reported (its aliases) are offered beside the curated ones.
+    #[test]
+    fn claude_code_also_offers_the_models_it_reported() {
+        let c = catalog();
+        let reported = vec![
+            ("default".to_owned(), "Default".to_owned()),
+            ("opus".to_owned(), "Opus 5.5".to_owned()),
+            ("gpt-old".to_owned(), "gpt old".to_owned()),
+        ];
+        let out = offered(&HarnessKind::ClaudeStdio, Some(&c.harnesses[0]), &c, &reported);
+        assert_eq!(ids(&out), ["default", "gpt-new", "gpt-old", "opus"]);
+        assert_eq!(out[3]["name"], "Opus 5.5");
+        assert_eq!(out[3]["curated"], false);
+    }
+
     #[test]
     fn a_declared_model_keeps_its_fields_and_gains_curated_ones() {
         let c = catalog();
