@@ -7,7 +7,9 @@ import { teamRead, teamVmAccountsFence } from "./team-reads.ts"
 import { firstOwner, homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
-import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
+import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
+import { signInRulesOf, type SignInRules } from "./team-sign-in-rules.ts"
+import { deletedTeamMembers, stackSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -21,12 +23,7 @@ import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
-/** TeamDO.signInRules result (policy-gate.ts). */
-export interface SignInRules {
-  readonly sso_required: boolean
-  readonly minimum_version: string | null
-  readonly allowed_classes: ReadonlyArray<string>
-}
+export type { SignInRules } from "./team-sign-in-rules.ts"
 
 /** The principal of the plain member view in event effects (no user: no own devices). */
 const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
@@ -78,6 +75,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
+    if (deletedTeamMembers(state, this.rows, 1).length > 0) return now
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
@@ -120,6 +118,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    // A team Stack deleted: its members leave through team.member.remove (certificates, team VM taint), a page per wake.
+    for (const user of this.boundEngine ? deletedTeamMembers(this.boundEngine.currentState, this.rows) : []) this.submitSystem("team.member.remove", { user }, `team-deleted:${user}`)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
@@ -336,30 +336,9 @@ export class TeamDO extends OwnerDO<TeamState> {
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
   }
 
-  /**
-   * Sign-in rules of this team for one user (enterprise P17-4): whether a Stack session needs this
-   * team's SSO (sso.enforce with mode enforced, while an active connection serves a verified domain;
-   * owners exempt unless sso.enforceForOwners), the minimum client version, and the agent classes
-   * grants may be minted for. `user` need not be a member: the Worker also asks the team that owns
-   * the user's email `domain` (policy-gate.ts), which binds only while a connection serves that
-   * domain. Read by the Worker, cached briefly.
-   */
+  /** Sign-in rules of this team for one user (enterprise P17-4; team-sign-in-rules.ts); read by the Worker, cached briefly. */
   async signInRules(entity: string, user: string, domain?: string): Promise<SignInRules> {
-    const state = this.bind(entity).currentState
-    const policy = currentPolicy(state).values as PolicyValues
-    const values = policy as Record<string, { value: unknown } | undefined>
-    const role = roleOf(state, this.rows, user)
-    // Bound by its email domain: only while an active connection serves that very domain, or its user could never sign in.
-    const servable = domain === undefined ? ssoServable(state) : connectionForDomain(state, domain) !== undefined
-    const enforce = enforcedOn(policy, "sso.enforce") && servable
-    const owners = enforcedOn(policy, "sso.enforceForOwners")
-    const min = values["updates.minimumVersion"]?.value
-    const classes = values["agents.allowedClasses"]?.value
-    return {
-      sso_required: enforce && (role !== "owner" || owners),
-      minimum_version: typeof min === "string" ? min : null,
-      allowed_classes: Array.isArray(classes) ? (classes as Array<string>) : ["mux", "agent", "run"]
-    }
+    return signInRulesOf(this.bind(entity).currentState, this.rows, user, domain)
   }
 
   /** Whether this team's SSO created the Stack session `refreshTokenId` for `stackUser` (sso.enforce, P17-4). */
@@ -492,6 +471,23 @@ export class TeamDO extends OwnerDO<TeamState> {
   async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
     return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
   }
+
+  /** RPC from the Worker's team selection (team-select.ts): the user's role in this live team, or null. Never creates a team. */
+  async memberRole(entity: string, user: string): Promise<string | null> {
+    const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
+    return state?.team?.id === entity && state.team.deleted_at === undefined ? (roleOf(state, this.rows, user) ?? null) : null
+  }
+
+  /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
+  async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
+    this.bind(entity)
+    const run = () => stackSync({ team: entity, stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, event)
+    const reply = this.stackQueue.then(run, run)
+    this.stackQueue = reply.catch(() => undefined)
+    return reply
+  }
+
+  private stackQueue: Promise<unknown> = Promise.resolve()
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
     return memberOf(state, this.rows, principal.user) !== undefined
