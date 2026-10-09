@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { act } from "react";
 import { useState } from "react";
 import { EffortPicker } from "../src/agent-session/acpmux/EffortPicker";
+import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { UiProvider } from "../src/ui/UiProvider";
 import { click, installDom, press, render, restoreDom, settle, unmount } from "./viewer-empty-dom";
 
@@ -28,7 +30,7 @@ test("selects an effort row and returns to the trigger after Escape", async () =
   }
   const root = await render(<Fixture />);
   const trigger = root.querySelector<HTMLButtonElement>("button")!;
-  await click(trigger);
+  await act(async () => expect(openPicker("effort")).toBe(true));
   await settle();
   const selected = document.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')!;
   expect(selected.textContent).toContain("Medium");
@@ -38,7 +40,7 @@ test("selects an effort row and returns to the trigger after Escape", async () =
   await click(high);
   await settle();
   expect(root.querySelector(".acpmux-picker-button > span")?.textContent).toBe("High");
-  await click(trigger);
+  await act(async () => expect(openPicker("effort")).toBe(true));
   await settle();
   await press(document.activeElement!, "Escape");
   expect(document.querySelector('[role="menu"]')).toBeNull();
