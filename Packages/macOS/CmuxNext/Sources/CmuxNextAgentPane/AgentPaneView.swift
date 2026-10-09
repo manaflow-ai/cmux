@@ -21,7 +21,6 @@ public final class AgentPaneView: NSView {
     /// system handler; the App can route it to a cmux browser tab.
     public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    /// The page this pane shows; navigation and the handshake trust only it.
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
         didSet {
