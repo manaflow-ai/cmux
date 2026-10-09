@@ -184,9 +184,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
         let hub = hub.clone();
         tokio::spawn(async move {
-            let before = crate::registry::installed_ids(&home());
+            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
+            let before = installed().await.ok();
             match crate::registry::refresh(&home()).await {
-                Ok(true) if crate::registry::installed_ids(&home()) != before => {
+                Ok(true) if installed().await.ok() != before => {
                     if let Err(e) = hub.reload_catalog().await {
                         tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
                     }

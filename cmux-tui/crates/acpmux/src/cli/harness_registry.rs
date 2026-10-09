@@ -79,11 +79,13 @@ pub fn add(
     let agent = reg
         .agent(id)
         .ok_or_else(|| anyhow!("no ACP Registry agent {id:?}; see `cmux harness registry`"))?;
-    let harness = registry::harness_id(&agent.id);
-    if !profiles::valid_id(&harness) {
+    let Some(harness) = registry::harness_id(&agent.id) else {
         bail!(
             "registry id {id:?} does not make a harness id (1-40 lowercase letters, digits or '-')"
         );
+    };
+    if matches!(harness.as_str(), "claude" | "claude-cr" | "claude-sr") {
+        bail!("{harness} is acpmux's own Claude Code route; it cannot come from the registry");
     }
     let launch = agent.launch(registry::platform(), which);
     let Some(text) = registry::profile_toml(agent, &launch) else {
