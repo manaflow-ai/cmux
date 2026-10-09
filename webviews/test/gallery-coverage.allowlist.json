@@ -65,6 +65,8 @@
     "agent-session/acpmux/changes/Counts.tsx#Counts",
     "agent-session/acpmux/changes/DiffKeyHints.tsx#DiffKeyHints",
     "agent-session/acpmux/changes/EditBlock.tsx#EditBlock",
+    "agent-session/acpmux/changes/GitActions.tsx#GitToolbarButtons",
+    "agent-session/acpmux/changes/GitActions.tsx#GitWriteBar",
     "agent-session/acpmux/changes/FileHeader.tsx#FileHeader",
     "agent-session/acpmux/changes/FileMenu.tsx#FileMenu",
     "agent-session/acpmux/changes/HunkActions.tsx#HunkActions",

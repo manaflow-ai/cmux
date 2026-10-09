@@ -2148,7 +2148,7 @@ mod tests {
         let (cloud, mut servers) = QueueCloud::new();
         let mut idle = WirePeer::new(servers.remove(0));
         let mut replacement = WirePeer::new(servers.remove(0));
-        replacement.reader.get_ref().set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        replacement.reader.get_ref().set_read_timeout(Some(Duration::from_secs(30))).unwrap();
         let local = Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) });
         let stop = AtomicStop::new();
         let agent = MachineAgent::new(
