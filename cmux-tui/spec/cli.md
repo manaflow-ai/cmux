@@ -460,6 +460,7 @@ conversation search <words>... [--limit <1..100>]
 conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
+chief engine [--harness <h>] [--model <m>] [--effort <e>] | chief stop
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -566,10 +567,16 @@ person, so Home and the CLI show the same messages live. With `-p <text>`, or
 with text on stdin, it sends one message, prints the Chief's reply (live from
 its `draft` items when stdout is a terminal, else only the posted messages,
 or each as a JSON line with `--json`) and exits 0 when the turn that answers
-the message ends; `--timeout` exits 124. On a terminal it opens an inline
+the message ends; it gives up after `--timeout` seconds (default 1800,
+`0` waits without a limit) and exits 124. After a stream gap it takes the
+turn's state from the reopened stream's snapshot, so a lost typing item
+never makes it wait for nothing. On a terminal it opens an inline
 chat: finished messages go into the terminal's scrollback, the live reply and
 the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
-Ctrl+D quits, `/help` lists the commands. It refuses a socket under
+Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
+`/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
+commands. `chief engine` and `chief stop` make one such call without the
+chat. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.

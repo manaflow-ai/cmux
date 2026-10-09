@@ -97,7 +97,10 @@
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 .acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-location-menu .ui-separator { flex: none; height: 1px; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+.acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+/* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
+.acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
 
 .acpmux-composer-bar {
   min-height: 52px;
@@ -125,12 +128,13 @@
 .acpmux-access-menu {
   width: min(286px, calc(100vw - 24px));
   min-width: 0;
-  padding: 5px;
+  padding: var(--ui-popup-padding);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--ui-popup-radius);
   background: var(--acpmux-menu-bg);
-  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), var(--ui-popup-shadow);
   color: var(--agent-text);
+  transform-origin: var(--transform-origin);
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
@@ -138,8 +142,8 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 5px 8px;
-  border-radius: 7px;
+  padding: 5px var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
@@ -166,6 +170,9 @@
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-composer-box { --acpmux-composer-glass: var(--acpmux-base); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-access-menu { animation: ui-popup-open var(--ui-popup-open) ease-out; }
 }
 /* Unified composer surface: context is part of the input card, so project, machine, and
    branch read as one scope line instead of a second floating tray. */
