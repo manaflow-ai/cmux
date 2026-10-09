@@ -28,7 +28,8 @@ extension SidebarBridge {
             // The groups these workspaces leave empty go too (cx-rcby).
             let life = self.life, ending = life.emptied(by: members, into: id)
             model.apply(intent)
-            life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: resync) { connection in
+            life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) }, failed: resync,
+                        settled: holdRows()) { connection in
                 for workspace in members {
                     try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                       group: .set(id))
@@ -43,7 +44,8 @@ extension SidebarBridge {
             let place = usesMixedOrder && v2 ? PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
                 : PersonalSidebar.GroupPlacement()
             let move = place.move, top = place.topIndex
-            life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: resync) { connection in
+            life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: resync,
+                        settled: holdRows()) { connection in
                 // The v2 operation names the group itself.
                 let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                     name: SidebarGroup.named(name), room: room.rawValue, color: color.rawValue, index: move).id)
@@ -118,7 +120,8 @@ extension SidebarBridge {
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
         let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync) { connection in
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync,
+                    settled: holdRows()) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -134,6 +137,20 @@ extension SidebarBridge {
     var life: PersonalGroupLife { PersonalGroupLife(machines: services.machines) }
     /// New groups and their name editors (SidebarGroupFlow).
     var groupFlow: SidebarGroupFlow { SidebarGroupFlow(bridge: self) }
+
+    /// Keeps the sidebar's optimistic rows until an organization change's
+    /// commands have all landed, then shows daemon truth once (cx-rcby): a
+    /// new group's create, place and delete commits each send a snapshot,
+    /// and showing them one by one made the group jump (it arrived empty,
+    /// its member snapped back, then moved in). Returns the release.
+    func holdRows() -> @MainActor () -> Void {
+        groupEditor.rowHolds += 1
+        return { [weak self] in
+            guard let self else { return }
+            groupEditor.rowHolds -= 1
+            if groupEditor.rowHolds == 0 { resync() }
+        }
+    }
 
     /// The home session serves its personal groups as v2 state resources
     /// (`workspace_group.*`, `workspace.place`).

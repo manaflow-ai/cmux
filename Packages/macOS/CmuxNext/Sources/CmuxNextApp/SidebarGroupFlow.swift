@@ -44,9 +44,14 @@ struct SidebarGroupFlow {
     /// asks without a name: that group's name editor opens (repeated New
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
+    /// A person's new group gets the next palette color and its editor
+    /// opens on it (the Chrome flow).
     func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
-        bridge.handle(.createGroup(CmuxNextSidebar.GroupID.make(), name: name, color: .grey, workspaces: ids))
+        let id = CmuxNextSidebar.GroupID.make()
+        let used = Set(bridge.services.machines.local.store.personal.groups.compactMap(\.color))
+        bridge.handle(.createGroup(id, name: name, color: byUser ? GroupColor.automatic(used: used) ?? .grey : .grey, workspaces: ids))
+        if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
     /// Opens `group`'s name editor now, or once the sidebar shows it.

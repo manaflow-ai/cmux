@@ -165,6 +165,30 @@ public final class SidebarView: NSView {
     var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
 
     /// no context menu.
+    /// The group editor's action rows for a group (cx-rcby); nil shows
+    /// `standardGroupEditorItems()`. A row's id is an action id.
+    public var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])? {
+        get { list.groupEditorItems }
+        set { list.groupEditorItems = newValue }
+    }
+
+    /// A group editor row was chosen: the App runs the action on the group.
+    public var onGroupEditorItem: ((GroupID, String) -> Void)? {
+        get { list.onGroupEditorItem }
+        set { list.onGroupEditorItem = newValue }
+    }
+
+    /// The group editor's standard rows: New Workspace in Group, Move Group
+    /// to New Window, Close Group; Ungroup, Delete Group, More Group Actions.
+    public static func standardGroupEditorItems() -> [[SidebarGroupEditorItem]] {
+        SidebarListView.standardGroupEditorItems()
+    }
+
+    /// Opens the group editor under the group's chip.
+    public func editGroup(_ id: GroupID) {
+        list.openGroupEditor(id)
+    }
+
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
         set {

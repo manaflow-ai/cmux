@@ -52,12 +52,12 @@ import Testing
         let h = MinimalChromeTests.Harness(sections: fixture())
         let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
-        // S1: the caret leads at the workspace titles' inset (a loose row's
-        // title, both in their row's coordinates) and the name follows it.
+        // The chip (cx-rcby): it starts near the workspace titles' inset and
+        // the collapse chevron ends it, after the name.
         let row = try #require(h.sidebar.list.rowViews[.workspace(id("b"))] as? WorkspaceRowView)
         row.layoutSubtreeIfNeeded()
-        #expect(header.titleFrame.minX > row.titleFrame.minX, "header \(header.titleFrame.minX) row \(row.titleFrame.minX)")
-        #expect(header.disclosureFrame.midX < header.titleFrame.minX)
+        #expect(header.labelFrame.minX <= row.titleFrame.minX, "chip \(header.labelFrame.minX) row \(row.titleFrame.minX)")
+        #expect(header.disclosureFrame.midX > header.titleFrame.maxX)
         #expect(header.titleFont == SidebarStyle.headerFont)
     }
 }
