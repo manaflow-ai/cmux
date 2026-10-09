@@ -139,6 +139,13 @@ if [ -n "$override_reason" ]; then
       'explain the concrete red check and why this exact head is safe to merge'
   fi
 fi
+skip_vercel=0
+if [ -n "$override_reason" ] && [[ "$override_reason" =~ [Vv]ercel ]]; then
+  # Vercel is an optional preview deployment status in this repository.  An
+  # explicit, auditable override may waive that one external status when it is
+  # pending or red; all other pending statuses remain merge blockers.
+  skip_vercel=1
+fi
 if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
   refuse \
     'not green: --override cannot be combined with --main-fix' \
@@ -242,8 +249,8 @@ excuse_runs=()
 red_lanes=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
-# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
-# Require it only if it was scheduled or the diff touches app code.
+# Use a conservative path fallback until the exact-head CI routing is available.
+needs_app_compile=0
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
@@ -252,7 +259,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       'restore GitHub API access, then retry the exact-head check'
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
-    must+=("macos / macOS compile admission")
+    needs_app_compile=1
   fi
 fi
 if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
@@ -271,6 +278,23 @@ if ! runs=$(jq -r '
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
+fi
+
+# CI's package graph can exclude iOS-only Swift changes that the path fallback
+# includes. Accept an explicit skip only from GitHub Actions in the same suite
+# as the latest successful ci-status. Missing or unrelated routing stays closed.
+# A reported compile-admission check is still required below, even with a skip.
+if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
+  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+   | group_by(.name) | map(last)) as $latest
+  | ($latest[] | select(.name == "ci-status")) as $ci
+  | $ci.status == "completed" and $ci.conclusion == "success"
+    and $ci.app.slug == "github-actions" and $ci.check_suite.id != null
+    and any($latest[];
+      .name == "macos" and .status == "completed" and .conclusion == "skipped"
+      and .app.slug == "github-actions" and .check_suite.id == $ci.check_suite.id)
+' <<<"$check_runs_json" >/dev/null 2>&1; then
+  must+=("macos / macOS compile admission")
 fi
 
 # God-file, localization and concurrency lint fail only on the change itself, so
@@ -460,6 +484,10 @@ if [ "$has_ci" -eq 0 ]; then
   while IFS=$'\t' read -r name st co; do
     [ -n "$name" ] || continue
     reported=$((reported + 1))
+    if [ "$skip_vercel" -eq 1 ] && [ "$name" = Vercel ]; then
+      echo "note: --override waived Vercel $st/$co status" >&2
+      continue
+    fi
     if [ "$st" != completed ]; then
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \

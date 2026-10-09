@@ -686,7 +686,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None):
+                 raw_content=None, app_workflow_body=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -706,6 +706,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'comment']:
+                    pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
@@ -731,7 +733,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -760,6 +762,18 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_vercel_override_waives_only_the_named_external_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
@@ -813,6 +827,69 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(workflow=True, files=['Sources/App.swift'], checks=[{'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success'}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
+
+    def macos_routing_checks(self):
+        return [
+            {'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+            {'id': 2, 'name': 'macos', 'status': 'completed', 'conclusion': 'skipped',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+        ]
+
+    def run_ios_routing_case(self, checks):
+        return self.run_case(workflow=True, app_workflow=True,
+                             files=['Packages/iOS/CmuxMobileShellUI/Sources/MobileDisplaySettings.swift'],
+                             checks=checks)
+
+    def test_ios_only_diff_accepts_explicit_macos_skip_from_successful_ci_suite(self):
+        result, merged, _ = self.run_ios_routing_case(self.macos_routing_checks())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+
+    def test_macos_skip_requires_current_successful_github_actions_suite(self):
+        invalid_skips = [
+            {'status': 'in_progress', 'conclusion': None},
+            {'conclusion': 'failure'},
+            {'conclusion': 'success'},
+            {'conclusion': 'neutral'},
+            {'check_suite': {'id': 99}},
+            {'check_suite': {}},
+            {'app': {'slug': 'other-app'}},
+        ]
+        for invalid_skip in invalid_skips:
+            with self.subTest(invalid_skip=invalid_skip):
+                checks = self.macos_routing_checks()
+                checks[-1].update(invalid_skip)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
+        for replacement in ({'name': 'unrelated'}, {'conclusion': 'skipped'},
+                            {'app': {'slug': 'other-app'}}, {'check_suite': {}}):
+            with self.subTest(ci_status=replacement):
+                checks = self.macos_routing_checks()
+                checks[0].update(replacement)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+
+    def test_macos_skip_does_not_hide_newer_route_or_scheduled_compile(self):
+        for conclusion in ('failure', 'success'):
+            with self.subTest(newer_route=conclusion):
+                checks = self.macos_routing_checks()
+                checks.append({**checks[-1], 'id': 3, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            with self.subTest(compile=(status, conclusion)):
+                checks = self.macos_routing_checks()
+                checks.append({'id': 3, 'name': 'macos / macOS compile admission',
+                               'status': status, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
 
 
 class HelperCheckoutUpdateRegression(unittest.TestCase):

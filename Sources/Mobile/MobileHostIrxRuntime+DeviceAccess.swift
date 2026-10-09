@@ -22,12 +22,18 @@ extension MobileHostIrxRuntime {
               isNetworkingAllowed, let control = controlService,
               let supervisor = endpointSupervisor, let device = cachedState?.device else { throw DeviceLinkError.notConnected }
         let generation = generationToken
+        let account = accountDirectoryClient
         return DeviceIrxClientContext(control: control, supervisor: supervisor, localDevice: device,
             allowsDirectPaths: Self.pathMode == .automatic,
             isCurrent: { @MainActor [weak self] in
                 self?.generationToken == generation && DevicesFeature.isEnabled
                     && self?.auth?.authenticatedSessionIdentity == identity && self?.auth?.resolvedTeamID == teamID
                     && self?.isNetworkingAllowed == true
+            },
+            accountDirectory: { [weak account] in
+                // The remote flag off restores team-only discovery and dialing.
+                guard AccountMacDirectoryFeature.isEnabled(), let account else { return nil }
+                return await account.snapshot()
             })
     }
 }

@@ -94,6 +94,7 @@ jobs:
       unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       coverage_fingerprint: ${{ steps.coverage-fingerprint.outputs.fingerprint }}
+      reverse_test_impact: ${{ steps.reverse-impact.outputs.reverse_test_impact }}
       ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -710,6 +711,13 @@ jobs:
           fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
 
+      # The manual-dispatch guard reads this step from the completed `changes`
+      # job. Keeping the marker here avoids a second Linux runner while
+      # retaining a concrete, status-bearing coverage signal.
+      - name: Mark full-suite coverage
+        if: ${{ steps.suite.outputs.full_suite == 'true' }}
+        run: echo "full-suite coverage selected"
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -1030,6 +1038,24 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+      # Route the report-only reverse impact job from a trusted base helper.
+      # A missing base helper or changed-path list fails open, so this optional
+      # report can never suppress required test routing.
+      - name: Route reverse test impact report
+        id: reverse-impact
+        run: |
+          set -euo pipefail
+          route="$RUNNER_TEMP/reverse_test_impact_route.py"
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          if [ -z "$base" ] || ! git show "$base:scripts/ci/reverse_test_impact_route.py" > "$route"; then
+            echo "Trusted reverse-impact router unavailable; keeping the report enabled."
+            echo "reverse_test_impact=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 "$route" \
+            --files-from /tmp/cmux-ci-changed-files.txt \
+            --github-output "$GITHUB_OUTPUT"
+
   # Report only. choose_ci_suite.py in `changes` already adds the suites
   # reverse_test_impact.py names to the changed-suites run; this job records
   # the full answer, what was considered and what it would cost, in the step
@@ -1047,7 +1073,7 @@ jobs:
   reverse-test-impact:
     name: Reverse test impact (report only)
     needs: [changes]
-    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.reverse_test_impact == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true
@@ -1113,18 +1139,6 @@ jobs:
           path: ${{ runner.temp }}/reverse-test-impact/report.json
           if-no-files-found: ignore
           retention-days: 14
-
-  # A requested manual dispatch may only be suppressed by a PR run that has
-  # selected the equivalent full suite. The guard watcher reads this cheap
-  # marker from the run's jobs rather than inferring coverage from its SHA.
-  full-suite-coverage:
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 1
-    permissions: {}
-    steps:
-      - run: echo "full-suite coverage selected"
 
   static-preflight:
     name: Fast static checks
@@ -1306,7 +1320,6 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
-      - full-suite-coverage
       - static-preflight
       - suite-coverage
       - ghosttykit-release-check
@@ -1384,102 +1397,6 @@ jobs:
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-
-  tests:
-    name: tests
-    needs:
-      - changes
-      - linux-preflight
-      - macos
-      - web
-    # Keep the aggregate verdict after a failed dependency, but let a
-    # cancelled run stop without spending another runner minute on a rollup.
-    if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check platform workflow routing
-        env:
-          TESTS_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["TESTS_NEEDS"])
-          # A cancelled job reaches this gate as a `cancelled` result, and the
-          # routing verdict below would report it as though the pull request had
-          # a routing defect. It does not: the run was stopped before it tested
-          # anything. Say that instead, and still fail. This gate is rolled
-          # into the required ci-status check, so reporting success on a
-          # cancelled run would put a green on a required check that no suite
-          # stood behind, and a pull request could merge with nothing having
-          # tested it. Rerunning the run clears it.
-          cancelled = sorted(name for name, data in needs.items()
-                             if data["result"] == "cancelled")
-          if cancelled:
-              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
-              print("this run was stopped before it reported a test verdict; "
-                    "rerun it, or push again, to get one", file=sys.stderr)
-              sys.exit(1)
-          changes = needs["changes"]
-          if changes["result"] != "success":
-              print(f"changes: {changes['result']}", file=sys.stderr)
-              sys.exit(1)
-          outputs = changes.get("outputs", {})
-          macos_route = outputs.get("macos")
-          if macos_route not in {"true", "false"}:
-              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
-              sys.exit(1)
-          preflight = needs["linux-preflight"]
-          if macos_route == "true":
-              if preflight["result"] != "success":
-                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
-                  sys.exit(1)
-          elif preflight["result"] not in {"success", "skipped"}:
-              print(
-                  f"linux preflight had unexpected result: {preflight['result']}",
-                  file=sys.stderr,
-              )
-              sys.exit(1)
-          macos_result = needs["macos"]["result"]
-          full_suite = outputs.get("full_suite")
-          compile_admitted = outputs.get("compile_admitted")
-          # The package-test lane is routed independently of compile admission
-          # and of the macOS area, so it can require the called workflow on its
-          # own. Keep this in sync with the `macos` job's own `if:`.
-          swift_packages = outputs.get("swift_packages") == "true"
-          # `unit-ci` asks for app-host unit tests without the full suite, so a
-          # routed macOS run is required even when compile admission reused a
-          # product and full_suite stayed false.
-          unit_suite = outputs.get("unit_suite") == "true"
-          macos_work_required = swift_packages or (
-              (
-                  unit_suite
-                  or outputs.get("cli") == "true"
-                  or not (full_suite == "false" and compile_admitted == "true")
-              )
-              and (macos_route == "true" or outputs.get("cli") == "true")
-          )
-          if macos_work_required:
-              if macos_result != "success":
-                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
-                  sys.exit(1)
-          elif macos_result not in {"success", "skipped"}:
-              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
-              sys.exit(1)
-          web_result = needs["web"]["result"]
-          if web_result not in {"success", "skipped"}:
-              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
-              sys.exit(1)
-          print(f"changes.macos={macos_route}")
-          print(f"changes.full_suite={outputs.get('full_suite')}")
-          print(f"changes.swift_packages={outputs.get('swift_packages')}")
-          print(f"linux-preflight={preflight['result']}")
-          print(f"macos={macos_result}")
-          print(f"web={web_result}")
-          PY
 
   linux-preflight:
     name: linux-preflight
@@ -1741,9 +1658,6 @@ jobs:
       - name: Download the pinned GhosttyKit
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
       - name: Build and package the production-authenticated app
         id: artifact
         env:
@@ -1793,16 +1707,99 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-      - tests
     # A cancelled run already has its terminal outcome; the required status
     # remains cancelled and does not need a post-cancel rollup.
     if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # One step that reads `needs` and decides. Its siblings are bounded at 5
-    # to 20 minutes; this one was inheriting the six-hour default, as the
+    # These verdict steps read `needs` and decide. Their siblings are bounded
+    # at 5 to 20 minutes; this job was inheriting the six-hour default, as the
     # required check every pull request waits on.
     timeout-minutes: 5
     steps:
+      - name: Check platform workflow routing
+        env:
+          PLATFORM_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["PLATFORM_NEEDS"])
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is rolled
+          # into the required ci-status check, so reporting success on a
+          # cancelled run would put a green on a required check that no suite
+          # stood behind, and a pull request could merge with nothing having
+          # tested it. Rerunning the run clears it.
+          platform_names = ("changes", "linux-preflight", "macos", "web")
+          cancelled = sorted(name for name in platform_names
+                             if needs[name]["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported a test verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
+          changes = needs["changes"]
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+          outputs = changes.get("outputs", {})
+          macos_route = outputs.get("macos")
+          if macos_route not in {"true", "false"}:
+              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
+              sys.exit(1)
+          preflight = needs["linux-preflight"]
+          if macos_route == "true":
+              if preflight["result"] != "success":
+                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
+                  sys.exit(1)
+          elif preflight["result"] not in {"success", "skipped"}:
+              print(
+                  f"linux preflight had unexpected result: {preflight['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          macos_result = needs["macos"]["result"]
+          full_suite = outputs.get("full_suite")
+          compile_admitted = outputs.get("compile_admitted")
+          # The package-test lane is routed independently of compile admission
+          # and of the macOS area, so it can require the called workflow on its
+          # own. Keep this in sync with the `macos` job's own `if:`.
+          swift_packages = outputs.get("swift_packages") == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, so a
+          # routed macOS run is required even when compile admission reused a
+          # product and full_suite stayed false.
+          unit_suite = outputs.get("unit_suite") == "true"
+          macos_work_required = swift_packages or (
+              (
+                  unit_suite
+                  or outputs.get("cli") == "true"
+                  or not (full_suite == "false" and compile_admitted == "true")
+              )
+              and (macos_route == "true" or outputs.get("cli") == "true")
+          )
+          if macos_work_required:
+              if macos_result != "success":
+                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
+                  sys.exit(1)
+          elif macos_result not in {"success", "skipped"}:
+              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
+              sys.exit(1)
+          web_result = needs["web"]["result"]
+          if web_result not in {"success", "skipped"}:
+              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
+              sys.exit(1)
+          print(f"changes.macos={macos_route}")
+          print(f"changes.full_suite={outputs.get('full_suite')}")
+          print(f"changes.swift_packages={outputs.get('swift_packages')}")
+          print(f"linux-preflight={preflight['result']}")
+          print(f"macos={macos_result}")
+          print(f"web={web_result}")
+          PY
+
       - name: Check routed CI jobs
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
@@ -1857,7 +1854,6 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-      - tests
     if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5

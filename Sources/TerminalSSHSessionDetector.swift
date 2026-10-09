@@ -161,7 +161,7 @@ struct DetectedSSHSession: Equatable, Sendable {
                     homeDirectory: remoteHomeDirectory
                 )
                 uploadedRemotePaths.append(remotePath)
-                let result = try Self.runProcess(
+                let result = try runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
                     timeout: 45,
@@ -206,7 +206,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     }
 
     private func prepareRemotePasteDirectory() throws -> String {
-        let result = try Self.runProcess(
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.maintenanceScript()))"),
             timeout: 12
@@ -243,7 +243,7 @@ struct DetectedSSHSession: Equatable, Sendable {
     }
 
     private func finalizeRemotePasteFile(_ remotePath: String) throws {
-        let result = try Self.runProcess(
+        let result = try runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: "sh -c \(Self.shellSingleQuoted(remotePastePolicy.finalizeScript(for: remotePath)))"),
             timeout: 8
@@ -375,7 +375,7 @@ struct DetectedSSHSession: Equatable, Sendable {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
         let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
-        _ = try? Self.runProcess(
+        _ = try? runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: cleanupCommand),
             timeout: 8
@@ -396,14 +396,15 @@ struct DetectedSSHSession: Equatable, Sendable {
         let stderr: String
     }
 
-    private static func runProcess(
+    /// Runs an SSH transfer subprocess with a deadline and optional cancellation, capturing its output.
+    private func runProcess(
         executable: String,
         arguments: [String],
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
 #if DEBUG
-        if let runProcessOverrideForTesting {
+        if let runProcessOverrideForTesting = Self.runProcessOverrideForTesting {
             let result = try runProcessOverrideForTesting(executable, arguments, timeout, operation)
             return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
         }
@@ -417,6 +418,16 @@ struct DetectedSSHSession: Equatable, Sendable {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+
+        process.environment = SSHAgentSocketResolver()
+            .environmentForIdentityAgent(in: sshOptions)
+
+#if DEBUG
+        cmuxDebugLog(
+            "terminal.remotePasteProcess.start " +
+                "executable=\(executable) args=\(arguments.joined(separator: " | "))"
+        )
+#endif
 
         try operation?.throwIfCancelled()
         try process.run()
@@ -464,6 +475,13 @@ struct DetectedSSHSession: Equatable, Sendable {
             data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
+#if DEBUG
+        cmuxDebugLog(
+                "terminal.remotePasteProcess.end " +
+                "executable=\(executable) status=\(process.terminationStatus) " +
+                "stdout=\(Self.processOutputSnippet(stdout)) stderr=\(Self.processOutputSnippet(stderr))"
+        )
+#endif
         if operation?.isCancelled == true {
             throw TerminalImageTransferExecutionError.cancelled
         }
@@ -483,6 +501,14 @@ struct DetectedSSHSession: Equatable, Sendable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    /// Escapes line breaks and limits captured output to 240 characters for process diagnostics.
+    private static func processOutputSnippet(_ output: String) -> String {
+        let normalized = output
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return String(normalized.prefix(240))
     }
 
     private static func scpRemoteDestination(_ destination: String) -> String {

@@ -52,19 +52,10 @@ function devboxStartSupervisorCommand(): string {
   );
 }
 
-/**
- * The timeout message names the stage that stalled: the supervisor unit's
- * state, whether it bound this machine, whether a daemon process runs, and
- * the unit's last log lines (cmux-tui prints why it refused to start there).
- */
 function devboxForkDaemonTimeoutReport(timeoutSeconds: number, boundInstanceFile: string): string {
-  return (
-    `cmux_unit=$(systemctl is-active ${DEVBOX_SUPERVISOR_UNIT} 2>/dev/null) || :; [ -n "$cmux_unit" ] || cmux_unit=unknown;` +
-    ` cmux_bound="not bound to this machine"; [ -n "$cmux_id" ] && [ "$cmux_id" = "$(cat "${boundInstanceFile}" 2>/dev/null)" ] && cmux_bound="bound to this machine";` +
-    " cmux_proc=\"no daemon process\"; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && cmux_proc=\"daemon process running\";" +
-    ` cmux_log=$(journalctl -u ${DEVBOX_SUPERVISOR_UNIT} -n 3 -o cat --no-pager 2>/dev/null | tr '\\n' ' ');` +
-    ` echo "cmux-tui daemon for this machine did not listen on port 1337 within ${timeoutSeconds}s (supervisor $cmux_unit; $cmux_bound; $cmux_proc) $cmux_log" >&2; exit 1`
-  );
+  void timeoutSeconds;
+  void boundInstanceFile;
+  return 'echo "cmux fork daemon did not become ready" >&2; exit 1';
 }
 
 /**

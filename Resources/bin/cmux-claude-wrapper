@@ -1292,7 +1292,7 @@ cmux_claude_wrapper_create_durable_settings_file() {
 
 # cmux computer use: attach the bundled cmux-cua MCP server so any Claude
 # session cmux launches can drive the local Mac through cmux's TCC identity.
-# Prints the --mcp-config JSON, or returns nonzero to skip injection so
+# Sets CMUX_COMPUTER_USE_CONFIG, or returns nonzero to skip injection so
 # sessions never see always-failing tools.
 cmux_computer_use_json_escape() {
     local value="$1"
@@ -1480,12 +1480,6 @@ cmux_computer_use_config() {
     local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
-    # Claude's MCP configuration is passed on its command line. Keep the
-    # socket credential in the inherited environment instead of serializing it
-    # into that argv-visible JSON (same-user processes can inspect argv with
-    # ps). The bundled cmux-cua client inherits this environment when Claude
-    # starts the MCP server.
-    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
@@ -1497,12 +1491,16 @@ cmux_computer_use_config() {
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     # The helper owns external onboarding. Mark that contract explicitly so
     # protected calls also wait for cmux's post-verification readiness signal.
-    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    CMUX_COMPUTER_USE_CONFIG="$(printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$client")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "${CMUX_CLAUDE_PID:-$$}")" \
-        "$(cmux_computer_use_json_escape "$state_dir")"
+        "$(cmux_computer_use_json_escape "$state_dir")")" || return 1
+    # This function must run in the parent shell: an export inside $(...) is
+    # lost before Claude launches its MCP child. Keep the credential in that
+    # inherited environment, never in the argv-visible MCP JSON.
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
 }
 
 cmux_claude_global_skill_install_enabled() {
@@ -1751,6 +1749,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         clear_inherited_claude_session_identity_env
     fi
     clear_inherited_claude_auth_selection_env
+    unset CMUX_CUA_SOCKET_AUTH_TOKEN
     if [[ "$IN_CMUX" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
@@ -2417,7 +2416,14 @@ fi
 # make a following positional prompt (`claude "fix this"`) parse as another
 # MCP config. Injected after launch-argv capture on purpose: resume re-runs
 # the wrapper, which re-injects against the machinery present then.
-CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+CMUX_COMPUTER_USE_CONFIG=""
+if ! cmux_computer_use_config "$@"; then
+    CMUX_COMPUTER_USE_CONFIG=""
+    # CMUX_CUA_SOCKET_AUTH_TOKEN is a private cmux launch credential. Do not
+    # carry an inherited or partially-resolved value into Claude when the MCP
+    # attachment was rejected or could not be built.
+    unset CMUX_CUA_SOCKET_AUTH_TOKEN
+fi
 if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
     set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
 fi
