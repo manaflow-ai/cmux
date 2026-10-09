@@ -1,0 +1,115 @@
+# Tests for the cmux-next release rails (scripts/cmux-next/release,
+# plans/cmux-next/release-rails.md): the migration linter on both trees, the
+# rehearse/apply runner and the deploy ordering gate on a scratch Postgres with
+# a fake PlanetScale, the post-deploy rollback rail with a fake wrangler and a
+# fake Worker, and image promotion with a fake provider. No secrets, no
+# database or Cloudflare access, no deploys: it runs on every branch that
+# touches these paths, side branches included.
+
+name: release rails
+
+on:
+  pull_request:
+    paths:
+      - scripts/cmux-next/release/**
+      - workers/cmux-vm/migrations/**
+      - workers/cmux-vm/src/db/schema-*.ts
+      - workers/cmux-vm/release-smoke.json
+      - backend/db/migrations/**
+      - backend/apps/api/release-smoke.json
+      - backend/apps/api/wrangler.jsonc
+      - images/cmux-vm/channels/**
+      - images/cmux-vm/promote.ts
+      - .github/workflows/release-rails.yml
+  push:
+    paths:
+      - scripts/cmux-next/release/**
+      - workers/cmux-vm/migrations/**
+      - workers/cmux-vm/src/db/schema-*.ts
+      - workers/cmux-vm/release-smoke.json
+      - backend/db/migrations/**
+      - backend/apps/api/release-smoke.json
+      - backend/apps/api/wrangler.jsonc
+      - images/cmux-vm/channels/**
+      - images/cmux-vm/promote.ts
+      - .github/workflows/release-rails.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rails:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: scripts/cmux-next/release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - id: install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+      - name: Migration lint, both trees, against the previous head
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base_args=()
+          if [ -n "$BASE" ] && ! [[ "$BASE" =~ ^0+$ ]]; then
+            git cat-file -e "${BASE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$BASE" || { echo "::error title=Migration lint::cannot resolve the base $BASE; refusing to lint without it"; exit 1; }
+            base_args=(--base "$BASE")
+          fi
+          bun lint.ts "${base_args[@]}"
+      - name: Rails tests (scratch Postgres, fake PlanetScale, fake wrangler, fake image provider)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: bun test --timeout 60000 test
+
+  # The Worker's schema gate now reads src/db/schema-requirements.ts (shared with the deploy gate).
+  cmux-vm-schema-gate:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - id: install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck
+      - name: Oxlint with the gdp-ts preset
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint
+      - name: Store and schema check tests on PGlite
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test:pg
