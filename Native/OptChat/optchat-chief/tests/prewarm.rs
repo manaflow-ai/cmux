@@ -61,5 +61,9 @@ fn no_hint_races_a_turn_that_starts_at_once() {
     h.settle();
     let (hints, specs) = shapes(&h);
     assert_eq!(specs.len(), 1, "{specs:?}");
-    assert_eq!(hints.len(), 1, "only the hint after the turn, none at connect: {hints:?}");
+    assert_eq!(
+        hints.len(),
+        1,
+        "only the hint after the turn, none at connect: {hints:?}"
+    );
 }

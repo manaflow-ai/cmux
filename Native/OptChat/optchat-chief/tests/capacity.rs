@@ -177,9 +177,15 @@ fn a_turn_with_no_events_for_the_idle_limit_ends_and_runs_again() {
     h.connect();
     h.say("user_local", "hello");
     h.settle();
-    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 2, "the idle turn, then again");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompts.len(),
+        2,
+        "the idle turn, then again"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert!(!sends[0].1.contains("turn failed"), "{sends:?}");
-    assert!(is_idle_error("the turn made no progress for 10 minutes and was stopped"));
+    assert!(is_idle_error(
+        "the turn made no progress for 10 minutes and was stopped"
+    ));
 }
