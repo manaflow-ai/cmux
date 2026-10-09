@@ -56,8 +56,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-vm-image-contract-${{ github.ref }}
-  cancel-in-progress: true
+  # A live provider bake must finish even if a normal contract run starts on
+  # the same ref. Ordinary contract runs keep the existing cancel-on-new-push
+  # behavior; explicit promotions use a separate non-canceling lane.
+  group: cloud-vm-image-contract-${{ inputs.promote == true && 'promote' || github.ref }}
+  cancel-in-progress: ${{ inputs.promote != true }}
 
 jobs:
   contract:
