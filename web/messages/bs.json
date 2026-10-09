@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Nema dovoljno Cloud VM resursa",
+      "memoryMessage": "Vaši VM-ovi već koriste {used} od {pool} GB RAM-a. Ovom VM-u treba {requested} GB.",
+      "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
+      "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
+      "action": "Pauzirajte ili obrišite VM."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "Do 5 Cloud VM-ova, najviše 4 vCPU-a i 8 GB RAM-a po VM-u",
+            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "Do 5 Cloud VM-ova, najviše 16 vCPU-a i 32 GB RAM-a po VM-u",
+            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a",
             "Veće mašine",
             "Sve iz Pro"
           ],
           "team": [
             "Sve iz Pro za svakog člana",
+            "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu",
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
           ]
@@ -2920,11 +2928,12 @@
       "planMax": "Max",
       "sizesDefault": "Nove mašine koriste 8 GB memorije kada ne izaberete veličinu. Pokrenite cmux vm ls --json da vidite veličine koje vaš plan dozvoljava.",
       "limitsTitle": "Ograničenja plana",
-      "limitsDesc": "Ograničenja plana broje mašine, a ne zajednički skup CPU-a ili memorije. Svaka mašina dobija resurse svoje veličine.",
+      "limitsDesc": "Vaše aktivne mašine dijele jedan zajednički skup vCPU-a i memorije. Pokrenite jednu veliku mašinu ili nekoliko malih. Pauzirane mašine ne troše zajednički skup. Disk se određuje za svaku mašinu posebno i nije dio zajedničkog skupa.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
-      "limitsPaid": "Pro i Max računi mogu imati do 5 aktivnih mašina. Mašina je aktivna dok radi ili se pokreće.",
-      "limitsTeam": "Timski računi mogu imati do 5 aktivnih mašina po svakom plaćenom mjestu.",
-      "limitsMax": "Mašine veće od 8 GB zahtijevaju cmux Max. Max mašine idu do 32 GB i 16 vCPU-a.",
+      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 aktivnih mašina koje dijele 20 vCPU-a i 40 GB memorije. Mašina je aktivna dok radi ili se pokreće.",
+      "limitsTeam": "Timski računi mogu imati do 5 aktivnih mašina po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
+      "limitsMax": "Max računi mogu imati do 5 aktivnih mašina koje dijele 80 vCPU-a i 160 GB memorije. Jedna mašina može imati do 32 GB i 16 vCPU-a na Pro i Team planu, ili do 64 GB i 32 vCPU-a na Max planu.",
+      "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
       "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
       "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",
       "agentUpdatesDesc": "Kada je ova postavka uključena, mašina ažurira Claude Code, Codex, OpenCode, pi i agent-browser. Provjerava nakon kreiranja mašine i pri svakom povezivanju, najviše jednom u 24 sata. Ažuriranje radi odvojeno, pa nikad ne blokira povezivanje.",
@@ -2933,7 +2942,7 @@
       "agentUpdatesToggle": "List New Machine ovo uključuje po defaultu. Da to promijeniš za postojeću mašinu, desnim klikom na mašinu izaberi Keep Agents Up to Date ili pokreni cmux vm agent-updates. cmux vm new zadržava verzije iz slike osim ako proslijediš --agent-updates latest. Isključivanjem ažuriranja zadržavaju se već instalirane verzije.",
       "agentUpdatesNetwork": "Ažuriranja koriste samo github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux dozvoljava ove hostove u svakom mrežnom načinu, uključujući Allowlist i No internet, pa mrežna politika nikad ne blokira ažuriranja.",
       "resizeTitle": "Promjena veličine",
-      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 256 GB, memorija do 32 GB, a CPU do 16 vCPU. Stvarni maksimum određuje vaš plan.",
+      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 256 GB. Memorija raste do 32 GB, a CPU do 16 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
       "pauseTitle": "Pauziranje i nastavak",
       "pauseDesc": "cmux vm pause zaustavlja računarske resurse mašine. Disk, radni prostori i historija terminala ostaju. Pokrenuti procesi se zaustavljaju. cmux vm resume ponovo pokreće mašinu. Otvaranje pauzirane mašine ili pokretanje komande na njoj također je pokreće.",
       "pauseIdle": "Mašine se ne pauziraju same kada miruju. Mašina radi dok je ne pauzirate ili obrišete.",
@@ -3084,9 +3093,11 @@
       "errPlan": "Cloud VM-ovi zahtijevaju plaćeni plan",
       "fixPlan": "Besplatni računi ne mogu kreirati mašine. Nadogradite na stranici s cijenama.",
       "errSize": "Veličina zahtijeva veći plan",
-      "fixSize": "Mašine veće od 8 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
+      "fixSize": "Mašine veće od 32 GB zahtijevaju cmux Max. Izaberite manju veličinu ili nadogradite plan.",
       "errLimit": "Dostignuto je ograničenje aktivnih mašina",
       "fixLimit": "Pauzirajte ili obrišite mašinu, pa pokušajte ponovo.",
+      "errPool": "Nema dovoljno Cloud VM resursa",
+      "fixPool": "Vaše aktivne mašine već koriste zajedničke vCPU-e ili memoriju. Pauzirajte ili obrišite mašinu, izaberite manju veličinu ili pređite na Max.",
       "errLocked": "Mašina je zaključana",
       "fixLocked": "Vaš plaćeni plan je istekao, a mašina je starija od 7 dana. Nadogradite da se ponovo povežete. Vaše datoteke su sačuvane.",
       "errAgentMissing": "claude ili codex: komanda nije pronađena",

@@ -2914,6 +2914,62 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
     }
 
+    func testClosingUnselectedTabPreservesTheSelectedTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let selectedPanel = workspace.newTerminalSurface(inPane: paneId, focus: true),
+              let closedPanel = workspace.newTerminalSurface(
+                  inPane: paneId,
+                  focus: false,
+                  preserveBonsplitSelectionWhenUnfocused: true
+              ) else {
+            XCTFail("Expected multiple tabs in one pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, selectedPanel.id)
+        XCTAssertTrue(workspace.closePanel(closedPanel.id, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            selectedPanel.id,
+            "Closing another tab must not steal focus from the selected agent"
+        )
+    }
+
+    func testClosingUnselectedTabInUnfocusedPanePreservesItsSelection() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPane = workspace.bonsplitController.focusedPaneId,
+              let selectedPanel = workspace.newTerminalSurface(inPane: firstPane, focus: true),
+              let closedPanel = workspace.newTerminalSurface(
+                  inPane: firstPane,
+                  focus: false,
+                  preserveBonsplitSelectionWhenUnfocused: true
+              ),
+              workspace.newTerminalSplit(from: selectedPanel.id, orientation: .horizontal) != nil,
+              let secondPane = workspace.bonsplitController.allPaneIds.first(where: { $0 != firstPane }) else {
+            XCTFail("Expected two panes with multiple tabs in the first pane")
+            return
+        }
+
+        workspace.bonsplitController.focusPane(secondPane)
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: firstPane)?.id, workspace.surfaceIdFromPanelId(selectedPanel.id))
+        XCTAssertTrue(workspace.closePanel(closedPanel.id, force: true))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: firstPane)?.id,
+            workspace.surfaceIdFromPanelId(selectedPanel.id),
+            "Closing a tab in an unfocused pane must preserve that pane's selection"
+        )
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, secondPane)
+    }
+
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()

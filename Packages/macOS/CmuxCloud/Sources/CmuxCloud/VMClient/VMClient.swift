@@ -58,8 +58,12 @@ public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         ?? cloudVMString(object["reason"])
         ?? defaultCloudVMMessage(status: status)
     let displayMessage = cloudVMString(ui?["message"]) ?? message
-    let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
+    // A full resource pool gets the client's action so a Max upgrade carries
+    // the attributed checkout link; the server's message still names the numbers.
+    let action = errorCode == "vm_resource_pool_exceeded"
+        ? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
+        : cloudVMString(object["action"])
+            ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -146,6 +150,15 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
             localized: "cloudVM.error.memoryRequiresPlan.action",
             defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
         ), checkout.absoluteString)
+    case "vm_resource_pool_exceeded":
+        guard cloudVMResourcePoolUpgradePlanID(response) == CheckoutPlan.max.rawValue else {
+            return String(localized: "cloudVM.error.resourcePool.maxAction", defaultValue: "Pause or delete a VM.")
+        }
+        let checkout = CheckoutAttribution.checkoutURL(source: .vmResourcePoolExceededError, plan: .max)
+        return String(
+            localized: "cloudVM.error.resourcePool.action",
+            defaultValue: "Pause or delete a VM, or upgrade to Max."
+        ) + "\n" + checkout.absoluteString
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -157,6 +170,13 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
         }
         return "Retry the command. If it keeps failing, copy this error and contact support."
     }
+}
+
+/// The plan that would make a full resource pool fit: `"max"`, or nil when the
+/// caller already has the largest pool. Read from the top level, then `details`.
+func cloudVMResourcePoolUpgradePlanID(_ response: [String: Any]) -> String? {
+    let details = response["details"] as? [String: Any]
+    return (cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]))?.lowercased()
 }
 
 private func cloudVMDetails(from object: [String: Any]) -> [String] {
@@ -171,13 +191,20 @@ private func cloudVMDetails(from object: [String: Any]) -> [String] {
         "limit",
         "operation",
         "phase",
+        "poolMemoryMb",
+        "poolVcpus",
         "provider",
         "providerCode",
         "providerMessage",
+        "requestedMemoryMb",
+        "requestedVcpus",
+        "resource",
         "retryable",
         "retryAfterSeconds",
         "status",
         "type",
+        "usedMemoryMb",
+        "usedVcpus",
         "vmId",
     ])
     var details: [String: Any] = [:]
@@ -386,7 +413,8 @@ public struct VMPlanLimits: Sendable {
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
-        imageKinds: [VMImageKindOption] = []
+        imageKinds: [VMImageKindOption] = [],
+        resourcePool: CloudVMResourcePool? = nil
     ) {
         self.maxActiveVms = maxActiveVms
         self.planId = planId
@@ -399,6 +427,7 @@ public struct VMPlanLimits: Sendable {
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
+        self.resourcePool = resourcePool
     }
 
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
@@ -411,7 +440,7 @@ public struct VMPlanLimits: Sendable {
     public var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     public var memoryOptionsMb: [Int] = []
-    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Ladder sizes the plan cannot start (`[65536]` on Pro, `[]` on
     /// Max); nil when the control plane predates the field and the client
     /// mirror decides.
     public var lockedMemoryOptionsMb: [Int]? = nil
@@ -423,6 +452,9 @@ public struct VMPlanLimits: Sendable {
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     public var imageKinds: [VMImageKindOption] = []
+    /// The vCPU and memory pool every active machine shares, with what is in
+    /// use; nil for plans without a pool (Go, free) and older control planes.
+    public var resourcePool: CloudVMResourcePool? = nil
 }
 
 public struct VMListPage: Sendable {
