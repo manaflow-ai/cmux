@@ -363,10 +363,9 @@ struct SidebarAppKitRowCellTests {
             CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
         )
 
-        let modern = NSSelectorFromString("accessibilityPerformPress")
         let legacy = NSSelectorFromString("accessibilityPerformAction:")
-        if element.responds(to: modern) {
-            _ = element.perform(modern)
+        if let accessibilityElement = element as? NSAccessibilityProtocol {
+            #expect(accessibilityElement.accessibilityPerformPress())
         } else {
             try #require(element.responds(to: legacy), "Workspace row must expose AXPress")
             _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
