@@ -298,10 +298,11 @@ final class AppsMenuOverlay: UIView {
 }
 
 /// Breaks the display link's strong reference to the overlay.
+@MainActor
 private final class DisplayLinkTarget: NSObject {
     weak var overlay: AppsMenuOverlay?
     init(_ overlay: AppsMenuOverlay) { self.overlay = overlay }
-    @MainActor @objc func tick() { overlay?.step() }
+    @objc func tick() { overlay?.step() }
 }
 
 extension ConversationViewController {
