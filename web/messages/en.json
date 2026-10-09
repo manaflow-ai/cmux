@@ -736,7 +736,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, for $200/mo or $1,920/yr ($160/mo) when billed yearly."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -1780,7 +1780,10 @@
       "features": [
         "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
         "Unlimited workspaces and the iOS app"
-      ]
+      ],
+      "annual": {
+        "yearly": "Yearly"
+      }
     },
     "team": {
       "name": "Team",
@@ -2000,7 +2003,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -2013,7 +2016,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo and Team is $60/user/mo, both billed monthly. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. Team is $60/user/mo. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2032,7 +2035,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is available only for Pro. Choose a plan below.",
+    "billingAnnualUnavailable": "Annual billing is available for Pro and Max. Choose a plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",

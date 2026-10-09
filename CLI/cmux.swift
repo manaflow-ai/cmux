@@ -19523,7 +19523,7 @@ struct CMUXCLI {
             Extension is absent. There is no privileged fallback.
             """
         case "billing":
-            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
+            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month or $1,920/year ($160/month equivalent). Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
             return String(localized: "cli.auth.help", defaultValue: """
             Usage: cmux auth <status|login|logout|team>

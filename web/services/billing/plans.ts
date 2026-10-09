@@ -24,7 +24,7 @@ export const PRO_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-pro-monthly-50",
   },
-  // Pro is the only plan sold yearly: 12 months for the price of 9.6 (20% off).
+  // Pro is sold yearly at 20% off: 12 months for the price of 9.6.
   year: {
     billedAmount: 480,
     monthlyEquivalent: 40,
@@ -54,8 +54,8 @@ export const TEAM_PRICING_USD = {
 
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 16, 24,
- * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. It is monthly only, so there is no
- * annual price and no interval selector on its card.
+ * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. It follows the
+ * same 20% annual discount as Pro.
  */
 export const MAX_PRICING_USD = {
   month: {
@@ -64,16 +64,22 @@ export const MAX_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-max-monthly-200",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 1_920,
+    monthlyEquivalent: 160,
+    discountPercent: 20,
+    lookupKey: "cmux-max-yearly-1920",
+  },
+} as const satisfies MonthlyOrYearlyPlanPricing;
 
 /**
- * New checkouts default to monthly. Pro alone also sells a yearly Price; Go,
- * Max, and Team stay monthly, and their historical annual subscriptions
- * remain valid.
+ * New checkouts default to monthly. Pro and Max also sell yearly Prices; Go
+ * and Team stay monthly, and their historical annual subscriptions remain
+ * valid.
  */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
 export const PRO_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
-export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**
