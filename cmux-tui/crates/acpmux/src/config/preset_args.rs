@@ -138,11 +138,13 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
 
 /// A comma list of built-in tool names (`Bash,Read`): letters and digits,
 /// starting with a letter, none empty. No rule (`Bash(rm:*)`), no MCP tool
-/// (`mcp__…`), no wildcard: the list only narrows the built-ins offered.
+/// (`mcp__…`), no wildcard, no `default` (Claude Code's word for every
+/// built-in): the list only narrows the built-ins offered.
 fn is_builtin_list(list: &str) -> bool {
     list.split(',').all(|name| {
         name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
             && name.bytes().all(|b| b.is_ascii_alphanumeric())
+            && !name.eq_ignore_ascii_case("default")
     })
 }
 
@@ -247,7 +249,10 @@ mod tests {
     /// those, so a built-in Claude Code adds later is not offered.
     #[test]
     fn tools_with_a_list_of_builtin_names_pass() {
-        assert_eq!(claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]), Ok(()));
+        assert_eq!(
+            claude(&["--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"]),
+            Ok(())
+        );
         assert_eq!(claude(&["--tools", "Read"]), Ok(()));
     }
 

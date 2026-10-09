@@ -325,13 +325,16 @@ impl Acpmux {
                 };
                 // A daemon older than the isolation args: keep the args it
                 // knows (`--tools ""` and the rest), drop only those.
+                // First the --tools list alone (an acpmux that knows the
+                // setting source keeps it), then every isolation word.
                 if key == "args"
                     && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
-                    && let Some(kept) = without_isolation_args(args)
+                    && let Some(kept) =
+                        without_tools_list(args).or_else(|| without_isolation_args(args))
                 {
                     *args = kept;
                     log(&format!(
-                        "acpmux refused the isolation args of preset {} ({text}); installed without --setting-sources, --disable-slash-commands and a --tools list (the project settings' denied tools still apply)",
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
                         preset.name
                     ));
                     continue;
@@ -520,8 +523,24 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
 
 /// `args` without a `--tools <names>` list (`--tools ""` stays); None when
 /// it has none.
-pub fn without_tools_list(_args: &[Value]) -> Option<Vec<Value>> {
-    None
+pub fn without_tools_list(args: &[Value]) -> Option<Vec<Value>> {
+    let mut kept = Vec::new();
+    let mut dropped = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word.as_str() == Some("--tools") {
+            match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            }
+        } else {
+            kept.push(word.clone());
+        }
+    }
+    dropped.then_some(kept)
 }
 
 /// Sends a notification to the turn that owns its session, or to the brain.
