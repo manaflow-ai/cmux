@@ -1005,6 +1005,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate feat-cmux-next runs these release guards
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_guards_route.py
+
       - name: Validate the nightly dSYM upload retries and never fails the nightly
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_upload_sentry_dsyms.sh
