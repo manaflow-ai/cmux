@@ -30,6 +30,9 @@ describe("team picker", () => {
     expect(ja).toContain("チーム")
     expect(ja).toContain("Acme Corp (メンバー)")
     expect(ja).toContain("個人 (オーナー)")
+    // A role a newer server answers shows as named, never breaks the picker.
+    const newer = renderToStaticMarkup(createElement(TeamPicker, { teams: [...TEAMS, { id: GHOST, display_name: "Guests", kind: "stack", role: "guest" }], selected: undefined, locale: "en", onSelect: () => {} }))
+    expect(newer).toContain("Guests (guest)")
   })
 
   it("shows a team the URL names but the list does not, so the choice stays visible", () => {

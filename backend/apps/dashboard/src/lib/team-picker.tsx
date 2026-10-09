@@ -6,8 +6,14 @@ import { teamText } from "./team-strings"
 export const teamLabel = (locale: Locale, t: UserTeam): string =>
   teamText(locale, "picker.option", {
     name: t.kind === "personal" ? teamText(locale, "picker.personal") : t.display_name || t.id,
-    role: teamText(locale, `role.${t.role}`)
+    role: roleText(locale, t.role)
   })
+
+/** A role this build has no string for (a newer server role) shows as the server named it. */
+const roleText = (locale: Locale, role: string): string => {
+  const key = `role.${role}`
+  return key === "role.owner" || key === "role.admin" || key === "role.member" ? teamText(locale, key) : role
+}
 
 export interface TeamPickerProps {
   readonly teams: ReadonlyArray<UserTeam>
