@@ -56,9 +56,7 @@ pub(super) struct Inner {
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
     /// A browser the driver owns (headless, or headful on Xvfb) has no
     /// person's UI: it intercepts every file chooser (`choosers.rs`). An
-    /// app's CEF tab keeps the app's Open panel. Every
-    /// driven tab runs an agent's Copy, Cut and Paste on its own virtual
-    /// clipboard (`clipboard.rs`).
+    /// app's CEF tab keeps the app's Open panel.
     pub(super) owns_browser: bool,
     /// Every tab intercepts its file choosers (headless); false: only the
     /// tabs a session drives (headful, `choosers.rs`).
@@ -314,9 +312,7 @@ impl Driver for CdpDriver {
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
             "input.drag" => inner.drag(params),
-            // Every tab an agent drives has its own virtual clipboard, the
-            // person's Chromium tabs too: the agent never reads or writes the
-            // person's system clipboard.
+            // Every driven tab has its own clipboard: never the person's system one.
             "input.key" => match super::clipboard::shortcut(method, params) {
                 Some(kind) => inner.clipboard_key(kind, params),
                 None => inner.with_chooser_events(method, params, || inner.key(params)),
