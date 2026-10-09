@@ -831,7 +831,12 @@ jobs:
       - name: Check the app FFI pin
         id: app-ffi-pin
         continue-on-error: true
-        run: scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
