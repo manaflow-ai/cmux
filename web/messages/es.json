@@ -505,11 +505,11 @@
           ],
           "pro": [
             "Agentes en la nube en Cloud VMs",
-            "Hasta 5 Cloud VMs que comparten 20 vCPU y 40 GB de RAM",
+            "Hasta 5 Cloud VMs que comparten 20 vCPU y 40 GB de RAM. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
             "La app cmux para iOS"
           ],
           "max": [
-            "Hasta 5 Cloud VMs que comparten 80 vCPU y 160 GB de RAM",
+            "Hasta 5 Cloud VMs que comparten 80 vCPU y 160 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU.",
             "Máquinas más grandes",
             "Todo lo de Pro"
           ],
@@ -2926,7 +2926,7 @@
       "createCli": "Desde la CLI, cmux vm new crea una máquina y abre un espacio de trabajo en ella. Usa --detach para crearla sin abrir nada. Si se reintenta una solicitud de creación, cmux reutiliza la misma solicitud para que no obtengas dos máquinas.",
       "createFailed": "Si la creación falla, la notificación te permite reintentar, mostrar el error o copiarlo para una solicitud de soporte.",
       "sizesTitle": "Tamaños",
-      "sizesDesc": "Cada tamaño define a la vez la memoria, las vCPU y el disco. Elige un tamaño en el diálogo de creación o con --size.",
+      "sizesDesc": "Cada tamaño define a la vez la memoria, las vCPU y el disco. Elige un tamaño en el diálogo de creación o con --size. Pro y Team admiten 4g, 8g y 16g (2, 4 y 8 vCPU). Max también desbloquea 24g y 32g (12 y 16 vCPU), además de 64g (32 vCPU).",
       "sizeColumn": "Tamaño",
       "memoryColumn": "Memoria",
       "cpuColumn": "vCPU",
@@ -2940,7 +2940,7 @@
       "limitsFree": "Las cuentas gratuitas no pueden crear máquinas.",
       "limitsPaid": "Las cuentas Pro y Founder's Edition pueden tener hasta 5 máquinas activas que comparten 20 vCPU y 40 GB de memoria. Una máquina está activa mientras está en ejecución o iniciándose.",
       "limitsTeam": "Las cuentas de equipo pueden tener hasta 5 máquinas activas por cada puesto de pago. Cada puesto de pago añade 20 vCPU y 40 GB de memoria al fondo del equipo.",
-      "limitsMax": "Las cuentas Max pueden tener hasta 5 máquinas activas que comparten 80 vCPU y 160 GB de memoria. Una sola máquina puede tener hasta 32 GB y 16 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max.",
+      "limitsMax": "Las cuentas Max pueden tener hasta 5 máquinas activas que comparten 80 vCPU y 160 GB de memoria. Una máquina Max puede usar hasta 64 GB y 32 vCPU, incluidos los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU; Pro y Team llegan hasta 16 GB y 8 vCPU.",
       "limitsPoolFull": "Si una máquina nueva, reanudada, ampliada o bifurcada superara el fondo, cmux rechaza la solicitud y muestra cuánto del fondo está en uso. Pausa o elimina una máquina para liberar recursos, o mejora a Max.",
       "limitsPricing": "Consulta la página de precios para ver los precios actuales. No hay medición de uso ni cargos por exceso.",
       "agentUpdatesTitle": "Mantener actualizados los agentes de programación",
@@ -2950,7 +2950,7 @@
       "agentUpdatesToggle": "La hoja Nueva máquina activa esta opción de forma predeterminada. Para cambiarla en una máquina existente, haz clic derecho en la máquina y elige Mantener los agentes actualizados, o ejecuta cmux vm agent-updates. cmux vm new conserva las versiones de la imagen salvo que pases --agent-updates latest. Al desactivar las actualizaciones se conservan las versiones ya instaladas.",
       "agentUpdatesNetwork": "Las actualizaciones solo usan github.com, api.github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. cmux permite estos hosts en todos los modos de red, incluidos Lista permitida y Sin internet, así que una política de red nunca bloquea las actualizaciones.",
       "resizeTitle": "Cambiar tamaño",
-      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 256 GB. La memoria crece hasta 32 GB y la CPU hasta 16 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
+      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 128 GB en Pro y Team, o 256 GB en Max (Go está limitado a 16 GB). La memoria crece hasta 16 GB y la CPU hasta 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
       "pauseTitle": "Pausar y reanudar",
       "pauseDesc": "cmux vm pause detiene el cómputo de la máquina. El disco, los espacios de trabajo y el historial de los terminales se conservan. Los procesos en ejecución se detienen. cmux vm resume vuelve a iniciar la máquina. Abrir una máquina en pausa o ejecutar un comando en ella también la inicia.",
       "pauseIdle": "Las máquinas no se pausan solas cuando están inactivas. Una máquina sigue en ejecución hasta que la pausas o la eliminas.",
@@ -3101,7 +3101,7 @@
       "errPlan": "Las VM de Cloud requieren un plan de pago",
       "fixPlan": "Las cuentas gratuitas no pueden crear máquinas. Mejora tu plan en la página de precios.",
       "errSize": "Un tamaño requiere un plan superior",
-      "fixSize": "Las máquinas de más de 32 GB requieren cmux Max. Elige un tamaño menor o mejora tu plan.",
+      "fixSize": "Las máquinas de más de 16 GB requieren cmux Max. Elige un tamaño menor o mejora tu plan.",
       "errLimit": "Se alcanzó el límite de máquinas activas",
       "fixLimit": "Pausa o elimina una máquina y vuelve a intentarlo.",
       "errPool": "No hay suficientes recursos de Cloud VM",
@@ -5351,7 +5351,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está activo",
     "title": "Te damos la bienvenida a cmux Pro",
-    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight.",
+    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
     "done": "Ir al panel",
     "steps": {
       "iosApp": {

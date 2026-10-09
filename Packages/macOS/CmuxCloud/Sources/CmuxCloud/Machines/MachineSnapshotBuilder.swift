@@ -1,3 +1,4 @@
+import CmuxCloudResizeCore
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -18,6 +19,7 @@ public enum MachineSnapshotBuilder: Sendable {
                 activity: activity(fromStatus: info.status),
                 createdAt: nil,
                 label: info.name == id ? nil : info.name,
+                usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: info.status),
                 privateAddress: info.privateAddress
             )
         }
@@ -50,6 +52,9 @@ public enum MachineSnapshotBuilder: Sendable {
             slug: summary.slug,
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
+            resourceReservation: summary.resourceReservation,
+            resourcePoolClaim: summary.resourcePoolClaim,
+            usesResourcePool: CloudVMResourcePool.usesResourcePool(forStatus: summary.status),
             privateAddress: summary.preferredPrivateAddress
         )
         snapshot.agentUpdates = summary.agentUpdates

@@ -579,17 +579,21 @@ describe("VM REST auth", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    const body = await response.json();
+    expect(body).toMatchObject({
       // Four paid seats share 4 x (20 vCPUs, 40 GB). The legacy row without a
-      // marker counts at the 8 GB default; the paused machine does not count.
+      // marker conservatively reserves the provider maximum until reconciliation;
+      // the paused machine does not count. That fallback is pool accounting,
+      // not a current-size marker for clients.
       limits: {
         planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
-        poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
+        poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 48, usedMemoryMb: 98304,
+        maxDiskMb: 131072, maxMemoryMb: 16384, maxVcpus: 8,
       },
       vms: [
-        { freeAccessExpiresAt: null, resources: { vcpus: 4, memoryMb: 8192 } },
-        { resources: { vcpus: 16, memoryMb: 32768 } },
-        { resources: { vcpus: 32, memoryMb: 65536 } },
+        { freeAccessExpiresAt: null, resources: { vcpus: 32, memoryMb: 65536 } },
+        { resources: { vcpus: 16, memoryMb: 32768 }, resourceReservation: { vcpus: 16, memoryMb: 32768 } },
+        { resources: { vcpus: 32, memoryMb: 65536 }, resourceReservation: { vcpus: 32, memoryMb: 65536 } },
       ],
     });
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
@@ -1064,7 +1068,7 @@ describe("VM REST auth", () => {
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 65536,
-      maxMemoryMb: 32768,
+      maxMemoryMb: 16384,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
