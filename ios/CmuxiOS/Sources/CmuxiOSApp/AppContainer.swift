@@ -68,7 +68,11 @@ final class AppContainer {
     var macCapabilitiesFactory: (@Sendable () -> any MacCapabilitiesSource)?
     /// B5 fills this with the Mac's power assertion; nil keeps the mock.
     var keepAwakeFactory: (@Sendable () -> any KeepAwakeControl)?
-    /// The StoreKit store once plans are decided (C12); nil keeps the mock.
+    /// A cloud-backed transaction owner supplied by the billing lane.  A nil
+    /// owner keeps StoreKit purchases pending rather than claiming an
+    /// entitlement that the account owner has not accepted.
+    var billingTransactionSinkFactory: (@Sendable () -> any BillingTransactionSubmitting)?
+    /// Override the StoreKit seam in focused previews and tests.
     var billingFactory: (@Sendable () -> any BillingStore)?
     private var featuresDemo = false
     /// Root tab and surface flags (plans/cmux-next/ios-next/a1-shell.md).
@@ -497,7 +501,19 @@ final class AppContainer {
     }
 
     func makeBillingStore() -> any BillingStore {
-        billingFactory?() ?? MockBillingStore()
+        if let billingFactory { return billingFactory() }
+        #if DEBUG
+        let fallback: (any BillingStore)? = MockBillingStore()
+        let fallbackToMock = true
+        #else
+        let fallback: (any BillingStore)? = nil
+        let fallbackToMock = false
+        #endif
+        return StoreKitBillingStore(
+            configuration: .fromEnvironment(fallbackToMockWhenUnavailable: fallbackToMock),
+            transactionSink: billingTransactionSinkFactory?(),
+            fallback: fallback
+        )
     }
 
     func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
