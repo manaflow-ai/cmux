@@ -22,6 +22,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
+import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 
 export const STACK_API_URL = "https://stack.test";
@@ -195,6 +196,19 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const services = Layer.mergeAll(
     ownership,
     apiKeys,
+    // Read at request time, so a key added after the harness starts works, as a redeployed secret would.
+    Layer.succeed(ServiceKeys, {
+      find: (sha256) =>
+        Effect.sync(() =>
+          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) => ({
+            id: key.id,
+            sha256: key.sha256,
+            scopes: new Set(key.scopes),
+            labels: key.labels,
+            teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
+          })),
+        ),
+    }),
     auditStore,
     policy,
     entitlements,
