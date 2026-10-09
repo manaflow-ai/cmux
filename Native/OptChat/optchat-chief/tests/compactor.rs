@@ -2317,3 +2317,81 @@ fn a_node_trace_splits_its_time_by_slot_wait_session_start_and_prompt() {
     assert!(timing["slot_wait_ms"].is_u64(), "{timing}");
     assert!(timing["session_start_ms"].is_u64(), "{timing}");
 }
+
+/// Soak at d6d36c6daf59: the first turn after a 2,020-message CLI import
+/// still waited 12 minutes (settle_ms 723,731), although settle no longer
+/// waits for imported lines: the brain checked again that no view line at
+/// all was unbuilt before it took the turn. A turn starts while imported
+/// lines are still being built.
+#[test]
+fn a_turn_starts_while_imported_lines_are_still_unbuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    // Imported messages' nodes wait until the test ends.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    struct Blocking(Arc<Mutex<std::sync::mpsc::Receiver<()>>>);
+    impl CompactModel for Blocking {
+        fn call(
+            &self,
+            request: &CompactRequest,
+            _: &[optchat_host::Followup],
+        ) -> Result<optchat_host::Reply, optchat_host::ModelError> {
+            if request.step.contains("imported ") {
+                let _ = self.0.lock().unwrap().recv();
+            }
+            Ok(optchat_host::Reply::text(format!(
+                "summary of {}",
+                request.node.name()
+            )))
+        }
+    }
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    let chat = Arc::new(
+        OptChat::open_with(
+            dir.path().join("chat"),
+            config,
+            Arc::new(Blocking(gate.clone())),
+            Arc::new(SystemClock),
+        )
+        .unwrap(),
+    );
+    for k in 0..100u64 {
+        let text = format!("imported {k}: {}", "words ".repeat(120));
+        chat.append_imported(Kind::Note, &text, None).unwrap();
+    }
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let settings = settings(dir.path());
+    let mut h = Harness::over_chat(
+        dir,
+        default_script(),
+        owner,
+        settings,
+        Arc::new(|_: &str| {}),
+        chat,
+    );
+    h.connect();
+    h.say("user_local", "Hi, a short question.");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no turn started: {:?}",
+            h.chat.status()
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        h.chat.status().unbuilt > 0,
+        "the import was built meanwhile"
+    );
+    h.chat.shutdown();
+    drop(release);
+}
