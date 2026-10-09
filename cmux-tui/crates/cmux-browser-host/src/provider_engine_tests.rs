@@ -573,6 +573,27 @@ fn a_cef_session_closes_the_tab_it_opened_and_nothing_else() {
     assert_eq!(closes[0]["reason"], "session_end");
 }
 
+/// In `tabs.list`, a tab the session opened is `active` when it is the
+/// session's current tab (its last foreground `tabs.open`), as on a
+/// headless session. Before, rows were active only while the person saw
+/// them, so an agent's own background tabs were never active.
+#[test]
+fn the_sessions_last_opened_tab_is_active_in_its_list() {
+    let (_app, provider) = FakeApp::start(vec![
+        tab("W", "webkit"),
+        TabAnnounce { visible: false, ..tab("a", "webkit") },
+        TabAnnounce { visible: false, ..tab("b", "webkit") },
+    ]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({"url": "https://a.test/a"})).unwrap();
+    session.call("tabs.open", &json!({"url": "https://a.test/b"})).unwrap();
+    let rows = session.call("tabs.list", &json!({})).unwrap();
+    let active = |id: &str| rows.as_array().unwrap().iter().find(|r| r["targetId"] == id).unwrap()["active"].clone();
+    assert_eq!(active("b"), true, "{rows}");
+    assert_eq!(active("a"), false, "{rows}");
+    assert_eq!(active("W"), true, "the person's shown tab stays active: {rows}");
+}
+
 /// A WebKit session's URL still goes to the app (its driver navigates).
 #[test]
 fn a_webkit_tabs_open_passes_the_url_to_the_app() {
