@@ -219,16 +219,17 @@ fn a_record_without_app_takes_the_nearest_ancestors_app() {
     assert_eq!(shown_apps(&records), vec![("lonely/child".to_owned(), Value::Null)]);
 }
 
-/// A record that starts waiting on the user (`blocked`, worded by `kind`) or
-/// fails (`error`) posts one terminal notification on the record's terminal:
-/// the record's title, else its (inherited) app, names the program; the body
-/// is the record's message. A report that keeps the state and kind (a
-/// progress update, a new message) posts nothing new; `working`, `done`,
-/// `idle` and `clear` post nothing. A real PTY: the test runtime's
+/// A record that starts waiting on the user (`blocked`, worded by `kind`),
+/// fails (`error`) or finishes (`done`, cx-kxa2) posts one terminal
+/// notification on the record's terminal: the record's title, else its
+/// (inherited) app, names the program; the body is the record's message. A
+/// report that keeps the state and kind (a progress update, a new message)
+/// posts nothing new; `working`, `idle` and `clear` post nothing. The client
+/// shows a `done` only for a terminal the user cannot see. A real PTY: the test runtime's
 /// placeholder surfaces never run their command.
 #[cfg(unix)]
 #[test]
-fn blocked_and_error_records_post_one_terminal_notification_each() {
+fn blocked_error_and_done_records_post_one_terminal_notification_each() {
     use crate::{Mux, MuxEvent, NotificationLevel, NotificationSource, SurfaceOptions};
     use std::time::{Duration, Instant};
     // Each step sleeps well past the terminal's notification spacing (1 s,
@@ -283,6 +284,7 @@ fn blocked_and_error_records_post_one_terminal_notification_each() {
             ),
             ("deploy needs sign-in".to_owned(), String::new(), NotificationLevel::Warning),
             ("Build failed".to_owned(), "exit 2".to_owned(), NotificationLevel::Error),
+            ("deploy is done".to_owned(), String::new(), NotificationLevel::Info),
             ("end".to_owned(), String::new(), NotificationLevel::Info),
         ]
     );

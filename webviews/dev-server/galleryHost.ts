@@ -161,9 +161,22 @@ function agentPaneCSS(): string {
       const css = fs.readFileSync(file, "utf8");
       const body = file.endsWith("shared/styles.css")
         ? css.replace(/^@import .*$/gm, "")
-        : inlineRelativeImports(file, css);
+        : file.endsWith("acpmux/tailwind.css")
+          ? `${css}\n${tailwindSources()}`
+          : inlineRelativeImports(file, css);
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
+    .join("\n");
+}
+
+/**
+ * The pane's Tailwind entry scans nothing by itself (`source(none)`): the combined stylesheet sits
+ * under the gallery, so it names the pane's sources by absolute path, as
+ * scripts/agent-pane/tailwind-css.mjs does for the app build.
+ */
+function tailwindSources(): string {
+  return [path.join(SESSION, "acpmux"), path.join(webviewsRoot, "src/ui")]
+    .map((dir) => `@source "${dir}/**/*.{ts,tsx}";`)
     .join("\n");
 }
 

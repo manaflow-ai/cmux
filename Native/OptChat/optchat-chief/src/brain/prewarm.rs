@@ -57,12 +57,24 @@ impl Brain {
         let (engine, _) = self.next_engine();
         let (cached, plain) = self.session_presets(self.family_of(&engine.harness));
         if cached.is_some() {
-            // The pooled Claude Code reads promptCacheTtl when it starts:
-            // the next turn's TTL, so its own marks match ours.
+            // The pooled Claude Code reads its cache settings when it
+            // starts: the next turn's TTL, and whether that turn carries our
+            // mark (the view has a whole block now, so the next one will).
             let ttl = self.turn_cache_ttl();
-            match crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl) {
-                Ok(()) => self.prewarm_ttl = Some(ttl),
-                Err(e) => (self.log)(&format!("updating the session's promptCacheTtl: {e}")),
+            let view = self.chat.render_view();
+            let prev = self
+                .state
+                .last_mark
+                .as_ref()
+                .and_then(|m| m.prefix_of(&view.text));
+            let ours = !self.marker_refused.is_off()
+                && optchat_core::mark_piece(&view.text, prev).is_some();
+            match crate::session_dir::set_session_cache(&self.settings.session_dir, ttl, ours) {
+                Ok(()) => {
+                    self.prewarm_ttl = Some(ttl);
+                    self.prewarm_ours = Some(ours);
+                }
+                Err(e) => (self.log)(&format!("updating the session's cache settings: {e}")),
             }
         }
         let preset = cached.or(plain);

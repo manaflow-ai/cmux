@@ -443,6 +443,9 @@ pub struct Agents {
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
+    /// `new_session` of a session whose name contains the text takes this
+    /// long (a Claude Code process that starts slowly).
+    pub slow_session: Option<(String, Duration)>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -581,6 +584,18 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        let slow = self.inner.lock().unwrap().slow_session.clone();
+        if let Some((part, delay)) = slow
+            && spec.name.contains(&part)
+        {
+            std::thread::sleep(delay);
+        }
+        // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
+        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+            return Err(format!(
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+            ));
+        }
         let mut inner = self.inner.lock().unwrap();
         let system = spec
             .preset

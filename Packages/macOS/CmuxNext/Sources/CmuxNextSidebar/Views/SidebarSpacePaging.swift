@@ -115,7 +115,7 @@ import QuartzCore
 
     private func place(offset: CGFloat, animated spring: MotionSpring?, completion: (() -> Void)? = nil) {
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         translate(page, -offset * width, animated: spring)
         if let neighbor, let current = pager?.index ?? profiles.firstIndex(where: { $0 == host.model.activeProfileID }) {
             let side: CGFloat = neighbor.index > current ? 1 : -1
@@ -206,7 +206,7 @@ import QuartzCore
         host.clipsToBounds = true
         page.wantsLayer = true
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         if Motion.animatesMovement {
             let d = CGFloat(direction) * width
             translate(snapshot, -d, animated: .screen, from: 0)

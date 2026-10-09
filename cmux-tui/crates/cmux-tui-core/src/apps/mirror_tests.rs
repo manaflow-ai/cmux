@@ -315,3 +315,22 @@ fn sidebar_layout_read_comes_with_the_app_and_write_needs_a_user_grant() {
         assert!(granted.apps["local/c"].grants.contains("sidebar_layout:write"), "{tier:?} user");
     }
 }
+
+/// A scope the class table does not know (a newer manifest, or a table that
+/// failed to load) is treated as elevated: never granted at install or seed,
+/// and never granted by a non-user origin (fail closed, crash program H5
+/// review). Before, `is_elevated` returned false for an unknown scope, so a
+/// default app was seeded with it without consent.
+#[test]
+fn unknown_scopes_are_treated_as_elevated() {
+    assert!(is_elevated("nonsense"));
+    let mut seeded = facts(Tier::FirstParty, Source::Default);
+    seeded.requested.insert("nonsense".into());
+    let m = reduce(&Mirror::default(), &Op::Seed { app: "cmux/a".into() }, Some(&seeded))
+        .unwrap()
+        .mirror;
+    assert!(!m.apps["cmux/a"].grants.contains("nonsense"));
+    assert!(m.apps["cmux/a"].grants.contains("workspace:write"));
+    let (grants, _) = seeded.install_defaults();
+    assert!(!grants.contains("nonsense"));
+}

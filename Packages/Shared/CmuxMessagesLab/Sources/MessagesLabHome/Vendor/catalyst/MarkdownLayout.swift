@@ -102,11 +102,11 @@ extension Markdown {
     /// Body text baseline below a line top (13 pt SF in a 16 pt line; Fixture.textBaseline - bubblePadY).
     static let bodyBaseline: CGFloat = 13
     static let codeBaseline: CGFloat = 12.5
-    static let codeFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    static let codeBoldFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
-    static let inlineCodeFont = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    static let codeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
+    static let codeBoldFont = HomeFonts.monospaced(ofSize: 12, weight: .semibold) // cmux: nil-checked (HomeFonts, cx-qpqs)
+    static let inlineCodeFont = HomeFonts.monospaced(ofSize: 12, weight: .regular) // cmux: nil-checked (HomeFonts, cx-qpqs)
     /// Headings are body size (Lawrence, 2026-10-06): weight only, one step.
-    static func headingFont(_ level: Int) -> UIFont { .systemFont(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) }
+    static func headingFont(_ level: Int) -> UIFont { HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: level <= 2 ? .bold : .semibold) } // cmux: held for the process (HomeFonts, cx-qpqs)
     static let codePadX: CGFloat = 8
     /// Space under a scrollable block's content for its scroll indicator.
     static let indicatorRoom: CGFloat = 5
@@ -480,7 +480,7 @@ enum MarkdownLayoutEngine {
             let rid = out.regions.count
             let cols = max(1, t.columns)
             let pad = Markdown.cellPadX
-            let headFont = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
+            let headFont = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold) // cmux: held for the process (HomeFonts, cx-qpqs)
             let all: [[MDText]] = [t.header] + t.rows
             // Column widths: min = widest unbreakable word (capped), max = widest one-line cell.
             var minW = [CGFloat](repeating: 16, count: cols), maxW = [CGFloat](repeating: 16, count: cols)
@@ -613,8 +613,9 @@ enum MarkdownLayoutEngine {
                 var traits: UIFontDescriptor.SymbolicTraits = []
                 if s.style.contains(.strong) { traits.insert(.traitBold) }
                 if s.style.contains(.emphasis) { traits.insert(.traitItalic) }
-                if !traits.isEmpty, let d = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(traits)) {
-                    a.addAttribute(.font, value: UIFont(descriptor: d, size: font.pointSize), range: r)
+                // cmux: the bold/italic face held for the process (HomeFonts, cx-qpqs); no font attribute when there is none.
+                if !traits.isEmpty, let f = HomeFonts.font(font, adding: traits) {
+                    a.addAttribute(.font, value: f, range: r)
                 }
             }
             if let l = s.link { a.addAttribute(.link, value: l, range: r) }

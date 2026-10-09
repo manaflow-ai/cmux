@@ -98,10 +98,11 @@ enum Fixture {
         (1500, 68.8, 145.8), (1800, 65.2, 144.1), (2082, 62.8, 142)]
     /// A gradient colour (red, green from the stops) in Display P3.
     static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r, g, gradientBlue) }
-    private static let measuredGradient: CGGradient = CGGradient(
+    // cmux: optional, no force unwrap (crash program); a nil gradient draws nothing.
+    private static let measuredGradient: CGGradient? = CGGradient(
         colorsSpace: CGColorSpace(name: CGColorSpace.displayP3),
         colors: gradientStops.map { gradientColor($0.1, $0.2).cgColor } as CFArray,
-        locations: gradientStops.map { $0.0 / 2082 })!
+        locations: gradientStops.map { $0.0 / 2082 })
     /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
     /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
     static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { (inactive ? $0.inactive : $0.active).gradientStops } : nil }
@@ -118,7 +119,7 @@ enum Fixture {
                        green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
                        blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
     }
-    static var outgoingGradient: CGGradient {
+    static var outgoingGradient: CGGradient? {
         if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
         return measuredGradient
     }

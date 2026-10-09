@@ -96,6 +96,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# Crash program phase 3 (plans/cmux-next/crash-elimination.md section 7):
+# CMUX_SWIFT_SANITIZE=address|thread|undefined builds and tests under that
+# sanitizer, in its own scratch folder so it never mixes with a normal build.
+case "${CMUX_SWIFT_SANITIZE:-}" in
+  ""|address|thread|undefined) ;;
+  *) echo "package-test-lane.sh: CMUX_SWIFT_SANITIZE must be address, thread or undefined (got '$CMUX_SWIFT_SANITIZE')" >&2; exit 2 ;;
+esac
+
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
 if [ -z "$work" ]; then
@@ -288,6 +296,9 @@ package_args() {
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
+  if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
+    swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE")
+  fi
 }
 
 # One package's build. It exits non-zero when the package is not found or its

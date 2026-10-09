@@ -326,6 +326,10 @@ def handle_prompt(rid, params):
 
 def main():
     global LAST_MCP_SERVERS
+    # `--fake-login` (the terminal sign-in): sign in and exit.
+    if "--fake-login" in sys.argv[1:]:
+        open(os.environ["FAKE_AUTH_FILE"], "w").close()
+        return
     # FAKE_IGNORE_TERM=1: behave like an agent that ignores SIGTERM.
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
@@ -353,6 +357,18 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        if m == "authenticate":
+            # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
+            if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):
+                open(os.environ["FAKE_AUTH_FILE"], "w").close()
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "no such auth method"}})
+            continue
+        if (m == "session/new" and os.environ.get("FAKE_AUTH_FILE")
+                and not os.path.exists(os.environ["FAKE_AUTH_FILE"])):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
+            continue
         if m == "initialize":
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
@@ -363,7 +379,12 @@ def main():
                 "protocolVersion": 1,
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
-                "authMethods": [],
+                "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
+                    {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
+                    {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
+                    {"id": "fake-key", "name": "API key", "type": "env_var", "varName": "FAKE_API_KEY"},
+                    {"id": "odd", "type": "carrier-pigeon"},
+                ],
             }})
         elif m == "session/new":
             if os.environ.get("FAKE_NEW_DELAY_MS"):

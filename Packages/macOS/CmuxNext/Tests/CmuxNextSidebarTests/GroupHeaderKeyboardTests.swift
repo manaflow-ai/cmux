@@ -80,11 +80,12 @@ import Testing
         #expect(h.model.activeWorkspaceID == id("c"), "the hidden members are skipped")
     }
 
-    @Test func returnOnAFocusedHeaderRenamesTheGroup() {
+    /// cx-rcby: Return on a focused header opens the group editor.
+    @Test func returnOnAFocusedHeaderOpensTheGroupEditor() {
         let h = Harness(active: "g1")
         h.up()
         h.enter()
-        #expect(h.list.inlineRename.session?.key == .group(g1))
-        h.list.inlineRename.end(commit: false)
+        #expect(h.list.groupEditor.shownGroup == g1)
+        h.list.groupEditor.hide()
     }
 }

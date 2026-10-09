@@ -16,7 +16,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// tool permission. They are an object of 1 to ``maximumAnswerItems`` of the question's own
     /// items (an item id or prompt), and each value is a string, a list of at most
     /// ``maximumAnswerListStrings`` strings, or Codex's `{answers: [string]}` with that one key. Each key and each string is at most
-    /// ``maximumAnswerBytes`` UTF-8 bytes.
+    /// ``maximumAnswerBytes`` UTF-8 bytes; strings in a list are bounded together by the same limit.
     static func breaksAnswersRule(_ object: [String: Any]?, options: AcpmuxPermissionOptions) -> Bool {
         guard let object, object["method"] as? String == "_acpmux/permission_respond",
               let params = object["params"] as? [String: Any], let rawAnswers = params["answers"] else { return false }
@@ -40,7 +40,8 @@ nonisolated extension AcpmuxPaneMethods {
 
     private static func fitsAnswerList(_ value: Any) -> Bool {
         guard let list = value as? [Any], list.count <= maximumAnswerListStrings else { return false }
-        return list.allSatisfy(fitsAnswerString)
+        guard list.allSatisfy(fitsAnswerString) else { return false }
+        return list.compactMap { ($0 as? String)?.utf8.count }.reduce(0, +) <= maximumAnswerBytes
     }
 
     private static func fitsAnswerString(_ value: Any) -> Bool {

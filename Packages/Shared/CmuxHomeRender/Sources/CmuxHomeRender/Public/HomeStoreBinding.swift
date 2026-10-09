@@ -139,6 +139,7 @@ public final class HomeStoreBinding {
         let id = conversation
         if Thread.isMainThread {
             let hooks = hooks
+            // main-proof: this branch runs only when Thread.isMainThread is true (checked above).
             MainActor.assumeIsolated {
                 store.close(id)
                 store.unregister(hooks)

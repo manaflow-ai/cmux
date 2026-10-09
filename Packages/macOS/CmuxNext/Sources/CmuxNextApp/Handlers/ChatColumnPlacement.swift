@@ -51,7 +51,6 @@ extension ChatColumnPlacement {
               content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
         let columns = columns(of: screen, containing: controller.layoutPaneID)
-        let agentTabs = services.agentTabs
         // A zoomed screen maps to its zoomed pane alone (LayoutMapping).
         let zoomed = content.workspace.screens.contains { screen in
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
@@ -59,9 +58,13 @@ extension ChatColumnPlacement {
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
             guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
                   tabs.count == 1 else { return false }
-            // The New Tab page is an agent tab too, but not a chat.
-            return agentTabs.isAgentTab(tabs[0].id) && !agentTabs.isNewTabPage(tabs[0].id)
+            return isChat(tabs[0], services: services)
         }
+    }
+
+    /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
+    @MainActor static func isChat(_ tab: TabModel, services: AppServices) -> Bool {
+        services.agentTabs.isAgentTab(tab.id) && !services.agentTabs.isNewTabPage(tab.id)
     }
 
     /// Where a person's new tab from `controller`'s pane opens: the pane
