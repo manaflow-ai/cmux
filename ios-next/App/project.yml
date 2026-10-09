@@ -14,10 +14,6 @@ settings:
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
     INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-    INFOPLIST_KEY_NSLocalNetworkUsageDescription: "cmux connects directly to your Mac when it is on the same network."
-    INFOPLIST_KEY_NSCameraUsageDescription: "Attach photos to agent prompts."
-    INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Attach photos to agent prompts."
-    INFOPLIST_KEY_NSMicrophoneUsageDescription: "Dictate prompts."
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     # Ghostty's simulator slice is arm64-only.
@@ -41,6 +37,11 @@ targetTemplates:
         CFBundleDisplayName: ${displayName}
         CmuxNextAPIBase: $(CMUX_NEXT_API_BASE)
         CmuxNextShell: ${shell}
+        NSLocalNetworkUsageDescription: "cmux connects directly to your Mac when it is on the same network."
+        NSCameraUsageDescription: "Attach photos to agent prompts."
+        NSPhotoLibraryUsageDescription: "Attach photos to agent prompts."
+        NSMicrophoneUsageDescription: "Dictate prompts to your agents."
+        NSSpeechRecognitionUsageDescription: "Turn your dictation into prompt text."
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleURLTypes:

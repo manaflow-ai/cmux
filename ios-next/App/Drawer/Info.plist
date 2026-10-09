@@ -33,6 +33,16 @@
 	<string>$(CMUX_NEXT_API_BASE)</string>
 	<key>CmuxNextShell</key>
 	<string>drawer</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Attach photos to agent prompts.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>cmux connects directly to your Mac when it is on the same network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate prompts to your agents.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach photos to agent prompts.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn your dictation into prompt text.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

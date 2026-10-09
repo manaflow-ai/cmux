@@ -234,10 +234,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Attach photos to agent prompts.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux connects directly to your Mac when it is on the same network.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate prompts.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach photos to agent prompts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -360,10 +356,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Attach photos to agent prompts.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux connects directly to your Mac when it is on the same network.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate prompts.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach photos to agent prompts.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
