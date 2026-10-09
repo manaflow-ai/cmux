@@ -59,6 +59,8 @@ export default defineConfig({
           LINEAR_CLIENT_ID: "lin-client",
           LINEAR_CLIENT_SECRET: "lin-secret",
           LINEAR_WEBHOOK_SECRET: "lin-webhook-secret",
+          // Stack (Svix) webhook endpoint secret, test-only: whsec_ + base64 key bytes.
+          STACK_WEBHOOK_SECRET: `whsec_${Buffer.from("test-stack-webhook-secret-0001").toString("base64")}`,
           SLACK_CLIENT_ID: "slack-client",
           SLACK_CLIENT_SECRET: "slack-secret",
           SLACK_SIGNING_SECRET: "slack-signing-secret",

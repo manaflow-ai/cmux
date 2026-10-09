@@ -233,7 +233,7 @@ public struct CmxPairingQRCode: Sendable {
         guard let raw = components.queryItems?.first(where: { $0.name == "v" })?.value else {
             return nil
         }
-        return Int(raw)
+        return Int(raw, radix: 10)
     }
 
     /// Whether `rawValue` is a supported plain pairing URL.
@@ -415,7 +415,7 @@ private extension CmxPairingQRCode {
 
     func queryInt(named name: String, in components: URLComponents) -> Int? {
         guard let value = queryValue(named: name, in: components) else { return nil }
-        return Int(value)
+        return Int(value, radix: 10)
     }
 
     func normalizedNonEmpty(_ value: String?) -> String? {

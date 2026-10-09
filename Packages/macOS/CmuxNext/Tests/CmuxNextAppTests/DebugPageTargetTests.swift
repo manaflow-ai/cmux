@@ -32,6 +32,9 @@ struct DebugPageTargetTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        // WebKit does not load or paint an occluded window; the probe must see the page that is
+        // visible in this test rather than an unpainted live instance with an empty hash.
+        window.orderFrontRegardless()
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
@@ -64,7 +67,15 @@ struct DebugPageTargetTests {
         }
         await page.waitUntilLoaded()
 
-        let state = await DebugPages.handle(["page": "cmux.settings", "action": "state"], services: nil)
+        // Suites run in parallel and other suites open Settings pages too (step 73bfe9c2 read
+        // instance 3, another suite's blank page): name this test's page by its instance.
+        let mine = Double(PageRegistry.instance(of: page))
+        // The default target is never the parked spare, whichever visible page it picks.
+        let picked = await DebugPages.handle(["page": "cmux.settings", "action": "state"], services: nil)
+        #expect(picked["parked"]?.boolValue != true, "debug.page read the parked spare: \(picked)")
+        let state = await DebugPages.handle(["page": "cmux.settings", "action": "state", "instance": .number(mine)],
+                                            services: nil)
+        #expect(state["instance"]?.doubleValue == mine, "debug.page read \(state)")
         #expect(state["hash"]?.stringValue == "#/settings/general", "debug.page read \(state)")
         #expect(state["parked"]?.boolValue != true)
     }

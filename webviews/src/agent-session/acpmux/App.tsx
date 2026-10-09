@@ -27,6 +27,7 @@ import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { setDeviceChats } from "./newtab/deviceChats";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
@@ -36,7 +37,7 @@ import { projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
-import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
@@ -164,6 +165,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// The newest device chats for the New Tab cards (newtab/deviceChats.ts).
+      applyDeviceChats?(chats: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -1114,6 +1117,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onHarness={(harness) => void callNative("chat.new", { harness })}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
+      // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
+      onAddAgent={() => void callNative("action.run", { id: "agent.harness.add" }).catch(() => undefined)}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -1752,6 +1757,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applyDeviceChats(chats) {
+        setDeviceChats(chats);
+      },
       revealTurn(turnId) {
         void revealTurnWhenShown(turnId);
       },
@@ -1951,10 +1959,17 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
+        // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
+        client.onTrustRefused = (refusal, again) => {
+          trustRefused.current?.(refusal, again);
+        };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
+        // A refreshed harness list or live model list re-reads the catalog (no polling).
+        followHarnessChanges(client, queryClient, catalogClientId.current);
         retryDelay = 250;
         // A mock session is not one the host can reopen.
         const persistSession = (sessionId?: string) =>
@@ -2130,7 +2145,9 @@ function AcpmuxPane() {
           turnRunning: () => client.turnRunning(),
           shown: () => client.shownSession(),
           create: async (harness, cwd) => {
-            const sessionId = await client.startSession(harness, cwd).catch((error: unknown) => {
+            // After a Trust answer the switch runs again (the trust route, direct.ts).
+            const again = () => void harnessSwitch.switchTo(harness, cwd);
+            const sessionId = await client.startSession(harness, cwd, undefined, again).catch((error: unknown) => {
               setBlockedHarness(harnessBlock(error));
               throw error;
             });
