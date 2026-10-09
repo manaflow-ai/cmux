@@ -83,7 +83,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 symbol: descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
                 section: section(descriptor.category),
-                keywords: descriptor.keywords + [actionID.rawValue],
+                keywords: descriptor.keywords,
                 isEnabled: isEnabled,
                 primary: PaletteCommand(
                     id: "run",
