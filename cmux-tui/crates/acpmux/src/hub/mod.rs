@@ -697,7 +697,7 @@ impl Hub {
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
-            let mut meta = session.meta.lock().unwrap();
+            let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
