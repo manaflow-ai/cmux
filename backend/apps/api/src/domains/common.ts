@@ -259,10 +259,10 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-shared",
       target: "team",
       principals: ["system"],
-      params: Schema.Struct({ user: Schema.String }),
+      params: Schema.Struct({ user: Schema.String, from_stack: Schema.optionalKey(Schema.Literal(true)) }),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: removes a member; the outbox revokes their installs bound to the team and ends their pending integration approvals there (cx-44j.47).",
+      docs: "Internal: removes a member (from_stack: Stack removed them from a Stack team, an owner included); the outbox revokes their installs bound to the team and ends their pending integration approvals there (cx-44j.47).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

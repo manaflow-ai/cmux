@@ -9,7 +9,7 @@ import { integrationSyncPending, releasePending, sliceHash, type IntegrationFiel
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
 import { signInRulesOf, type SignInRules } from "./team-sign-in-rules.ts"
-import { deletedTeamMembers, stackSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
+import { StackTeamSync, type StackEvent, type StackSyncReply } from "./team-stack-sync.ts"
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -74,12 +74,13 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
-    if (!state.team) return null
-    if (deletedTeamMembers(state, this.rows, 1).length > 0) return now
+    const stackAt = this.stackSync.nextWakeAt(state, now)
+    if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const times = [
       nextRecheckAt(state),
+      stackAt,
       integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
       runSyncPending(state) ? Math.max(now, this.runSyncRetryAt ?? now) : null
     ].filter((t): t is number => t !== null)
@@ -118,8 +119,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
-    // A team Stack deleted: its members leave through team.member.remove (certificates, team VM taint), a page per wake.
-    for (const user of this.boundEngine ? deletedTeamMembers(this.boundEngine.currentState, this.rows) : []) this.submitSystem("team.member.remove", { user }, `team-deleted:${user}`)
+    // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
+    if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
@@ -187,8 +188,12 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
-  protected override afterOp(_principal: Principal, op: string) {
+  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
     if (op === "team.member.remove") this.cleanupMembers()
+    // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
+    const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
+    if (op === "team.member.remove" && v?.removed && v.user) this.closeSockets((p) => p.user === v.user, "left the team")
+    if (op === "team.stack_mirror" && v?.deleted) this.closeSockets((p) => p.kind !== "system", "team deleted")
   }
 
   private cleanupMembers() {
@@ -481,13 +486,10 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
   async stackWebhook(entity: string, event: StackEvent): Promise<StackSyncReply> {
     this.bind(entity)
-    const run = () => stackSync({ team: entity, stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, event)
-    const reply = this.stackQueue.then(run, run)
-    this.stackQueue = reply.catch(() => undefined)
-    return reply
+    return this.stackSync.deliver(event).finally(() => this.scheduleAlarm())
   }
 
-  private stackQueue: Promise<unknown> = Promise.resolve()
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
     return memberOf(state, this.rows, principal.user) !== undefined

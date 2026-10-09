@@ -1,6 +1,7 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
+import { TEAM_MEMBER_LEFT_SOCKETS } from "./domains/team-members.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
@@ -46,9 +47,12 @@ export class CloudDO extends CloudIdle {
 
   /** The person's approval answers (G8, cloud-approvals.ts) run here; other items go to the engine. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    // A member left the team (cx-3bi.43 review P1-2): their sockets here close now; only this team's TeamDO may say so.
+    const left = items.filter((i) => i.op === TEAM_MEMBER_LEFT_SOCKETS)
+    for (const i of left) if (source === `team:${entity}` && this.isBound(entity) && typeof (i.params as { user?: unknown })?.user === "string") this.closeSockets((p) => p.user === (i.params as { user: string }).user, "left the team")
     const answers = items.filter((i) => i.op === "integration.approval.answered")
-    const rest = items.filter((i) => i.op !== "integration.approval.answered")
-    const done = rest.length ? [...(await super.systemDeliver(entity, source, rest)).done] : []
+    const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS)
+    const done = [...left.map((i) => i.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])]
     if (answers.length) done.push(...(await deliverCloudAnswers(this.approvalHost(entity), source, answers, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))).done)
     return { done }
   }
