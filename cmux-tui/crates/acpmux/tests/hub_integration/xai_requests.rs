@@ -122,3 +122,30 @@ async fn xai_exit_plan_mode_kept_planning_asks_for_changes() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["preview"], r#"xai {"outcome": "request_changes"}"#);
 }
+
+#[tokio::test]
+async fn xai_question_under_deny_all_is_cancelled_for_grok() {
+    let (hub, mut c) = setup(PermissionPolicy::DenyAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "xai-question: Which one?"}]}),
+    )
+    .await
+    .unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], r#"xai {"outcome": "cancelled"}"#);
+}
+
+#[tokio::test]
+async fn xai_question_pending_at_a_cancel_is_cancelled_for_grok() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let (id, _pending) = start(&mut c, "xai-question: Which one?").await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], r#"xai {"outcome": "cancelled"}"#);
+}
