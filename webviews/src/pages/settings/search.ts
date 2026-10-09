@@ -10,9 +10,12 @@ export function queryTerms(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-export function rowMatches(row: SchemaRow, value: unknown, terms: string[]): boolean {
+/// `context`: the titles of the row's category and group (page language and English), so a search
+/// for a section's name ("appearance", "privacy") lists that section's settings too.
+export function rowMatches(row: SchemaRow, value: unknown, terms: string[], context: string[] = []): boolean {
   if (terms.length === 0) return false;
   const haystack = [
+    ...context,
     text(row.title),
     row.title.text,
     text(row.help),
@@ -40,13 +43,16 @@ export type ListFilter = {
  * every changed row. */
 export function filterRows({ query, changedOnly = false, valueOf, isChanged }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
-  const keep = (row: SchemaRow) =>
-    (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms)) &&
+  const keep = (row: SchemaRow, context: string[]) =>
+    (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms, context)) &&
     (!changedOnly || (isChanged?.(row.key) ?? false));
   return categories
     .map((category) => {
       const groups = category.groups
-        .map((group) => ({ ...group, rows: group.rows.filter(keep) }))
+        .map((group) => {
+          const context = [text(category.title), category.title.text, text(group.title), group.title.text];
+          return { ...group, rows: group.rows.filter((row) => keep(row, context)) };
+        })
         .filter((group) => group.rows.length > 0);
       return { category, groups, rows: groups.flatMap((group) => group.rows) };
     })

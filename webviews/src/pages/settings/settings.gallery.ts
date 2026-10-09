@@ -177,6 +177,14 @@ Object.assign(variants, {
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
+  "search-section": variant("general", {
+    steps: [input("[data-settings-search]", "dismissal")],
+    note: "A section or group name finds that group's settings, even when a row never says the word.",
+  }),
+  "changed-marks": variant("general", {
+    options: { values: customValues },
+    note: "Each changed setting carries a quiet mark next to its title (read as Changed by assistive technology).",
+  }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
   "theme-picker": variant("theme", {
     allThemes: true,

@@ -60,6 +60,7 @@ export function SettingRow({
       data-row-key={row.key}
       data-kind={row.kind}
       data-managed={managed ? "" : undefined}
+      data-customized={customized && !managed ? "" : undefined}
       data-filtered={filtered ? "" : undefined}
       inert={filtered}
       aria-hidden={filtered ? true : undefined}
@@ -70,10 +71,18 @@ export function SettingRow({
       {diagnostics && <RowNotice settingKey={row.key} messages={diagnostics} disabled={disabled} />}
       <div className="row-main">
         <ContextMenu className="row-label" items={menu}>
-          <div className="row-title" id={labelId}>
+          <div className="row-title flex items-center gap-1.5" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
+            {/* A changed setting is marked next to its title, so a scan finds what differs from the default. */}
+            {customized && !managed && (
+              <span className="row-changed inline-flex shrink-0 items-center" data-row-changed="">
+                <span className="size-1.5 rounded-full bg-current opacity-60" aria-hidden="true" />
+                <span className="sr-only">{t("settingsPage.changed")}</span>
+              </span>
+            )}
           </div>
-          {row.help && (
+          {/* The error replaces the help line while it shows: one line under the title, never both. */}
+          {row.help && !error && (
             <div className="row-help">
               <Highlight text={text(row.help)} query={query} />
             </div>
