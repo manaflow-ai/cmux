@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// The leave-time tab thumbnail of a Chromium page.
 ///
@@ -10,7 +10,7 @@ import CoreGraphics
 /// `TabPreviewFitting` scales down anyway. A clip with a scale is slower
 /// still: Chromium lays the page out again for it.
 nonisolated enum CEFThumbnail {
-    static let params: [String: Any] = ["format": "jpeg", "quality": 70, "optimizeForSpeed": true]
+    static var params: [String: Any] { ["format": "jpeg", "quality": 70, "optimizeForSpeed": true] }
 }
 
 extension CEFTab {
