@@ -364,6 +364,17 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a
+        /// profile that starts it at the registry's pinned version (its
+        /// installed program, else npx, else uvx).
+        #[arg(long, conflicts_with_all = ["command", "example"])]
+        registry: bool,
+    },
+    /// The ACP Registry's agents and how each can start here.
+    Registry {
+        /// Fetch the registry now instead of reading the cached copy.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Start the harness in a temp folder, run the ACP handshake and one
     /// prompt, and print each step with an exact fix. Never prints env values.
