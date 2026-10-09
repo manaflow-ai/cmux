@@ -242,10 +242,10 @@ async fn settled_history_is_paged_and_filterable() {
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
     let mut c = Client::new(&hub, Origin::Local);
 
-    let first = c.ok("_acpmux/settled", json!({"limit": 1})).await;
+    let first = c.ok("_acpmux/chat_settled", json!({"limit": 1})).await;
     assert_eq!(first["settled"], true);
     assert_eq!(first["chats"].as_array().unwrap().len(), 1);
-    let second = c.ok("_acpmux/settled", json!({"folder": "/work/docs"})).await;
+    let second = c.ok("_acpmux/chat_settled", json!({"folder": "/work/docs"})).await;
     assert_eq!(second["settled"], true);
     assert_eq!(keys(&second), vec![format!("claude-code:{B}")]);
 }
@@ -354,7 +354,7 @@ async fn websocket_origins_never_get_chats() {
         let mut c = Client::new(&hub, origin);
         for m in [
             "_acpmux/chats",
-            "_acpmux/settled",
+            "_acpmux/chat_settled",
             "_acpmux/chats_watch",
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",

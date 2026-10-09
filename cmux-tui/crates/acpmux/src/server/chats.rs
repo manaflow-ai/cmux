@@ -2,7 +2,7 @@
 //!
 //! - `_acpmux/chats {query?, harness?, folder?, account?, limit?, cursor?}`:
 //!   one page, newest first: `{ready, chats, nextCursor}`.
-//! - `_acpmux/settled {query?, harness?, folder?, account?, limit?, cursor?}`:
+//! - `_acpmux/chat_settled {query?, harness?, folder?, account?, limit?, cursor?}`:
 //!   the same read-only history page, explicitly marked `settled: true`.
 //! - `_acpmux/chats_watch {enabled?, ...filter}`: the same page, then
 //!   `_acpmux/chat_changed {kind: upsert|removed, key, chat?}` for every
@@ -58,7 +58,7 @@ pub(super) async fn route(
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
             page(service, query).await
         }
-        "_acpmux/settled" => {
+        "_acpmux/chat_settled" => {
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
             settled_page(service, query).await
         }
