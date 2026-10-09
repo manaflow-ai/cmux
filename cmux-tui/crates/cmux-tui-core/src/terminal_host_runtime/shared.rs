@@ -6,5 +6,7 @@ pub(crate) mod attachment;
 pub(crate) mod clipboard_read;
 pub(crate) mod codec;
 pub(crate) mod control_responses;
+pub(crate) mod host_shared;
 pub(crate) mod host_state;
+pub(crate) mod records;
 pub(crate) mod renderer_grant;

@@ -14,13 +14,15 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
-use super::{HOST_KILL_WAIT, HostShared};
+use super::super::shared::host_shared::HostShared;
+use super::super::shared::host_state::HOST_KILL_WAIT;
+use super::super::sys::GroupSignal;
 use std::time::{Duration, Instant};
 
 pub(super) const SESSION_CLEANUP_FAILED_REASON: &str = "terminal session cleanup incomplete";
 
 #[derive(Debug)]
-pub(super) struct SessionCleanup {
+pub(crate) struct SessionCleanup {
     captured: Mutex<CaptureState>,
 }
 
@@ -213,7 +215,11 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
 mod tests;
 
 impl HostShared {
-    pub(super) fn signal_terminal_process_groups(&self, signal: libc::c_int) {
+    pub(crate) fn signal_terminal_process_groups(&self, signal: GroupSignal) {
+        let signal = match signal {
+            GroupSignal::Hangup => libc::SIGHUP,
+            GroupSignal::Kill => libc::SIGKILL,
+        };
         let mut groups = Vec::with_capacity(2);
         // The wait thread observes exit with WNOWAIT, then takes this lock
         // before reaping. While we hold it, `!child_reaped` means the
