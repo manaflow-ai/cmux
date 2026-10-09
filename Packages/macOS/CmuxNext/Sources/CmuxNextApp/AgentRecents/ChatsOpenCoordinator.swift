@@ -25,7 +25,7 @@ enum ChatOpenRoute: Equatable {
             openTab(adopt).map { .reveal(tab: $0) }
                 ?? .newWorkspace(name: title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
         case .terminal(let argv, let env, let cwd):
-            .newWorkspace(name: title, cwd: cwd, seed: nil, command: argv.map(AgentSession.shellQuoted).joined(separator: " "), env: env)
+            .newWorkspace(name: title, cwd: cwd, seed: nil, command: argv.map(AgentResume.shellQuoted).joined(separator: " "), env: env)
         }
     }
 }
