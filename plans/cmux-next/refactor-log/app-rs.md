@@ -10,7 +10,9 @@ Append-only. One line per landing: date, SHA, what moved where, old -> new lines
 - 2026-10-09 0d59d0e932a6 refactor-app-rs: app.rs layout types, menu model (MenuItem/MenuLevel), context menu, menu items, overlays -> app/{layout,menu,menu/context_menu,menu/items,overlays}.rs (MenuAction and keyboard_action_for_menu stay in app.rs: check-spec-inventory.py reads them there); app.rs 43325 -> 42019.
 - 2026-10-09 889e21be5cbf refactor-app-rs: app.rs selection, pointer types, rendered pointer route, deferred input, graphics keys, viewport motion, pane-area projection -> app/{selection,pointer,pointer/route,pointer/deferred,graphics,viewport,pane_projection}.rs; app.rs 42019 -> 40528.
 - 2026-10-09 916ef13b546c refactor-app-rs: app.rs status segments, status command capture, frame geometry, machine action worker + update pump, run entry, terminal guard -> app/{status_segments,status_command,frame_geometry,machine_worker,run,terminal_guard}.rs; app.rs 40528 -> 38125.
-- 2026-10-09 (pending) refactor-app-rs: impl App machine controller, machine UI, durable notices, sidebar rails -> app/{machine_controller,machine_ui,durable_notice,sidebar_rails}.rs (each its own impl App block); app.rs 38125 -> 36269.
+- 2026-10-09 93f663f26314 refactor-app-rs: impl App machine controller, machine UI, durable notices, sidebar rails -> app/{machine_controller,machine_ui,durable_notice,sidebar_rails}.rs (each its own impl App block); app.rs 38125 -> 36269.
+- 2026-10-09 3f6c053b3ab7 refactor-app-rs: impl App event loop, presentation journaling, pointer frame commit, deferred replay, session apply -> app/{event_loop,presentation,pointer_frame,deferred_replay,session_apply}.rs; app.rs 36269 -> 34673.
+- 2026-10-09 (pending) refactor-app-rs: impl App render, graphics emit, config/status upkeep, layout sync -> app/{render,graphics_emit,config_status,layout_sync}.rs; app.rs 34673 -> 33207.
 
 ## Target module map for cmux-tui/crates/cmux-tui/src/app.rs (2026-10-09)
 
