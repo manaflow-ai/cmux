@@ -12814,6 +12814,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-open-locally",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.openLocally",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Locally Instead",
+      "title_key" : "action.browser.openLocally",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "familyMember",
       "cli_name" : "action browser-find-previous",
       "context_menu" : "familyMember",
@@ -25348,8 +25374,21 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "browser.openLocally",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "browserFocused"
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 5
+          "order" : 6
         },
         {
           "choices" : {
@@ -25379,7 +25418,7 @@
           "enabled_when" : "can_perform",
           "id" : "browserTheme",
           "kind" : "choices",
-          "order" : 6,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -25419,20 +25458,20 @@
           ],
           "folder" : "options",
           "kind" : "folder",
-          "order" : 7,
+          "order" : 8,
           "title" : "Options",
           "title_key" : "menu.folder.options",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.addPage",
           "kind" : "action",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -25443,13 +25482,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleBrowserDeveloperTools",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -25758,7 +25797,7 @@
           ],
           "folder" : "tools",
           "kind" : "folder",
-          "order" : 12,
+          "order" : 13,
           "title" : "Tools",
           "title_key" : "menu.folder.tools",
           "title_table" : "Localizable"
