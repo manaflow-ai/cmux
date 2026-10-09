@@ -36,7 +36,9 @@ struct TabsShell: View {
         }
         .modifier(ShellEnvironment(model: model))
         .task { await model.shellData.run() }
-        .onChange(of: model.connection.generation) { Task { await model.shellData.reloadIfNeeded() } }
+        .task(id: ShellDataKey(generation: model.connection.generation, connected: model.connection.state.isConnected)) {
+            await model.shellData.reloadIfNeeded()
+        }
     }
 }
 

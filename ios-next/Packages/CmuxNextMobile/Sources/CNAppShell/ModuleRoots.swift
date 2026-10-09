@@ -1,12 +1,16 @@
 #if os(iOS)
+import CNAgentUI
+import CNBrowserUI
+import CNConversationsUI
 import CNDesign
 import CNSettingsUI
+import CNTerminalUI
 import CNTransport
 import SwiftUI
 
 /// The one place the shells reach into the feature modules. Each module owns a
 /// public root (`ConversationsRoot(connection:)` and so on); until a module
-/// lands, its slot shows a placeholder so the app keeps compiling.
+/// lands, its slot can show `ModulePlaceholder`.
 @MainActor
 struct ModuleRoots {
     let model: AppModel
@@ -23,10 +27,10 @@ struct ModuleRoots {
         }
     }
 
-    func conversations() -> some View { ModulePlaceholder(destination: .home) }
-    func agents() -> some View { ModulePlaceholder(destination: .agents) }
-    func terminals() -> some View { ModulePlaceholder(destination: .terminals) }
-    func browser() -> some View { ModulePlaceholder(destination: .browser) }
+    func conversations() -> some View { ConversationsRoot(connection: connection) }
+    func agents() -> some View { AgentsRoot(connection: connection) }
+    func terminals() -> some View { TerminalsRoot(connection: connection) }
+    func browser() -> some View { BrowserRoot(connection: connection) }
 
     func settings() -> some View {
         SettingsRoot(auth: model.auth, hosts: model.hosts, connection: model.connection,

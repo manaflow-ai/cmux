@@ -92,3 +92,10 @@ public final class ShellDataModel {
     }
 }
 #endif
+
+/// Reload trigger for `ShellDataModel`: a new connection generation that is
+/// connected.
+struct ShellDataKey: Hashable {
+    var generation: Int
+    var connected: Bool
+}

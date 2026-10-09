@@ -24,7 +24,7 @@ public struct ConnectionSummary: Sendable, Hashable {
         case .connected(let path):
             let rtt = path.rttMs.map { "\(Int($0.rounded())) ms" }
             if path.transport == "loopback" {
-                self.init(title: "Demo host", detail: rtt, tone: .good, symbol: "desktopcomputer")
+                self.init(title: "Demo", detail: rtt, tone: .good, symbol: "desktopcomputer")
             } else if path.isRelayed {
                 self.init(title: "Relayed via TURN", detail: rtt, tone: .relayed, symbol: "point.3.connected.trianglepath.dotted")
             } else {
