@@ -16,6 +16,7 @@ mod fault;
 mod lines;
 mod lock;
 mod model;
+pub mod rate;
 mod report;
 
 pub use anthropic::{AnthropicModel, AGENT_HEADER};
