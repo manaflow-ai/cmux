@@ -64,6 +64,10 @@ public final class HomeStore {
     /// Sends made while offline that have not gone to the owner yet, and
     /// the deadline of each send made while offline.
     @ObservationIgnored var offlineQueued: Set<IdempotencyKey> = []
+    /// Sends an attempt may have delivered (sent, no answer): a later
+    /// attempt that sends nothing (`HomeOwnerOffline`) keeps them "may have
+    /// been delivered".
+    @ObservationIgnored var possiblySent: Set<IdempotencyKey> = []
     @ObservationIgnored var offlineDeadlines: [IdempotencyKey: Task<Void, Never>] = [:]
     /// The periodic prune loop, and the pass running now. `prepare` waits
     /// for a running pass, and a pass skips while a prepare runs, so a

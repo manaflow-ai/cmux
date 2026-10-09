@@ -26,6 +26,7 @@ mod scrolling;
 mod shutdown;
 pub(crate) mod spawn;
 mod stream_progress;
+mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
 // Hosted (unix) code and the unit tests are the only callers.
@@ -58,6 +59,9 @@ pub(crate) use options::replace_ghostty_cursor_defaults;
 pub use options::{DefaultColors, SurfaceOptions, TerminalColors, default_child_term};
 #[cfg(unix)]
 mod reconnect_backoff;
+#[cfg(unix)]
+use exit_state::mark_hosted_runtime_exited;
+use exit_state::{close_local_terminal_master_after_exit, publish_local_exit_if_ready};
 #[cfg(all(unix, test))]
 use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
 #[cfg(unix)]
@@ -73,6 +77,9 @@ pub use render_tap::{
 use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
+pub use terminal_runtime::PtyTerminalRuntime;
+pub(crate) use terminal_runtime::TerminalJournalGap;
+use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
 #[cfg(test)]
 mod test_pty;
 #[cfg(test)]
@@ -478,318 +485,6 @@ impl Drop for TerminalJournalUpdateGuard<'_> {
     }
 }
 
-#[derive(Default)]
-struct ReaderCompletion {
-    finished: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl ReaderCompletion {
-    fn reset(&self) {
-        *self.finished.lock().unwrap() = false;
-    }
-
-    fn complete(&self) {
-        let mut finished = self.finished.lock().unwrap();
-        *finished = true;
-        self.changed.notify_all();
-    }
-
-    fn wait_until(&self, deadline: Instant) -> bool {
-        let mut finished = self.finished.lock().unwrap();
-        while !*finished {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            let (next, result) = self.changed.wait_timeout(finished, remaining).unwrap();
-            finished = next;
-            if result.timed_out() && !*finished {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-struct ReaderCompletionGuard(Arc<ReaderCompletion>);
-
-impl Drop for ReaderCompletionGuard {
-    fn drop(&mut self) {
-        self.0.complete();
-    }
-}
-
-impl PtyTerminalRuntime {
-    /// Feed raw child output to the generic terminal metadata parser. The
-    /// parser has no knowledge of agents or plugins and keeps only bounded
-    /// terminal protocol state. Returns the desktop notifications (OSC 9,
-    /// OSC 777, OSC 99) the output asked for that pass Ghostty's rate limit;
-    /// the caller posts them after it releases the terminal lock.
-    fn observe_terminal_output(
-        &self,
-        bytes: &[u8],
-    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
-        let mut metadata = self.terminal_metadata.lock().unwrap();
-        metadata.observe_output(bytes);
-        metadata.take_admitted_notifications(Instant::now())
-    }
-
-    /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped, any running command
-    /// is forgotten, and nothing is read from the screen. The command line
-    /// comes from Ghostty's semantic input cells, so a command typed before
-    /// recording turned on is still read whole at `C`.
-    fn observe_shell_marks(
-        &self,
-        term: &mut Terminal,
-        recording: impl FnOnce() -> bool,
-    ) -> Vec<crate::shell_history::FinishedCommand> {
-        let marks = self.terminal_metadata.lock().unwrap().take_shell_marks();
-        if marks.is_empty() {
-            return Vec::new();
-        }
-        let mut tracker = self.command_tracker.lock().unwrap();
-        if !recording() {
-            tracker.reset();
-            return Vec::new();
-        }
-        let mut screen = crate::shell_history::TerminalCommandScreen(term);
-        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
-    }
-
-    fn terminal_osc_progress(&self) -> String {
-        self.terminal_metadata.lock().unwrap().osc_progress().to_string()
-    }
-
-    fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
-        let _gate = self.journal_capture_gate.lock().unwrap();
-        if !self.journal_capture_open.load(Ordering::Acquire) {
-            return None;
-        }
-        let reserved = self.journal_capture_reserved.swap(true, Ordering::AcqRel);
-        debug_assert!(!reserved, "terminal journal reads must not overlap");
-        Some(TerminalJournalUpdateGuard { owner: self })
-    }
-
-    fn close_terminal_journal_capture_when_idle(&self, deadline: Instant) -> bool {
-        let mut gate = self.journal_capture_gate.lock().unwrap();
-        let active_deadline = deadline + Duration::from_secs(2);
-        loop {
-            if !self.journal_capture_reserved.load(Ordering::Acquire)
-                && self.journal_capture_epoch.load(Ordering::Acquire) & 1 == 0
-            {
-                self.journal_capture_open.store(false, Ordering::Release);
-                return false;
-            }
-            if Instant::now() >= deadline {
-                if !self.journal_capture_active.load(Ordering::Acquire) {
-                    // A read is still blocked or has not started terminal
-                    // mutation. Revoke its reservation. The reader checks the
-                    // gate before parsing and exits without changing state.
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    return false;
-                }
-                let remaining = active_deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    // Keep shutdown bounded if a source-owned parser or
-                    // callback violates the active-update time contract. The
-                    // closed gate prevents a late journal insert after the
-                    // final barrier, and the daemon is already stopping.
-                    self.journal_capture_open.store(false, Ordering::Release);
-                    eprintln!(
-                        "cmux-tui: active terminal journal update exceeded shutdown grace; closing capture and recording an output gap"
-                    );
-                    return true;
-                }
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
-            } else {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.journal_capture_idle.wait_timeout(gate, remaining).unwrap();
-                gate = next;
-            }
-        }
-    }
-}
-
-/// Content runtime shared by every view placement of one terminal.
-///
-/// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
-/// This object owns the process, terminal emulator, ordered input/output, and
-/// canonical geometry. Keeping the two identities distinct makes a terminal
-/// projectable into any number of panes without cloning its PTY or VT state.
-pub struct PtyTerminalRuntime {
-    event_surface_id: SurfaceId,
-    /// Stable public content identity. This belongs to the terminal runtime,
-    /// while `SurfaceMeta::resource_identity` belongs to one view placement.
-    terminal_public_id: Option<Arc<TerminalPublicId>>,
-    journal_generation: Arc<str>,
-    /// Legacy terminal hosts remain attachable, but cannot source-fence
-    /// output at daemon shutdown and therefore never enter journal capture.
-    journal_capture_supported: bool,
-    /// Even while the emulator and terminal journal agree, odd while one
-    /// output frame has updated one side but not yet reached the other.
-    journal_capture_epoch: AtomicU64,
-    journal_capture_gate: Mutex<()>,
-    journal_capture_idle: Condvar,
-    journal_capture_open: AtomicBool,
-    journal_capture_reserved: AtomicBool,
-    journal_capture_active: AtomicBool,
-    /// Owned reader join fence. Shutdown gives this reader a bounded drain
-    /// interval, then closes journal capture before it inserts the final
-    /// journal barrier.
-    reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    reader_completion: Arc<ReaderCompletion>,
-    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
-    /// as the reader so the child wait cannot outlive terminal teardown.
-    reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-    reaper_completion: Arc<ReaderCompletion>,
-    term: Mutex<Box<Terminal>>,
-    stream_progress: Box<TerminalStreamProgress>,
-    /// Generic metadata parsed from raw PTY output. This field has no agent
-    /// or roster knowledge, so userland plugins can consume it through the
-    /// resource API without moving detection policy into core.
-    terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
-    /// the daemon records terminal commands.
-    command_tracker: Mutex<crate::shell_history::CommandTracker>,
-    mouse_encoders: Mutex<Box<MouseEncoders>>,
-    runtime: Mutex<PtyRuntime>,
-    /// Explicit lifecycle authority for this process. Session content may
-    /// survive a daemon replacement through a durable host; daemon-owned
-    /// auxiliaries must terminate with the backend that created them.
-    lifetime: PtyLifetime,
-    supports_clear_history_key_fallback: AtomicBool,
-    host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
-    #[cfg(unix)]
-    pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
-    #[cfg(unix)]
-    host_exit_record_path: Option<PathBuf>,
-    pid: Option<u32>,
-    command: Vec<String>,
-    cwd: Option<String>,
-    /// How this incarnation ended, with its provenance (process end versus
-    /// host loss); see [`TerminalEnd`].
-    exit: Mutex<Option<TerminalEnd>>,
-    local_pty_drained: AtomicBool,
-    exit_notified: AtomicBool,
-    dead: AtomicBool,
-    /// The daemon is intentionally dropping its compatibility proxy while
-    /// leaving the terminal host alive for a later daemon to adopt.
-    owner_detaching: AtomicBool,
-    /// The host socket ended without a sequenced Exit. Closing this proxy
-    /// must retain the host record so a fresh snapshot can recover it.
-    host_connection_state: AtomicU8,
-    /// Set when output arrived since the last render; cleared by the
-    /// frontend when it draws.
-    dirty: AtomicBool,
-    title: Mutex<String>,
-    pwd: Mutex<Option<String>>,
-    published_directory: Mutex<PublishedDirectory>,
-    directory_pending: AtomicBool,
-    /// A shell has reported a directory at least once; only then is a later
-    /// absent report a clear rather than the still-unreported launch directory.
-    directory_reported: AtomicBool,
-    geometry: Mutex<PtyGeometry>,
-    kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
-    #[cfg(test)]
-    geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
-    #[cfg(test)]
-    deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
-    #[cfg(test)]
-    test_master_control: Option<Arc<TestMasterPtyControl>>,
-    #[cfg(test)]
-    vt_replay_builds: AtomicUsize,
-    mux: Weak<Mux>,
-    /// Live output subscribers (attach streams). Guarded by the terminal
-    /// lock ordering: the reader thread broadcasts while holding the
-    /// terminal lock, and [`Surface::attach_stream`] registers taps under
-    /// the same lock, so a subscriber sees exactly the bytes applied
-    /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<AttachTap>>,
-    /// A PTY color mutation awaiting bounded attach-stream fan-out.
-    attach_colors_pending: AtomicBool,
-    /// A reset or cursor-semantic transition requires reapplying equal state:
-    /// byte frontends may reset palettes or switch per-screen cursor storage
-    /// even when the final effective values compare equal.
-    attach_colors_force_pending: AtomicBool,
-    /// Published byte offset and grid generation for snapshot viewers.
-    snapshot_position: snapshot_attach::SnapshotStreamPosition,
-    /// Last effective color state emitted to attach streams. This suppresses
-    /// repeated OSC sets that advance Ghostty's revision without changing the
-    /// frontend-visible state.
-    last_attach_colors: Mutex<Option<Box<TerminalColors>>>,
-    /// Single consume-once Ghostty render state shared by the local TUI and
-    /// every protocol-v7 render attachment.
-    render: Arc<Mutex<RenderHub>>,
-    render_generation: AtomicU64,
-    frame_requests: SyncSender<u64>,
-    #[cfg(test)]
-    frame_producer_before_upgrade: FrameProducerTestHook,
-}
-
-pub(crate) struct TerminalJournalGap {
-    pub(crate) terminal_id: Arc<TerminalPublicId>,
-    pub(crate) generation: Arc<str>,
-    pub(crate) reason: &'static str,
-}
-
-enum PtyRuntime {
-    Local {
-        writer: Box<dyn Write + Send>,
-        master: Option<Box<dyn MasterPty + Send>>,
-        killer: Box<dyn ChildKiller + Send>,
-    },
-    #[cfg(unix)]
-    Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
-    #[cfg(unix)]
-    ExitedHosted,
-}
-
-/// Owns a freshly spawned PTY child until the child reaper has taken over.
-///
-/// `portable_pty::Child` does not stop or reap a process when its handle is
-/// dropped. Startup performs several fallible operations after spawning, so a
-/// guard keeps every error path terminating and reaping the child. The guard
-/// moves into the reaper closure; if thread creation fails, dropping that
-/// closure runs this cleanup instead.
-struct PtyChildStartupGuard {
-    child: Box<dyn cmux_pty::Child + Send + Sync>,
-    reaped: bool,
-}
-
-impl PtyChildStartupGuard {
-    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
-        Self { child, reaped: false }
-    }
-
-    fn process_id(&self) -> Option<u32> {
-        self.child.process_id()
-    }
-
-    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        self.child.clone_killer()
-    }
-
-    fn wait_for_exit(&mut self) -> TerminalExit {
-        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
-        self.reaped = reaped;
-        exit
-    }
-}
-
-impl Drop for PtyChildStartupGuard {
-    fn drop(&mut self) {
-        if self.reaped {
-            return;
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PtyLifetime {
     SessionOwned,
@@ -854,59 +549,6 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
     }
     Ok(encoded)
 }
-
-#[cfg(unix)]
-fn mark_hosted_runtime_exited(
-    pty: &PtySurface,
-    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
-) {
-    let mut runtime = pty.runtime.lock().unwrap();
-    let matches = match &*runtime {
-        PtyRuntime::Hosted(host) => host.identity() == *identity,
-        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
-    };
-    if matches {
-        if let PtyRuntime::Hosted(host) = &*runtime {
-            host.disconnect();
-        }
-        *runtime = PtyRuntime::ExitedHosted;
-        pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
-        drop(runtime);
-        pty.finish_hosted_exit();
-    }
-}
-
-fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
-    let Some(pty) = surface.as_pty() else { return };
-    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
-        return;
-    }
-    if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
-    {
-        return;
-    }
-    pty.dead.store(true, Ordering::Release);
-    if let Some(mux) = pty.mux.upgrade() {
-        mux.surface_exited(surface.id);
-    }
-}
-
-#[cfg(windows)]
-fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
-    let Some(pty) = surface.as_pty() else { return };
-    let master = {
-        let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { master, .. } = &mut *runtime;
-        master.take()
-    };
-    // portable-pty's ConPTY reader keeps a separate output handle. Closing
-    // the master closes the pseudoconsole, which lets that reader drain the
-    // final bytes and then observe EOF.
-    drop(master);
-}
-
-#[cfg(not(windows))]
-fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}
 
 fn terminal_public_id_from_resource_identity(
     identity: &TabResourceIdentity,
