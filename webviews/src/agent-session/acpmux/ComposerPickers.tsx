@@ -357,13 +357,13 @@ export function ComposerPickers({
           working={snapshot.isWorking}
         />
       )}
-      {/* Reasoning is its own stable control, separate from the model and harness picker. */}
-      {effort && efforts.length > 0 && (
+      {/* Reasoning is its own stable control, separate from the model and harness picker. A model
+          whose only level is the agent's default has nothing to pick, so it shows no control. */}
+      {effort && efforts.length > 1 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
-          model={modelName}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             pending.current = undefined;
@@ -725,7 +725,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (
