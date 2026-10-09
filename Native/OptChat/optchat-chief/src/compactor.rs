@@ -864,7 +864,7 @@ impl AcpmuxCompactor {
         let deadline = Instant::now() + self.spec.timeout;
         let answer = loop {
             match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(TurnSignal::Changed) => {
+                Ok(TurnSignal::Changed | TurnSignal::Noted) => {
                     // The first streamed output: the response started.
                     if !begun
                         && self.port.events(session, before).is_ok_and(|events| {
