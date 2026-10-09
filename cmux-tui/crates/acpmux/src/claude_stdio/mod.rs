@@ -51,16 +51,60 @@ const MODELS: [(&str, &str); 12] = [
     ("claude-haiku-4-5-20251001", "Haiku 4.5"),
 ];
 
-/// Effort levels Claude Code accepts for `--effort` and the live
-/// `apply_flag_settings` control request. "default" leaves the model's own.
-const EFFORTS: [(&str, &str); 6] = [
-    ("default", "Default (model's choice)"),
-    ("low", "Low"),
-    ("medium", "Medium"),
-    ("high", "High"),
-    ("xhigh", "Xhigh"),
-    ("max", "Max"),
+/// The reasoning choices: Claude Code's effort levels (`--effort` and the
+/// live `apply_flag_settings` `effortLevel`), plus two built on them.
+/// "default" leaves the model's own level. Ultracode is xhigh plus Claude
+/// Code's `ultracode` setting; Ultrathink keeps the level and prefixes each
+/// prompt with `Ultrathink:` (verified on Claude Code 2.1.287). The pane
+/// offers a model only the levels its `list_models` row supports.
+const EFFORTS: [(&str, &str, Option<&str>); 8] = [
+    ("default", "Default", None),
+    ("low", "Low", None),
+    ("medium", "Medium", None),
+    ("high", "High", None),
+    ("xhigh", "Extra High", None),
+    ("max", "Max", None),
+    ("ultracode", "Ultracode", Some("xhigh effort plus multi-agent workflow orchestration")),
+    ("ultrathink", "Ultrathink", Some("Thinks as hard as it can on every prompt")),
 ];
+
+/// The prefix Claude Code reads as "think as hard as you can" (Ultrathink).
+const ULTRATHINK_PREFIX: &str = "Ultrathink:\n";
+
+/// The `--effort` a session starts with: Ultracode runs at xhigh, Ultrathink
+/// and "default" pass none (the model's own level).
+fn cli_effort(effort: &str) -> Option<&str> {
+    match effort {
+        "default" | "ultrathink" | "" => None,
+        "ultracode" => Some("xhigh"),
+        other => Some(other),
+    }
+}
+
+/// The `apply_flag_settings` settings for a reasoning choice. Every choice but
+/// Ultracode clears `ultracode`; Ultrathink leaves the level as it is.
+fn effort_settings(effort: &str) -> Value {
+    match effort {
+        "ultracode" => json!({"effortLevel": "xhigh", "ultracode": true}),
+        "ultrathink" => json!({"ultracode": false}),
+        "default" => json!({"effortLevel": "auto", "ultracode": false}),
+        level => json!({"effortLevel": level, "ultracode": false}),
+    }
+}
+
+/// Settings a new process needs on the live channel before its first turn:
+/// Ultracode and fast mode have no command-line flag of their own.
+fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
+    let mut settings = serde_json::Map::new();
+    if effort == "ultracode" {
+        settings.insert("effortLevel".into(), json!("xhigh"));
+        settings.insert("ultracode".into(), json!(true));
+    }
+    if fast {
+        settings.insert("fastMode".into(), json!(true));
+    }
+    (!settings.is_empty()).then(|| Value::Object(settings))
+}
 
 /// The model aliases offered in pickers.
 pub fn models() -> &'static [(&'static str, &'static str)] {
@@ -140,7 +184,7 @@ pub fn spawn_plan(
         args.push("--session-id".into());
         args.push(id.into());
     }
-    if let Some(e) = effort.filter(|e| *e != "default") {
+    if let Some(e) = effort.and_then(cli_effort) {
         args.push("--effort".into());
         args.push(e.into());
     }
@@ -168,6 +212,8 @@ pub struct Translator {
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
+    /// Claude Code's fast mode (`fastMode`), on or off.
+    pub fast: Mutex<bool>,
     in_turn: AtomicBool,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
@@ -207,6 +253,7 @@ enum Setting {
     Mode,
     Model,
     Effort,
+    Fast,
 }
 
 impl Translator {
@@ -220,6 +267,7 @@ impl Translator {
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model.to_owned()),
             effort: Mutex::new(effort.to_owned()),
+            fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
             steers: Mutex::new(std::collections::VecDeque::new()),
@@ -281,8 +329,17 @@ impl Translator {
              "options": MODELS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
              "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
-            {"id": "effort", "name": "Effort", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,
-             "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+            {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,
+             "options": EFFORTS.iter().map(|(v, n, d)| match d {
+                 Some(d) => json!({"value": v, "name": n, "description": d}),
+                 None => json!({"value": v, "name": n}),
+             }).collect::<Vec<_>>()},
+            {"id": "fast-mode", "name": "Fast mode", "type": "select", "category": "model_config",
+             "currentValue": if *self.fast.lock().await { "on" } else { "off" },
+             "options": [
+                 {"value": "off", "name": "Off", "description": "Default speed, normal usage"},
+                 {"value": "on", "name": "On", "description": "Faster output, increased usage"},
+             ]},
         ])
     }
 }
