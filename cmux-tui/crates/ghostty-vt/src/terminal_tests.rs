@@ -517,6 +517,30 @@ fn clear_history_bytes_replay_to_the_same_screen_on_a_mirror() {
     assert_eq!(mirror.history_rows(), 0);
 }
 
+/// Moving the prompt keeps soft wraps: wrapped input stays one logical line
+/// (copy, reflow and the next clear depend on it).
+#[test]
+fn clear_history_keeps_soft_wrapped_input_wrapped_after_moving_it_up() {
+    let mut terminal = Terminal::new(20, 6, 1_000, Callbacks::default()).unwrap();
+    for line in 0..10 {
+        terminal.vt_write(format!("history-{line}\r\n").as_bytes());
+    }
+    terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07echo 0123456789abcdefghijklmnop");
+    let (cursor_x, cursor_y) = terminal.cursor_position().unwrap();
+    assert_eq!(cursor_y, 5);
+    assert_eq!(terminal.active_row_wrap_continuation(5), Some(true));
+
+    let ClearHistoryOutcome::Cleared(_) = terminal.clear_history_preserving_prompt() else {
+        panic!("active prompt was wholly inside the viewport");
+    };
+
+    assert_eq!(terminal.cursor_position(), Some((cursor_x, 1)));
+    assert_eq!(terminal.history_rows(), 0);
+    assert_eq!(terminal.active_row_wrap_continuation(1), Some(true));
+    let viewport = terminal.viewport_text().unwrap();
+    assert!(viewport.starts_with("$ echo 0123456789abc"), "{viewport:?}");
+}
+
 /// Inside a non-default scrolling region a line delete cannot move the
 /// prompt, so the clear blanks the rows above it and keeps the cursor.
 #[test]
