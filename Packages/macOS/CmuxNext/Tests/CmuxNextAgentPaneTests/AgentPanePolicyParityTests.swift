@@ -144,13 +144,20 @@ import Testing
         )) as? [String: Any])?["params"] as? [String: Any]
         let answers = params?["answers"] as? [String: Any]
         let keys = answers.map { Array($0.keys) } ?? ["question"]
+        let denies = (state["denies"] as? [Any] ?? []).compactMap { $0 as? [String] }
         for case let permission as String in state["questions"] as? [Any] ?? [] {
             let items = keys.map { ["id": $0] }
+            var request: [String: Any] = ["toolCall": ["_meta": ["acpmux": [
+                "question": ["items": items]
+            ]]]]
+            let optionsForPermission = denies.compactMap { deny -> [String: Any]? in
+                guard deny.count >= 2, deny[0] == permission else { return nil }
+                return ["optionId": deny[1], "kind": "reject_once"]
+            }
+            if !optionsForPermission.isEmpty { request["options"] = optionsForPermission }
             options.observe(["method": "_acpmux/permission_pending",
                              "params": ["permissionId": permission,
-                                         "request": ["toolCall": ["_meta": ["acpmux": [
-                                             "question": ["items": items]
-                                         ]]]]]],
+                                         "request": request]],
                             replyTo: nil)
         }
     }
@@ -206,7 +213,9 @@ import Testing
             let sessions = AcpmuxPaneSessions()
             for case let s as String in state["sessions"] as? [Any] ?? [] { sessions.add(s) }
             let options = AcpmuxPermissionOptions()
+            let questionPermissions = Set((state["questions"] as? [Any] ?? []).compactMap { $0 as? String })
             for case let deny as [String] in state["denies"] as? [Any] ?? [] {
+                if questionPermissions.contains(deny.first ?? "") { continue }
                 options.observe(["method": "_acpmux/permission_pending",
                                  "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
                                 replyTo: nil)
