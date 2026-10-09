@@ -147,7 +147,10 @@ JSON bodies. Phone auth: `Authorization: Bearer <accessToken>` (HS256 JWT,
 stored hashed). Errors: `{error:{code,message}}` with HTTP status: 400
 `bad_request`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found` (410 for an
 expired or claimed pairing), 429 `rate_limited`, 501 `unsupported`, 503
-`unavailable`, 500 `internal`.
+`unavailable`, 500 `internal`. Every 429 carries `Retry-After` (seconds).
+An access token whose sign-in family is revoked is refused everywhere with
+401 "session revoked" (seen by all Worker instances within 30 s; `/signal`
+and `/ice` immediately).
 
 | Method | Path | Auth | Body -> Result |
 | --- | --- | --- | --- |
@@ -191,12 +194,17 @@ Each socket is a peer: `{peerId, role:"phone"|"host", hostId?}`. JSON frames:
 
 `presence` for a host deleted with `DELETE /hosts/:id` carries `"removed":true`.
 
-The server stamps every phone -> host `offer` with `"family":"rf_.."`, the
-phone's sign-in family (access token `fam`; anything the phone sends there is
-overwritten). When a family is revoked (logout, refresh-token reuse, account
+The server stamps every phone -> host frame (`offer`, `candidate`, `bye`) with
+`"family":"rf_.."`, the phone's sign-in family (access token `fam`), or
+`"family":null` for a token without `fam`; anything the phone sends there is
+overwritten. Hosts refuse to follow a peerId change unless the frame's family
+matches the session's. When a family is revoked (logout, refresh-token reuse, account
 deletion) every host socket of the user gets
-`{"type":"revoked","family":"rf_.."}` and must drop links whose offer carried
-that family. Phone sockets of that family close with 4005 (not on account
+`{"type":"revoked","family":"rf_.."}` and must drop links whose frames carried
+that family. The room keeps revocations for 30 min and replays them in every
+host `welcome` as `"revokedFamilies":["rf_..",...]`, so a host that missed the
+frame still drops those links. Phones of a revoked family cannot connect
+(401) and any frame they send closes the socket with 4005. Phone sockets of that family close with 4005 (not on account
 deletion, which closes everything with 4004 after the `revoked` frames).
 Error codes: `host_offline` (no socket for that hostId), `peer_offline` (no
 phone with that peerId), `forbidden` (phones send offers, hosts send answers),

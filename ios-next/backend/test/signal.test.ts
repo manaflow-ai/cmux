@@ -26,7 +26,7 @@ async function login() {
   const email = `bot${++seq}-${crypto.randomUUID().slice(0, 8)}@test.cmux.dev`;
   const res = await api("POST", "/v1/auth/test", { body: { email, secret: "test-login-secret" } });
   expect(res.status).toBe(200);
-  return res.json as { accessToken: string; refreshToken: string; user: { id: string } };
+  return res.json as { accessToken: string; refreshToken: string; user: { id: string; email: string } };
 }
 
 async function pairHost(accessToken: string, name = "Mac") {
@@ -266,15 +266,55 @@ describe("signaling", () => {
     expect(phone.closed?.code).toBe(4005);
     expect(welcome.peerId).toMatch(/^p_/);
 
+    // The revoked access token is refused everywhere.
+    expect((await api("GET", "/v1/me", { token: user.accessToken })).status).toBe(401);
+    expect((await api("GET", "/v1/ice", { token: user.accessToken })).status).toBe(401);
+    expect((await worker.fetch(`${BASE}/v1/signal`, { headers: { upgrade: "websocket", authorization: `Bearer ${user.accessToken}` } })).status).toBe(401);
+
+    // A host that reconnects (and so missed the frame) gets it replayed in welcome.
+    const host2 = await connect(hostToken);
+    expect((await host2.next((f) => f.type === "welcome")).revokedFamilies).toEqual([family]);
+    await host.waitClosed();
+    const hostLive = host2;
+
     // Reuse detection on a second sign-in of the same account.
-    const again = await api("POST", "/v1/auth/test", { body: { email: (await api("GET", "/v1/me", { token: user.accessToken })).json.user.email, secret: "test-login-secret" } });
+    const again = await api("POST", "/v1/auth/test", { body: { email: user.user.email, secret: "test-login-secret" } });
     const rotated = await api("POST", "/v1/auth/refresh", { body: { refreshToken: again.json.refreshToken } });
     expect((await api("POST", "/v1/auth/refresh", { body: { refreshToken: rotated.json.refreshToken } })).status).toBe(200);
     // Replaying the first token after its successor rotated is reuse.
     expect((await api("POST", "/v1/auth/refresh", { body: { refreshToken: again.json.refreshToken } })).status).toBe(401);
-    const revoked = await host.next((f) => f.type === "revoked");
+    const revoked = await hostLive.next((f) => f.type === "revoked");
     expect(revoked.family).not.toBe(family);
     expect(revoked.family).toMatch(/^rf_/);
+    hostLive.ws.close(1000);
+  });
+
+  it("stamps the phone's family on every phone -> host frame and ignores phone-supplied values", async () => {
+    const user = await login();
+    const { hostId, hostToken } = await pairHost(user.accessToken);
+    const host = await connect(hostToken);
+    await host.next((f) => f.type === "welcome");
+    const phone = await connect(user.accessToken);
+    await phone.next((f) => f.type === "welcome");
+    phone.send({ type: "offer", to: hostId, sessionId: "s", sdp: "x" });
+    const family = (await host.next((f) => f.type === "offer")).family;
+    expect(family).toMatch(/^rf_/);
+    phone.send({ type: "candidate", to: hostId, sessionId: "s", candidate: "c", family: "rf_evil" });
+    expect((await host.next((f) => f.type === "candidate")).family).toBe(family);
+    phone.send({ type: "bye", to: hostId, sessionId: "s", family: null });
+    expect((await host.next((f) => f.type === "bye")).family).toBe(family);
+    phone.ws.close(1000);
+
+    // A token without `fam` (issued before it existed) gets an explicit null.
+    const { signHs256 } = await import("../src/crypto");
+    const iat = Math.floor(Date.now() / 1000);
+    const legacy = await signHs256("test-jwt-secret-not-for-production", { iss: "cmux-next-mobile", sub: user.user.id, typ: "user", iat, exp: iat + 900 });
+    const old = await connect(legacy);
+    await old.next((f) => f.type === "welcome");
+    old.send({ type: "candidate", to: hostId, sessionId: "s2", candidate: "c", family: "rf_spoof" });
+    const frame = await host.next((f) => f.type === "candidate");
+    expect(frame).toHaveProperty("family", null);
+    old.ws.close(1000);
     host.ws.close(1000);
   });
 });

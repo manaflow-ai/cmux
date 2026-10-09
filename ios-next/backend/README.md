@@ -50,6 +50,12 @@ All bodies are JSON. Errors are `{error:{code,message}}`.
 | GET | `/ice` | user or host | `{iceServers, ttl:3600}`; Cloudflare STUN always, TURN when configured. Users need at least one paired host (403); 300 per hour per sign-in family (JWT `fam`) and per host |
 | GET | `/signal` | user or host | WebSocket; `Authorization: Bearer`. `?token=` still works but is deprecated |
 
+Revoked sign-ins: an access token whose `fam` family is revoked (logout,
+refresh reuse) is refused on every route (401 "session revoked"). Each Worker
+isolate caches family liveness for 30 s and learns its own revocations
+immediately; `/signal` and `/ice` also check the SignalRoom's revocation list,
+which is immediate. Every 429 sends `Retry-After`.
+
 Tokens: access token is an HS256 JWT (15 min, `sub`=userId, `typ`="user",
 `iss`="cmux-next-mobile", secret `JWT_SECRET`). Refresh tokens (`rt_...`,
 60 days), host tokens (`ht_...`), device codes, OAuth one-time codes are opaque
@@ -68,7 +74,11 @@ One `SignalRoom` per user id. Behaviour beyond PROTOCOL.md:
   byes go either way. Violations get `{"type":"error","code":"forbidden"}`.
 - Error codes: `host_offline`, `peer_offline`, `forbidden`, `bad_request`.
   Errors echo `sessionId` when the frame had one.
-- Offers to hosts are stamped with the phone's sign-in `family` (JWT `fam`).
+- Every phone -> host frame is stamped with the phone's sign-in `family`
+  (JWT `fam`, or `null`); phone-supplied values are overwritten.
+- Revocations are stored in the room for 30 min and replayed to hosts in
+  `welcome.revokedFamilies`. Revoked phones cannot connect, and a frame from
+  one closes it with 4005.
   Revoking a family (logout, refresh reuse, account delete) sends hosts
   `{"type":"revoked","family"}` and closes that family's phones with 4005
   (account delete closes everything with 4004 instead).

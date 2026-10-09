@@ -77,6 +77,7 @@ describe("email sign-in", () => {
     }
     const locked = await h.call("POST", "/v1/auth/email/verify", { body: { email: "a@example.com", code, nonce: start.json.nonce } });
     expect(locked.status).toBe(429);
+    expect(locked.headers.get("retry-after")).toBe("60");
   });
 
   it("rejects expired codes and codes for another email", async () => {
@@ -93,7 +94,9 @@ describe("email sign-in", () => {
   it("limits codes per email per hour", async () => {
     const h = harness();
     for (let i = 0; i < 5; i++) expect((await h.call("POST", "/v1/auth/email/start", { body: { email: "a@example.com" } })).status).toBe(200);
-    expect((await h.call("POST", "/v1/auth/email/start", { body: { email: "a@example.com" } })).status).toBe(429);
+    const limited = await h.call("POST", "/v1/auth/email/start", { body: { email: "a@example.com" } });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("3600");
     h.clock.now += 60 * 60 * 1000 + 1;
     expect((await h.call("POST", "/v1/auth/email/start", { body: { email: "a@example.com" } })).status).toBe(200);
   });
@@ -175,6 +178,37 @@ describe("refresh tokens", () => {
     const t = await emailLogin(h);
     h.clock.now += 61 * 24 * 60 * 60 * 1000;
     expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: t.refreshToken } })).status).toBe(401);
+  });
+
+  it("revoked families lose their access tokens (logout and reuse)", async () => {
+    const h = harness();
+    const t = await emailLogin(h);
+    expect((await h.call("GET", "/v1/me", { token: t.accessToken })).status).toBe(200);
+    await h.call("POST", "/v1/auth/logout", { token: t.accessToken, body: { refreshToken: t.refreshToken } });
+    const me = await h.call("GET", "/v1/me", { token: t.accessToken });
+    expect(me.status).toBe(401);
+    expect(me.json.error.message).toBe("session revoked");
+
+    const u = await emailLogin(h);
+    const r1 = await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: u.refreshToken } });
+    expect((await h.call("GET", "/v1/me", { token: r1.json.accessToken })).status).toBe(200);
+    h.clock.now += 31 * 1000;
+    expect((await h.call("POST", "/v1/auth/refresh", { body: { refreshToken: u.refreshToken } })).status).toBe(401);
+    expect((await h.call("GET", "/v1/me", { token: r1.json.accessToken })).status).toBe(401);
+    // Another sign-in of the same user is unaffected.
+    const other = await emailLogin(h);
+    expect((await h.call("GET", "/v1/me", { token: other.accessToken })).status).toBe(200);
+  });
+
+  it("another isolate's revocation is seen within the 30 s cache TTL", async () => {
+    const h = harness();
+    const t = await emailLogin(h);
+    expect((await h.call("GET", "/v1/me", { token: t.accessToken })).status).toBe(200);
+    // Revoke in the database only (as another isolate would).
+    const family = [...h.repo.refreshTokens.values()].find((r) => r.userId === t.user.id)!.familyId;
+    await h.repo.revokeRefreshFamily(family, h.clock.now);
+    h.clock.now += 31 * 1000;
+    expect((await h.call("GET", "/v1/me", { token: t.accessToken })).status).toBe(401);
   });
 
   it("logout revokes the family, with no grace", async () => {

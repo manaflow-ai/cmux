@@ -92,6 +92,9 @@ export class MemoryRepo implements Repo {
     for (const t of this.refreshTokens.values()) if (t.familyId === familyId && t.revokedAt === null) t.revokedAt = now;
   }
 
+  async isRefreshFamilyActive(familyId: string) {
+    return [...this.refreshTokens.values()].some((t) => t.familyId === familyId && t.revokedAt === null);
+  }
   async listActiveRefreshFamilies(userId: string) {
     return [...new Set([...this.refreshTokens.values()].filter((t) => t.userId === userId && t.revokedAt === null).map((t) => t.familyId))];
   }

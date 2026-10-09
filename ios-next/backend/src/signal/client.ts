@@ -20,14 +20,31 @@ export async function onlineHostIds(env: AppEnv, userId: string): Promise<Set<st
  * Per-user sliding-window rate limit kept in the user's SignalRoom.
  * Fails open if the room is unreachable.
  */
-export async function userRateLimit(env: AppEnv, userId: string, key: string, max: number, windowMs: number): Promise<boolean> {
+export interface LimitResult {
+  ok: boolean;
+  /** Seconds until a slot frees up, when !ok. */
+  retryAfter: number;
+  /** The phone's sign-in family is revoked (checked when `family` is passed). */
+  revoked?: boolean;
+}
+
+export async function userRateLimit(
+  env: AppEnv,
+  userId: string,
+  key: string,
+  max: number,
+  windowMs: number,
+  family?: string | null,
+): Promise<LimitResult> {
   try {
     const q = new URLSearchParams({ key, max: String(max), windowMs: String(windowMs) });
+    if (family) q.set("family", family);
     const res = await signalRoom(env, userId).fetch(`https://signal/internal/limit?${q}`, { method: "POST" });
-    return ((await res.json()) as { ok?: boolean }).ok !== false;
+    const body = (await res.json()) as Partial<LimitResult>;
+    return { ok: body.ok !== false, retryAfter: body.retryAfter ?? 60, revoked: body.revoked === true };
   } catch (err) {
     console.error("user rate limit failed", err instanceof Error ? err.message : err);
-    return true;
+    return { ok: true, retryAfter: 0 };
   }
 }
 

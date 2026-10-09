@@ -20,6 +20,9 @@ export const CLOSE_SESSION_REVOKED = 4005;
 
 /** Throttle for hosts.last_seen_at writes while a host is connected. */
 export const LAST_SEEN_INTERVAL_MS = 60 * 1000;
+/** How long revocations are kept and replayed to hosts (access tokens live 15 min). */
+export const REVOKED_RETENTION_MS = 30 * 60 * 1000;
+const REVOKED_KEY = "revoked";
 
 const tagPeer = (peerId: string) => `peer:${peerId}`;
 const tagHost = (hostId: string) => `host:${hostId}`;
@@ -31,6 +34,19 @@ const tagRole = (role: string) => `role:${role}`;
  */
 export class SignalRoom extends DurableObject<AppEnv> {
   private lastSeenWrites = new Map<string, number>();
+  private revokedCache: Record<string, number> | undefined;
+
+  /** Recently revoked sign-in families, pruned to REVOKED_RETENTION_MS. */
+  private async revoked(): Promise<Record<string, number>> {
+    this.revokedCache ??= (await this.ctx.storage.get<Record<string, number>>(REVOKED_KEY)) ?? {};
+    const cutoff = Date.now() - REVOKED_RETENTION_MS;
+    for (const [f, at] of Object.entries(this.revokedCache)) if (at < cutoff) delete this.revokedCache[f];
+    return this.revokedCache;
+  }
+
+  private async isRevoked(family: string | undefined): Promise<boolean> {
+    return family !== undefined && (await this.revoked())[family] !== undefined;
+  }
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env);
@@ -41,7 +57,7 @@ export class SignalRoom extends DurableObject<AppEnv> {
     const url = new URL(request.url);
     switch (url.pathname) {
       case "/connect":
-        return this.acceptPeer(request);
+        return await this.acceptPeer(request);
       case "/internal/online":
         return Response.json({ hostIds: this.onlineHostIds() });
       case "/internal/host-removed": {
@@ -55,6 +71,9 @@ export class SignalRoom extends DurableObject<AppEnv> {
         return Response.json({});
       case "/internal/revoked": {
         const { families, closePhones } = (await request.json()) as { families: string[]; closePhones?: boolean };
+        const revoked = await this.revoked();
+        for (const family of families) revoked[family] = Date.now();
+        await this.ctx.storage.put(REVOKED_KEY, revoked);
         for (const family of families) {
           this.broadcastToHosts({ type: "revoked", family });
           if (closePhones !== false) for (const ws of this.ctx.getWebSockets(tagRole("phone"))) {
@@ -63,14 +82,19 @@ export class SignalRoom extends DurableObject<AppEnv> {
         }
         return Response.json({});
       }
-      case "/internal/limit":
+      case "/internal/limit": {
+        const family = url.searchParams.get("family") ?? undefined;
+        if (await this.isRevoked(family)) return Response.json({ ok: false, revoked: true, retryAfter: 0 });
         return Response.json(await this.limit(url));
+      }
+      case "/internal/family-revoked":
+        return Response.json({ revoked: await this.isRevoked(url.searchParams.get("family") ?? undefined) });
       default:
         return new Response("not found", { status: 404 });
     }
   }
 
-  private acceptPeer(request: Request): Response {
+  private async acceptPeer(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 });
     const role = request.headers.get(HEADER_ROLE);
     const userId = request.headers.get(HEADER_USER);
@@ -89,6 +113,9 @@ export class SignalRoom extends DurableObject<AppEnv> {
     const expiresAt = Number(request.headers.get(HEADER_EXPIRES));
     if (role === "phone" && !(expiresAt > Date.now())) return new Response("token expired", { status: 401 });
     const family = request.headers.get(HEADER_FAMILY) ?? undefined;
+    if (role === "phone" && (await this.isRevoked(family))) {
+      return Response.json({ error: { code: "unauthorized", message: "session revoked" } }, { status: 401 });
+    }
     const peer: PeerInfo = role === "host" ? { peerId, role, hostId, userId } : { peerId, role, userId, expiresAt, ...(family ? { family } : {}) };
     const replaced = role === "host" ? this.ctx.getWebSockets(tagHost(hostId!)) : [];
 
@@ -104,7 +131,9 @@ export class SignalRoom extends DurableObject<AppEnv> {
 
     const online = new Set(this.onlineHostIds());
     const hosts = [...new Set([...knownHosts, ...online])].map((id) => ({ hostId: id, online: online.has(id) }));
-    server.send(JSON.stringify({ type: "welcome", peerId, hosts }));
+    // Hosts get recent revocations so they can drop links even if they missed the `revoked` frame.
+    const welcome = role === "host" ? { type: "welcome", peerId, hosts, revokedFamilies: Object.keys(await this.revoked()) } : { type: "welcome", peerId, hosts };
+    server.send(JSON.stringify(welcome));
 
     if (role === "host") {
       this.broadcastToPhones({ type: "presence", hostId, online: true });
@@ -141,13 +170,13 @@ export class SignalRoom extends DurableObject<AppEnv> {
   }
 
   /** Sliding-window counter per key, stored in this user's room. */
-  private async limit(url: URL): Promise<{ ok: boolean }> {
+  private async limit(url: URL): Promise<{ ok: boolean; retryAfter?: number }> {
     const key = `limit:${url.searchParams.get("key") ?? ""}`;
     const max = Number(url.searchParams.get("max"));
     const windowMs = Number(url.searchParams.get("windowMs"));
     const now = Date.now();
     const hits = ((await this.ctx.storage.get<number[]>(key)) ?? []).filter((t) => t > now - windowMs);
-    if (hits.length >= max) return { ok: false };
+    if (hits.length >= max) return { ok: false, retryAfter: Math.ceil((hits[0]! + windowMs - now) / 1000) };
     hits.push(now);
     await this.ctx.storage.put(key, hits);
     return { ok: true };
@@ -158,6 +187,10 @@ export class SignalRoom extends DurableObject<AppEnv> {
     if (!sender) return;
     if (sender.expiresAt !== undefined && sender.expiresAt <= Date.now()) {
       safeClose(ws, CLOSE_TOKEN_EXPIRED, "access token expired");
+      return;
+    }
+    if (sender.role === "phone" && (await this.isRevoked(sender.family))) {
+      safeClose(ws, CLOSE_SESSION_REVOKED, "session revoked");
       return;
     }
     const frame = parseRelayFrame(message);
@@ -177,8 +210,10 @@ export class SignalRoom extends DurableObject<AppEnv> {
     if (targets.length === 0) {
       send(ws, errorFrame(role === "host" ? "host_offline" : "peer_offline", `${frame.to} is not connected`, frame.sessionId));
     } else {
-      // Offers carry the phone's sign-in family so hosts can drop the link on `revoked`.
-      const stamped = frame.type === "offer" && sender.family ? { ...frame, family: sender.family } : frame;
+      // Every phone frame carries the phone's sign-in family (null for tokens
+      // without `fam`), overwriting anything the phone sent, so hosts can tie a
+      // session to a family and drop it on `revoked`.
+      const stamped = sender.role === "phone" ? { ...frame, family: sender.family ?? null } : frame;
       const out = JSON.stringify({ ...stamped, from: addressOf(sender) });
       for (const t of targets) send(t, out);
     }

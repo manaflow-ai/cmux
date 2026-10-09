@@ -1,4 +1,4 @@
-import { badRequest, ApiError } from "./errors";
+import { badRequest, rateLimited } from "./errors";
 import type { Ctx } from "./context";
 
 export async function readJson(c: Ctx): Promise<Record<string, unknown>> {
@@ -31,7 +31,8 @@ export async function rateLimit(c: Ctx, group: string): Promise<void> {
   if (!limiter) return;
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   const { success } = await limiter.limit({ key: `${group}:${ip}` });
-  if (!success) throw new ApiError("rate_limited", "too many requests");
+  // The binding's window is 60 s.
+  if (!success) throw rateLimited("too many requests", 60);
 }
 
 export function bearer(c: Ctx): string | undefined {

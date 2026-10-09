@@ -104,6 +104,8 @@ export interface Repo {
   revokeRefreshFamily(familyId: string, now: number): Promise<void>;
   /** Families with at least one unrevoked token. */
   listActiveRefreshFamilies(userId: string): Promise<string[]>;
+  /** True while the family has at least one unrevoked token. */
+  isRefreshFamilyActive(familyId: string): Promise<boolean>;
 
   // hosts
   createHost(host: Host): Promise<void>;

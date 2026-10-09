@@ -30,6 +30,7 @@ describe("host pairing (device code)", () => {
     const limited = await h.call("POST", "/v1/hosts/pair/approve", { token: user.accessToken, body: { userCode: start.json.userCode } });
     expect(limited.status).toBe(429);
     expect(limited.json.error.code).toBe("rate_limited");
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(500);
     // Another user is unaffected.
     const other = await emailLogin(h, "other@example.com");
     expect((await h.call("POST", "/v1/hosts/pair/approve", { token: other.accessToken, body: { userCode: start.json.userCode } })).status).toBe(200);
@@ -171,6 +172,9 @@ describe("/ice", () => {
     const limited = await h.call("GET", "/v1/ice", { token: user.accessToken });
     expect(limited.status).toBe(429);
     expect(limited.json.error.code).toBe("rate_limited");
+    const retry = Number(limited.headers.get("retry-after"));
+    expect(retry).toBeGreaterThan(3500);
+    expect(retry).toBeLessThanOrEqual(3600);
     // Another phone (another sign-in of the same user) has its own budget.
     const otherPhone = await emailLogin(h, "a@example.com");
     expect((await h.call("GET", "/v1/ice", { token: otherPhone.accessToken })).status).toBe(200);

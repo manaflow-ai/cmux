@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { requireUser } from "../auth";
 import type { HonoEnv } from "../context";
 import { randomCode, randomId, randomToken, sha256Hex } from "../crypto";
-import { ApiError, notFound } from "../errors";
+import { ApiError, notFound, rateLimited } from "../errors";
 import { rateLimit, readJson, str } from "../http";
 import type { Host } from "../repo/types";
 import { notifyHostRemoved, onlineHostIds, userRateLimit } from "../signal/client";
@@ -79,9 +79,8 @@ hostRoutes.post("/pair/poll", async (c) => {
 
 hostRoutes.post("/pair/approve", requireUser, async (c) => {
   const { repo, deps, principal } = c.var;
-  if (!(await userRateLimit(c.env, principal.userId, "pair-approve", APPROVE_LIMIT, APPROVE_WINDOW_MS))) {
-    throw new ApiError("rate_limited", "too many pairing attempts; try again later");
-  }
+  const limit = await userRateLimit(c.env, principal.userId, "pair-approve", APPROVE_LIMIT, APPROVE_WINDOW_MS);
+  if (!limit.ok) throw rateLimited("too many pairing attempts; try again later", limit.retryAfter);
   const userCode = normalizeUserCode(str(await readJson(c), "userCode", { max: 32 }));
   // The host shows the approver's email for confirmation; it must be recognizable.
   const approver = await repo.getUser(principal.userId);

@@ -174,6 +174,9 @@ export class PlanetScaleRepo implements Repo {
     await this.run("UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL", [now, familyId]);
   }
 
+  async isRefreshFamilyActive(familyId: string) {
+    return (await this.one("SELECT 1 AS ok FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL LIMIT 1", [familyId])) !== null;
+  }
   async listActiveRefreshFamilies(userId: string) {
     return (await this.all("SELECT DISTINCT family_id FROM refresh_tokens WHERE user_id = ? AND revoked_at IS NULL", [userId])).map((r) => String(r.family_id));
   }

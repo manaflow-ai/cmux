@@ -97,7 +97,10 @@ export function createApp(overrides: Partial<Deps> = {}) {
 
   app.notFound((c) => c.json(errorBody("not_found", "not found"), 404));
   app.onError((err, c) => {
-    if (err instanceof ApiError) return c.json(errorBody(err.code, err.message), err.status);
+    if (err instanceof ApiError) {
+      if (err.code === "rate_limited") c.header("retry-after", String(err.retryAfter ?? 60));
+      return c.json(errorBody(err.code, err.message), err.status);
+    }
     console.error("unhandled", err instanceof Error ? (err.stack ?? err.message) : err);
     return c.json(errorBody("internal", "internal error"), 500);
   });

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { requireUserOrHost } from "../auth";
 import type { HonoEnv } from "../context";
 import { turnConfigured } from "../env";
-import { ApiError } from "../errors";
+import { ApiError, rateLimited, unauthorized } from "../errors";
 import { userRateLimit } from "../signal/client";
 
 export const STUN_URL = "stun:stun.cloudflare.com:3478";
@@ -41,7 +41,9 @@ iceRoutes.get("/", requireUserOrHost, async (c) => {
     throw new ApiError("forbidden", "pair a host first");
   }
   const key = principal.kind === "host" ? `ice:host:${principal.hostId}` : `ice:fam:${principal.family ?? "none"}`;
-  if (!(await userRateLimit(c.env, principal.userId, key, ICE_LIMIT, ICE_WINDOW_MS))) throw new ApiError("rate_limited", "too many ICE requests");
+  const limit = await userRateLimit(c.env, principal.userId, key, ICE_LIMIT, ICE_WINDOW_MS, principal.kind === "user" ? principal.family : null);
+  if (limit.revoked) throw unauthorized("session revoked");
+  if (!limit.ok) throw rateLimited("too many ICE requests", limit.retryAfter);
   const iceServers: IceServer[] = [{ urls: [STUN_URL] }];
   if (turnConfigured(c.env)) {
     try {

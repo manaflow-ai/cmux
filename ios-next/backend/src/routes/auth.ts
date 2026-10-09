@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { verifyAppleIdentityToken } from "../apple";
-import { issueTokens, jwtSecret, requireUser, resolveUser, rotateRefreshToken, userView } from "../auth";
+import { issueTokens, jwtSecret, markFamilyRevoked, requireUser, resolveUser, rotateRefreshToken, userView } from "../auth";
 import type { HonoEnv } from "../context";
 import { CODE_ALPHABET, hmacHex, randomCode, randomToken, sha256Hex, timingSafeEqual } from "../crypto";
 import { csv, stackProjects } from "../env";
 import { fetchStackUser, verifyStackAccessToken } from "../stack";
 import { notifyFamiliesRevoked } from "../signal/client";
-import { ApiError, badRequest, notFound, unauthorized, unavailable, unsupported } from "../errors";
+import { ApiError, badRequest, notFound, rateLimited, unauthorized, unavailable, unsupported } from "../errors";
 import { rateLimit, readJson, str } from "../http";
 
 export const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
@@ -33,7 +33,7 @@ authRoutes.post("/email/start", async (c) => {
   const email = normalizeEmail(str(await readJson(c), "email", { max: 320 }));
   const now = deps.now();
   if ((await repo.countEmailCodesSince(email, now - 60 * 60 * 1000)) >= EMAIL_CODES_PER_HOUR) {
-    throw new ApiError("rate_limited", "too many codes requested; try again later");
+    throw rateLimited("too many codes requested; try again later", 60 * 60);
   }
   const nonce = randomToken("en", 16);
   const code = randomCode(6, CODE_ALPHABET);
@@ -68,7 +68,7 @@ authRoutes.post("/email/verify", async (c) => {
   const row = await repo.getEmailCode(nonce);
   if (!row || row.email !== email || row.consumedAt !== null || row.expiresAt <= now) throw unauthorized("invalid or expired code");
   if (!(await repo.incrementEmailCodeAttempts(nonce, EMAIL_CODE_MAX_ATTEMPTS))) {
-    throw new ApiError("rate_limited", "too many attempts; request a new code");
+    throw rateLimited("too many attempts; request a new code", 60);
   }
   if (!timingSafeEqual(await hmacHex(secret, `${nonce}:${code}`), row.codeHash)) throw unauthorized("invalid or expired code");
   if (!(await repo.consumeEmailCode(nonce, now))) throw unauthorized("invalid or expired code");
@@ -183,6 +183,7 @@ authRoutes.post("/logout", requireUser, async (c) => {
     const row = await repo.getRefreshToken(await sha256Hex(refreshToken));
     if (row && row.userId === principal.userId) {
       await repo.revokeRefreshFamily(row.familyId, deps.now());
+      markFamilyRevoked(row.familyId, deps.now());
       await notifyFamiliesRevoked(c.env, principal.userId, [row.familyId]);
     }
   }

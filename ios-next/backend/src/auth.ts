@@ -93,6 +93,7 @@ export async function rotateRefreshToken(
 
   const reuse = async (): Promise<never> => {
     await repo.revokeRefreshFamily(row.familyId, now);
+    markFamilyRevoked(row.familyId, now);
     await onRevoked(row.userId, row.familyId);
     throw unauthorized("refresh token reused");
   };
@@ -188,6 +189,24 @@ export async function resolveUser(repo: Repo, id: ExternalIdentity, now: number)
   return created ? user : fillName(user);
 }
 
+/** Per-isolate cache of family liveness, so most requests skip the database. */
+export const FAMILY_CACHE_TTL_MS = 30 * 1000;
+const familyCache = new Map<string, { active: boolean; at: number }>();
+
+/** Records a revocation in this isolate immediately (other isolates catch up within the TTL). */
+export function markFamilyRevoked(familyId: string, now: number): void {
+  familyCache.set(familyId, { active: false, at: now });
+}
+
+async function familyActive(repo: Repo, familyId: string, now: number): Promise<boolean> {
+  const hit = familyCache.get(familyId);
+  if (hit && (!hit.active || now - hit.at < FAMILY_CACHE_TTL_MS)) return hit.active;
+  const active = await repo.isRefreshFamilyActive(familyId);
+  if (familyCache.size > 10_000) familyCache.clear();
+  familyCache.set(familyId, { active, at: now });
+  return active;
+}
+
 async function authenticate(c: Parameters<MiddlewareHandler<HonoEnv>>[0], token: string | undefined, allowHost: boolean): Promise<Principal> {
   if (!token) throw unauthorized("missing bearer token");
   const { deps, repo } = c.var;
@@ -199,6 +218,8 @@ async function authenticate(c: Parameters<MiddlewareHandler<HonoEnv>>[0], token:
   }
   const verified = await verifyAccessToken(jwtSecret(c.env), token, deps.now());
   if (!verified) throw unauthorized("invalid or expired access token");
+  // A revoked sign-in (logout, refresh reuse) loses its access tokens too.
+  if (verified.family && !(await familyActive(repo, verified.family, deps.now()))) throw unauthorized("session revoked");
   return { kind: "user", userId: verified.userId, expiresAt: verified.exp, family: verified.family };
 }
 

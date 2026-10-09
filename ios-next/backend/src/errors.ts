@@ -27,11 +27,16 @@ export class ApiError extends Error {
     readonly code: ErrorCode,
     message: string,
     status?: ContentfulStatusCode,
+    /** Seconds; sent as Retry-After. Defaults to 60 for rate_limited. */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.status = status ?? STATUS[code];
   }
 }
+
+export const rateLimited = (message: string, retryAfterSeconds = 60) =>
+  new ApiError("rate_limited", message, undefined, Math.max(1, Math.ceil(retryAfterSeconds)));
 
 export const badRequest = (message: string) => new ApiError("bad_request", message);
 export const unauthorized = (message = "unauthorized") => new ApiError("unauthorized", message);
