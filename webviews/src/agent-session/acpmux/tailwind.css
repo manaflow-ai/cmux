@@ -31,5 +31,6 @@
   --color-menu: var(--acpmux-menu-bg);
   --color-base: var(--acpmux-base);
   --color-accent: var(--agent-accent);
+  --color-warning: var(--acpmux-warning);
   --shadow-menu: inset 0 0 0 0.5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / 0.35));
 }

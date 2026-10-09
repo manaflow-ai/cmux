@@ -35,7 +35,9 @@ const one: PermissionGroup = {
     {
       permissionId: "p",
       state: "pending",
-      request: { toolCall: { title: "cmux harness guide", kind: "execute", rawInput: { command: "cmux harness guide" } } },
+      request: {
+        toolCall: { title: "cmux harness guide", kind: "execute", rawInput: { command: "cmux harness guide" } },
+      },
     },
   ],
 };
