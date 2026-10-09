@@ -155,7 +155,7 @@ final class FlightRecorder: NSObject {
         let slot = head
         sample(c, v, now, into: slot)
         let t1 = CACurrentMediaTime()
-        samples[slot].frames = stride
+        samples.update(at: slot) { $0.frames = stride } // cmux: checked
         head = (head + 1) % FlightRecorder.capacity
         filled = min(filled + 1, FlightRecorder.capacity)
         if now - lastSend < 10 { detect(slot, v) }
@@ -165,8 +165,8 @@ final class FlightRecorder: NSObject {
         // A slow tick (above 2 ms): its phases, for the bench.
         if t3 - now > 0.002 {
             FlightRecorder.slowTicks.append(["sampleMs": (t1 - now) * 1000, "detectMs": (t2 - t1) * 1000, "agesMs": (t3 - t2) * 1000,
-                                             "rows": Double(samples[slot].rowCount), "keys": Double(keyNames.count),
-                                             "morphs": Double(samples[slot].morphCount), "dumped": now - lastDump < 0.01 ? 1 : 0])
+                                             "rows": Double(samples[checked: slot]?.rowCount ?? 0), "keys": Double(keyNames.count), // cmux: checked
+                                             "morphs": Double(samples[checked: slot]?.morphCount ?? 0), "dumped": now - lastDump < 0.01 ? 1 : 0])
             if FlightRecorder.slowTicks.count > 8 { FlightRecorder.slowTicks.removeFirst() }
         }
         let busy = v.isAnimating || now - lastSend < 10 || pendingFinding != nil
@@ -175,8 +175,8 @@ final class FlightRecorder: NSObject {
 
     private func intern(_ key: String) -> Int32 {
         if let id = keyIDs[key] { return id }
-        let id = Int32(keyNames.count)
-        keyIDs[key] = id; keyNames.append(key)
+        let id = Int32(clamping: keyNames.count) // cmux: no trapping conversion
+        keyIDs.updateValue(id, forKey: key); keyNames.append(key) // cmux: dictionary write
         age.append(0); lastFrame.append(-2); lastY.append(0); lastOpacity.append(0)
         return id
     }
@@ -216,7 +216,7 @@ final class FlightRecorder: NSObject {
             let entries = v.ledger.live(spec.key)
             if FlightRecorder.verifyMath {
                 let ip = v.collection.indexPath(for: cell)?.item
-                let mk = ip.flatMap { $0 < v.model.count ? v.model.rows[$0].spec.key : nil } ?? "-"
+                let mk = ip.flatMap { v.model.rows[checked: $0]?.spec.key } ?? "-" // cmux: checked
                 FlightRecorder.verifyKey = "\(spec.key) cellKey \(cell.key) cell \(ObjectIdentifier(cell).hashValue % 100000) ip \(ip ?? -1) modelKeyAtIp \(mk) modelIndex \(v.model.index[spec.key] ?? -1) frameY \(cell.frame.minY)"
                 if spec.key != mk || cell.key != spec.key, FlightRecorder.verifyLog.count < 24 { FlightRecorder.verifyLog.append("MISMATCH " + FlightRecorder.verifyKey) }
             }
@@ -230,8 +230,9 @@ final class FlightRecorder: NSObject {
             let op = Float(presented(content, "opacity", .content, entries, cell.applied, lnow) ?? Double((content.presentation() ?? content).opacity))
             let id = intern(spec.key)
             let hasBitmap = cell.bitmap.contents != nil
-            rows[base + n] = RawRow(id: id, x: x, y: y, w: Float(cl.bounds.width), h: Float(cl.bounds.height), opacity: op,
-                                    hasBitmap: hasBitmap, bitmapID: cell.bitmap.contents.map { ObjectIdentifier($0 as AnyObject).hashValue } ?? 0)
+            let raw = RawRow(id: id, x: x, y: y, w: Float(cl.bounds.width), h: Float(cl.bounds.height), opacity: op,
+                             hasBitmap: hasBitmap, bitmapID: cell.bitmap.contents.map { ObjectIdentifier($0 as AnyObject).hashValue } ?? 0)
+            rows.update(at: base + n) { $0 = raw } // cmux: checked
             n += 1
             spans.append((y, y + Float(cl.bounds.height)))
             if let firstKey, spec.key == firstKey { coverStart = max(top, y) }
@@ -252,9 +253,11 @@ final class FlightRecorder: NSObject {
                     let gy0 = chain + Float(gpy - g.bounds.height * g.anchorPoint.y), gy1 = gy0 + Float(g.bounds.height)
                     if by0 < gy0 - 0.5 || by1 > gy1 + 0.5 {
                         s.unfilledID = id
-                        var h = Hasher(); h.combine(id); h.combine(Int(by0)); h.combine(Int(by1)); h.combine(Int(gy0)); h.combine(Int(gy1))
+                        // cmux: point values via CrashGuard.int (no trap on NaN); dictionary write.
+                        let (b0, b1, g0, g1) = (CrashGuard.int(Double(by0)), CrashGuard.int(Double(by1)), CrashGuard.int(Double(gy0)), CrashGuard.int(Double(gy1)))
+                        var h = Hasher(); h.combine(id); h.combine(b0); h.combine(b1); h.combine(g0); h.combine(g1)
                         s.unfilledSig = h.finalize()
-                        unfilledText[id] = "\(spec.key) body \(Int(by0))-\(Int(by1)) fill \(Int(gy0))-\(Int(gy1))"
+                        unfilledText.updateValue("\(spec.key) body \(b0)-\(b1) fill \(g0)-\(g1)", forKey: id)
                     }
                 }
             }
@@ -277,11 +280,12 @@ final class FlightRecorder: NSObject {
             // root view cost up to 8 ms with 4 morphs in flight).
             let b = mb.bubble
             let r = b.convert(b.bounds, to: v.layer)
-            morphRows[mbase + m] = RawRow(id: intern(k), x: Float(r.minX), y: Float(r.minY), w: Float(r.width), h: Float(r.height))
+            let raw = RawRow(id: intern(k), x: Float(r.minX), y: Float(r.minY), w: Float(r.width), h: Float(r.height))
+            morphRows.update(at: mbase + m) { $0 = raw } // cmux: checked
             m += 1
         }
         s.morphCount = m
-        samples[slot] = s
+        samples.update(at: slot) { $0 = s } // cmux: checked
     }
 
     /// A layer's presented value of `keyPath` from its model value plus the motion ledger's
@@ -343,10 +347,13 @@ final class FlightRecorder: NSObject {
     /// Ages and last positions for the next frame (every frame, detector or not).
     private func updateAges(_ slot: Int) {
         let base = slot * FlightRecorder.maxRows
-        for i in 0..<samples[slot].rowCount {
-            let r = rows[base + i], id = Int(r.id)
-            age[id] = lastFrame[id] == frameNo - 1 ? age[id] + 1 : 1
-            lastFrame[id] = frameNo; lastY[id] = r.y; lastOpacity[id] = r.opacity
+        // cmux: checked reads and in-place updates (crash program).
+        for i in 0..<max(0, samples[checked: slot]?.rowCount ?? 0) {
+            guard let r = rows[checked: base + i] else { continue }
+            let id = Int(truncatingIfNeeded: r.id)
+            let next: Int32 = lastFrame[checked: id] == frameNo - 1 ? (age[checked: id] ?? 0) + 1 : 1
+            age.update(at: id) { $0 = next }
+            lastFrame.update(at: id) { $0 = frameNo }; lastY.update(at: id) { $0 = r.y }; lastOpacity.update(at: id) { $0 = r.opacity }
         }
         previousSlot = slot
     }
@@ -358,10 +365,10 @@ final class FlightRecorder: NSObject {
         let top = Fixture.headerHeight, bottom = v.fieldTop, b = v.collection.bounds
         let originY = v.collection.frame.minY
         for case let cell as RowCell in v.collection.visibleCells {
-            guard let spec = cell.spec, let id = keyIDs[spec.key], age[Int(id)] > 2 else { continue }
+            guard let spec = cell.spec, let id = keyIDs[spec.key], (age[checked: Int(truncatingIfNeeded: id)] ?? 0) > 2 else { continue } // cmux
             let y = originY + cell.frame.minY - b.minY
             guard y + cell.frame.height > top, y < bottom, v.morphs[spec.key] == nil else { continue }
-            guard let i = v.model.index[spec.key], !v.model.rows[i].ghost else { continue }
+            guard let i = v.model.index[spec.key], v.model.rows[checked: i]?.ghost == false else { continue } // cmux: checked
             var f: String?
             if cell.isHidden { f = "row \(spec.key) hidden (model)" }
             else if cell.bitmap.contents == nil, cell.tiled?.isActive != true, !RowCell.deferredKeys.contains(spec.key) { f = "row \(spec.key) has no bitmap (model)" }
@@ -374,49 +381,51 @@ final class FlightRecorder: NSObject {
     }
 
     private func detect(_ slot: Int, _ v: MessagesWindowView) {
-        let s = samples[slot], base = slot * FlightRecorder.maxRows
+        guard let s = samples[checked: slot] else { return } // cmux: checked
+        let base = slot * FlightRecorder.maxRows
         var findings: [String] = []
         let top = Float(Fixture.headerHeight), bottom = Float(v.fieldTop)
         func isMorph(_ id: Int32) -> Bool {
             let mb = slot * FlightRecorder.maxMorphs
-            for k in 0..<s.morphCount where morphRows[mb + k].id == id { return true }
+            for k in 0..<max(0, s.morphCount) where morphRows[checked: mb + k]?.id == id { return true } // cmux
             return false
         }
         func liveRow(_ id: Int32) -> Bool {
-            guard let i = v.model.index[keyNames[Int(id)]] else { return false }
-            return !v.model.rows[i].ghost
+            guard let name = keyNames[checked: Int(truncatingIfNeeded: id)], let i = v.model.index[name] else { return false } // cmux
+            return v.model.rows[checked: i]?.ghost == false
         }
         // Age as of this frame (the stored age is from the previous frame).
-        func ageNow(_ id: Int) -> Int32 { lastFrame[id] == frameNo - 1 ? age[id] + 1 : 1 }
-        for i in 0..<s.rowCount {
-            let r = rows[base + i]
-            guard ageNow(Int(r.id)) > 2, !isMorph(r.id), r.y + r.h > top, r.y < bottom else { continue }
-            if !r.hasBitmap && r.opacity > 0.05 && liveRow(r.id) { findings.append("row \(keyNames[Int(r.id)]) has no bitmap") }
+        // cmux: checked reads (crash program); a row whose id is unknown is skipped.
+        func ageNow(_ id: Int) -> Int32 { lastFrame[checked: id] == frameNo - 1 ? (age[checked: id] ?? 0) + 1 : 1 }
+        let sampleRows = (0..<max(0, s.rowCount)).compactMap { rows[checked: base + $0] }
+        for r in sampleRows {
+            guard ageNow(Int(truncatingIfNeeded: r.id)) > 2, !isMorph(r.id), r.y + r.h > top, r.y < bottom else { continue }
+            if !r.hasBitmap && r.opacity > 0.05 && liveRow(r.id) { findings.append("row \(keyNames[checked: Int(truncatingIfNeeded: r.id)] ?? "?") has no bitmap") }
         }
-        if previousSlot >= 0, samples[previousSlot].t > 0 {
-            let p = samples[previousSlot]
+        if previousSlot >= 0, let p = samples[checked: previousSlot], p.t > 0 {
             dys.removeAll(keepingCapacity: true)
-            for i in 0..<s.rowCount {
-                let r = rows[base + i], id = Int(r.id)
-                if lastFrame[id] == frameNo - 1, ageNow(id) > 2 { dys.append(r.y - lastY[id]) }
+            for r in sampleRows {
+                let id = Int(truncatingIfNeeded: r.id)
+                if lastFrame[checked: id] == frameNo - 1, ageNow(id) > 2, let ly = lastY[checked: id] { dys.append(r.y - ly) }
             }
             dys.sort()
-            let med = dys.isEmpty ? 0 : dys[dys.count / 2]
-            for i in 0..<s.rowCount {
-                let r = rows[base + i], id = Int(r.id)
-                guard lastFrame[id] == frameNo - 1, ageNow(id) > 2, !isMorph(r.id), !keyNames[id].hasPrefix("typing") else { continue }
+            let med = dys.isEmpty ? 0 : dys[checked: dys.count / 2] ?? 0
+            for r in sampleRows {
+                let id = Int(truncatingIfNeeded: r.id)
+                guard lastFrame[checked: id] == frameNo - 1, ageNow(id) > 2, !isMorph(r.id), let name = keyNames[checked: id], !name.hasPrefix("typing"),
+                      let ly = lastY[checked: id], let lo = lastOpacity[checked: id] else { continue }
                 // An invisible row (a ghost fading out, a row under a hold) moving differently shows nothing.
                 // 12 pt per display frame between samples (the stride spreads a sample's motion).
-                if r.opacity > 0.05 || lastOpacity[id] > 0.05, abs((r.y - lastY[id]) - med) > 12 * Float(s.frames) {
-                    findings.append("row \(keyNames[id]) jumps \(Int(r.y - lastY[id] - med)) pt")
+                if r.opacity > 0.05 || lo > 0.05, abs((r.y - ly) - med) > 12 * Float(s.frames) {
+                    findings.append("row \(name) jumps \(CrashGuard.int(Double(r.y - ly - med))) pt")
                 }
-                if lastOpacity[id] > 0.98 && r.opacity < 0.5, liveRow(r.id) {
-                    findings.append("row \(keyNames[id]) opacity \(lastOpacity[id]) -> \(r.opacity)")
+                if lo > 0.98 && r.opacity < 0.5, liveRow(r.id) {
+                    findings.append("row \(name) opacity \(lo) -> \(r.opacity)")
                 }
             }
             // Gaps and unfilled bubbles: two samples in a row (one sample can be read before
             // that turn's layout pass).
-            if s.hasGap && p.hasGap { findings.append("gap \(Int(s.gap0))-\(Int(s.gap1)) pt") }
+            if s.hasGap && p.hasGap { findings.append("gap \(CrashGuard.int(Double(s.gap0)))-\(CrashGuard.int(Double(s.gap1))) pt") }
             if s.unfilledID >= 0, s.unfilledID == p.unfilledID, s.unfilledSig == p.unfilledSig { findings.append("unfilled \(unfilledText[s.unfilledID] ?? "")") }
         }
         guard let f = findings.first else { return }
@@ -441,23 +450,24 @@ final class FlightRecorder: NSObject {
         screenName = c.window?.screen?.localizedName ?? "?"  // cmux: the pane's window is optional
         screenHz = c.window?.screen?.maximumFramesPerSecond ?? 0
         let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
-        let t0 = order.first.map { self.samples[$0].t } ?? CACurrentMediaTime()
+        let t0 = order.first.flatMap { self.samples[checked: $0]?.t } ?? CACurrentMediaTime() // cmux: checked
         // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
         let (samples, rows, morphRows, keyNames, unfilledText, screenName, screenHz) =
             (self.samples, self.rows, self.morphRows, self.keyNames, self.unfilledText, self.screenName, self.screenHz)
         FlightRecorder.dumpQueue.async {
         var lines: [String] = []
         for slot in order {
-            let s = samples[slot], base = slot * FlightRecorder.maxRows, mbase = slot * FlightRecorder.maxMorphs
+            guard let s = samples[checked: slot] else { continue } // cmux: checked
+            let base = slot * FlightRecorder.maxRows, mbase = slot * FlightRecorder.maxMorphs
             let obj: [String: Any] = [
                 "t": s.t - t0, "offset": Double(s.offset), "key": s.key, "screen": screenName, "hz": screenHz,
-                "rows": (0..<s.rowCount).map { i -> [Any] in
-                    let r = rows[base + i]
-                    return [keyNames[Int(r.id)], Double(r.x), Double(r.y), Double(r.w), Double(r.h), Double(r.opacity), r.hasBitmap ? 1 : 0, r.bitmapID]
+                "rows": (0..<max(0, s.rowCount)).compactMap { i -> [Any]? in // cmux: checked
+                    guard let r = rows[checked: base + i] else { return nil }
+                    return [keyNames[checked: Int(truncatingIfNeeded: r.id)] ?? "?", Double(r.x), Double(r.y), Double(r.w), Double(r.h), Double(r.opacity), r.hasBitmap ? 1 : 0, r.bitmapID]
                 },
-                "morphs": (0..<s.morphCount).map { i -> [Any] in
-                    let r = morphRows[mbase + i]
-                    return [keyNames[Int(r.id)], Double(r.x), Double(r.y), Double(r.w), Double(r.h)]
+                "morphs": (0..<max(0, s.morphCount)).compactMap { i -> [Any]? in // cmux: checked
+                    guard let r = morphRows[checked: mbase + i] else { return nil }
+                    return [keyNames[checked: Int(truncatingIfNeeded: r.id)] ?? "?", Double(r.x), Double(r.y), Double(r.w), Double(r.h)]
                 },
                 "gaps": s.hasGap ? [[Double(s.gap0), Double(s.gap1)]] : [],
                 "unfilled": s.unfilledID >= 0 ? [unfilledText[s.unfilledID] ?? ""] : [],
@@ -482,7 +492,7 @@ final class FlightRecorder: NSObject {
     /// About 0.5 s of window captures, one per display frame, off the main thread.
     private func burst(_ dir: String, _ c: ChatController, count: Int) {
         guard let window = c.window else { return }  // cmux: the pane's window is optional
-        let wid = UInt32(window.windowNumber)
+        guard let wid = UInt32(exactly: window.windowNumber) else { return } // cmux: no trapping conversion
         let q = DispatchQueue(label: "flight.burst", qos: .utility)
         let start = CACurrentMediaTime()
         var i = 0

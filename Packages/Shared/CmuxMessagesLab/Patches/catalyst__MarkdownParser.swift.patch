@@ -1,40 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
-@@ -12,6 +12,33 @@
- // Top-level blocks carry their source line range, so a stream re-parses only
- // from the start of its last top-level block (MarkdownStore).
- 
-+/// cmux (interim, until MessagesLab ships the same API): the destinations that become links.
-+/// Only http, https and mailto (plus a host's `extraSchemes`); any other scheme, an obfuscated
-+/// scheme and a relative URL stay plain text, and a click re-checks with `url(_:)`.
-+enum MarkdownLinkPolicy {
-+    /// Schemes a host allows besides http, https and mailto (lowercase; empty by default).
-+    static var extraSchemes: Set<String> = []
-+
-+    /// `dest` as a URL a click may open, or nil (plain text). The scheme must be the literal
-+    /// start of the destination (ASCII letters, digits, "+", "-", "."): no whitespace, control,
-+    /// entity or percent-encoded character can hide it.
-+    static func url(_ dest: String) -> URL? {
-+        guard let colon = dest.firstIndex(of: ":") else { return nil }
-+        let scheme = dest.prefix(upTo: colon).unicodeScalars // cmux: no range subscript
-+        guard let first = scheme.first, first.isASCII, CharacterSet.letters.contains(first),
-+              scheme.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "+-.".unicodeScalars.contains($0)) })
-+        else { return nil }
-+        let s = String(String.UnicodeScalarView(scheme)).lowercased()
-+        guard ["http", "https", "mailto"].contains(s) || extraSchemes.contains(s) else { return nil }
-+        guard !dest.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }),
-+              let url = URL(string: dest), url.scheme?.lowercased() == s else { return nil }
-+        if s == "http" || s == "https" { guard let host = url.host, !host.isEmpty else { return nil } }
-+        return url
-+    }
-+
-+    static func allows(_ dest: String) -> Bool { url(dest) != nil }
-+}
-+
- /// Inline styles of a run of display text.
- struct MDStyle: OptionSet, Hashable {
-     let rawValue: UInt16
-@@ -153,19 +180,19 @@
+@@ -74,7 +74,7 @@
+         // "&" (an entity), "%" (percent-encoding), "/" (relative) or anything else before the
+         // colon means no scheme: not a link.
+         guard let colon = u.firstIndex(of: ":"), colon > 0 else { return nil }
+-        let head = u[..<colon]
++        let head = u.prefix(upTo: colon) // cmux: no range subscript
+         func ascii(_ c: Unicode.Scalar) -> Bool { c.isASCII && (("a"..."z").contains(c) || ("A"..."Z").contains(c)) }
+         guard let first = head.first, ascii(first),
+               head.allSatisfy({ ascii($0) || ($0.isASCII && ("0"..."9").contains($0)) || $0 == "+" || $0 == "-" || $0 == "." }) else { return nil }
+@@ -223,19 +223,19 @@
          let u = text.unicodeScalars
          var si = u.startIndex
          while si < u.endIndex {
@@ -58,7 +33,7 @@
          return out
      }
  }
-@@ -192,23 +219,23 @@
+@@ -262,23 +262,23 @@
      func dropping(cols: Int) -> MDLine {
          var col = 0, i = 0
          while i < s.count, col < cols {
@@ -88,7 +63,7 @@
  }
  
  // MARK: - Link reference definitions
-@@ -237,16 +264,15 @@
+@@ -307,16 +307,15 @@
              out.append(MDBlock(kind: k, blankBefore: blank && !out.isEmpty, lines: topLevel ? from..<i : 0..<0))
              blank = false
          }
@@ -108,7 +83,7 @@
                  }
                  while body.last?.isBlank == true { body.removeLast(); i -= 1 }
                  add(.code(lang: "", text: body.map(\.string).joined(separator: "\n"), fenced: false, closed: true), start)
-@@ -258,8 +284,7 @@
+@@ -328,8 +327,7 @@
                  var body: [MDLine] = []
                  var closed = false
                  i += 1
@@ -118,7 +93,7 @@
                      if l.indent < 4, let c = fence(l.dropping(cols: l.indent)), c.char == f.char, c.count >= f.count, c.info.isEmpty {
                          closed = true; i += 1; break
                      }
-@@ -278,8 +303,7 @@
+@@ -348,8 +346,7 @@
              if nest, t.s.first == ">" {
                  var inner: [MDLine] = []
                  var lastParagraph = false
@@ -128,7 +103,7 @@
                      let li = l.indent
                      if li < 4, l.dropping(cols: li).s.first == ">" {
                          var q = l.dropping(cols: li)
-@@ -307,8 +331,7 @@
+@@ -377,8 +374,7 @@
                  var startNumber = m.number
                  let ordered = m.ordered
                  let delim = m.delim
@@ -138,7 +113,7 @@
                      let li = l.indent
                      guard li < 4, let mk = listMarker(l.dropping(cols: li), interruptsParagraph: false),
                            mk.ordered == ordered, mk.delim == delim else { break }
-@@ -319,8 +342,7 @@
+@@ -389,8 +385,7 @@
                      var lastParagraph = !mk.first.isBlank
                      var sawBlank = mk.first.isBlank
                      var innerBlank = false
@@ -148,7 +123,7 @@
                          if l2.isBlank {
                              // An item may start with at most one blank line.
                              if body.count == 1, body[0].isBlank { break }
-@@ -354,8 +376,8 @@
+@@ -424,8 +419,8 @@
                      items.append(MDItem(marker: mk.marker, task: task, blocks: blocks))
                      if trailing > 0 {
                          // A blank line then another item of this list: loose.
@@ -159,7 +134,7 @@
                             n.ordered == ordered, n.delim == delim { loose = true } else { blankAfter = true; break }
                      }
                  }
-@@ -376,8 +398,7 @@
+@@ -446,8 +441,7 @@
              i += 1
              var setext = 0
              var tableAt: Int?
@@ -169,7 +144,7 @@
                  if l.isBlank { break }
                  let li = l.indent
                  let d = l.dropping(cols: li)
-@@ -395,7 +416,7 @@
+@@ -465,7 +459,7 @@
              } else if !text.isEmpty {
                  let p = MDInlineParser.parse(text, refs: known)
                  add(.paragraph(p), start)
@@ -178,7 +153,7 @@
              }
              if let at = tableAt, let tb = table(lines, at: at, known) {
                  let s2 = i
-@@ -412,7 +433,7 @@
+@@ -482,7 +476,7 @@
      static func fence(_ t: MDLine) -> Fence? {
          guard let c = t.s.first, c == "`" || c == "~" else { return nil }
          var n = 0
@@ -187,7 +162,7 @@
          guard n >= 3 else { return nil }
          let info = t.string(n..<t.s.count).trimmingCharacters(in: .whitespaces)
          if c == "`", info.contains("`") { return nil }
-@@ -421,12 +442,12 @@
+@@ -491,12 +485,12 @@
  
      static func atxHeading(_ t: MDLine) -> (Int, String)? {
          var n = 0
@@ -203,7 +178,7 @@
              if before.isEmpty || before.hasSuffix(" ") || before.hasSuffix("\t") {
                  body = String(before).trimmingCharacters(in: .whitespaces)
              }
-@@ -446,8 +467,8 @@
+@@ -516,8 +510,8 @@
      static func setextLevel(_ t: MDLine) -> Int? {
          guard let c = t.s.first, c == "=" || c == "-" else { return nil }
          var i = 0
@@ -214,7 +189,7 @@
          guard i == t.s.count else { return nil }
          return c == "=" ? 1 : 2
      }
-@@ -462,15 +483,15 @@
+@@ -532,15 +526,15 @@
              markerLen = 1
          } else if c.properties.numericType != nil, ("0"..."9").contains(c) {
              var j = 0
@@ -235,7 +210,7 @@
          if interruptsParagraph {
              if rest.isBlank { return nil }
              if ordered, number != 1 { return nil }
-@@ -492,12 +513,12 @@
+@@ -562,12 +556,12 @@
  
      static func taskPrefix(_ p: MDText) -> (Bool, MDText)? {
          let u = Array(p.string.utf16)
@@ -251,7 +226,7 @@
          rest.spans = p.spans.compactMap { s in
              let lo = max(s.location, cut), hi = s.location + s.length
              guard hi > lo else { return nil }
-@@ -516,13 +537,12 @@
+@@ -586,13 +580,12 @@
          var i = 0
          if t.first == "|" { i = 1 }
          var ticks = 0           // open code span's backtick count
@@ -269,7 +244,7 @@
                  if ticks == 0 { if hasClosingTicks(t, from: i + n, count: n) { ticks = n } }
                  else if n == ticks { ticks = 0 }
                  for _ in 0..<n { cur.append("`") }
-@@ -535,15 +555,15 @@
+@@ -605,15 +598,15 @@
              cur.append(c); i += 1
          }
          let last = String(cur).trimmingCharacters(in: .whitespaces)
@@ -288,7 +263,7 @@
                  if n == count { return true }
                  i += n
              } else { i += 1 }
-@@ -573,15 +593,14 @@
+@@ -643,15 +636,14 @@
  
      static func table(_ lines: [MDLine], at i: Int, _ known: MDRefs?) -> (table: MDTable, end: Int)? {
          guard i + 1 < lines.count else { return nil }
@@ -307,7 +282,7 @@
              if l.isBlank || (l.indent < 4 && startsBlock(l.dropping(cols: l.indent))) { break }
              let cells = splitRow(l).map { MDInlineParser.parse($0, breaks: false, refs: known) }
              cols = max(cols, cells.count)
-@@ -605,34 +624,34 @@
+@@ -675,34 +667,34 @@
          var rest = Substring(text)
          while rest.hasPrefix("[") {
              guard let close = rest.firstIndex(of: "]"), rest.index(after: close) < rest.endIndex,
@@ -358,7 +333,7 @@
          }
          return String(rest)
      }
-@@ -675,22 +694,21 @@
+@@ -746,22 +738,21 @@
          var text = String.UnicodeScalarView()
          var i = 0
          func flush() { if !text.isEmpty { nodes.append(.text(String(text))); text = .init() } }
@@ -387,7 +362,7 @@
                      var code = String(body)
                      if code.count >= 2, code.hasPrefix(" "), code.hasSuffix(" "), code.contains(where: { $0 != " " }) {
                          code = String(code.dropFirst().dropLast())
-@@ -711,12 +729,12 @@
+@@ -783,12 +774,12 @@
                  flush()
                  if breaks { nodes.append(.br) } else { text.append(" ") }
                  i += 1
@@ -403,7 +378,7 @@
                  let bWS = before.map(isWS) ?? true, aWS = after.map(isWS) ?? true
                  let bP = before.map(isPunct) ?? false, aP = after.map(isPunct) ?? false
                  let left = !aWS && (!aP || bWS || bP)
-@@ -729,7 +747,7 @@
+@@ -801,7 +792,7 @@
                      delims.append(Delim(node: nodes.count - 1, char: c, count: n, origCount: n, canOpen: canOpen, canClose: canClose))
                  }
                  i += n
@@ -412,7 +387,7 @@
                  flush()
                  nodes.append(.text("!["))
                  brackets.append(Bracket(node: nodes.count - 1, image: true, active: true, delimBottom: delims.count, pos: i + 2))
-@@ -747,9 +765,9 @@
+@@ -819,9 +810,9 @@
                  if let (d, _, e) = inlineLinkTail(src, i + 1) { dest = d; end = e }
                  else if let refs {
                      // [text][label], [text][], [text]
@@ -425,37 +400,40 @@
                          let key = MDRefs.normalize(label.isEmpty ? inner : label)
                          if let r = refs.map[key] { dest = r.0; end = close + 1 }
                      } else if let r = refs.map[MDRefs.normalize(inner)] { dest = r.0 }
-@@ -759,16 +777,16 @@
-                 processEmphasis(&nodes, &delims, bottom: b.delimBottom)
-                 if b.image {
-                     // The alt text, plain; shown as a link placeholder (never loaded).
+@@ -834,16 +825,17 @@
+                     // Never loaded: the text "[Image: alt]", so a reader knows it is an image and
+                     // that it was not loaded; a link when the URL is allowed. The source goes to the
+                     // host's image provider only.
 -                    let alt = plain(nodes[(b.node + 1)...])
 -                    nodes.removeSubrange(b.node...)
 +                    let alt = plain(nodes.slice(from: b.node + 1)) // cmux: clamped slice
 +                    nodes.removeLast(nodes.count - min(max(0, b.node), nodes.count)) // cmux: no range that can trap
-                     nodes.append(.styled(alt.isEmpty ? dest : alt, [.image, .link], dest))
+                     nodes.append(.image(MarkdownLinkPolicy.imagePlaceholder(alt), link: safe, source: dest))
                      brackets.removeAll { $0.node > b.node }
                  } else {
--                    nodes[b.node] = .linkOpen(dest)
-+                    if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(dest) } // cmux: checked
-                     nodes.append(.linkClose)
-                     // No links inside links.
+                     // A refused URL: the link text stays, as plain text (no link, no target).
+-                    if let safe { nodes[b.node] = .linkOpen(safe); nodes.append(.linkClose) } else { nodes[b.node] = .text("") }
++                    // cmux: checked writes.
++                    if let safe { if let at = nodes.checkedIndex(b.node) { nodes[at] = .linkOpen(safe) }; nodes.append(.linkClose) } else if let at = nodes.checkedIndex(b.node) { nodes[at] = .text("") }
+                     // No links inside links (a refused link is still a link for this rule).
                      brackets.removeAll { $0.node > b.node }
 -                    for k in brackets.indices where !brackets[k].image { brackets[k].active = false }
 +                    brackets = brackets.map { var x = $0; if !x.image { x.active = false }; return x } // cmux: no index writes
                  }
                  i = end
              default:
-@@ -776,7 +794,7 @@
+@@ -851,17 +843,17 @@
                  if (c == "w" || c == "h" || c == "W" || c == "H"), prev(i).map({ isWS($0) || $0 == "(" || $0 == "*" || $0 == "_" || $0 == "~" || $0 == "\"" || $0 == "'" }) ?? true,
-                    let (url, len) = extendedAutolink(src, i) {
+                    let (url, len) = extendedAutolink(src, i), let safe = MarkdownLinkPolicy.sanitize(url) {
                      flush()
--                    nodes.append(.styled(String(String.UnicodeScalarView(src[i..<(i + len)])), .link, url))
-+                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, url)) // cmux: clamped slice
+-                    nodes.append(.styled(String(String.UnicodeScalarView(src[i..<(i + len)])), .link, safe))
++                    nodes.append(.styled(String(String.UnicodeScalarView(src.slice(i, i + len))), .link, safe)) // cmux: clamped slice
                      i += len
                      continue
                  }
-@@ -784,8 +802,8 @@
+                 if c == "@", let (start, len) = emailAutolink(src, i, textTail: text),
+-                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src[(i + 1)..<(i + len)]))) {
++                   MarkdownLinkPolicy.allows("mailto:x@" + String(String.UnicodeScalarView(src.slice(i + 1, i + len)))) { // cmux: clamped slice
                      // Pull the local part back out of the pending text.
                      let local = Array(text)
                      let keep = local.count - start
@@ -466,7 +444,7 @@
                      text = t2
                      flush()
                      nodes.append(.styled(addr, .link, "mailto:" + addr))
-@@ -808,15 +826,13 @@
+@@ -884,15 +876,13 @@
          // Openers bottom per (char, closer can open, closer count % 3).
          var bottoms: [String: Int] = [:]
          var ci = bottom
@@ -484,7 +462,7 @@
                  if o.char == closer.char, o.canOpen, o.count > 0 {
                      if closer.char == "~" {
                          if o.count == closer.count { found = oi; break }
-@@ -836,30 +852,34 @@
+@@ -912,30 +902,34 @@
              let use: Int
              let style: MDStyle
              if closer.char == "~" { use = closer.count; style = .strike }
@@ -531,42 +509,16 @@
      }
  
      // MARK: Flatten
-@@ -883,16 +903,22 @@
-         func set(_ s: MDStyle, _ l: String?) { if s != runStyle || l != runLink { cut(); runStyle = s; runLink = l } }
-         func emit(_ s: String) { for u in s.unicodeScalars { out.append(u); len16 += u.utf16.count } }
-         for n in nodes {
--            let linkNow = links.last
-+            // cmux: a refused destination is "" on the stack and plain text (MarkdownLinkPolicy).
-+            let linkNow = links.last { !$0.isEmpty }
-             switch n {
-             case let .text(s): set(style, linkNow); emit(s)
-+            case let .styled(s, st, l) where l.map(MarkdownLinkPolicy.allows) == false:
-+                set(style.union(st).subtracting([.link, .image]), linkNow); emit(s)
-             case let .styled(s, st, l): set(style.union(st), l ?? linkNow); emit(s)
-             case let .delim(ch, count):
-                 if count > 0 { set(style, linkNow); emit(String(repeating: String(ch), count: count)) }
-             case let .open(s): counts[s, default: 0] += 1; style.insert(s)
-             case let .close(s): counts[s, default: 0] -= 1; if counts[s, default: 0] <= 0 { style.remove(s) }
--            case let .linkOpen(d): links.append(d); style.insert(.link)
--            case .linkClose: links.removeLast(); if links.isEmpty { style.remove(.link) }
-+            case let .linkOpen(d):
-+                let allowed = MarkdownLinkPolicy.allows(d)
-+                links.append(allowed ? d : "")
-+                if allowed { style.insert(.link) }
-+            case .linkClose: links.removeLast(); if !links.contains(where: { !$0.isEmpty }) { style.remove(.link) }
-             case .br: set(style, linkNow); emit("\n")
-             }
-         }
-@@ -904,7 +930,7 @@
+@@ -986,7 +980,7 @@
          var out: [MDSpan] = []
          for x in s {
-             if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link {
+             if var l = out.last, l.location + l.length == x.location, l.style == x.style, l.link == x.link, l.image == x.image {
 -                l.length += x.length; out[out.count - 1] = l
 +                l.length += x.length; if let last = out.indices.last { out[last] = l } // cmux: no index math
              } else { out.append(x) }
          }
          return out
-@@ -916,19 +942,21 @@
+@@ -998,19 +992,21 @@
          let u = Array(t.string.utf16)
          var keep = [Bool](repeating: true, count: u.count)
          var j = u.count - 1
@@ -593,10 +545,10 @@
          let spans = t.spans.compactMap { s -> MDSpan? in
 -            let a = map[s.location], b = map[s.location + s.length]
 +            guard let a = map[checked: s.location], let b = map[checked: s.location + s.length] else { return nil }
-             return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link) : nil
+             return b > a ? MDSpan(location: a, length: b - a, style: s.style, link: s.link, image: s.image) : nil
          }
          return MDText(string: String(utf16CodeUnits: out, count: out.count), spans: spans)
-@@ -955,6 +983,8 @@
+@@ -1038,6 +1034,8 @@
          return (33...47).contains(v) || (58...64).contains(v) || (91...96).contains(v) || (123...126).contains(v)
      }
      static func isWS(_ c: Unicode.Scalar) -> Bool { c == " " || c == "\t" || c == "\n" || c == "\r" || c.properties.isWhitespace }
@@ -605,7 +557,7 @@
      static func isPunct(_ c: Unicode.Scalar) -> Bool {
          if isASCIIPunct(c) { return true }
          switch c.properties.generalCategory {
-@@ -967,9 +997,9 @@
+@@ -1050,9 +1048,9 @@
      private static func closingTicks(_ s: [Unicode.Scalar], from: Int, count: Int) -> Int? {
          var i = from
          while i < s.count {
@@ -617,7 +569,7 @@
                  if n == count { return i }
                  i += n
              } else { i += 1 }
-@@ -985,13 +1015,14 @@
+@@ -1068,13 +1066,14 @@
          "para": "¶", "laquo": "«", "raquo": "»", "le": "≤", "ge": "≥", "ne": "≠", "infin": "∞",
      ]
      private static func entity(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int)? {
@@ -635,7 +587,7 @@
              return (String(scalar), semi - i + 1)
          }
          guard let r = entities[body] else { return nil }
-@@ -999,12 +1030,12 @@
+@@ -1082,12 +1081,12 @@
      }
  
      private static func angleAutolink(_ s: [Unicode.Scalar], _ i: Int) -> (String, Int, String)? {
@@ -652,7 +604,7 @@
                    scheme.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-" }) else { return nil }
              return (body, end - i + 1, body)
          }
-@@ -1021,7 +1052,7 @@
+@@ -1104,7 +1103,7 @@
          func has(_ p: String) -> Bool {
              let u = Array(p.unicodeScalars)
              guard i + u.count <= s.count else { return false }
@@ -661,7 +613,7 @@
              return true
          }
          var start = i
-@@ -1029,35 +1060,35 @@
+@@ -1112,35 +1111,35 @@
          if has("https://") { start += 8 } else if has("http://") { start += 7 } else if has("www.") { prefix = "http://" } else { return nil }
          // Domain: alphanumerics, "-", "_", "." ; at least one "."; no "_" in the last two labels.
          var j = start
@@ -707,7 +659,7 @@
          return (prefix + raw, end - i)
      }
  
-@@ -1065,13 +1096,13 @@
+@@ -1148,13 +1147,13 @@
      private static func emailAutolink(_ s: [Unicode.Scalar], _ i: Int, textTail: String.UnicodeScalarView) -> (Int, Int)? {
          let tail = Array(textTail)
          var k = tail.count
@@ -726,7 +678,7 @@
          guard domain.contains("."), !domain.hasPrefix("."), let last = domain.split(separator: ".").last,
                !last.contains("_"), last.count >= 2 else { return nil }
          return (localLen, j - i)
-@@ -1079,44 +1110,44 @@
+@@ -1162,44 +1161,44 @@
  
      /// `(dest "title")` after "]". Returns (dest, title, index after ")").
      private static func inlineLinkTail(_ s: [Unicode.Scalar], _ i: Int) -> (String, String?, Int)? {
@@ -788,7 +740,7 @@
          return (String(dest), title, j + 1)
      }
  
-@@ -1126,7 +1157,7 @@
+@@ -1209,7 +1208,7 @@
          let u = Array(s.unicodeScalars)
          var i = 0
          while i < u.count {

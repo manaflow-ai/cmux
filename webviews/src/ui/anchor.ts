@@ -38,6 +38,18 @@ export interface UiAnchorOptions {
   direction?: "ltr" | "rtl";
 }
 
+// An overlay is mounted before its measured coordinates are available. Keep that first hidden
+// frame out of document flow; otherwise a menu without its own absolute-positioning class (the
+// model picker) briefly pushes the composer before the layout effect can place it.
+const HIDDEN_ANCHOR_STYLE: CSSProperties = {
+  position: "absolute",
+  left: 0,
+  top: 0,
+  right: "auto",
+  bottom: "auto",
+  visibility: "hidden",
+};
+
 /**
  * Resolve an overlay in viewport coordinates. Both inputs are DOM rects, so a
  * page zoom or a device scale factor cannot introduce a second coordinate
@@ -102,10 +114,10 @@ export function useUiAnchor(
   options: UiAnchorOptions = {},
 ): CSSProperties {
   const { align, direction: requestedDirection, gap, margin, side } = options;
-  const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
+  const [style, setStyle] = useState<CSSProperties>(HIDDEN_ANCHOR_STYLE);
   useLayoutEffect(() => {
     if (!open) {
-      setStyle({ visibility: "hidden" });
+      setStyle(HIDDEN_ANCHOR_STYLE);
       return;
     }
     const update = () => {

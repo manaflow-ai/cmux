@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift
-@@ -248,7 +248,7 @@
+@@ -253,7 +253,7 @@
      /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
      var columns: Int {
          if compact { return 1 }
@@ -9,7 +9,7 @@
      }
      var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
      /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
-@@ -301,13 +301,16 @@
+@@ -305,13 +305,16 @@
      /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
      /// catalog, pattern and gray colors are safe).
      static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
@@ -30,7 +30,7 @@
                  dark: dark,
                  name: NSColor.labelColor.cgColor,
                  secondary: NSColor.secondaryLabelColor.cgColor,
-@@ -328,6 +331,7 @@
+@@ -331,6 +334,7 @@
                  bubbleText: dark ? p3(255, 255, 255) : p3(0, 0, 0),
                  typingDot: dark ? p3(150, 150, 154) : p3(142, 142, 147))
          }

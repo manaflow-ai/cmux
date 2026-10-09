@@ -119,7 +119,12 @@ extension SidebarDelegate {
 /// copies that file into its resources and points `bundle` at them (a Swift package:
 /// `Bundle.module`). Default: the bundle that contains the sidebar code, not `Bundle.main`.
 enum SidebarLocalization {
-    static var bundle: Bundle = Bundle(for: SidebarController.self)
+    /// The one MessagesLab bundle (MessagesLabLocalization.bundle): setting it here sets it for
+    /// every MessagesLab string (transcript, markdown, menus), not only the sidebar.
+    static var bundle: Bundle {
+        get { MessagesLabLocalization.bundle }
+        set { MessagesLabLocalization.bundle = newValue }
+    }
     /// The catalog's table name (its file name without the extension).
     static var table = "SidebarLocalizable"
     /// The string for `key` in the user's preferred language; `english` if the key is missing.
@@ -288,7 +293,6 @@ struct SidebarPalette: Equatable {
     var accent: CGColor
     var selectionActive: CGColor
     var selectionInactive: CGColor
-    var hover: CGColor
     var selectedText: CGColor
     var monogramTop: CGColor
     var monogramBottom: CGColor
@@ -319,7 +323,6 @@ struct SidebarPalette: Equatable {
                 accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
                 selectionInactive: NSColor.unemphasizedSelectedContentBackgroundColor.cgColor,
-                hover: NSColor.labelColor.withAlphaComponent(dark ? 0.07 : 0.05).cgColor,
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
                 monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
