@@ -299,6 +299,11 @@ actor MockEngine {
         case .browserScreenshot:
             let id = try decode(params, BrowserTabRef.self).tabId
             return try encode(BrowserScreenshot(dataBase64: try screenshot(id).base64EncodedString()))
+        case .fsUpload:
+            // Nothing is written: the demo host only names where the file would be.
+            let p = try decode(params, FileUploadParams.self)
+            let name = p.name.split(separator: "/").last.map(String.init) ?? "upload"
+            return try encode(FileUploadResult(path: "/Users/aziz/.cmux-next-host/uploads/\(UUID().uuidString.lowercased())/\(name)"))
         }
     }
 

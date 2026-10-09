@@ -18,6 +18,7 @@ public enum HostMethod: String, Sendable, CaseIterable {
     case browserStop = "browser.stop", browserPointer = "browser.pointer", browserTouch = "browser.touch"
     case browserScroll = "browser.scroll", browserKey = "browser.key", browserText = "browser.text"
     case browserScreenshot = "browser.screenshot"
+    case fsUpload = "fs.upload"
 }
 
 /// Every PROTOCOL §4 event topic.

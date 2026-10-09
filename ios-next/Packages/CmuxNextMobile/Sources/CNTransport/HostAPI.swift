@@ -195,6 +195,13 @@ extension HostClient {
         try send(StreamFrame(kind: .termInput, streamId: streamId, payload: bytes))
     }
 
+    // files
+    /// Uploads a file to the host's upload folder and returns its absolute path there.
+    public func uploadFile(name: String, mimeType: String?, data: Data, timeout: Duration = .seconds(180)) async throws -> String {
+        let params = FileUploadParams(name: name, mimeType: mimeType, dataBase64: data.base64EncodedString())
+        return try await request(HostMethod.fsUpload.rawValue, params, as: FileUploadResult.self, timeout: timeout).path
+    }
+
     // browser
     public func listTabs() async throws -> [BrowserTab] {
         try await request(HostMethod.browserList.rawValue, as: BrowserTabList.self).tabs

@@ -70,6 +70,23 @@ extension MockEngine {
 
     func terminalInput(streamId: UInt32, bytes: Data) {
         guard let terminalId = terminalStreams[streamId], var t = terminals[terminalId] else { return }
+        if t.mode == .inputEcho {
+            if bytes == Data("q".utf8) {
+                t.mode = .shell
+                terminals[terminalId] = t
+                emit(terminalId, "\u{1B}[?1000l\u{1B}[?1006l\u{1B}[?1049l" + t.shell.prompt, recordScrollback: false)
+                return
+            }
+            let shown = bytes.map { b -> String in
+                switch b {
+                case 0x1B: return "ESC"
+                case 0x20...0x7E: return String(UnicodeScalar(b))
+                default: return String(format: "\\x%02X", b)
+                }
+            }.joined()
+            emit(terminalId, "input: \(shown)\r\n", recordScrollback: false)
+            return
+        }
         if t.mode == .top {
             if bytes.contains(UInt8(ascii: "q")) || bytes.contains(0x03) {
                 t.mode = .shell
@@ -136,6 +153,21 @@ extension MockEngine {
             if command.hasPrefix("cd") { try? mutateTerminal(terminalId) { $0.info.cwd = $0.shell.directory } }
         case .clear:
             emit(terminalId, "\u{1B}[2J\u{1B}[H" + t.shell.prompt)
+        case .startInputEcho(let mouse):
+            t.mode = .inputEcho
+            terminals[terminalId] = t
+            let modes = "\u{1B}[?1049h\u{1B}[2J\u{1B}[H" + (mouse ? "\u{1B}[?1000h\u{1B}[?1006h" : "")
+            emit(terminalId, modes + "\(mouse ? "mouse reporting on" : "alternate screen, no mouse") — scroll here, q quits\r\n",
+                 recordScrollback: false)
+        case .startFooterTUI:
+            t.mode = .inputEcho
+            terminals[terminalId] = t
+            let rows = max(8, t.info.rows)
+            var screen = "\u{1B}[?1049h\u{1B}[2J\u{1B}[H\u{1B}[1mdemo agent\u{1B}[0m — transcript above\r\n"
+            screen += "\u{1B}[\(rows - 3);1H\u{1B}[2m────────────────────────────────\u{1B}[0m"
+            screen += "\u{1B}[\(rows);1H\u{1B}[2m← for agents · ? for shortcuts\u{1B}[0m"
+            screen += "\u{1B}[\(rows - 2);1H› "
+            emit(terminalId, screen, recordScrollback: false)
         case .startTop:
             t.mode = .top
             terminals[terminalId] = t

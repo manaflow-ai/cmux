@@ -1,13 +1,16 @@
 #if os(iOS)
+import CNDesign
 import UIKit
 
-/// The key bar over the software keyboard (ghostty-next section 5): Esc, Tab,
-/// sticky Ctrl and Alt, arrows that repeat while held, common symbols, Paste
-/// and Hide Keyboard, drawn as Liquid Glass keys. It sends key ids only; the
-/// terminal view's router turns them into keys. Scrolls sideways when the
-/// keys do not fit.
+/// The key bar over the software keyboard (ghostty-next section 5): the
+/// composer toggle, Esc, Tab, sticky Ctrl and Alt, arrows that repeat while
+/// held, common symbols, Paste and Hide Keyboard, drawn as Liquid Glass keys
+/// on an opaque strip in the terminal's background color (terminal text never
+/// shows between the keys). It sends key ids only; the terminal view's router
+/// turns them into keys. Scrolls sideways when the keys do not fit. The
+/// controller pins it to the keyboard layout guide (not an input accessory).
 @MainActor
-final class TerminalKeyBar: UIInputView {
+final class TerminalKeyBar: UIView {
     /// A key was tapped (or repeated while held).
     var onKey: (TerminalKeyBarKey) -> Void = { _ in }
     /// The sticky state to show on Ctrl and Alt.
@@ -15,7 +18,13 @@ final class TerminalKeyBar: UIInputView {
         didSet { if modifiers != oldValue { updateModifierKeys() } }
     }
 
+    /// The composer is showing: the toggle offers the raw keyboard.
+    var composerMode = false {
+        didSet { if composerMode != oldValue, let button = buttons[.composer] { button.configuration = composerConfiguration() } }
+    }
+
     private let scroll = UIScrollView()
+    private let hairline = UIView()
     private let stack = UIStackView()
     private(set) var buttons: [TerminalKeyBarKey: UIButton] = [:]
     private var repeatTask: Task<Void, Never>?
@@ -29,9 +38,11 @@ final class TerminalKeyBar: UIInputView {
 
     init(keys: [TerminalKeyBarKey], clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
-        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: Self.height), inputViewStyle: .default)
-        allowsSelfSizing = true
-        backgroundColor = .clear
+        super.init(frame: CGRect(x: 0, y: 0, width: 320, height: Self.height))
+        backgroundColor = CNTheme.shared.palette.terminalBackground
+        hairline.backgroundColor = CNTheme.shared.palette.hairline
+        hairline.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hairline)
         tintColor = .label
         accessibilityIdentifier = "terminal.keyBar"
         translatesAutoresizingMaskIntoConstraints = false
@@ -47,6 +58,10 @@ final class TerminalKeyBar: UIInputView {
         scroll.addSubview(stack)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
+            hairline.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hairline.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hairline.topAnchor.constraint(equalTo: topAnchor),
+            hairline.heightAnchor.constraint(equalToConstant: 1 / max(1, UIScreen.main.scale)),
             scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor),
@@ -92,8 +107,14 @@ final class TerminalKeyBar: UIInputView {
         return config
     }
 
+    private func composerConfiguration() -> UIButton.Configuration {
+        var config = Self.baseConfiguration(.composer, active: false)
+        config.image = UIImage(systemName: composerMode ? "keyboard" : "text.cursor")
+        return config
+    }
+
     private func makeButton(_ key: TerminalKeyBarKey) -> UIButton {
-        let button = UIButton(configuration: Self.baseConfiguration(key, active: false))
+        let button = UIButton(configuration: key == .composer ? composerConfiguration() : Self.baseConfiguration(key, active: false))
         button.tintColor = .label
         button.accessibilityLabel = key.accessibilityLabel
         button.accessibilityIdentifier = "terminal.key.\(key.rawValue)"
@@ -167,6 +188,7 @@ extension TerminalKeyBarKey {
         case .right: "arrow.right"
         case .paste: "doc.on.clipboard"
         case .hideKeyboard: "keyboard.chevron.compact.down"
+        case .composer: "text.cursor"
         default: nil
         }
     }
@@ -198,6 +220,7 @@ extension TerminalKeyBarKey {
         case .dash: TerminalText.keyDash
         case .paste: TerminalText.keyPaste
         case .hideKeyboard: TerminalText.keyHideKeyboard
+        case .composer: TerminalText.keyComposer
         }
     }
 }

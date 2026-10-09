@@ -7,6 +7,7 @@ import type { Link } from "./transport/link.ts";
 import { AgentsProvider, type AgentsProviderOptions } from "./providers/agents.ts";
 import { BrowserProvider, type BrowserProviderOptions } from "./providers/browser/index.ts";
 import { ChiefProvider } from "./providers/chief.ts";
+import { FilesProvider, type FilesOptions } from "./providers/files.ts";
 import { TerminalProvider, type TerminalOptions } from "./providers/terminal.ts";
 import { VERSION, type Logger } from "./util.ts";
 
@@ -18,6 +19,7 @@ export interface HostCoreOptions {
   agents?: AgentsProviderOptions;
   browser?: BrowserProviderOptions;
   conversationsPath?: string;
+  files?: FilesOptions;
 }
 
 export class HostCore {
@@ -26,6 +28,7 @@ export class HostCore {
   readonly agents: AgentsProvider;
   readonly chief: ChiefProvider;
   readonly browser: BrowserProvider;
+  readonly files: FilesProvider;
   hostId: string;
   readonly hostName: string;
 
@@ -38,14 +41,16 @@ export class HostCore {
     this.agents = new AgentsProvider({ log, ...opts.agents });
     this.chief = new ChiefProvider(this.agents, { log, hostName: this.hostName, path: opts.conversationsPath });
     this.browser = new BrowserProvider({ log, ...opts.browser });
+    this.files = new FilesProvider(opts.files);
     this.terminals.register(this.server);
     this.agents.register(this.server);
     this.chief.register(this.server);
     this.browser.register(this.server);
+    this.files.register(this.server);
   }
 
   info(): HostInfo {
-    const capabilities = ["term.v1", "agent.v1", "conv.v1"];
+    const capabilities = ["term.v1", "agent.v1", "conv.v1", "fs.v1"];
     if (this.browser.capable) capabilities.push("browser.v1");
     return {
       hostId: this.hostId,

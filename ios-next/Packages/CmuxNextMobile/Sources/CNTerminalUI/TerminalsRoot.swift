@@ -10,7 +10,7 @@ public import SwiftUI
 public struct TerminalsRoot: View {
     let connection: HostConnection
     @State private var model: TerminalListModel
-    @State private var path: [String] = []
+    @State private var path: [TerminalRoute] = []
 
     public init(connection: HostConnection) {
         self.connection = connection
@@ -21,7 +21,7 @@ public struct TerminalsRoot: View {
         NavigationStack(path: $path) {
             List {
                 ForEach(model.terminals) { terminal in
-                    NavigationLink(value: terminal.id) {
+                    NavigationLink(value: TerminalRoute.existing(terminal.id)) {
                         TerminalRow(terminal: terminal)
                     }
                     .accessibilityIdentifier("terminal.row.\(terminal.id)")
@@ -44,9 +44,8 @@ public struct TerminalsRoot: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task {
-                            if let id = await model.create() { path.append(id) }
-                        }
+                        // The screen creates the terminal with the grid that fits it.
+                        path.append(.new(UUID()))
                     } label: {
                         Label(TerminalText.newTerminal, systemImage: "plus")
                     }
@@ -54,8 +53,8 @@ public struct TerminalsRoot: View {
                     .accessibilityIdentifier("terminal.new")
                 }
             }
-            .navigationDestination(for: String.self) { id in
-                TerminalScreenView(connection: connection, terminalId: id)
+            .navigationDestination(for: TerminalRoute.self) { route in
+                TerminalScreenView(connection: connection, route: route)
             }
             .refreshable { await model.reload() }
         }
@@ -150,19 +149,6 @@ final class TerminalListModel {
             default:
                 break
             }
-        }
-    }
-
-    /// Creates a terminal at a phone-sized grid; attach resizes it to the view.
-    func create() async -> String? {
-        guard let client = connection.client else { return nil }
-        do {
-            let terminal = try await client.createTerminal(cols: 48, rows: 32)
-            if !terminals.contains(where: { $0.id == terminal.id }) { terminals.append(terminal) }
-            return terminal.id
-        } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            return nil
         }
     }
 

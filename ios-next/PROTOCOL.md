@@ -72,7 +72,7 @@ All params and results use camelCase JSON. Timestamps are ms since epoch.
 
 ### host
 - `host.hello {client:{name,version,platform}, protocol:1}` -> `{hostId, hostName, os, version, protocol:1, capabilities:[string]}`
-  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`.
+  Capabilities: `term.v1`, `agent.v1`, `browser.v1`, `conv.v1`, `fs.v1`.
 - `host.ping {}` -> `{at}`
 
 ### conversations (Chief, iMessage-style)
@@ -121,6 +121,13 @@ Terminal `{id, title, cwd, cols, rows, running, createdAt}`
 - `term.detach {streamId}` / `term.resize {terminalId, cols, rows}` / `term.close {terminalId}` -> `{}`
 - `term.rename {terminalId, title}` -> `{}`
 - events: `term.updated {terminal}`, `term.exited {terminalId, code}`
+
+### files
+- `fs.upload {name, mimeType?, dataBase64}` -> `{path}`: writes the file to
+  `~/.cmux-next-host/uploads/<uuid>/<name>` (name reduced to one safe path
+  component; at most 50 MB decoded, else `bad_request`) and returns its absolute
+  path. The terminal composer types that path (shell-quoted) into the terminal.
+  Capability: `fs.v1`.
 
 ### browser (tabs visible on the Mac)
 Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, active}`

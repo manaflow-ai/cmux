@@ -83,3 +83,25 @@ worktree. The link also needs `ARCHS=arm64` (see Gaps).
 - DEBUG-only hooks: accessibility value `grid=… font=… shift=… theme=…` on the
   terminal, `CMUX_NEXT_TERMINAL_TRACE=1` (layout/attach trace in the app's
   tmp), `CMUX_NEXT_TERMINAL_DEBUG=1` (More → Drop Connection).
+
+## Round 2: device dogfood fixes and e2e findings (2026-10-09)
+
+Measured on the same simulator with the **software keyboard** shown: the headless
+simulator reports a hardware keyboard, so a DEBUG-only harness
+(`CMUX_NEXT_SOFTWARE_KEYBOARD=1`, simulator builds only) switches its input modes to
+the software keyboard (the `setHardwareLayout:` UI-test trick). Not a device run.
+
+| Item | Change | Evidence | Result |
+| --- | --- | --- | --- |
+| Key bar overlapped the last rows (device) | The key bar (and composer) are no longer an input accessory: the controller pins them to `view.keyboardLayoutGuide` (follows undocked keyboards). The terminal pans so the last row with text (or the cursor row, whichever is lower) sits on the top of the key bar/composer, never pushing the cursor row above the top. The bar has an opaque strip in the terminal background with a hairline, so text never shows between the glass keys. | `terminal/dogfood-keybar-pinning.png`: shell prompt, a codex-like TUI (`footertest`: footer "← for agents · ? for shortcuts" under the cursor) with the keyboard, and with the composer | pass: footer sits on the bar's top edge, nothing under the bar |
+| Keyboard show/hide motion | same | 60 fps recording, consecutive-frame row matching: content only translates (residual ≤ 5/255), one decaying curve over ~23 frames each way, no step back | pass |
+| Scrolling did not work on device | Pan begins on the translation (a slow drag starts at zero velocity, which the old velocity test refused); other pans (drawer) wait for it; the pointer position is set before each scroll so TUIs get wheel reports at the finger. Ghostty picks the behavior from the mirrored modes. | `terminal/dogfood-scroll.png`: (1) slow 2 s drag with the keyboard up scrolls the scrollback row by row (8 rows, recording `scroll.mp4` analysed); (2) `mousetest` (alt screen + SGR mouse): wheel reports `ESC[<64;26;8M` / `ESC[<65;…M` reach the host; (3) `alttest` (alt screen, no reporting): arrow keys `ESC[A` | pass |
+| Composer row | Liquid Glass capsule above the key bar: `+` (Photos, Camera, Files), field growing 1→4 lines, Send (highlight). Send = paste (bracketed when the app enabled it) + Return; long-press Send → "Send Without Return"; empty Send = bare Return. Key bar's first key toggles composer/raw; tapping the terminal returns to raw typing. In composer mode the grid ends above the resting composer (a grid change, not keyboard-driven). | `terminal/dogfood-composer.png`: 4-line wrap; a photo uploaded with `fs.upload` and its quoted path inserted; composer at rest with the keyboard hidden (grid 50×42 → 50×38) | pass |
+| `fs.upload` | Host: `providers/files.ts` writes `~/.cmux-next-host/uploads/<uuid>/<name>` (0600, dir 0700), 50 MB cap checked before decoding, name sanitized to one component; capability `fs.v1`; PROTOCOL §4 files. Swift: `HostClient.uploadFile` (180 s timeout); mock answers with a path. | `host/test/files.test.ts` (sanitizing, path layout, mode, no collision, size/base64/empty rejection); host suite 57/57, `tsc` clean | pass |
+| e2e #10 host restart | A `not_found` attach shows "This Terminal Ended on the Mac" with New Terminal / Back to Terminals instead of the raw error. Also fixed: a failed attach retried in a hot loop (each reset redraw re-triggered attach); now it waits for the next connection. | `terminal/dogfood-ended.png` (DEBUG "Simulate Host Restart", then New Terminal opens a fresh shell) | pass |
+| e2e #13 first `top` row under the nav bar | Same root cause as the overlap: the old pan aligned the cursor plus a margin to the bar. With the software keyboard up the grid still does not resize (D8), so a full-screen app's top rows sit under the nav bar while the keyboard is up; with the keyboard down nothing covers the grid. | screenshots above | fixed for the bar-only case; keyboard-up remains the D8 trade-off |
+| e2e #17 stray `%` | `+` now opens the screen first; the screen creates the terminal with the grid that fits it and attaches with the same grid, so the shell never draws its first prompt at a different size. | trace: `attach grid=50x42` for the created terminal, no resize | pass (mock; zsh PROMPT_SP needs the real host) |
+| e2e #18 settings font size | `AppPreferences` follows the shared `cmuxNext.terminalFontSize` default when the terminal writes it (pinch, Larger/Smaller Text); the terminal already followed settings. | code | not run in the Settings UI |
+
+Remaining gaps: no real-device run (the coordinator reinstalls); Camera is device-only;
+the real host's zsh `%` marker and `fs.upload` over WebRTC need the deployed host.

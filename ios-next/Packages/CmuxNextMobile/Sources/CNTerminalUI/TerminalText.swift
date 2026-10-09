@@ -18,6 +18,7 @@ enum TerminalText {
     static var keyDash: String { String(localized: "terminal.key.dash", defaultValue: "Hyphen") }
     static var keyPaste: String { String(localized: "terminal.key.paste", defaultValue: "Paste") }
     static var keyHideKeyboard: String { String(localized: "terminal.key.hideKeyboard", defaultValue: "Hide Keyboard") }
+    static var keyComposer: String { String(localized: "terminal.key.composer", defaultValue: "Composer") }
     static var keyArmed: String { String(localized: "terminal.key.armed", defaultValue: "On for the next key") }
     static var keyLocked: String { String(localized: "terminal.key.locked", defaultValue: "Locked") }
     static var stickyHint: String { String(localized: "terminal.key.stickyHint", defaultValue: "Double-tap to lock.") }
@@ -48,6 +49,20 @@ enum TerminalText {
     static var resetFontSize: String { String(localized: "terminal.menu.resetFontSize", defaultValue: "Reset Text Size") }
     static var reconnecting: String { String(localized: "terminal.status.reconnecting", defaultValue: "Reconnecting…") }
     static var processExited: String { String(localized: "terminal.status.exited", defaultValue: "Process exited") }
+    static var composerPlaceholder: String { String(localized: "terminal.composer.placeholder", defaultValue: "Type a command") }
+    static var send: String { String(localized: "terminal.composer.send", defaultValue: "Send") }
+    static var sendWithoutReturn: String { String(localized: "terminal.composer.sendWithoutReturn", defaultValue: "Send Without Return") }
+    static var addAttachment: String { String(localized: "terminal.composer.add", defaultValue: "Add Attachment") }
+    static var photos: String { String(localized: "terminal.composer.photos", defaultValue: "Photos") }
+    static var camera: String { String(localized: "terminal.composer.camera", defaultValue: "Camera") }
+    static var files: String { String(localized: "terminal.composer.files", defaultValue: "Files") }
+    static var uploading: String { String(localized: "terminal.composer.uploading", defaultValue: "Uploading…") }
+    static var uploadFailed: String { String(localized: "terminal.composer.uploadFailed", defaultValue: "Upload failed") }
+    static var endedTitle: String { String(localized: "terminal.ended.title", defaultValue: "This Terminal Ended on the Mac") }
+    static var endedMessage: String {
+        String(localized: "terminal.ended.message", defaultValue: "The Mac no longer has this terminal, for example after its host restarted.")
+    }
+    static var backToTerminals: String { String(localized: "terminal.ended.back", defaultValue: "Back to Terminals") }
     static var more: String { String(localized: "terminal.menu.more", defaultValue: "More") }
 }
 #endif

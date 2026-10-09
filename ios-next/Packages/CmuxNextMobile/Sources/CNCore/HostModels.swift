@@ -44,6 +44,7 @@ public enum HostCapability: String, Sendable, CaseIterable {
     case agent = "agent.v1"
     case browser = "browser.v1"
     case conversations = "conv.v1"
+    case files = "fs.v1"
 }
 
 public struct PingResult: Codable, Sendable, Hashable {

@@ -2,7 +2,7 @@ import CNCore
 import Foundation
 
 struct MockTerminal {
-    enum Mode { case shell, top }
+    enum Mode { case shell, top, inputEcho }
 
     var info: Terminal
     var mode: Mode
@@ -31,6 +31,12 @@ struct MockShell {
         case output(String)
         case clear
         case startTop
+        /// Alternate screen that prints every input byte it receives;
+        /// `mouse` also enables SGR mouse reporting (wheel tests).
+        case startInputEcho(mouse: Bool)
+        /// A codex-like full-screen TUI: prompt box near the bottom, cursor in
+        /// it, and a footer hint on the last row (key bar overlap tests).
+        case startFooterTUI
         case exit
     }
 
@@ -89,6 +95,12 @@ struct MockShell {
             return .clear
         case "top", "htop":
             return .startTop
+        case "mousetest":
+            return .startInputEcho(mouse: true)
+        case "alttest":
+            return .startInputEcho(mouse: false)
+        case "footertest":
+            return .startFooterTUI
         case "exit", "logout":
             return .exit
         case "cd":

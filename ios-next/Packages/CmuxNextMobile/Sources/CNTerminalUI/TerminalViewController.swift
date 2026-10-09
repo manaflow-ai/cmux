@@ -2,6 +2,7 @@
 import CNCore
 import CNDesign
 import CNTransport
+import SwiftUI
 import UIKit
 
 /// One attached terminal: a Ghostty surface fed by the host's `termOutput`
@@ -11,14 +12,21 @@ import UIKit
 ///   first, so the surface is reset before every attach (first attach,
 ///   reconnect, return to the screen).
 /// - The keyboard never changes the grid (plans/cmux-next/ios-keyboard.md
-///   D8): the view keeps its height and pans up so the cursor row stays
-///   above the keyboard and its key bar, on the keyboard's curve.
+///   D8): the view keeps its height and pans up so its visible bottom sits on
+///   the top of the key bar (and the composer, when shown), on the
+///   keyboard's curve, without pushing the cursor row out of view.
+/// - Input: typing goes straight to the terminal (raw mode) or through the
+///   composer row; the key bar works in both.
 /// - A size or text size change locks the new grid locally and sends
 ///   `term.resize`, debounced.
 @MainActor
 final class TerminalViewController: UIViewController, UIGestureRecognizerDelegate, @MainActor UIEditMenuInteractionDelegate {
     let connection: HostConnection
-    let terminalId: String
+    /// Nil until a new terminal is created (with the grid that fits the view,
+    /// so the shell's first prompt is drawn at its final size).
+    private(set) var terminalId: String?
+    /// A new terminal was created on the host.
+    var onCreated: ((String) -> Void)?
     let model: TerminalScreenModel
     let terminalView = GhosttyTerminalView(frame: .zero)
     /// The keyboard's frame (with its key bar) in window coordinates, from
@@ -26,11 +34,19 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var keyboardFrame: CGRect?
     private var keyboardObservers: [any NSObjectProtocol] = []
     private var bottomConstraint: NSLayoutConstraint?
+    /// Composer (when shown) over the key bar, riding the keyboard's top.
+    private let accessoryStack = UIStackView()
+    let keyBar = TerminalKeyBar(keys: TerminalKeyBarKey.defaultKeys)
+    private var composerHost: UIHostingController<TerminalComposer>?
+    private var composerFocused = false
     private let clock: any Clock<Duration>
 
     /// The connection generation the stream belongs to (0: not attached).
     private var attachedGeneration = 0
     private var attaching = false
+    /// The generation whose attach failed: no retry until the next
+    /// (re)connect, so a gone terminal never loops on attach.
+    private var failedGeneration = 0
     private var streamId: UInt32?
     private weak var client: HostClient?
     private var streamTask: Task<Void, Never>?
@@ -42,6 +58,8 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var visible = false
 
     private var momentum: ScrollMomentum?
+    private weak var scrollPan: UIPanGestureRecognizer?
+    private var scrollPoint: CGPoint = .zero
     private var pinchBase: Double = TerminalFontSize.defaultSize
     private var editMenu: UIEditMenuInteraction?
 
@@ -49,7 +67,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     static let resizeDebounce: Duration = .milliseconds(150)
     static let cursorMargin: CGFloat = 4
 
-    init(connection: HostConnection, terminalId: String, model: TerminalScreenModel,
+    init(connection: HostConnection, terminalId: String?, model: TerminalScreenModel,
          clock: any Clock<Duration> = ContinuousClock()) {
         self.connection = connection
         self.terminalId = terminalId
@@ -88,7 +106,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 MainActor.assumeIsolated { self?.keyboardWillChange(info) }
             })
         }
+        installAccessories()
         installGestures()
+        terminalView.onFocusChange = { [weak self] _ in self?.inputFocusChanged() }
         terminalView.onDraw = { [weak self] in
             self?.panToCursor()
             self?.sync()
@@ -96,6 +116,17 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         terminalView.onReady = { [weak self] in self?.sync() }
         terminalView.onInput = { [weak self] data in self?.send(data) }
         model.controller = self
+        #if DEBUG && targetEnvironment(simulator)
+        // DEBUG harness: the headless simulator reports a hardware keyboard;
+        // CMUX_NEXT_SOFTWARE_KEYBOARD=1 switches its input modes to the
+        // software keyboard so keyboard layout can be measured (UI-test trick).
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_SOFTWARE_KEYBOARD"] == "1" {
+            let selector = NSSelectorFromString("setHardwareLayout:")
+            for mode in UITextInputMode.activeInputModes where mode.responds(to: selector) {
+                mode.perform(selector, with: nil)
+            }
+        }
+        #endif
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -119,7 +150,12 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             let bottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
             homeIndicator = max(0, window.safeAreaInsets.bottom - (window.bounds.height - bottomInWindow))
         }
-        if bottomConstraint?.constant != -homeIndicator { bottomConstraint?.constant = -homeIndicator }
+        // The composer row is persistent: in composer mode the grid ends on
+        // its resting top (a grid change, unlike the keyboard's).
+        let composerHeight = model.composerMode ? (composerHost?.view.intrinsicContentSize.height ?? 0) : 0
+        let inset = homeIndicator + max(0, composerHeight)
+        if bottomConstraint?.constant != -inset { bottomConstraint?.constant = -inset }
+        if placeAccessories() { view.setNeedsLayout() }
         panToCursor()
         sync()
     }
@@ -133,6 +169,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         guard fit.cols >= 2, fit.rows >= 2 else { return }
         let generation = connection.generation
         if generation != attachedGeneration {
+            guard generation != failedGeneration, model.status != .ended else { return }
             guard let client = connection.client else {
                 model.status = connection.state.isConnected ? .attaching : .reconnecting
                 return
@@ -156,9 +193,18 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         // The host replays the scrollback: start from a clean terminal.
         terminalView.resetTerminal()
         lockGrid(grid)
-        let terminalId = self.terminalId
+        let existingId = self.terminalId
         attachTask = Task { [weak self] in
             do {
+                var terminalId = existingId
+                if terminalId == nil {
+                    let created = try await client.createTerminal(cols: grid.cols, rows: grid.rows)
+                    terminalId = created.id
+                    self?.terminalId = created.id
+                    self?.model.terminal = created
+                    self?.onCreated?(created.id)
+                }
+                guard let terminalId else { return }
                 let result = try await client.attachTerminal(terminalId, cols: grid.cols, rows: grid.rows)
                 guard let self else { return }
                 self.attaching = false
@@ -179,7 +225,13 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             } catch {
                 guard let self else { return }
                 self.attaching = false
-                self.model.status = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                self.failedGeneration = generation
+                if let rpc = error as? RPCError, rpc.code == .notFound {
+                    // The PTY is gone (the Mac's host restarted or it was closed).
+                    self.model.status = .ended
+                } else {
+                    self.model.status = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                }
             }
         }
     }
@@ -237,7 +289,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private func scheduleResize(_ grid: (cols: Int, rows: Int)) {
         resizeTask?.cancel()
         let clock = self.clock
-        let terminalId = self.terminalId
+        guard let terminalId = self.terminalId else { return }
         resizeTask = Task { [weak self] in
             // Intentional bounded delay: coalesce pinch and rotation steps.
             do { try await clock.sleep(for: Self.resizeDebounce) } catch { return }
@@ -256,17 +308,125 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
 
     // MARK: Keyboard pan
 
-    /// Shows the keyboard (user action only).
-    func focusInput() { terminalView.becomeFirstResponder() }
+    /// Shows the keyboard for typing into the terminal (user action only).
+    func focusInput() {
+        if model.composerMode { setComposerMode(false) }
+        terminalView.becomeFirstResponder()
+    }
 
-    /// The keyboard moves: pan on its own curve and duration. Only the
-    /// keyboard's end frame counts (in window coordinates), so layout passes
-    /// of the hosting view during the move cannot make the terminal jump.
+    private func installAccessories() {
+        accessoryStack.axis = .vertical
+        accessoryStack.spacing = 0
+        accessoryStack.translatesAutoresizingMaskIntoConstraints = false
+        accessoryStack.backgroundColor = CNTheme.shared.palette.terminalBackground
+        let composer = UIHostingController(rootView: TerminalComposer(
+            model: model,
+            onSend: { [weak self] text, submit in self?.terminalView.sendComposed(text, submit: submit) },
+            onAttach: { [weak self] attachment in self?.upload(attachment) },
+            onFocusChange: { [weak self] focused in
+                self?.composerFocused = focused
+                self?.inputFocusChanged()
+            },
+            onHeightChange: { [weak self] in
+                guard let self, let host = self.composerHost else { return }
+                host.view.invalidateIntrinsicContentSize()
+                self.relayoutAccessories(animated: true)
+            }
+        ))
+        composer.sizingOptions = [.intrinsicContentSize]
+        composer.view.backgroundColor = CNTheme.shared.palette.terminalBackground
+        composer.view.isHidden = true
+        addChild(composer)
+        accessoryStack.addArrangedSubview(composer.view)
+        composer.didMove(toParent: self)
+        composerHost = composer
+        keyBar.isHidden = true
+        keyBar.onKey = { [weak self] key in self?.keyBarKey(key) }
+        terminalView.keyBarView = keyBar
+        accessoryStack.addArrangedSubview(keyBar)
+        view.addSubview(accessoryStack)
+        // The keyboard layout guide includes the keyboard's own bars and
+        // follows the keyboard's animation; the stack rides its top.
+        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        NSLayoutConstraint.activate([
+            accessoryStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            accessoryStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            accessoryStack.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+    }
+
+    private func keyBarKey(_ key: TerminalKeyBarKey) {
+        switch key {
+        case .composer:
+            setComposerMode(!model.composerMode)
+        case .hideKeyboard:
+            if composerFocused { requestComposerFocus(false) } else { terminalView.resignFirstResponder() }
+        default:
+            terminalView.keyBarKey(key)
+        }
+    }
+
+    /// Composer mode shows the input row and focuses it; raw mode types
+    /// straight into the terminal.
+    func setComposerMode(_ on: Bool) {
+        guard model.composerMode != on else { return }
+        model.composerMode = on
+        keyBar.composerMode = on
+        if on {
+            requestComposerFocus(true)
+        } else {
+            requestComposerFocus(false)
+            terminalView.becomeFirstResponder()
+        }
+        relayoutAccessories(animated: true)
+    }
+
+    private func requestComposerFocus(_ focused: Bool) {
+        model.composerWantsFocus = focused
+        model.composerFocusRequest += 1
+    }
+
+    private func inputFocusChanged() {
+        relayoutAccessories(animated: true)
+    }
+
+    /// Uploads an attachment to the Mac and inserts its quoted path.
+    private func upload(_ attachment: TerminalAttachment) {
+        guard let client = connection.client else {
+            model.uploadError = TerminalText.uploadFailed
+            return
+        }
+        model.uploading += 1
+        Task { [weak self] in
+            do {
+                let path = try await client.uploadFile(name: attachment.name, mimeType: attachment.mimeType, data: attachment.data)
+                guard let self else { return }
+                self.model.uploading -= 1
+                let quoted = shellQuoted(path)
+                let text = self.model.composerText
+                let separator = text.isEmpty || text.hasSuffix(" ") ? "" : " "
+                self.model.composerText = text + separator + quoted + " "
+            } catch {
+                guard let self else { return }
+                self.model.uploading -= 1
+                self.model.uploadError = (error as? LocalizedError)?.errorDescription ?? TerminalText.uploadFailed
+            }
+        }
+    }
+
+    /// The keyboard moves: accessories and pan follow on its own curve and
+    /// duration. Only the keyboard's end frame counts (window coordinates),
+    /// so layout passes of the hosting view during the move cannot make the
+    /// terminal jump.
     private func keyboardWillChange(_ change: KeyboardChange) {
         guard let window = view.window else { return }
         let end = window.convert(change.endFrame, from: window.screen.coordinateSpace)
         keyboardFrame = change.hiding || end.minY >= window.bounds.maxY - 1 ? nil : end
-        let animations = { self.panToCursor() }
+        let animations = {
+            self.placeAccessories()
+            self.view.layoutIfNeeded()
+            self.panToCursor()
+        }
         if change.duration > 0, !UIAccessibility.isReduceMotionEnabled {
             UIView.animate(withDuration: change.duration, delay: 0,
                            options: [UIView.AnimationOptions(rawValue: change.curve << 16), .beginFromCurrentState],
@@ -276,25 +436,67 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         }
     }
 
-    /// The keyboard never changes the grid (D8): while it covers the cursor
-    /// row, the terminal moves up just enough to show that row above the
-    /// keyboard and its key bar. Keyboard moves animate on the keyboard's
-    /// curve; after output the move is immediate.
+    private func relayoutAccessories(animated: Bool) {
+        let changes = {
+            self.placeAccessories()
+            self.view.layoutIfNeeded()
+            self.panToCursor()
+        }
+        if animated, !UIAccessibility.isReduceMotionEnabled, view.window != nil {
+            UIView.animate(springDuration: 0.35, bounce: 0, animations: changes)
+        } else {
+            changes()
+        }
+    }
+
+    private var inputFocused: Bool { terminalView.isFirstResponder || composerFocused }
+
+    /// Shows the composer and key bar for the current mode and focus.
+    /// Returns true when anything changed.
+    @discardableResult
+    private func placeAccessories() -> Bool {
+        var changed = false
+        let showBar = inputFocused && !GhosttyTerminalView.hardwareKeyboardAttached
+        let showComposer = model.composerMode
+        if keyBar.isHidden == showBar { keyBar.isHidden = !showBar; changed = true }
+        if let host = composerHost, host.view.isHidden == showComposer { host.view.isHidden = !showComposer; changed = true }
+        return changed
+    }
+
+    /// The visible bottom of the terminal: the top of the composer and key
+    /// bar when shown, else the keyboard's top (layout must be current).
+    private var visibleBottomInView: CGFloat {
+        let accessoriesShown = !keyBar.isHidden || !(composerHost?.view.isHidden ?? true)
+        return accessoriesShown ? accessoryStack.frame.minY : view.keyboardLayoutGuide.layoutFrame.minY
+    }
+
+    /// The keyboard never changes the grid (D8). While the key bar, composer
+    /// or keyboard covers the bottom of the grid, the terminal moves up so
+    /// its last row sits on their top edge; it never moves so far that the
+    /// cursor row leaves the top, and always far enough that the cursor row
+    /// stays above them.
     private func panToCursor() {
-        guard let window = view.window else { return }
+        let restingTop = terminalView.center.y - terminalView.bounds.height / 2
+        let restingBottom = restingTop + terminalView.bounds.height
+        let visibleBottom = min(visibleBottomInView, restingBottom)
         let cursor = terminalView.cursorRect
-        guard cursor.height > 0 else { return }
-        // The resting frame (center and bounds ignore the transform), in the window.
-        let restingTop = view.convert(CGPoint(x: 0, y: terminalView.center.y - terminalView.bounds.height / 2), to: window).y
-        let cursorBottom = restingTop + cursor.maxY + Self.cursorMargin
-        let keyboardTopY = keyboardFrame?.minY ?? window.bounds.maxY
-        let shift = terminalView.isFirstResponder ? max(0, cursorBottom - keyboardTopY) : 0
+        let accessoriesShown = !keyBar.isHidden || model.composerMode
+        // Measured only while something covers the bottom (it reads rows).
+        let contentBottom = accessoriesShown || keyboardFrame != nil
+            ? min(terminalView.contentBottom ?? 0, terminalView.bounds.height) : 0
+        var shift = max(0, restingTop + contentBottom - visibleBottom)
+        if cursor.height > 0 {
+            let cursorShift = max(0, restingTop + cursor.maxY + Self.cursorMargin - visibleBottom)
+            let cursorTopLimit = max(cursorShift, cursor.minY - Self.cursorMargin)
+            shift = min(max(shift, cursorShift), cursorTopLimit)
+        }
+        shift = max(0, shift)
         let transform = CGAffineTransform(translationX: 0, y: -shift)
         if terminalView.transform != transform { terminalView.transform = transform }
         if model.keyboardShift != shift { model.keyboardShift = shift }
         updateDebugValue()
         #if DEBUG
-        TerminalTrace.shared.log("pan shift=\(shift) kbTop=\(keyboardTopY) cursorBottom=\(cursorBottom) restingTop=\(restingTop) viewInWindow=\(view.convert(view.bounds, to: nil)) fr=\(terminalView.isFirstResponder)")
+        TerminalTrace.shared.log("pan shift=\(shift) visibleBottom=\(visibleBottom) contentBottom=\(restingTop + contentBottom) cursor=\(cursor) bar=\(!keyBar.isHidden) composer=\(model.composerMode) stack=\(accessoryStack.frame)")
         #endif
     }
 
@@ -305,6 +507,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
+        scrollPan = pan
         let press = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
         press.minimumPressDuration = 0.35
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
@@ -324,22 +527,34 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             terminalView.clearSelection()
             return
         }
+        // A tap on the terminal always types straight into it.
         focusInput()
     }
 
-    /// One finger drags the scrollback (Ghostty scroll), with momentum.
+    /// One finger drags vertically: Ghostty scrolls its scrollback on the
+    /// primary screen, or sends wheel reports / arrow keys to a TUI on the
+    /// alternate screen (see `GhosttyTerminalView.scroll`). Momentum follows
+    /// a fling. Works with the keyboard up.
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        let point = recognizer.location(in: terminalView)
         switch recognizer.state {
         case .began:
             momentum?.stop()
-        case .changed:
+            scrollPoint = point
+            // The slop the recognizer consumed before beginning counts too.
             let dy = recognizer.translation(in: terminalView).y
             recognizer.setTranslation(.zero, in: terminalView)
-            terminalView.scroll(byPoints: dy)
+            terminalView.scroll(byPoints: dy, at: point)
+        case .changed:
+            scrollPoint = point
+            let dy = recognizer.translation(in: terminalView).y
+            recognizer.setTranslation(.zero, in: terminalView)
+            terminalView.scroll(byPoints: dy, at: point)
         case .ended:
             let velocity = recognizer.velocity(in: terminalView).y
             guard !UIAccessibility.isReduceMotionEnabled, abs(velocity) > 200 else { return }
-            let momentum = ScrollMomentum(velocity: velocity) { [weak self] dy in self?.terminalView.scroll(byPoints: dy) }
+            let at = point
+            let momentum = ScrollMomentum(velocity: velocity) { [weak self] dy in self?.terminalView.scroll(byPoints: dy, at: at) }
             self.momentum = momentum
             momentum.start()
         default:
@@ -347,15 +562,28 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         }
     }
 
+    /// Vertical drags only (a slow drag begins with zero velocity, so the
+    /// translation decides; ties go to scrolling).
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
+        guard let pan = recognizer as? UIPanGestureRecognizer, pan === scrollPan else { return true }
+        let t = pan.translation(in: terminalView)
         let v = pan.velocity(in: terminalView)
-        return abs(v.y) > abs(v.x)
+        let dx = abs(t.x) > 0.5 || abs(t.y) > 0.5 ? abs(t.x) : abs(v.x)
+        let dy = abs(t.x) > 0.5 || abs(t.y) > 0.5 ? abs(t.y) : abs(v.y)
+        return dy >= dx
     }
 
     func gestureRecognizer(_ recognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         false
+    }
+
+    /// Other pans outside the terminal (the drawer's horizontal pan) wait
+    /// for the scroll pan to fail, so a vertical drag always scrolls.
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        guard recognizer === scrollPan, other is UIPanGestureRecognizer, other.view !== terminalView else { return false }
+        return !(other is UIScreenEdgePanGestureRecognizer)
     }
 
     /// Long press selects a word; dragging extends it; release shows Copy.

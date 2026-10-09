@@ -19,10 +19,12 @@ enum TerminalKeyBarKey: String, CaseIterable, Sendable {
     case dash = "-"
     case paste
     case hideKeyboard = "hide-keyboard"
+    /// Switches between the composer and typing straight into the terminal.
+    case composer
 
     /// The default bar (ghostty-next section 5).
     static let defaultKeys: [TerminalKeyBarKey] = [
-        .escape, .tab, .control, .alternate, .left, .down, .up, .right, .tilde, .slash, .pipe, .dash, .paste,
+        .composer, .escape, .tab, .control, .alternate, .left, .down, .up, .right, .tilde, .slash, .pipe, .dash, .paste,
         .hideKeyboard,
     ]
 

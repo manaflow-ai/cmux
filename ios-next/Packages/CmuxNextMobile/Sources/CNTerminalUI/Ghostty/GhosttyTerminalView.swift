@@ -29,10 +29,13 @@ final class GhosttyTerminalView: UIView {
     /// The software keyboard (`.asciiCapable`; the default keyboard allows
     /// non-Latin input).
     var keyboardKind: UIKeyboardType = .asciiCapable
-    var keyBarKeys: [TerminalKeyBarKey] = TerminalKeyBarKey.defaultKeys {
-        didSet { keyBarView = nil }
-    }
-    private(set) var keyBarView: TerminalKeyBar?
+    /// The key bar the controller shows above the keyboard; it mirrors the
+    /// sticky modifiers. Not an input accessory view: the controller pins it
+    /// (and the composer) to the keyboard layout guide so the terminal's
+    /// visible bottom is measured against it.
+    weak var keyBarView: TerminalKeyBar?
+    /// First responder gained (true) or lost (false).
+    var onFocusChange: ((Bool) -> Void)?
     private var keyboardObservers: [any NSObjectProtocol] = []
     private var app: GhosttyApp?
     /// The output functions (process_output, set_grid) run here: one serial
@@ -259,9 +262,15 @@ final class GhosttyTerminalView: UIView {
 
     // MARK: Scrollback and selection
 
-    /// Scrolls by a finger movement in points (positive dy shows older lines).
-    func scroll(byPoints dy: CGFloat) {
+    /// Scrolls by a finger movement in points at `point` (positive dy moves
+    /// the content down: older lines, or "wheel up" for a TUI). Ghostty picks
+    /// the behavior from the mirrored modes: the scrollback viewport on the
+    /// primary screen, wheel reports when the app enabled mouse reporting,
+    /// arrow keys on the alternate screen with alternate scroll and no
+    /// reporting. Reports carry the pointer position, so it is set first.
+    func scroll(byPoints dy: CGFloat, at point: CGPoint) {
         guard let surface, dy != 0 else { return }
+        ghostty_surface_mouse_pos(surface, point.x, point.y, GHOSTTY_MODS_NONE)
         let scale = window?.screen.scale ?? 3
         // Precision scroll (bit 0): deltas in pixels; Ghostty turns them into rows.
         ghostty_surface_mouse_scroll(surface, 0, Double(dy * scale), ghostty_input_scroll_mods_t(1))
@@ -289,6 +298,53 @@ final class GhosttyTerminalView: UIView {
         guard let surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         requestFrame()
+    }
+
+    /// True while the terminal app captures the mouse (mouse reporting on).
+    var mouseCaptured: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
+    }
+
+    /// The bottom of the last visible row that has text (or of the cursor
+    /// row, whichever is lower), in this view's points. A TUI's footer (a
+    /// prompt hint under the cursor) counts; blank rows under a shell
+    /// prompt do not.
+    var contentBottom: CGFloat? {
+        guard let surface else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0, metrics.columns > 0 else { return nil }
+        var lastRow = metrics.cursor_in_viewport ? Int(metrics.cursor_row) : 0
+        var row = Int(metrics.rows) - 1
+        while row > lastRow {
+            if !isBlankRow(surface, row: row, columns: Int(metrics.columns)) { lastRow = row; break }
+            row -= 1
+        }
+        return CGFloat(metrics.padding_top + Double(lastRow + 1) * metrics.cell_height)
+    }
+
+    private func isBlankRow(_ surface: ghostty_surface_t, row: Int, columns: Int) -> Bool {
+        var selection = ghostty_selection_s()
+        selection.top_left = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row))
+        selection.bottom_right = ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                                                 x: UInt32(columns - 1), y: UInt32(row))
+        selection.rectangle = false
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return true }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let base = text.text, text.text_len > 0 else { return true }
+        let bytes = UnsafeRawBufferPointer(start: base, count: Int(text.text_len))
+        return bytes.allSatisfy { $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }
+    }
+
+    /// Composer send: the text as a paste (bracketed when the app enabled
+    /// bracketed paste, raw otherwise), then Return unless `submit` is false.
+    func sendComposed(_ text: String, submit: Bool) {
+        if !text.isEmpty { perform([.paste(text)]) }
+        if submit {
+            let enter = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(TerminalHIDUsage.enter))
+            perform([.key(enter), .key(enter.released)])
+        }
     }
 
     var hasSelection: Bool {
@@ -323,9 +379,17 @@ final class GhosttyTerminalView: UIView {
     override var canBecomeFirstResponder: Bool { true }
 
     @discardableResult
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocusChange?(true) }
+        return became
+    }
+
+    @discardableResult
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         if resigned {
+            onFocusChange?(false)
             input.sticky.reset()
             keyBarView?.modifiers = input.sticky
             if input.markedText != nil { perform(input.setMarkedText(nil)) }
@@ -333,18 +397,8 @@ final class GhosttyTerminalView: UIView {
         return resigned
     }
 
-    /// The key bar over the software keyboard; none while a hardware
-    /// keyboard is attached. The simulator always shows it.
-    override var inputAccessoryView: UIView? {
-        if Self.hardwareKeyboardAttached { return nil }
-        if let keyBarView { return keyBarView }
-        let bar = TerminalKeyBar(keys: keyBarKeys)
-        bar.onKey = { [weak self] key in self?.keyBarKey(key) }
-        bar.modifiers = input.sticky
-        keyBarView = bar
-        return bar
-    }
-
+    /// The key bar hides while a hardware keyboard is attached (device only;
+    /// the simulator always shows it).
     static var hardwareKeyboardAttached: Bool {
         #if targetEnvironment(simulator)
         false
@@ -357,6 +411,7 @@ final class GhosttyTerminalView: UIView {
         switch key {
         case .paste: paste(nil)
         case .hideKeyboard: resignFirstResponder()
+        case .composer: break // the controller handles the mode toggle
         default: perform(input.keyBar(key, at: ProcessInfo.processInfo.systemUptime))
         }
         keyBarView?.modifiers = input.sticky
