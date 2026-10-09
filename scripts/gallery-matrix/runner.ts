@@ -8,7 +8,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
-import { freestyleDevKey } from "../lib/freestyle-dev-key.mjs";
 
 export type Scalar = string | number | boolean;
 export type MatrixCase = {
@@ -358,10 +357,10 @@ export async function createAllVms<T>(count: number, create: (shard: number) => 
   return results.map((result) => (result as PromiseFulfilledResult<T>).value);
 }
 
-async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; caseTimeoutMs: number; vmCount: number; snapshot: string; keyFile?: string; apiUrl?: string }): Promise<void> {
+async function runFreestyle(args: { manifest: string; galleryDir: string; outputDir: string; threshold: number; engines: Engine[]; caseTimeoutMs: number; vmCount: number; snapshot: string; keyFile: string; apiUrl?: string }): Promise<void> {
   const { Freestyle } = await import("freestyle");
-  // The key (--freestyle-key-file, else the one dev key in ~/.secrets/cmux.env) is only ever sent to the Freestyle API; never printed or logged.
-  const key = freestyleKey(args.keyFile);
+  // The key is read from its file and only ever sent to the Freestyle API; never printed or logged.
+  const key = readFileSync(args.keyFile, "utf8").trim();
   if (!key) throw new Error("Freestyle key file is empty");
   const client = new Freestyle({ apiKey: key, baseUrl: args.apiUrl ?? "https://beta-api.freestyle.sh" });
   const cases = parseManifest(JSON.parse(await readFile(args.manifest, "utf8")));
@@ -463,15 +462,10 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
   }
 }
 
-/** --freestyle-key-file when given, else the one Freestyle dev key (scripts/lib/freestyle-dev-key.mjs). */
-function freestyleKey(keyFile: string | undefined): string {
-  return keyFile === undefined ? freestyleDevKey() : readFileSync(keyFile, "utf8").trim();
-}
-
 /** Pauses the ledger's unsettled ids (exact ids only), after a crashed or failed run. */
-async function cleanupLedger(keyFile: string | undefined, apiUrl?: string): Promise<void> {
+async function cleanupLedger(keyFile: string, apiUrl?: string): Promise<void> {
   const { Freestyle } = await import("freestyle");
-  const client = new Freestyle({ apiKey: freestyleKey(keyFile), baseUrl: apiUrl ?? "https://beta-api.freestyle.sh" });
+  const client = new Freestyle({ apiKey: readFileSync(keyFile, "utf8").trim(), baseUrl: apiUrl ?? "https://beta-api.freestyle.sh" });
   const ledgerPath = resolve(LEDGER_PATH);
   if (!existsSync(ledgerPath)) return;
   await pauseLedgerIds(ledgerPath, async (id) => { await client.vms.ref(id).pause(); });
@@ -488,7 +482,7 @@ export function publishRun(outputDir: string, run: string, host = "cmux-lawrence
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string" }, "freestyle-api-url": { type: "string" } } });
+  const { values } = parseArgs({ options: { "dry-run": { type: "boolean", default: false }, "publish-run": { type: "string" }, "publish-host": { type: "string", default: "cmux-lawrence" }, "freestyle-cleanup": { type: "boolean", default: false }, manifest: { type: "string" }, "gallery-dir": { type: "string" }, "output-dir": { type: "string", default: "gallery-matrix-output" }, baseline: { type: "string" }, threshold: { type: "string", default: "0" }, engines: { type: "string", default: "chromium,webkit" }, "shard-count": { type: "string", default: "1" }, "shard-index": { type: "string", default: "0" }, "case-timeout-ms": { type: "string", default: String(DEFAULT_CASE_TIMEOUT_MS) }, "freestyle-vms": { type: "string" }, "freestyle-snapshot": { type: "string", default: "freestyle/ubuntu-sm" }, "freestyle-key-file": { type: "string", default: "/Users/lawrence/.secrets/freestyle-cmux-next-dev-20261004.key" }, "freestyle-api-url": { type: "string" } } });
   if (values["freestyle-cleanup"]) return cleanupLedger(values["freestyle-key-file"], values["freestyle-api-url"]);
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
   if (values["dry-run"]) {
