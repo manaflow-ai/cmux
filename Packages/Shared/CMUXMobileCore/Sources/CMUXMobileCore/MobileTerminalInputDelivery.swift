@@ -71,7 +71,7 @@ public struct MobileTerminalInputDelivery: Equatable, Hashable, Sendable {
 
     private static func sequenceValue(_ value: Any?) -> UInt64? {
         switch value {
-        case let string as String: return UInt64(string)
+        case let string as String: return UInt64(string, radix: 10)
         case let number as NSNumber: return number.uint64Value
         default: return nil
         }
@@ -237,7 +237,7 @@ public struct MobileTerminalInputLedger: Sendable {
         }
         guard entry.surfaceID == delivery.surfaceID else { return .surfaceMismatch }
         entry.lastUsed = now
-        entries[delivery.streamID] = entry
+        entries.updateValue(entry, forKey: delivery.streamID)
         if delivery.sequence <= entry.appliedThrough {
             return .duplicate(appliedThrough: entry.appliedThrough)
         }
@@ -252,14 +252,14 @@ public struct MobileTerminalInputLedger: Sendable {
             guard entry.surfaceID == delivery.surfaceID else { return }
             entry.appliedThrough = max(entry.appliedThrough, delivery.sequence)
             entry.lastUsed = now
-            entries[delivery.streamID] = entry
+            entries.updateValue(entry, forKey: delivery.streamID)
             return
         }
-        entries[delivery.streamID] = Entry(
+        entries.updateValue(Entry(
             surfaceID: delivery.surfaceID,
             appliedThrough: delivery.sequence,
             lastUsed: now
-        )
+        ), forKey: delivery.streamID)
         evictIfNeeded()
     }
 

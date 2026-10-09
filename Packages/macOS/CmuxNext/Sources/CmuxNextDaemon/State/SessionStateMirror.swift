@@ -145,7 +145,7 @@ public struct StateScreenGroup: Sendable, Hashable, Decodable {
 /// accepts a JSON number.
 enum StateDecimal {
     static func decode<K: CodingKey>(_ container: KeyedDecodingContainer<K>, _ key: K) throws -> UInt64? {
-        if let text = try? container.decodeIfPresent(String.self, forKey: key) { return UInt64(text) }
+        if let text = try? container.decodeIfPresent(String.self, forKey: key) { return UInt64(text, radix: 10) }
         return try container.decodeIfPresent(UInt64.self, forKey: key)
     }
 }

@@ -1,6 +1,26 @@
 import Foundation
 
-// Checked conversions (plans/cmux-next/crash-elimination.md, class int_conversion).
+// Checked access and conversions (plans/cmux-next/crash-elimination.md, classes
+// index_subscript and int_conversion).
+
+extension Collection {
+    /// The element at `index`, or nil when `index` is outside the collection.
+    subscript(checked index: Index) -> Element? {
+        guard index >= startIndex, index < endIndex else { return nil }
+        return self[index]
+    }
+}
+
+extension MutableCollection {
+    /// Calls `body` with the element at `index` and returns true; returns false
+    /// without calling it when `index` is outside the collection.
+    @discardableResult
+    mutating func modify(checked index: Index, _ body: (inout Element) throws -> Void) rethrows -> Bool {
+        guard index >= startIndex, index < endIndex else { return false }
+        try body(&self[index])
+        return true
+    }
+}
 
 extension BinaryFloatingPoint {
     /// The value rounded toward zero as `I`, saturated at `I`'s bounds; nil for NaN.
