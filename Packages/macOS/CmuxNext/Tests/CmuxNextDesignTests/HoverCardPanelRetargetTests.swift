@@ -19,7 +19,7 @@ struct HoverCardPanelRetargetTests {
                       themeAnchor: nil, sliding: false, applyTheme: {})
         panel.present(body: body, anchor: CGRect(x: 420, y: 400, width: 100, height: 30), placement: .below, parent: parent,
                       themeAnchor: nil, sliding: true, applyTheme: {})
-        #expect(panel.frame.minX == 420, "the card is at the new tab now, not sliding there")
+        #expect(panel.cardFrame.minX == 420, "the card is at the new tab now, not sliding there")
         parent.removeChildWindow(panel)
         panel.orderOut(nil)
     }
