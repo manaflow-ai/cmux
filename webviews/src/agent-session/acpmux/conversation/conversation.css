@@ -476,16 +476,15 @@ pre.cv-math-source {
   top: 0;
   right: 0;
   opacity: 0;
-  transition: opacity 120ms ease-out;
 }
 .acpmux-row:hover .acpmux-row__copy,
 .acpmux-row:focus-within .acpmux-row__copy,
 .acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
   opacity: 1;
 }
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) {
   .acpmux-row__copy {
-    transition: none;
+    transition: opacity 120ms ease-out;
   }
 }
 .acpmux-permission {
