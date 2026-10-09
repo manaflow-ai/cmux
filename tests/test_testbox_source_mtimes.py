@@ -31,9 +31,15 @@ class SourceMtimesTests(unittest.TestCase):
         self.write(self.box1.name, "cmux-tui/src/changed.rs", "fn old() {}\n")
         self.write(self.box1.name, "ghostty/src/vt.zig", "const a = 1;\n")
         self.write(self.box1.name, "web/page.ts", "x\n")
+        os.makedirs(os.path.join(self.box1.name, "ghostty", "include"))
+        os.makedirs(os.path.join(self.box2.name, "ghostty", "include"))
+        self.write(self.box1.name, "ghostty/include/a.h", "a\n")
+        self.write(self.box2.name, "ghostty/include/a.h", "a\n")
+        self.write(self.box2.name, "ghostty/include/b.h", "b\n")
         for path in pathlib.Path(self.box1.name).rglob("*"):
-            if path.is_file():
-                os.utime(path, ns=(OLD, OLD))
+            os.utime(path, ns=(OLD, OLD))
+        for top in ("cmux-tui", "ghostty"):
+            os.utime(os.path.join(self.box1.name, top), ns=(OLD, OLD))
         run("record", self.box1.name, self.manifest)
 
         self.write(self.box2.name, "cmux-tui/src/same.rs", "fn same() {}\n")
@@ -61,6 +67,19 @@ class SourceMtimesTests(unittest.TestCase):
         self.assertGreater(self.mtime("cmux-tui/src/added.rs"), OLD)
         # Only the Cargo-relevant source dirs are recorded.
         self.assertGreater(self.mtime("web/page.ts"), OLD)
+        # Cargo's rerun-if-changed on a directory also compares directory
+        # mtimes: a directory with the same entries gets its mtime back, a
+        # directory that gained or lost an entry stays fresh.
+        self.assertEqual(self.mtime("ghostty/src"), OLD)
+        self.assertEqual(self.mtime("ghostty"), OLD)
+        self.assertGreater(self.mtime("ghostty/include"), OLD)
+        self.assertGreater(self.mtime("cmux-tui/src"), OLD)
+
+    def test_restore_never_dates_a_file_into_the_future(self) -> None:
+        path = os.path.join(self.box2.name, "cmux-tui", "src", "same.rs")
+        os.utime(path, ns=(OLD - 10**9, OLD - 10**9))
+        run("restore", self.box2.name, self.manifest)
+        self.assertEqual(self.mtime("cmux-tui/src/same.rs"), OLD - 10**9)
 
     def test_a_hostile_manifest_cannot_leave_the_repository_or_follow_links(self) -> None:
         outside = os.path.join(self.box1.name, "outside.txt")
@@ -70,9 +89,9 @@ class SourceMtimesTests(unittest.TestCase):
         with open(self.manifest, "a", encoding="utf-8") as handle:
             data = b"fn same() {}\n"
             blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-            handle.write(f"{blob}\t1\t../outside.txt\n")
-            handle.write(f"{blob}\t1\tcmux-tui/../../outside.txt\n")
-            handle.write(f"{blob}\t1\tcmux-tui/src/link.rs\n")
+            handle.write(f"F\t{blob}\t1\t../outside.txt\n")
+            handle.write(f"F\t{blob}\t1\tcmux-tui/../../outside.txt\n")
+            handle.write(f"F\t{blob}\t1\tcmux-tui/src/link.rs\n")
             handle.write("garbage line\n")
         run("restore", self.box2.name, self.manifest)
         self.assertEqual(os.lstat(outside).st_mtime_ns, before)

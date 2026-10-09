@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 prune="$root/scripts/blacksmith-testbox-target-prune.sh"
 test -x "$prune"
-if ! find --version >/dev/null 2>&1 || ! du --version >/dev/null 2>&1; then
+if ! find . -maxdepth 0 -printf '' >/dev/null 2>&1 || ! du --version >/dev/null 2>&1; then
   echo "SKIP: needs GNU find and du (the Testbox and CI run Linux)"
   exit 0
 fi

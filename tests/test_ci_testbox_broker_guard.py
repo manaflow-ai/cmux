@@ -135,11 +135,20 @@ class TestboxBrokerGuardTests(unittest.TestCase):
         for path in sorted((ROOT / ".github").rglob("*.y*ml")):
             if path == WORKFLOW:
                 continue
+            text = path.read_text(encoding="utf-8")
             self.assertNotIn(
                 "cmux-tui-target",
-                path.read_text(encoding="utf-8"),
+                text,
                 f"{path.relative_to(ROOT)} must not mount the Testbox warm target disk",
             )
+            # A computed key could still resolve to the Testbox key, so any
+            # other sticky disk must use a literal key.
+            for match in re.finditer(r"useblacksmith/stickydisk@[^\n]*\n((?:\s+.*\n)*)", text):
+                self.assertNotRegex(
+                    match.group(1),
+                    r"key:\s*[^\n]*\$\{\{",
+                    f"{path.relative_to(ROOT)} gives a sticky disk a computed key",
+                )
 
     def test_diagnostic_guard_uses_runner_python_without_setup_action(self) -> None:
         document = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))

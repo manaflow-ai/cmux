@@ -8,14 +8,16 @@ from the sticky disk would rebuild every workspace crate and rerun the Ghostty
 zig build anyway.
 
 `record` runs on the box that is about to commit the disk. It writes the git
-blob id and mtime of every file under the Cargo-relevant source dirs into the
+blob id and mtime of every file under the Cargo-relevant source dirs, and the
+entry-list hash and mtime of every directory there (Cargo's
+`rerun-if-changed` on a directory compares directory mtimes too), into the
 target dir, next to the artifacts those mtimes describe.
 
 `restore` runs on the next box after checkout. A file whose content is
-byte-identical to the recorded one gets its recorded mtime back, which is the
-exact state the committed artifacts were built against. A file with different
-content, or a file missing from the manifest, keeps its fresh mtime, so Cargo
-rebuilds it. Correctness therefore never depends on the manifest: a wrong or
+byte-identical to the recorded one, or a directory whose entry names are
+identical, gets its recorded mtime back, which is the exact state the
+committed artifacts were built against. Anything changed, added, or missing
+from the manifest keeps its fresh mtime, so Cargo rebuilds it. Correctness therefore never depends on the manifest: a wrong or
 hostile manifest can only make a file look as old as an identical file did.
 
 The manifest comes from a disk that candidate code wrote, so restore parses it
@@ -29,7 +31,7 @@ import sys
 
 SOURCE_DIRS = ("cmux-tui", "ghostty", "ghostty-next")
 SKIP_DIRS = {".git", "target", ".zig-cache", "zig-cache", "zig-out", "node_modules"}
-MANIFEST_VERSION = "cmux-testbox-source-mtimes-v1"
+MANIFEST_VERSION = "cmux-testbox-source-mtimes-v2"
 
 
 def blob_id(path: str) -> str:
@@ -41,12 +43,24 @@ def blob_id(path: str) -> str:
     return digest.hexdigest()
 
 
-def source_files(repo: str):
+def listing_id(path: str) -> str:
+    """Hash of a directory's entry names and kinds: what its mtime tracks."""
+    digest = hashlib.sha1()
+    for entry in sorted(os.scandir(path), key=lambda e: e.name):
+        kind = "l" if entry.is_symlink() else "d" if entry.is_dir() else "f"
+        digest.update(f"{kind}:{entry.name}\0".encode("utf-8", "surrogateescape"))
+    return digest.hexdigest()
+
+
+def source_entries(repo: str):
+    """Yield (kind, path): "F" for regular files, "D" for directories."""
     for top in SOURCE_DIRS:
         root = os.path.join(repo, top)
         if not os.path.isdir(root) or os.path.islink(root):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            if "\t" not in dirpath and "\n" not in dirpath:
+                yield "D", dirpath
             dirnames[:] = [name for name in dirnames if name not in SKIP_DIRS]
             for name in filenames:
                 path = os.path.join(dirpath, name)
@@ -54,22 +68,32 @@ def source_files(repo: str):
                     continue
                 if "\t" in path or "\n" in path:
                     continue
-                yield path
+                yield "F", path
 
 
 def record(repo: str, manifest: str) -> int:
     repo = os.path.realpath(repo)
     count = 0
     temporary = manifest + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as out:
+    # The manifest dir is a sticky disk that candidate code wrote: never write
+    # through a planted symlink.
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as out:
         out.write(MANIFEST_VERSION + "\n")
-        for path in source_files(repo):
+        for kind, path in source_entries(repo):
             stat = os.lstat(path)
+            identity = blob_id(path) if kind == "F" else listing_id(path)
             relative = os.path.relpath(path, repo)
-            out.write(f"{blob_id(path)}\t{stat.st_mtime_ns}\t{relative}\n")
+            out.write(f"{kind}\t{identity}\t{stat.st_mtime_ns}\t{relative}\n")
             count += 1
     os.replace(temporary, manifest)
-    print(f"source-mtimes: recorded {count} files")
+    print(f"source-mtimes: recorded {count} files and directories")
     return 0
 
 
@@ -85,10 +109,10 @@ def restore(repo: str, manifest: str) -> int:
             return 0
         for line in handle:
             parts = line.rstrip("\n").split("\t")
-            if len(parts) != 3:
+            if len(parts) != 4 or parts[0] not in ("F", "D"):
                 skipped += 1
                 continue
-            blob, mtime_ns, relative = parts
+            kind, blob, mtime_ns, relative = parts
             if (
                 len(blob) != 40
                 or any(c not in "0123456789abcdef" for c in blob)
@@ -99,7 +123,7 @@ def restore(repo: str, manifest: str) -> int:
                 skipped += 1
                 continue
             path = os.path.normpath(os.path.join(repo, relative))
-            if not path.startswith(repo + os.sep):
+            if not path.startswith(repo + os.sep) or relative != os.path.relpath(path, repo):
                 skipped += 1
                 continue
             # Refuse any symlink on the way, so a path cannot leave the repo.
@@ -110,10 +134,11 @@ def restore(repo: str, manifest: str) -> int:
                 if os.path.islink(parent):
                     safe = False
                     break
-            if not safe or not os.path.isfile(path):
+            exists = os.path.isfile(path) if kind == "F" else os.path.isdir(path)
+            if not safe or not exists:
                 skipped += 1
                 continue
-            if blob_id(path) != blob:
+            if (blob_id(path) if kind == "F" else listing_id(path)) != blob:
                 changed += 1
                 continue
             mtime = int(mtime_ns)
@@ -124,7 +149,7 @@ def restore(repo: str, manifest: str) -> int:
             os.utime(path, ns=(mtime, mtime), follow_symlinks=False)
             restored += 1
     print(
-        f"source-mtimes: restored {restored} files, {changed} changed since the "
+        f"source-mtimes: restored {restored} files and directories, {changed} changed since the "
         f"snapshot stay fresh, {skipped} entries skipped"
     )
     return 0

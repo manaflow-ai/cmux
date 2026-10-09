@@ -43,7 +43,7 @@ while (( SECONDS < deadline )); do
   state="$(gh run view "$run_id" --repo manaflow-ai/cmux --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null || true)"
   case "$state" in
     "completed success")
-      echo "release: run $run_id succeeded; the warm target dir is committed"
+      echo "release: run $run_id succeeded; the warm target dir commit is requested and lands when the VM shuts down"
       exit 0
       ;;
     completed*)
