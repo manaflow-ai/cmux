@@ -13,7 +13,7 @@ export function TemplateDots({
 }) {
   const nt = useNt();
   return (
-    <div className="nt-templates" role="group" aria-label={nt("templates")}>
+    <fieldset className="nt-templates" aria-label={nt("templates")}>
       {NEW_TAB_TEMPLATES.map((template) => {
         const name = nt(`template.${template}`);
         return (
@@ -29,6 +29,6 @@ export function TemplateDots({
           />
         );
       })}
-    </div>
+    </fieldset>
   );
 }

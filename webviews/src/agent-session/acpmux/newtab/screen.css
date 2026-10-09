@@ -137,6 +137,10 @@
   transform: translateX(-50%);
   display: flex;
   gap: 4px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
 }
 .nt-template-dot {
   width: 18px;
