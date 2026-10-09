@@ -13,6 +13,7 @@ import {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
   PLAN_RESOURCE_POOL,
+  VM_PROVIDER_RESOURCE_BOUNDS,
   type VmComputeResources,
   type VmResourcePoolPolicy,
 } from "./machineSpec";
@@ -187,11 +188,12 @@ function resolveBillingContext(
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
 /**
- * The largest machine Pro, Team, and Founder's Edition may start: the xl row,
- * 16 vCPU / 32 GB. The 64 GB 2xl row above it is what Max sells; the plan that
- * unlocks it is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
+ * The largest machine Pro, Team, and Founder's Edition may start: the lg row,
+ * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max sells;
+ * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
+ * the same upgrade.
  */
-export const PLAN_MAX_MEMORY_MB = 32768;
+export const PLAN_MAX_MEMORY_MB = 16384;
 /** Free machines exist only where an operator opens free provisioning; they stay at 8 GB. */
 export const FREE_PLAN_MAX_MEMORY_MB = 8192;
 export const GO_PLAN_MAX_MEMORY_MB = 4096;
@@ -206,7 +208,7 @@ export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);
   if (current === MAX_PLAN_ID) return null;
-  if (current === GO_PLAN_ID && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  if ((current === GO_PLAN_ID || current === "free") && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
   return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
 }
 
@@ -250,7 +252,11 @@ export function maxDiskMbForPlan(
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const fallback = normalized === MAX_PLAN_ID
+    ? 256 * 1024
+    : normalized === GO_PLAN_ID
+      ? 16 * 1024
+      : 128 * 1024;
   const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
   return raw?.trim()
     ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))
@@ -277,7 +283,9 @@ export function lockedMemoryOptionsMbForPlan(
   const max = maxMemoryMbForPlan(planId, env);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
-  const candidateUpgradePlanId = normalized === GO_PLAN_ID ? GO_MEMORY_UPGRADE_PLAN_ID : MEMORY_UPGRADE_PLAN_ID;
+  const candidateUpgradePlanId = normalized === GO_PLAN_ID || normalized === "free"
+    ? GO_MEMORY_UPGRADE_PLAN_ID
+    : MEMORY_UPGRADE_PLAN_ID;
   const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
       maxMemoryMbForPlan(candidateUpgradePlanId, env) >= locked[0]
     ? candidateUpgradePlanId
@@ -382,15 +390,20 @@ export function ladderVcpusForMemoryMb(memoryMb: number): number {
 }
 
 /**
- * The pool share of a live machine with no valid reservation marker: the
- * plan's default machine (8 GB / 4 vCPU on paid plans).
+ * The conservative pool share of a live machine with no valid reservation
+ * marker. A legacy row may have been created at any size or may have moved
+ * from Max to Pro, so a current-plan ceiling could still undercount it. Claim
+ * the provider's global maximum temporarily; the reconciler replaces this
+ * claim with measured dimensions.
  */
 export function legacyPoolReservationForPlan(
-  planId: string | null | undefined,
-  env: Record<string, string | undefined> = process.env,
+  _planId: string | null | undefined,
+  _env: Record<string, string | undefined> = process.env,
 ): VmComputeResources {
-  const memoryMb = defaultMemoryMbForPlan(planId, env);
-  return { vcpus: ladderVcpusForMemoryMb(memoryMb), memoryMb };
+  return {
+    vcpus: VM_PROVIDER_RESOURCE_BOUNDS.vcpus.max,
+    memoryMb: VM_PROVIDER_RESOURCE_BOUNDS.memoryMb.max,
+  };
 }
 
 /** The repository-side pool policy for one request, or null when the plan has no pool. */

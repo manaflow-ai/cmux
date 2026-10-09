@@ -40,6 +40,8 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
+  maxDiskMbForPlan,
+  maxVcpusForPlan,
   upgradePlanForMemory,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -170,8 +172,9 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
-      // A legacy row without a reservation marker draws from the pool at the
-      // plan's default machine size, exactly as the repository counts it.
+      // A legacy row without a reservation marker reserves the provider
+      // maximum until reconciliation measures it, exactly as the repository
+      // counts it.
       const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
       const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({
@@ -204,8 +207,12 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
-        // This machine's share of the shared vCPU/memory pool.
+        // `resources` remains the server-authoritative pool claim used by
+        // limits.used*. Legacy rows conservatively claim the provider
+        // maximum until reconciliation. The explicit marker is separate so
+        // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
+        ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
@@ -236,6 +243,12 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          // Resize ceilings are part of the same plan contract as the create
+          // ladder. Native clients use these values to avoid offering a
+          // provider-valid size that the caller's plan cannot use.
+          maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
+          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
+          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.
