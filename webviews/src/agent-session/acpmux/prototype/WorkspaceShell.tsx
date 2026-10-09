@@ -4,7 +4,7 @@
 // Dots at the bottom switch spaces, and links from a terminal open in the mini window
 // until Cmd-O promotes them into the workspace. Rows are minimal unless `sidebar.rowDetail` (the
 // sliders button, or `?rowDetail=everything&rowDetailItems=agents,-branch`) asks for more.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
 import { SessionSidebar } from "../SessionSidebar";
@@ -57,6 +57,7 @@ import {
 } from "./rowDetail";
 import {
   newTerminalWorkspace,
+  closeTab,
   openSessionIds,
   selectTab,
   terminalFirst,
@@ -123,12 +124,14 @@ export function WorkspaceShell() {
   const [flash, setFlash] = useState<string>();
   const space = activeSpace(spaces);
   const stack = space.stack;
-  const active = stack.workspaces.find((workspace) => workspace.id === stack.activeId)!;
-  const activeTab = active.tabs.find((tab) => tab.id === active.activeTabId)!;
+  const active = stack.workspaces.find((workspace) => workspace.id === stack.activeId) ?? stack.workspaces[0];
+  const activeTab = active?.tabs.find((tab) => tab.id === active.activeTabId) ?? active?.tabs[0];
   const openIds = useMemo(() => new Set(spaces.spaces.flatMap((each) => [...openSessionIds(each.stack)])), [spaces]);
   const [level, setLevel] = useState<RowDetailLevel>(seedLevel);
   const [overrides, setOverrides] = useState(seedOverrides);
   const [settingsOpen, setSettingsOpen] = useState(() => params.has("rowDetailSettings"));
+  const tabSelectRefs = useRef(new Map<string, HTMLButtonElement>());
+  const focusAfterClose = useRef<{ workspaceId: string; tabId: string } | undefined>(undefined);
   const items = rowDetailItems(level, overrides, terminalStyle ? "terminal" : undefined);
   const details = useMemo(() => {
     const now = Date.now();
@@ -138,11 +141,28 @@ export function WorkspaceShell() {
   const showSpaces = useCallback((next: Spaces) => {
     setSpaces(next);
     const stack = activeSpace(next).stack;
-    const workspace = stack.workspaces.find((candidate) => candidate.id === stack.activeId)!;
-    const tab = workspace.tabs.find((candidate) => candidate.id === workspace.activeTabId)!;
-    if (tab.sessionId) selectInPane(tab.sessionId);
+    const workspace = stack.workspaces.find((candidate) => candidate.id === stack.activeId) ?? stack.workspaces[0];
+    const tab = workspace?.tabs.find((candidate) => candidate.id === workspace.activeTabId) ?? workspace?.tabs[0];
+    if (tab?.sessionId) selectInPane(tab.sessionId);
   }, []);
   const show = useCallback((next: Stack) => showSpaces(withStack(spaces, next)), [spaces, showSpaces]);
+
+  const close = useCallback(
+    (workspaceId: string, tabId: string) => {
+      const result = closeTab(stack, workspaceId, tabId);
+      if (!result.closed) return;
+      if (result.focus) focusAfterClose.current = result.focus;
+      showSpaces(withStack(spaces, result.stack));
+    },
+    [spaces, stack, showSpaces],
+  );
+
+  useEffect(() => {
+    const target = focusAfterClose.current;
+    if (!target) return;
+    focusAfterClose.current = undefined;
+    tabSelectRefs.current.get(`${target.workspaceId}:${target.tabId}`)?.focus();
+  }, [stack]);
 
   const openSession = useCallback(
     (sessionId: string) => {
@@ -333,17 +353,34 @@ export function WorkspaceShell() {
           {active.tabs.map((tab) => {
             const KindIcon = KIND_ICONS[tab.kind];
             return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={tab.id === activeTab.id}
-                className={`proto-tab proto-tab-${tab.kind}`}
-                onClick={() => show(selectTab(stack, active.id, tab.id))}
-              >
-                <KindIcon size={14} />
-                <span>{tab.kind === "browser" && tab.id === activeTab.id ? tab.url : tab.title}</span>
-              </button>
+              <div key={tab.id} className={`proto-tab proto-tab-${tab.kind}`}>
+                <button
+                  ref={(element) => {
+                    const key = `${active.id}:${tab.id}`;
+                    if (element) tabSelectRefs.current.set(key, element);
+                    else tabSelectRefs.current.delete(key);
+                  }}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab.id === activeTab.id}
+                  className="proto-tab-select"
+                  onClick={() => show(selectTab(stack, active.id, tab.id))}
+                >
+                  <KindIcon size={14} />
+                  <span>{tab.kind === "browser" && tab.id === activeTab.id ? tab.url : tab.title}</span>
+                </button>
+                {(active.tabs.length > 1 || stack.workspaces.length > 1) && (
+                  <button
+                    type="button"
+                    className="proto-tab-close"
+                    aria-label={`Close ${tab.title}`}
+                    title="Close tab"
+                    onClick={() => close(active.id, tab.id)}
+                  >
+                    <CloseIcon />
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
