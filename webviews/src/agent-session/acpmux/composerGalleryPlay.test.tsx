@@ -104,3 +104,27 @@ for (const language of ["en", "ja"]) {
     }
   });
 }
+
+test("keyboard gallery play checks that the highlighted model actually changes", async () => {
+  const variant = composerGallery.variants["model-menu-keyboard"]!;
+  const root = createRoot(doc.getElementById("root")!);
+  try {
+    await act(async () => {
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: variant.snapshot,
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          onHarness: () => {},
+        }),
+      );
+    });
+    // A dropped key must fail the fixture, even though opening already highlights a model.
+    await expect(variant.play!({ ...ctx, press: async () => {} })).rejects.toThrow();
+    await ctx.press("Escape");
+    await variant.play!(ctx);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
