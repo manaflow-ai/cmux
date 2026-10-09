@@ -103,7 +103,8 @@ fn answer(
                 })
                 .map_err(owner)?;
             let messages = if tail == 0 { Vec::new() } else { messages };
-            Ok(json!({"conversation": summary, "messages": messages}))
+            let typing = mux.conversation_typing(conversation);
+            Ok(json!({"conversation": summary, "messages": messages, "typing": typing}))
         }
         Operation::ConversationHistory => {
             let before = u64::from(u32_field(fields, "before_seq", 1));
