@@ -164,13 +164,13 @@ fn the_view_goes_in_blocks_of_four_lines() {
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     let blocks = &prompts[0];
-    // 175 whole blocks, the closing tag, then the new message.
-    assert_eq!(blocks.len(), 177);
-    let first = blocks[0]["text"].as_str().unwrap();
-    assert!(first.starts_with("<chat>\n") && first.ends_with('\n'));
-    assert_eq!(first.lines().count(), 1 + optchat_core::BLOCK_LINES);
-    assert_eq!(blocks[175]["text"], "</chat>");
-    assert_eq!(blocks[176]["text"], "what is in my notes?");
+    // The header, 175 whole blocks, the closing tag, then the new message.
+    assert_eq!(blocks.len(), 178);
+    assert_eq!(blocks[0]["text"], "<chat>\n");
+    let first = blocks[1]["text"].as_str().unwrap();
+    assert_eq!(first.lines().count(), optchat_core::BLOCK_LINES);
+    assert_eq!(blocks[176]["text"], "</chat>");
+    assert_eq!(blocks[177]["text"], "what is in my notes?");
 }
 
 fn talk_only() -> Script {

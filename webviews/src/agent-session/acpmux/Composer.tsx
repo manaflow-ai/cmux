@@ -84,6 +84,8 @@ export type ComposerHandle = {
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
+  /// Puts the caret in the prompt (Edit and Resend).
+  focus(): void;
 };
 
 type Props = {
@@ -120,6 +122,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
+  onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
@@ -167,6 +171,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onBrowseFolder,
   onConnect,
   localName,
   movedTo,
@@ -302,6 +307,7 @@ export function Composer({
           ]);
       },
       send: () => submitNow.current(true),
+      focus: () => field.current?.focus(),
     }),
     [],
   );
@@ -847,6 +853,7 @@ export function Composer({
         <ComposerContext
           projectChoices={projectChoices}
           onBrowseProject={onBrowseProject}
+          onBrowseFolder={onBrowseFolder}
           onConnect={onConnect}
           summary={snapshot.summary}
           sessions={snapshot.sessions}

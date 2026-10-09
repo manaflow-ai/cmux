@@ -126,14 +126,14 @@ enum SidebarDraw {
         return monogramFonts.withLock { fonts in
             if let held = fonts[key] { return held }
             let font = uiFont(.emphasizedSystem, key)
-            fonts[key] = font
+            fonts.updateValue(font, forKey: key) // cmux: dictionary write
             return font
         }
     }
 
     /// A flipped (top-left origin) bitmap in the context's color space at its scale.
     static func bitmap(size: CGSize, ctx: SidebarRenderContext, _ draw: (CGContext) -> Void) -> CGImage? { // cmux: nil when the bitmap cannot be allocated
-        let w = max(1, Int((size.width * ctx.scale).rounded(.up))), h = max(1, Int((size.height * ctx.scale).rounded(.up)))
+        let w = max(1, CrashGuard.int((size.width * ctx.scale).rounded(.up))), h = max(1, CrashGuard.int((size.height * ctx.scale).rounded(.up))) // cmux: no trap on NaN
         // cmux: no force unwraps; an allocation that fails draws nothing (logged once).
         guard let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: ctx.space,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else {
@@ -236,12 +236,12 @@ enum SidebarDraw {
             case 3: slots = [(0.27, 0.07, 0.46), (0.07, 0.45, 0.46), (0.47, 0.45, 0.46)]
             default: slots = [(0.08, 0.08, 0.42), (0.50, 0.08, 0.42), (0.08, 0.50, 0.42), (0.50, 0.50, 0.42)]
             }
-            for (i, s) in slots.enumerated() {
+            for (s, member) in zip(slots, m.map(Optional.some) + Array(repeating: nil, count: max(0, slots.count - m.count))) { // cmux: no index math
                 let sub = CGRect(x: r.minX + s.0 * d, y: r.minY + s.1 * d, width: s.2 * d, height: s.2 * d)
                 // A ring in the disc's color separates overlapping members.
                 g.setFillColor(p.groupDisc)
                 g.fillEllipse(in: sub.insetBy(dx: -max(1, d * 0.02), dy: -max(1, d * 0.02)))
-                avatar(i < m.count ? m[i] : .monogram(""), in: sub, g, p)
+                avatar(member ?? .monogram(""), in: sub, g, p)
             }
         }
     }

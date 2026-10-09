@@ -29,6 +29,10 @@ export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
   focus(target: PlayTarget): Promise<void>;
+  /** Moves a scroll container to an absolute offset or one of its edges. */
+  scroll(target: PlayTarget, position: number | "top" | "bottom"): Promise<void>;
+  /** Selects the rendered text inside a real component, as a user drag would. */
+  selectText(target: PlayTarget): Promise<void>;
   /** Types into the focused element (or `target`, focused first). */
   type(text: string, target?: PlayTarget): Promise<void>;
   /** One key: `Enter`, `Escape`, `ArrowDown`, `Meta+k`. */
@@ -55,6 +59,9 @@ export type PlayChecks = {
   layoutShiftMax?: { value: number; reason: string };
 };
 
+/** The interactions whose action-to-settled latency is useful in a gallery report. */
+export type PlayAction = "click" | "key" | "press-drag" | "hover" | "focus" | "type" | "scroll" | "select";
+
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,
   longFrameReportMs: 16.7,
@@ -66,6 +73,10 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type Shift = { value: number; sources: string[] };
 export type StepReport = {
   step: string;
+  /** The interaction that produced this step. Pointer down, move and up share press-drag. */
+  action: PlayAction;
+  /** Wall time from dispatching the action until the page settles. */
+  settleMs: number;
   anchorMoves: { anchor: string; before: Rect | null; after: Rect | null; delta: number }[];
   layoutShift: number;
   shifts: Shift[];

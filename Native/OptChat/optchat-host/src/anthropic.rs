@@ -211,13 +211,15 @@ mod tests {
         assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["cache_control"]["type"], "ephemeral");
         assert_eq!(body["model"], "claude-haiku-5-5");
-        assert_eq!(body["output_config"]["effort"], "high");
+        assert_eq!(body["output_config"]["effort"], "medium");
         assert!(body.get("tools").is_none());
         let m = body["messages"].as_array().unwrap();
         assert_eq!(m.len(), 3);
-        // An empty view has no whole block: no mark in it.
-        assert!(m[0]["content"][0].get("cache_control").is_none());
-        assert_eq!(m[0]["content"][1]["text"], "STEP");
+        // An empty view has no whole block: its header block takes the mark.
+        assert_eq!(m[0]["content"][0]["text"], "<chat>\n");
+        assert_eq!(m[0]["content"][0]["cache_control"]["type"], "ephemeral");
+        assert!(m[0]["content"][1].get("cache_control").is_none());
+        assert_eq!(m[0]["content"][2]["text"], "STEP");
         assert_eq!(m[1]["role"], "assistant");
         assert_eq!(m[1]["content"][0]["text"], "long");
         assert_eq!(m[2]["content"], "That line is 600 bytes");
@@ -245,9 +247,9 @@ mod tests {
         assert_eq!(body["tools"], json!([{"name": "zoom"}]));
         assert_eq!(body["tool_choice"]["type"], "none");
         let blocks = body["messages"][0]["content"].as_array().unwrap().clone();
-        // 7 whole blocks of 4 lines, the rest, the task.
-        assert_eq!(blocks.len(), 9);
-        let joined: String = blocks[..8]
+        // The header, 7 whole blocks of 4 lines, the rest, the task.
+        assert_eq!(blocks.len(), 10);
+        let joined: String = blocks[..9]
             .iter()
             .map(|b| b["text"].as_str().unwrap())
             .collect();
@@ -255,8 +257,8 @@ mod tests {
         let marked: Vec<usize> = (0..blocks.len())
             .filter(|k| blocks[*k].get("cache_control").is_some())
             .collect();
-        assert_eq!(marked, vec![6]);
-        assert_eq!(blocks[8]["text"], "STEP");
+        assert_eq!(marked, vec![7]);
+        assert_eq!(blocks[9]["text"], "STEP");
     }
 
     /// Audit round 2: the key was the constant "subrouter", so any other
