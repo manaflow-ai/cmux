@@ -1,5 +1,6 @@
 /** Test support: temp repository roots, and a fake PlanetScale provider whose branches are real Postgres databases. */
 import { createHash } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -15,6 +16,8 @@ export const tempRoot = (): string => {
   for (const dir of ["workers/cmux-vm/migrations", "backend/db/migrations"]) cpSync(REAL(dir), join(root, dir), { recursive: true })
   mkdirSync(join(root, "scripts/cmux-next/release"), { recursive: true })
   for (const f of ["migrations.lock.json", "role-contract.json"]) cpSync(REAL(`scripts/cmux-next/release/${f}`), join(root, `scripts/cmux-next/release/${f}`))
+  mkdirSync(join(root, "workers/cmux-vm/src/db"), { recursive: true })
+  cpSync(REAL("workers/cmux-vm/src/db/schema-requirements.ts"), join(root, "workers/cmux-vm/src/db/schema-requirements.ts"))
   return root
 }
 
@@ -30,6 +33,24 @@ export const addMigration = (root: string, tree: "cmux-vm" | "backend", name: st
   const lock = JSON.parse(readFileSync(lockPath, "utf8"))
   lock.trees[tree].files[name] = createHash("sha256").update(sql).digest("hex")
   writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`)
+}
+
+/** Appends one entry (a TS object literal) to the temp root's REQUIRED_SCHEMA. */
+export const addRequirement = (root: string, literal: string) => {
+  const path = join(root, "workers/cmux-vm/src/db/schema-requirements.ts")
+  const text = readFileSync(path, "utf8")
+  const end = text.indexOf("];", text.indexOf("export const REQUIRED_SCHEMA"))
+  writeFileSync(path, `${text.slice(0, end)}  ${literal},\n${text.slice(end)}`)
+}
+
+/** Makes `root` a git repository with one commit; `landed` names the branch the production apply checks ancestry against. */
+export const gitInit = (root: string): string => {
+  const git = (...args: Array<string>) => execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { encoding: "utf8" }).trim()
+  git("init", "-q")
+  git("add", ".")
+  git("commit", "-qm", "landed")
+  git("branch", "landed")
+  return git("rev-parse", "HEAD")
 }
 
 export const readText = (path: string) => readFileSync(path, "utf8")
@@ -63,23 +84,52 @@ export const dropDb = async (name: string) => {
 export interface FakeProvider extends BranchProvider {
   readonly calls: Array<string>
   readonly dbOf: (database: string, branch: string) => string
+  /** The limited owner role every branch connection uses (CREATE on the database, nothing in public), like PlanetScale's cmux-vm-owner should be. */
+  readonly owner: string
+  /** A URL to `db` as the owner role. */
+  readonly ownerUrl: (db: string) => string
   /** Next create copies this database instead of the parent (a branch restored from a stale backup). */
   staleFrom?: string
   /** Next create fails after creating the database. */
   failCreate?: boolean
 }
 
-/** Branches are databases named `<prefix>_<database>_<branch>`; create = CREATE DATABASE ... TEMPLATE parent (schema and data). */
+/** Creates a database the owner role may create schemas in (public stays owned by the database owner). */
+export const createOwnedDb = async (name: string, owner: string, template?: string) => {
+  await createDb(name, template)
+  const sql = await adminSql()
+  await sql.query(`GRANT CREATE ON DATABASE ${quote(name)} TO ${quote(owner)}`)
+}
+
+export const createOwnerRole = async (role: string) => {
+  const sql = await adminSql()
+  await sql.query(`CREATE ROLE ${quote(role)} LOGIN PASSWORD 'pw'`)
+}
+
+/**
+ * Branches are databases named `<prefix>_<database>_<branch>`; create = CREATE DATABASE ... TEMPLATE
+ * parent (schema, data and object owners, like a PlanetScale point-in-time branch). Every connection
+ * is the owner role, so the broad-privilege refusal sees what production should look like.
+ */
 export const fakeProvider = (prefix: string, roles: Record<string, string> = {}): FakeProvider => {
   const dbOf = (database: string, branch: string) => `${prefix}_${database}_${branch}`.replace(/[^a-z0-9_]/g, "_").slice(0, 63)
+  const owner = `${prefix}_owner`
+  const ownerUrl = (db: string) => {
+    const u = new URL(dbUrl(db))
+    u.username = owner
+    u.password = "pw"
+    return u.toString()
+  }
   const provider: FakeProvider = {
     calls: [],
     dbOf,
+    owner,
+    ownerUrl,
     async create(database, name, from) {
       provider.calls.push(`create ${database}/${name} from ${from}`)
       const template = provider.staleFrom ?? dbOf(database, from)
       provider.staleFrom = undefined
-      await createDb(dbOf(database, name), template)
+      await createOwnedDb(dbOf(database, name), owner, template)
       if (provider.failCreate) {
         provider.failCreate = false
         throw new Error("fake create failed after the branch appeared")
@@ -87,20 +137,21 @@ export const fakeProvider = (prefix: string, roles: Record<string, string> = {})
     },
     async connect(database, branch, access) {
       provider.calls.push(`connect ${access} ${database}/${branch}`)
-      return { url: dbUrl(dbOf(database, branch)), release: async () => void provider.calls.push(`release ${database}/${branch}`) }
+      return { url: ownerUrl(dbOf(database, branch)), release: async () => void provider.calls.push(`release ${database}/${branch}`) }
     },
     async connectDefault(database, branch) {
       provider.calls.push(`connect default ${database}/${branch}`)
-      return { url: dbUrl(dbOf(database, branch)), release: async () => {} }
+      return { url: ownerUrl(dbOf(database, branch)), release: async () => {} }
     },
-    async connectRole() {
-      return undefined
+    async connectRole(database, branch) {
+      provider.calls.push(`connect owner ${database}/${branch}`)
+      return { url: ownerUrl(dbOf(database, branch)), release: async () => {} }
     },
     async roleNames() {
       return []
     },
     async roleUser(database, branch, roleName) {
-      return roles[`${branch}/${roleName}`]
+      return roles[`${branch}/${roleName}`] ?? (roleName === "cmux-vm-owner" ? owner : undefined)
     },
     async delete(database, name) {
       provider.calls.push(`delete ${database}/${name}`)

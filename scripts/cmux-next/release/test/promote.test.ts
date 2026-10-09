@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test"
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ledgerClones, promote, readVar, type SmokeOutcome } from "../promote-lib.ts"
+import { ledgerClones, promote, readSmokeOutcome, readVar, type SmokeOutcome } from "../promote-lib.ts"
 import { readReceipts } from "../receipts.ts"
 import { REAL } from "./helpers.ts"
 
@@ -20,6 +20,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
   cpSync(REAL(WRANGLER), join(root, WRANGLER))
   const receipts = mkdtempSync(join(tmpdir(), "rails-promote-receipts-"))
   const smokes: Array<[string, string]> = []
+  const resolved: Record<string, string> = { "cmuxnp-dev-vmimg-hostrun5": PASSED, "cmuxnp-dev-vmimg-hostrun6": "sh-0000000000000000000000000000hr06", "cmuxnp-stg-vmimg-hostrun8": "sh-000000000000000000000000000stg08", "cmuxnp-prod-vmimg-hostrun8": "sh-00000000000000000000000000prod08", "cmuxnp-dev-vmimg-teamvm4": "sh-0000000000000000000000000000tv04", "cmuxnp-dev-vmimg-teamvm3": "sh-teamvm3" }
   let outcome: SmokeOutcome = { passed: true, created: [{ id: "vm-a", name: "cmuxnp-dev-vmimg-promote-smoke-1" }, { id: "vm-b", name: "cmuxnp-dev-vmimg-promote-smoke-2" }], live: [], detail: "fake smoke" }
   const logs: Array<string> = []
   const errors: Array<string> = []
@@ -31,6 +32,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
         smokes.push([id, tag])
         return outcome
       },
+      resolve: async (name) => resolved[name],
       log: (l) => logs.push(l),
       error: (l) => errors.push(l),
       by: "test",
@@ -44,6 +46,7 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
     errors,
     run,
     setOutcome: (o: SmokeOutcome) => (outcome = o),
+    resolved,
     wrangler: () => readFileSync(join(root, WRANGLER), "utf8"),
     channel: (c: string) => JSON.parse(readFileSync(join(root, "images/cmux-vm/channels", `${c}.json`), "utf8")),
   }
@@ -51,7 +54,12 @@ const setup = (extraHistory: Array<Record<string, unknown>> = []) => {
 
 const hostrun6 = { snapshot: "cmuxnp-dev-vmimg-hostrun6", snapshot_id: "sh-0000000000000000000000000000hr06", smoke: { result: "PASSED", at: "2026-10-08" } }
 const failed7 = { snapshot: "cmuxnp-dev-vmimg-hostrun7", snapshot_id: "sh-0000000000000000000000000000hr07", smoke: { result: "FAILED", at: "2026-10-08" } }
-const stg = { snapshot: "cmuxnp-dev-vmimg-hostrun8", snapshot_id: "sh-0000000000000000000000000000hr08", smoke: { result: "PASSED" }, names: { staging: "cmuxnp-stg-vmimg-hostrun8", production: "cmuxnp-prod-vmimg-hostrun8" } }
+const stg = {
+  snapshot: "cmuxnp-dev-vmimg-hostrun8",
+  snapshot_id: "sh-0000000000000000000000000000hr08",
+  smoke: { result: "PASSED" },
+  names: { staging: { snapshot: "cmuxnp-stg-vmimg-hostrun8", snapshot_id: "sh-000000000000000000000000000stg08" }, production: { snapshot: "cmuxnp-prod-vmimg-hostrun8", snapshot_id: "sh-00000000000000000000000000prod08" } },
+}
 const teamvm = { snapshot: "cmuxnp-dev-vmimg-teamvm4", snapshot_id: "sh-0000000000000000000000000000tv04", smoke: { result: "PASSED" } }
 
 describe("refusals (no provider call, no file change)", () => {
@@ -156,5 +164,26 @@ describe("promote and roll back", () => {
   it("the smoke ledger reader counts a clone without a deleted row as live", () => {
     const tsv = "vm-1\tvm\tcmuxnp-dev-vmimg-t-smoke-1\t2026\tcreated\nvm-1\tvm\tcmuxnp-dev-vmimg-t-smoke-1\t2026\tdeleted\nvm-2\tvm\tcmuxnp-dev-vmimg-t-smoke-2\t2026\tcreated\n"
     expect(ledgerClones(tsv)).toEqual({ created: [{ id: "vm-1", name: "cmuxnp-dev-vmimg-t-smoke-1" }, { id: "vm-2", name: "cmuxnp-dev-vmimg-t-smoke-2" }], live: [{ id: "vm-2", name: "cmuxnp-dev-vmimg-t-smoke-2" }] })
+  })
+
+  it("P2-12 smokes the channel's own snapshot id, records the result in history, and refuses a name that resolves to another id", async () => {
+    const t = setup([stg])
+    expect(await t.run("--channel", "staging", "--snapshot", stg.snapshot_id)).toBe(0)
+    expect(t.smokes.map(([id]) => id)).toEqual(["sh-000000000000000000000000000stg08"])
+    const entry = t.channel("dev").history.find((h: { snapshot_id: string }) => h.snapshot_id === stg.snapshot_id)
+    expect(entry.promotion_smokes).toEqual([expect.objectContaining({ channel: "staging", snapshot_id: "sh-000000000000000000000000000stg08", result: "PASSED" })])
+    t.resolved["cmuxnp-prod-vmimg-hostrun8"] = "sh-someoneelse"
+    const { writeReceipt } = await import("../receipts.ts")
+    for (const action of ["compat-static", "compat-smoke"] as const)
+      writeReceipt(t.receipts, { action, tree: "images", target: "production", result: "pass", at: "2026-10-08T11:00:00.000Z", setHash: `image:CLOUD_FREESTYLE_SNAPSHOT:${stg.snapshot_id}`, by: "test" })
+    expect(await t.run("--channel", "production", "--snapshot", stg.snapshot_id)).toBe(1)
+    expect(t.errors.at(-1)).toContain("resolves to sh-someoneelse")
+  })
+
+  it("P3 a smoke that wrote no ledger does not pass (its clones are unknown)", () => {
+    const empty = mkdtempSync(join(tmpdir(), "rails-noledger-"))
+    const outcome = readSmokeOutcome(empty, 0, "t")
+    expect(outcome.passed).toBe(false)
+    expect(outcome.detail).toContain("no ledger")
   })
 })

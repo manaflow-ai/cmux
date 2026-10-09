@@ -233,3 +233,83 @@ describe("cmux-vm schema confinement (cmux-old shares cmux-prod), even with a co
     expect((await lintFile(backend, "0007_x.sql", "-- phase: expand\nCREATE TABLE things (id text);\n", contract)).errors).toEqual([])
   })
 })
+
+describe("review of 5c20b91a5a4f: bypasses (one fixture each)", () => {
+  const header = "-- contract: deliberate non-expand change for this fixture\n"
+  const refusedAlways = async (sql: string) => {
+    expect((await errorsOf(sql)).length).toBeGreaterThan(0)
+    expect((await errorsOf(header + sql)).length).toBeGreaterThan(0)
+  }
+  const p11: Array<[string, string]> = [
+    ["a view in public", "CREATE OR REPLACE VIEW public.x AS SELECT 1;"],
+    ["CREATE TABLE public ... AS", "CREATE TABLE public.x AS SELECT 1;"],
+    ["a sequence of public", "ALTER SEQUENCE public.users_id_seq RESTART 1;"],
+    ["a one-part enum type", "CREATE TYPE mood AS ENUM ('a');"],
+    ["a one-part composite type", "CREATE TYPE pair AS (a int, b int);"],
+    ["a domain in public", "CREATE DOMAIN public.d AS text;"],
+    ["a policy on public", "CREATE POLICY p ON public.users USING (true);"],
+    ["a rename into another schema's name", "ALTER SCHEMA cmux_vm RENAME TO public2;"],
+  ]
+  for (const [what, sql] of p11) it(`P1-1 confinement refuses ${what}, with or without a header`, () => refusedAlways(sql))
+
+  const p12: Array<[string, string]> = [
+    ["ENABLE ROW LEVEL SECURITY", "ALTER TABLE cmux_vm.resources ENABLE ROW LEVEL SECURITY;"],
+    ["FORCE ROW LEVEL SECURITY", "ALTER TABLE cmux_vm.resources FORCE ROW LEVEL SECURITY;"],
+    ["CREATE POLICY", "CREATE POLICY p ON cmux_vm.resources USING (true);"],
+    ["CREATE RULE", "CREATE RULE r AS ON INSERT TO cmux_vm.resources DO INSTEAD NOTHING;"],
+    ["CREATE TRIGGER", "CREATE TRIGGER t BEFORE INSERT ON cmux_vm.resources FOR EACH ROW EXECUTE FUNCTION cmux_vm.f();"],
+    ["SET SCHEMA", "ALTER TABLE cmux_vm.resources SET SCHEMA cmux_vm2;"],
+    ["OWNER TO", "ALTER TABLE cmux_vm.resources OWNER TO someone;"],
+    ["CREATE EXTENSION", "CREATE EXTENSION IF NOT EXISTS pg_trgm;"],
+    ["ALTER DATABASE SET", "ALTER DATABASE postgres SET search_path = public;"],
+    ["SELECT setval", "SELECT setval('cmux_vm.s', 1);"],
+    ["SELECT set_config", "SELECT set_config('search_path', 'public', false);"],
+    ["SELECT pg_terminate_backend", "SELECT pg_terminate_backend(1);"],
+    ["LOCK", "LOCK TABLE cmux_vm.resources;"],
+    ["CLUSTER", "CLUSTER cmux_vm.resources USING resources_pkey;"],
+    ["REINDEX", "REINDEX TABLE cmux_vm.resources;"],
+    ["REFRESH MATERIALIZED VIEW", "REFRESH MATERIALIZED VIEW cmux_vm.mv;"],
+    ["COPY", "COPY cmux_vm.resources FROM '/tmp/x';"],
+  ]
+  for (const [what, sql] of p12) it(`P1-2 the allowlist refuses ${what} without a header`, async () => expect((await errorsOf(sql)).length).toBeGreaterThan(0))
+
+  const p13: Array<[string, string]> = [
+    ["DO", "DO $$ BEGIN PERFORM 1; END $$;"],
+    ["CREATE FUNCTION", "CREATE FUNCTION cmux_vm.f() RETURNS int LANGUAGE sql AS 'select 1';"],
+    ["GRANT TO PUBLIC", "GRANT SELECT ON cmux_vm.resources TO PUBLIC;"],
+    ["REVOKE", "REVOKE SELECT ON cmux_vm.resources FROM cmux_vm_app;"],
+    ["TRUNCATE", "TRUNCATE cmux_vm.audit_log;"],
+    ["CREATE ROLE", "CREATE ROLE intruder LOGIN;"],
+    ["OWNER TO", "ALTER TABLE cmux_vm.resources OWNER TO someone;"],
+    ["SET SCHEMA", "ALTER TABLE cmux_vm.resources SET SCHEMA cmux_vm2;"],
+    ["ALTER SCHEMA RENAME", "ALTER SCHEMA cmux_vm RENAME TO cmux_vm_old;"],
+  ]
+  for (const [what, sql] of p13) it(`P1-3 a contract header does not allow ${what}`, () => refusedAlways(sql))
+
+  const p14: Array<[string, string]> = [
+    ["a volatile DEFAULT on ADD COLUMN", "ALTER TABLE cmux_vm.resources ADD COLUMN token text DEFAULT gen_random_uuid()::text;"],
+    ["ADD COLUMN ... IDENTITY", "ALTER TABLE cmux_vm.resources ADD COLUMN n bigint GENERATED ALWAYS AS IDENTITY;"],
+    ["ADD COLUMN ... GENERATED STORED", "ALTER TABLE cmux_vm.resources ADD COLUMN g text GENERATED ALWAYS AS (tenant_id) STORED;"],
+    ["SET UNLOGGED", "ALTER TABLE cmux_vm.resources SET UNLOGGED;"],
+    ["SET LOGGED", "ALTER TABLE cmux_vm.resources SET LOGGED;"],
+  ]
+  for (const [what, sql] of p14) it(`P1-4 refuses a table rewrite or lock: ${what}`, async () => expect((await errorsOf(sql)).length).toBeGreaterThan(0))
+  it("P1-4 accepts stable defaults", async () => {
+    expect(await errorsOf("ALTER TABLE cmux_vm.resources ADD COLUMN seen_at timestamptz DEFAULT now();\nALTER TABLE cmux_vm.resources ADD COLUMN n int NOT NULL DEFAULT 0;\nALTER TABLE cmux_vm.resources ADD COLUMN at2 timestamptz DEFAULT CURRENT_TIMESTAMP;")).toEqual([])
+  })
+
+  it("P3 WHERE true counts as no WHERE", async () => {
+    expect((await errorsOf("DELETE FROM cmux_vm.audit_log WHERE true;")).length).toBeGreaterThan(0)
+    expect((await errorsOf("UPDATE cmux_vm.resources SET labels = '{}' WHERE TRUE;")).length).toBeGreaterThan(0)
+  })
+
+  it("P2-9 the Worker's required migration equals the newest cmux-vm file", async () => {
+    const root = tempRoot()
+    const { addMigration } = await import("./helpers.ts")
+    addMigration(root, "cmux-vm", "0009_x.sql", "CREATE TABLE cmux_vm.x (id text);\n")
+    expect((await lintTree(vm, optionsFor(root))).errors.join()).toContain("requires migration 0008 but the newest file is 0009")
+    const { addRequirement } = await import("./helpers.ts")
+    addRequirement(root, '{ table: "cmux_vm.x", migration: "0009" }')
+    expect((await lintTree(vm, optionsFor(root))).errors).toEqual([])
+  })
+})

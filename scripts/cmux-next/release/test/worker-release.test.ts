@@ -70,11 +70,21 @@ describe("previous", () => {
   it("refuses while a gradual deployment is in progress", () => {
     expect(() => currentVersion(JSON.stringify({ versions: [{ version_id: "a", percentage: 50 }, { version_id: "b", percentage: 50 }] }))).toThrow("gradual")
   })
-  it("records none for a Worker that was never deployed", async () => {
+  it("P2-11 refuses when wrangler cannot report the serving version (no rollback target), unless --allow-first-deploy", async () => {
     const out = join(dir, "prev-none.txt")
     const r = await run(["previous", "--worker", "new-worker", "--wrangler", wrangler, "--out", out])
-    expect(r.code).toBe(0)
+    expect(r.code).toBe(1)
+    expect(r.errors.join()).toContain("no rollback target")
+    const first = await run(["previous", "--worker", "new-worker", "--wrangler", wrangler, "--out", out, "--allow-first-deploy"])
+    expect(first.code).toBe(0)
     expect(readFileSync(out, "utf8")).toBe("")
+  })
+  it("P3 picks the newest deployment by created_on, not by list order", () => {
+    const list = [
+      { created_on: "2026-10-09T02:00:00Z", versions: [{ version_id: "v-new", percentage: 100 }] },
+      { created_on: "2026-10-01T02:00:00Z", versions: [{ version_id: "v-older", percentage: 100 }] },
+    ]
+    expect(currentVersion(JSON.stringify(list))).toBe("v-new")
   })
 })
 
