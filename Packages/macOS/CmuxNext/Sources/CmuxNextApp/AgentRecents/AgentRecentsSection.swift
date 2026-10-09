@@ -9,6 +9,11 @@ final class AgentRecentsSection {
     private let feed: ChatsFeed
     private let view = SidebarChatsView()
     var onContentChange: (() -> Void)?
+    /// A row's Open in Terminal (its right-click menu).
+    var openInTerminal: ((String) -> Void)? {
+        get { view.onOpenInTerminal }
+        set { view.onOpenInTerminal = newValue }
+    }
     /// The header's right-click menu (Hide Section).
     var headerMenu: (() -> NSMenu?)? {
         get { view.headerMenu }

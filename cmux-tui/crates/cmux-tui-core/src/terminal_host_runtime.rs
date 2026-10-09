@@ -627,10 +627,10 @@ mod unix {
     mod pty_lock;
     mod renderer_grant;
     mod standby;
+    pub(crate) use super::shared::clipboard_read::ClipboardReadSignal;
+    use super::shared::clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
+    use super::shared::clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
-    pub(crate) use clipboard_read::ClipboardReadSignal;
-    use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
-    use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};

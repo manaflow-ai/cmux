@@ -31,6 +31,7 @@ final class SidebarChatsMount {
         services.chatsFeed.map { feed in
             let section = AgentRecentsSection(feed: feed) { [weak services] id in services?.chatsOpener.open(id) }
             section.headerMenu = { [weak services] in services.flatMap(Self.headerMenu) }
+            section.openInTerminal = { [weak services] id in services?.chatsOpener.openInTerminal(id) }
             return section
         }
     }
