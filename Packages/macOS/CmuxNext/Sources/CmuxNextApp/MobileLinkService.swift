@@ -80,7 +80,7 @@ final class MobileLinkService {
                 // `start()` may have opened part of the assembly before it
                 // failed.  Finalize that run and clear it so a later account
                 // transition cannot retain a half-started listener.
-                guard let self, self.generation == current else {
+                guard self.generation == current else {
                     await runner.stop()
                     return
                 }
