@@ -2,14 +2,15 @@ import { describe, expect, it } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { TeamForbidden, TeamPicker } from "../src/lib/team-picker.tsx"
-import { isTeamForbidden, keepTeam, notMemberOf, parseTeamSearch, scopedApi, searchForTeam, selectedTeam, teamHeaders, type UserTeam } from "../src/lib/team-scope.ts"
+import { isNotTeamMember, keepTeam, notMemberOf, parseTeamSearch, scopedApi, searchForTeam, selectedTeam, teamHeaders, type UserTeam } from "../src/lib/team-scope.ts"
 
 const PERSONAL = "team_00000000000000000001"
 const ACME = "team_aaaaaaaaaaaaaaaaaaaa"
 const GHOST = "team_ffffffffffffffffffff"
+const SSO = "team_bbbbbbbbbbbbbbbbbbbb"
 const TEAMS: Array<UserTeam> = [
-  { id: PERSONAL, display_name: "Personal", kind: "personal", role: "owner" },
-  { id: ACME, display_name: "Acme Corp", kind: "stack", role: "member" }
+  { id: PERSONAL, display_name: "Personal", kind: "personal", role: "owner", sso_required: false },
+  { id: ACME, display_name: "Acme Corp", kind: "stack", role: "member", sso_required: false }
 ]
 
 const picker = (selected: string | undefined, locale: "en" | "ja" = "en") => renderToStaticMarkup(createElement(TeamPicker, { teams: TEAMS, selected, locale, onSelect: () => {} }))
@@ -31,8 +32,19 @@ describe("team picker", () => {
     expect(ja).toContain("Acme Corp (メンバー)")
     expect(ja).toContain("個人 (オーナー)")
     // A role a newer server answers shows as named, never breaks the picker.
-    const newer = renderToStaticMarkup(createElement(TeamPicker, { teams: [...TEAMS, { id: GHOST, display_name: "Guests", kind: "stack", role: "guest" }], selected: undefined, locale: "en", onSelect: () => {} }))
+    const newer = renderToStaticMarkup(createElement(TeamPicker, { teams: [...TEAMS, { id: GHOST, display_name: "Guests", kind: "stack", role: "guest", sso_required: false }], selected: undefined, locale: "en", onSelect: () => {} }))
     expect(newer).toContain("Guests (guest)")
+  })
+
+  it("marks a team that needs this person's SSO sign-in, and says so for the selected team", () => {
+    const teams = [...TEAMS, { id: SSO, display_name: "Sso Co", kind: "stack" as const, role: "member" as const, sso_required: true }]
+    const html = renderToStaticMarkup(createElement(TeamPicker, { teams, selected: SSO, locale: "en", onSelect: () => {} }))
+    expect(html).toContain("Sso Co (member, SSO)")
+    expect(html).toContain("data-team-sso")
+    expect(html).toContain("Sign in with SSO for this team")
+    expect(picker(ACME)).not.toContain("data-team-sso")
+    const ja = renderToStaticMarkup(createElement(TeamPicker, { teams, selected: SSO, locale: "ja", onSelect: () => {} }))
+    expect(ja).toContain("このチームの SSO でサインインしてください")
   })
 
   it("shows a team the URL names but the list does not, so the choice stays visible", () => {
@@ -78,11 +90,12 @@ describe("team picker", () => {
     expect(() => teamHeaders("team_x\r\nx-evil: 1")).toThrow()
   })
 
-  it("shows the not-a-member state when the server answers auth.forbidden for a team the list no longer has", () => {
-    expect(isTeamForbidden({ status: 403, body: { _tag: "Forbidden", code: "auth.forbidden", message: "not a member of this team" } })).toBe(true)
-    expect(isTeamForbidden({ status: 403, body: { error: { code: "auth.forbidden" } } })).toBe(true)
-    expect(isTeamForbidden({ status: 200, body: {} })).toBe(false)
-    expect(isTeamForbidden({ status: 401, body: { code: "auth.unauthenticated" } })).toBe(false)
+  it("shows the not-a-member state only for the server's team.not_member, never for a role refusal", () => {
+    expect(isNotTeamMember({ status: 403, body: { _tag: "Forbidden", code: "team.not_member", message: "not a member of this team" } })).toBe(true)
+    expect(isNotTeamMember({ status: 403, body: { error: { code: "team.not_member" } } })).toBe(true)
+    expect(isNotTeamMember({ status: 403, body: { code: "auth.forbidden" } })).toBe(false)
+    expect(isNotTeamMember({ status: 200, body: {} })).toBe(false)
+    expect(isNotTeamMember({ status: 401, body: { code: "auth.unauthenticated" } })).toBe(false)
     expect(notMemberOf(TEAMS, GHOST)).toBe(true)
     expect(notMemberOf(TEAMS, ACME)).toBe(false)
     expect(notMemberOf(TEAMS, undefined)).toBe(false)
