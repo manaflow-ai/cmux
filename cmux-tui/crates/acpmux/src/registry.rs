@@ -238,10 +238,20 @@ fn agent(value: &Value) -> Option<Agent> {
 }
 
 /// Parses a registry body. A bad envelope fails; a bad agent is left out.
-pub fn parse(_bytes: &[u8]) -> Result<Registry, String> {
-    // Red: no agent is read yet.
-    let _ = agent;
-    Ok(Registry::default())
+pub fn parse(bytes: &[u8]) -> Result<Registry, String> {
+    if bytes.len() > MAX_BODY_BYTES {
+        return Err(format!("the registry is above the {MAX_BODY_BYTES} byte limit"));
+    }
+    let value: Value = serde_json::from_slice(bytes).map_err(|e| format!("registry json: {e}"))?;
+    let list = value["agents"].as_array().ok_or("the registry has no agents list")?;
+    let mut seen = std::collections::BTreeSet::new();
+    let agents = list
+        .iter()
+        .take(MAX_AGENTS)
+        .filter_map(agent)
+        .filter(|a| seen.insert(a.id.clone()))
+        .collect();
+    Ok(Registry { agents })
 }
 
 /// Platform keys the registry uses.
