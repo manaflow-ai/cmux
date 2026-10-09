@@ -368,3 +368,32 @@ test("a started chat's computer stays a label, with no connect rows", async () =
   );
   expect(doc.querySelector('[aria-label="Computer"]')).toBeNull();
 });
+
+// Dogfood 2026-10-08 (09): a started chat's folder control listed only its own folder, so
+// choosing went nowhere. It is the menu a new chat has, and a choice moves the chat.
+test("a started chat's folder menu offers the folders and Choose folder…, and a choice moves the chat", async () => {
+  const moved: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(ComposerContext, {
+        summary: { sessionId: "s", cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", turnCount: 1 },
+        sessions,
+        started: true,
+        projectChoices: freshFolders,
+        onMove: (cwd: string) => moved.push(cwd),
+        onBrowseFolder: async () => "/Users/me/Downloads",
+      }),
+    ),
+  );
+  await act(async () => folderButton().click());
+  expect(folderRows()).toEqual([
+    ["cmux", "/Users/me/code/cmux", "true"],
+    ["relay", "/Users/me/Projects/relay", "false"],
+  ]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')[1]!.click());
+  expect(moved).toEqual(["/Users/me/Projects/relay"]);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitem"]')!.click());
+  expect(moved).toEqual(["/Users/me/Projects/relay", "/Users/me/Downloads"]);
+});
