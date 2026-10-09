@@ -10,12 +10,21 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The fork point of the message's turn (its summary's acpmux event); nil when acpmux does not
     /// serve forks or the turn has not ended.
     var forkSeq: Int?
+    /// A prompt that was not sent: its row, for Retry.
+    var retryRowId: String?
+    /// The message's web links and images, for Open Link.
+    var links: [URL]
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil) {
+    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, retryRowId: String? = nil, links: [URL] = []) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
+        self.retryRowId = retryRowId
+        self.links = links
     }
+
+    /// A prompt (the person's own message) has no Markdown source.
+    var isPrompt: Bool { markdown == nil }
 
     /// The page's report; nil for anything but a message with text (the pointer was elsewhere).
     init?(report body: Any?) {
@@ -23,6 +32,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
+        links = []
     }
 }
 
@@ -40,6 +50,9 @@ enum AgentPaneContextMenu {
     struct Actions {
         var copy: (String) -> Void
         var fork: (Int) -> Void
+        var retry: (String) -> Void = { _ in }
+        var edit: (String) -> Void = { _ in }
+        var open: (URL) -> Void = { _ in }
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
@@ -76,6 +89,26 @@ enum AgentPaneMenuStrings {
 
     static var copyAsMarkdown: String {
         String(localized: "agentPane.menu.copyAsMarkdown", defaultValue: "Copy as Markdown", bundle: .module)
+    }
+
+    static var copyAsPlainText: String {
+        String(localized: "agentPane.menu.copyAsPlainText", defaultValue: "Copy as Plain Text", bundle: .module)
+    }
+
+    static var retry: String {
+        String(localized: "agentPane.menu.retry", defaultValue: "Retry", bundle: .module)
+    }
+
+    static var editAndResend: String {
+        String(localized: "agentPane.menu.editAndResend", defaultValue: "Edit and Resend", bundle: .module)
+    }
+
+    static var openLink: String {
+        String(localized: "agentPane.menu.openLink", defaultValue: "Open Link", bundle: .module)
+    }
+
+    static var openLinks: String {
+        String(localized: "agentPane.menu.openLinks", defaultValue: "Open Links", bundle: .module)
     }
 
     static var forkFromHere: String {

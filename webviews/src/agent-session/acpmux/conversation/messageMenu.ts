@@ -9,7 +9,15 @@ import type { AcpmuxSnapshot } from "../model";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
-export type MessageMenuTarget = { text: string; markdown?: string; forkSeq?: number };
+export type MessageMenuTarget = {
+  text: string;
+  markdown?: string;
+  forkSeq?: number;
+  /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
+  retryRowId?: string;
+  /// The message's web links and images, each once, for Open Link.
+  links?: string[];
+};
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
