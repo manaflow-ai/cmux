@@ -5167,6 +5167,25 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
     // Existing machines are grandfathered during the entitlement rollout.
     // Plan checks belong on new allocations and future CPU/RAM growth; an
     // oversized VM must remain usable while the customer migrates.
+    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId) &&
+      !hasVmResourceReservationMetadata(vm.providerMetadata)) {
+      const providers = yield* VmProviderGateway;
+      if (providers.getStats) {
+        const measured = yield* measureMachineReservation(providers, vm, input.providerVmId);
+        if (repo.setResourceReservation) {
+          const persisted = yield* repo.setResourceReservation({ id: vm.id, reservation: measured });
+          if (persisted) {
+            vm = {
+              ...vm,
+              providerMetadata: {
+                ...vm.providerMetadata,
+                [VM_RESOURCE_RESERVATION_METADATA_KEY]: measured,
+              },
+            };
+          }
+        }
+      }
+    }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
         vmId: input.providerVmId,
