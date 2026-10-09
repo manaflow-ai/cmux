@@ -80,6 +80,10 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     public let id: String
     private let bundle: BrowserReplRuntimeBundle
+    /// The one-time preparation of `bundle`'s runtime scripts in this
+    /// process (``runtimePreparation(for:)``), which the first cell waits
+    /// for before its timeout starts.
+    private let runtimePreparation: Task<Void, Never>
     private let driver: any BrowserReplDriver
     /// The session's JavaScript thread (internal for tests).
     let thread: BrowserReplJSThread
@@ -591,6 +595,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
         self.bundle = bundle
+        self.runtimePreparation = Self.runtimePreparation(for: bundle)
         self.driver = driver
         let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
@@ -762,6 +767,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         if let reason = stateLock.withLock({ closed ? endReason : nil }) {
             return BrowserReplEvalResult(lines: [], error: reason, durationMilliseconds: 0)
         }
+        // The runtime's one-time rewrite (macOS 26) finishes before the
+        // cell's timeout starts; once done this returns at once.
+        await runtimePreparation.value
         if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
             return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)': \(refusal.message)", durationMilliseconds: 0)
         }
@@ -1788,7 +1796,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         return .success(text)
     }
 
-    /// Rewrites `bundle`'s runtime scripts ahead of the first session, where
+    /// Rewrites `bundle`'s runtime scripts ahead of the first cell, where
     /// this macOS's JavaScriptCore needs it (``preparedRuntimeScript(_:in:)``),
     /// so that the rewrite (a few hundred milliseconds, once per process)
     /// does not count against a first cell's timeout. Elsewhere it only
@@ -1803,6 +1811,30 @@ public final class BrowserReplSession: @unchecked Sendable {
             } else if !script.name.hasPrefix("vendor/") {
                 _ = prepare(script, in: context)
             }
+        }
+    }
+
+    /// The preparation (``prepareRuntime(_:)``) of each runtime this
+    /// process's sessions use, by script sources: started off the main
+    /// thread by the first session that uses the runtime, once.
+    private static let runtimePreparations = OSAllocatedUnfairLock<[[String]: Task<Void, Never>]>(initialState: [:])
+
+    static func runtimePreparation(for bundle: BrowserReplRuntimeBundle) -> Task<Void, Never> {
+        let key = bundle.replScripts.map(\.source)
+        return runtimePreparations.withLock { preparations in
+            if let preparation = preparations[key] { return preparation }
+            // A few hundred milliseconds of JavaScriptCore work: on a
+            // global queue, not on the cooperative pool or the main thread.
+            let preparation = Task<Void, Never> {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        prepareRuntime(bundle)
+                        continuation.resume()
+                    }
+                }
+            }
+            preparations[key] = preparation
+            return preparation
         }
     }
 
