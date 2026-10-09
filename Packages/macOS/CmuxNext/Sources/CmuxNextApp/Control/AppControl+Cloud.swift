@@ -34,7 +34,7 @@ extension AppControl {
                     case .failed(let reason): "failed: \(reason)"
                     }
                     let compat = services.machines.compatibility(of: session.daemon)
-                    return .object([
+                    let fields: [String: JSONValue] = [
                         "id": .string(session.machineID),
                         "title": .string(session.machine.title),
                         "status": .string(session.machine.status.rawValue),
@@ -49,7 +49,8 @@ extension AppControl {
                         "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
                         "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
                         "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
-                    ])
+                    ]
+                    return .object(fields)
                 }
                 return .value(.object(["machines": .array(rows), "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },

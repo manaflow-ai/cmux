@@ -49,10 +49,10 @@ extension DebugHome {
             "me": store.me.map { .string($0.id.rawValue) } ?? .null,
             "shown": view?.shown.map { .string($0.rawValue) } ?? .null,
             // The opened transcript as the store holds it, to compare with the row's preview_source.
-            "shown_transcript": view?.shown.map { id in
+            "shown_transcript": view?.shown.map { id -> JSONValue in
                 let items = store.transcript(for: id)
-                return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)),
-                                "last_seq": items.compactMap(\.seq).max().map { .number(Double($0)) } ?? .null])
+                let lastSeq: JSONValue = items.compactMap(\.seq).max().map { .number(Double($0)) } ?? .null
+                return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)), "last_seq": lastSeq])
             } ?? .null,
             // Teammates with no DM yet (the search's Teammates section draws from these).
             "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
