@@ -333,16 +333,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
-    /// Hides the page window (and a docked DevTools) at once, or shows it.
-    /// Nothing here awaits: the page is hidden before this returns, so a
-    /// later show can never be undone by a completion of this hide (the
-    /// old implementation hid the page after awaiting a screenshot, and
-    /// that late hide could land on a page shown again meanwhile).
+    /// Shows the page window (and a docked DevTools) at once, or hides it by
+    /// the end of this run-loop turn, before the frame commits. Nothing here
+    /// awaits: the hide reads the host's state when it runs, so a later show
+    /// can never be undone by it (an older hide that awaited a screenshot
+    /// could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
-        if host.visibleTab === self { host.hostView.isHidden = !visible }
+        // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
+        if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
     }
 

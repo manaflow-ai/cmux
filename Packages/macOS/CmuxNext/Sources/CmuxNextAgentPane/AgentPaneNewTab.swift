@@ -57,6 +57,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var tools: [Tool]
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
+    /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
+    /// nil focuses it.
+    public var focusesField: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

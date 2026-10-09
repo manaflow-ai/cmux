@@ -5,6 +5,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
 import { ChatCards } from "./ChatCards";
+import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import {
   defaultHarness,
@@ -61,6 +62,9 @@ type Props = NewTabScreenActions & {
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(): Promise<string | undefined>;
   chips?: NewTabChips;
+  /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
+  /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
+  focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
 };
@@ -88,6 +92,7 @@ export function NewTabScreen(props: Props) {
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
   const { onInputReady } = props;
+  const focusOnShow = props.focusField !== false;
   const touch = () => {
     if (inputReported.current) return;
     inputReported.current = true;
@@ -104,7 +109,16 @@ export function NewTabScreen(props: Props) {
     () =>
       snapshot.summary?.harness || !harness
         ? snapshot
-        : { ...snapshot, summary: { ...snapshot.summary, sessionId: snapshot.summary?.sessionId ?? "", harness } },
+        : {
+            ...snapshot,
+            summary: {
+              ...snapshot.summary,
+              sessionId: snapshot.summary?.sessionId ?? "",
+              harness,
+              // The agent's default model, named on the chip (its own "default" when none is known yet).
+              model: defaultModel(harness, snapshot.catalog) ?? "default",
+            },
+          },
     [snapshot, harness],
   );
   const rows = useMemo(
@@ -141,7 +155,7 @@ export function NewTabScreen(props: Props) {
       field.current?.focus();
       field.current?.select();
     };
-    focus();
+    if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
       onInputReady?.(inputToken);
@@ -149,7 +163,7 @@ export function NewTabScreen(props: Props) {
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady]);
+  }, [inputToken, onInputReady, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {

@@ -5,6 +5,7 @@ import {
   browserProfileById,
   openFromHistoryInSpaces,
   openMini,
+  miniTargetExists,
   promoteMini,
   seedSpaces,
   stepSpace,
@@ -102,5 +103,25 @@ describe("mini window prototype", () => {
     expect(uploader.tabs.map((tab) => tab.id)).toEqual(["agent-mock-session", tabId, "t-uploader", "b-uploader"]);
     expect(uploader.tabs[1]).toMatchObject({ kind: "browser", url: link.url, browserProfile: "work" });
     expect(promoteMini(spaces, mini).tabId).not.toBe(tabId);
+  });
+
+  test("a mini target disappears when its source workspace is closed", () => {
+    const mini = openMini(seedSpaces, link, { kind: "terminal", label: "upload-retry" });
+    const next = {
+      ...seedSpaces,
+      spaces: seedSpaces.spaces.map((space) =>
+        space.id === mini.spaceId
+          ? {
+              ...space,
+              stack: {
+                ...space.stack,
+                workspaces: space.stack.workspaces.filter((workspace) => workspace.id !== mini.workspaceId),
+              },
+            }
+          : space,
+      ),
+    };
+    expect(miniTargetExists(seedSpaces, mini)).toBe(true);
+    expect(miniTargetExists(next, mini)).toBe(false);
   });
 });

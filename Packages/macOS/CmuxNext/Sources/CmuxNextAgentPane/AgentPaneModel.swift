@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextSettings
 public import Foundation
 public import Observation
 
@@ -123,6 +124,8 @@ public final class AgentPaneModel {
     /// the user picks; true when saved, false when the user cancelled. Nil
     /// leaves the page to copy the log instead.
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
+    @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
+    @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -378,14 +381,11 @@ public final class AgentPaneModel {
             guard let intent else { return Self.transportFailure(.intentInvalid) }
             guard let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
             return AgentPaneReply.success(["ticket": ticket])
-        case .transportGestureRelease:
-            transport.gestures.clearTickets()
-            return AgentPaneReply.success()
-        case .transportClose(let connection):
-            transport.close(connection: connection)
-            return AgentPaneReply.success()
+        case .transportGestureRelease: return endTransport(closing: nil)
+        case .transportClose(let connection): return endTransport(closing: connection)
         case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
+        case .showContextUsage(let show): return await showContextUsage(show)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

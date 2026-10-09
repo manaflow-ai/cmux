@@ -397,6 +397,8 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
 
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
+    // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
+    watch_stop_signals();
     let Some(daemon_socket) = flags
         .value("daemon-socket")
         .map(str::to_owned)
@@ -438,7 +440,17 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     };
     // A status left by a host that crashed mid-wait says nothing true now.
     crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
-    match start(&paths, &home, &daemon_socket, source) {
+    let started = start(&paths, &home, &daemon_socket, source);
+    if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
+        // A stop signal: whatever `start` returned (its acpmux connection
+        // may close under it), stop what this host started and exit 0.
+        if let Err(e) = &started {
+            log(format!("while stopping: {e}"));
+        }
+        stop_started_acpmux();
+        return 0;
+    }
+    match started {
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
             1
@@ -646,6 +658,7 @@ fn start(
     // the memory opens and starts building nodes. Its events wait in the
     // channel until the brain runs.
     let (tx, rx) = channel();
+    let _ = STOP_TX.set(tx.clone());
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in. On
@@ -823,7 +836,10 @@ fn start(
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
             // One gate: at most COMPACTOR_SESSIONS sessions across both models.
-            let slots = Slots::new(crate::compactor::COMPACTOR_SESSIONS);
+            let slots = Slots::with_spares(
+                crate::compactor::compactor_sessions(),
+                crate::compactor::compactor_spares(),
+            );
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let shared_ttl = shared_ttl.clone();
             let build = |model: Option<&str>| {
@@ -869,7 +885,7 @@ fn start(
             let main = build(compactor_model.as_deref())
                 .with_alternate_harness(alternate)
                 .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                .with_warm(crate::compactor::WARM_SESSIONS)
+                .with_warm(crate::compactor::compactor_spares())
                 .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             (
@@ -1246,10 +1262,108 @@ fn start(
             );
         }
     }
+    BRAIN_RUNNING.store(true, std::sync::atomic::Ordering::SeqCst);
     let fatal = brain.run(rx);
     probe_delay.stop();
     chat.shutdown();
     Ok(fatal)
+}
+
+const STOP_SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
+
+/// The write end of the stop pipe, for the signal handler.
+static STOP_PIPE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+extern "C" fn on_stop_signal(signal: libc::c_int) {
+    let fd = STOP_PIPE.load(std::sync::atomic::Ordering::Relaxed);
+    if fd >= 0 {
+        let byte = signal as u8;
+        // SAFETY: write(2) is async-signal-safe; the buffer is one live byte.
+        unsafe { libc::write(fd, (&raw const byte).cast(), 1) };
+    }
+}
+
+/// Catches the stop signals with a handler that writes to a pipe (a
+/// handler, not a blocked mask: children inherit a mask, but exec resets a
+/// handler, so the acpmux daemon and the harnesses still stop on SIGTERM).
+/// Returns the pipe's read end.
+fn catch_stop_signals() -> Option<std::fs::File> {
+    use std::os::fd::FromRawFd;
+    let mut fds = [0 as libc::c_int; 2];
+    // SAFETY: `fds` is a valid out-array of two descriptors.
+    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    for fd in fds {
+        // SAFETY: a descriptor this call just made; FD_CLOEXEC keeps it out of children.
+        unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+    }
+    STOP_PIPE.store(fds[1], std::sync::atomic::Ordering::Relaxed);
+    for signal in STOP_SIGNALS {
+        // SAFETY: a zeroed sigaction with a valid handler and an empty mask.
+        unsafe {
+            let mut action = std::mem::zeroed::<libc::sigaction>();
+            action.sa_sigaction = on_stop_signal as *const () as libc::sighandler_t;
+            libc::sigemptyset(&mut action.sa_mask);
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigaction(signal, &action, std::ptr::null_mut());
+        }
+    }
+    // SAFETY: the read end is ours alone from here on.
+    Some(unsafe { std::fs::File::from_raw_fd(fds[0]) })
+}
+
+/// The brain's input, for the stop watcher.
+static STOP_TX: std::sync::OnceLock<std::sync::mpsc::Sender<Input>> = std::sync::OnceLock::new();
+
+/// A stop signal arrived.
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops the acpmux daemon this host started, once: its agent hosts and
+/// their sessions (and their MCP children) end with it; a daemon this host
+/// did not start is left alone. A second caller waits for the first.
+fn stop_started_acpmux() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::acpmux_daemon::shutdown_started(&|line| log(line));
+    });
+}
+
+/// Set just before the brain's loop starts.
+static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One thread waits for a stop signal and hands it to the brain, which
+/// stops; the host then stops the acpmux daemon it started and exits 0.
+fn watch_stop_signals() {
+    use std::io::Read;
+    let Some(mut pipe) = catch_stop_signals() else {
+        log("stop signals: no pipe; SIGTERM ends the host at once");
+        return;
+    };
+    let spawned = std::thread::Builder::new()
+        .name("stop-signals".into())
+        .spawn(move || {
+            let mut byte = [0u8; 1];
+            while pipe.read_exact(&mut byte).is_ok() {
+                let signal = libc::c_int::from(byte[0]);
+                STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
+                let running = BRAIN_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
+                let sent = running
+                    && STOP_TX
+                        .get()
+                        .is_some_and(|tx| tx.send(Input::Shutdown { signal }).is_ok());
+                // Before the brain runs nothing is in flight: stop here.
+                // Once it runs, it stops and `start` stops acpmux after it.
+                if !sent {
+                    log(format!("signal {signal}: stopping before the brain runs"));
+                    stop_started_acpmux();
+                    std::process::exit(0);
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log(format!("stop signals: no watcher thread ({e})"));
+    }
 }
 
 /// Builds one tiny node through the compactor's route, with its main and

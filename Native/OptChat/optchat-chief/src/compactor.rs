@@ -162,6 +162,39 @@ pub struct CompactorSpec {
 /// keeps both bounded while a burst still runs 2x the old width.
 pub const COMPACTOR_SESSIONS: usize = 16;
 
+/// The compactor sessions this host runs: `OPTCHAT_COMPACTOR_SESSIONS`
+/// (1 to the core's JOBS, 64), else `COMPACTOR_SESSIONS`. For measuring an
+/// import at other widths; the default stays 16 until those numbers are in.
+pub fn compactor_sessions() -> usize {
+    compactor_sessions_from(std::env::var("OPTCHAT_COMPACTOR_SESSIONS").ok().as_deref())
+}
+
+/// Spare slots for warm sessions started ahead (`Slots::with_spares`):
+/// `OPTCHAT_COMPACTOR_SPARES` (0 to 16), else `WARM_SESSIONS` (4, about
+/// 0.8 GB of Claude Code processes).
+pub fn compactor_spares() -> usize {
+    std::env::var("OPTCHAT_COMPACTOR_SPARES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n <= 16)
+        .unwrap_or(WARM_SESSIONS)
+}
+
+/// Every compactor slot: the active ones and the spares (one preset and
+/// working directory each).
+pub fn compactor_slot_count() -> usize {
+    compactor_sessions() + compactor_spares()
+}
+
+/// `compactor_sessions` for a setting value: a number from 1 to JOBS, else
+/// the default.
+pub fn compactor_sessions_from(value: Option<&str>) -> usize {
+    value
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| (1..=optchat_core::JOBS).contains(n))
+        .unwrap_or(COMPACTOR_SESSIONS)
+}
+
 /// Warm sessions the main compactor keeps (`with_warm`): a node takes a
 /// Claude Code process that already started instead of waiting for one.
 /// Each idle one costs a process (200-400 MB) and holds a slot; most turns
@@ -170,6 +203,53 @@ pub const COMPACTOR_SESSIONS: usize = 16;
 /// fresh conversation (its system prompt, its view, its task), and neither
 /// acpmux nor Claude Code clears one.
 pub const WARM_SESSIONS: usize = 4;
+
+/// How long warm sessions outlive the compactor's last work: the next
+/// turn's nodes start fast, and an idle Chief does not keep about 0.8 GB of
+/// Claude Code processes. `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` sets it.
+pub const WARM_IDLE: Duration = Duration::from_secs(600);
+
+/// `WARM_IDLE`, or `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` when it is a number.
+pub fn warm_idle() -> Duration {
+    std::env::var("OPTCHAT_COMPACTOR_WARM_IDLE_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(WARM_IDLE, Duration::from_secs)
+}
+
+/// Calls a function after a delay, unless stopped first (the compactor's
+/// end). Runtime code waits on a condition variable (`ThreadTimer`); tests
+/// move time themselves. Never a sleep.
+pub trait IdleTimer: Send + Sync {
+    /// Calls `f` after `d`, unless `stop` comes first.
+    fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>);
+    /// Drops every pending call.
+    fn stop(&self);
+}
+
+/// The runtime `IdleTimer`: a thread per call, waiting on the stoppable
+/// `ProbeDelay`.
+#[derive(Default)]
+pub struct ThreadTimer {
+    delay: Arc<crate::host::ProbeDelay>,
+}
+
+impl IdleTimer for ThreadTimer {
+    fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
+        let delay = self.delay.clone();
+        let _ = std::thread::Builder::new()
+            .name("optchat-compact-idle".into())
+            .spawn(move || {
+                if crate::host::Delay::wait(&*delay, d) {
+                    f();
+                }
+            });
+    }
+
+    fn stop(&self) {
+        self.delay.stop();
+    }
+}
 
 /// The session slots of the compactor (`COMPACTOR_SESSIONS`), shared by the main
 /// and the fallback compactor. Each slot has its own working directory, so a
@@ -181,7 +261,14 @@ pub struct Slots {
 
 #[derive(Default)]
 struct SlotState {
+    /// Each slot (a working directory and preset, one session at a time):
+    /// free or not. There are `max_active` plus the spares.
     free: Vec<bool>,
+    /// Nodes holding a slot (prompting, or starting their session).
+    active: usize,
+    /// At most this many nodes at once (`COMPACTOR_SESSIONS`); the other
+    /// slots hold warm sessions, started ahead for the next nodes.
+    max_active: usize,
     /// Warm sessions, each holding its slot, waiting for a node.
     warm: Vec<Warm>,
     /// Warm sessions being started (their slots held).
@@ -250,10 +337,22 @@ enum Acquired {
 }
 
 impl Slots {
+    /// `jobs` nodes at once, with `WARM_SESSIONS` spare slots for warm
+    /// sessions.
     pub fn new(jobs: usize) -> Arc<Slots> {
+        Slots::with_spares(jobs, WARM_SESSIONS)
+    }
+
+    /// `jobs` nodes at once, and `spares` more slots where warm sessions
+    /// start ahead: a node that frees its slot starts the next session in
+    /// the background (`rewarm`), and a waiting node takes a ready one, so
+    /// its prompt does not wait for a Claude Code start (about 3.7 s).
+    pub fn with_spares(jobs: usize, spares: usize) -> Arc<Slots> {
+        let jobs = jobs.max(1);
         Arc::new(Slots {
             state: Mutex::new(SlotState {
-                free: vec![true; jobs.max(1)],
+                free: vec![true; jobs + spares],
+                max_active: jobs,
                 ..SlotState::default()
             }),
             freed: Condvar::new(),
@@ -280,7 +379,7 @@ impl Slots {
         st.queues[q].push_back(t);
         st.waiting += 1;
         let got = loop {
-            if st.turn(q, t) {
+            if st.active < st.max_active && st.turn(q, t) {
                 let got = if let Some(key) = key
                     && let Some(k) = st.warm.iter().position(|w| w.key == key)
                 {
@@ -296,6 +395,7 @@ impl Slots {
                 };
                 if let Some(got) = got {
                     st.took(q);
+                    st.active += 1;
                     break got;
                 }
             }
@@ -312,16 +412,45 @@ impl Slots {
     }
 
     /// Whether the caller, which holds a slot it is done with, should start
-    /// a warm session in it: no node waits for a slot, and fewer than `max`
-    /// are warm or warming. True counts it as warming until `put_warm` or
-    /// `give`.
+    /// a warm session in it: fewer than `max` are warm or warming. True
+    /// counts the slot as warming until `put_warm` or `give_slot(_, true)`,
+    /// and frees the caller's place among the active nodes at once: a
+    /// waiting node goes on in a spare slot meanwhile.
     fn rewarm(&self, max: usize) -> bool {
         let mut st = self.lock();
-        if st.waiting > 0 || st.warm.len() + st.warming >= max {
+        if st.warm.len() + st.warming >= max {
             return false;
         }
         st.warming += 1;
+        st.active = st.active.saturating_sub(1);
+        drop(st);
+        self.freed.notify_all();
         true
+    }
+
+    /// A ready warm session with `key`, for a node that already holds a
+    /// place among the active nodes (a size retry).
+    fn take_warm(&self, key: u64) -> Option<Warm> {
+        let mut st = self.lock();
+        let k = st.warm.iter().position(|w| w.key == key)?;
+        Some(st.warm.remove(k))
+    }
+
+    /// Frees slot `k` without changing the active count (a retry that took
+    /// a warm session instead of the slot it kept).
+    fn release_slot(&self, k: usize) {
+        let mut st = self.lock();
+        if let Some(slot) = st.free.get_mut(k) {
+            *slot = true;
+        }
+        drop(st);
+        self.freed.notify_all();
+    }
+
+    /// No node prompts or waits for a slot.
+    fn idle(&self) -> bool {
+        let st = self.lock();
+        st.active == 0 && st.waiting == 0
     }
 
     fn put_warm(&self, warm: Warm) {
@@ -332,11 +461,14 @@ impl Slots {
         self.freed.notify_all();
     }
 
-    /// Gives `k` back; `warming`: the slot was counted as warming.
+    /// Gives `k` back; `warming`: the slot was counted as warming, else a
+    /// node held it (one active node fewer).
     fn give_slot(&self, k: usize, warming: bool) {
         let mut st = self.lock();
         if warming {
             st.warming = st.warming.saturating_sub(1);
+        } else {
+            st.active = st.active.saturating_sub(1);
         }
         if let Some(slot) = st.free.get_mut(k) {
             *slot = true;
@@ -387,6 +519,44 @@ struct Live {
     error: Option<String>,
     /// The node's context as the trace records it (size, hash, pieces).
     context: Value,
+    /// Where the node's time went, for the trace: waiting for a session
+    /// slot, starting the sessions, and each prompt (first output, whole).
+    timing: Timing,
+}
+
+/// A node's time split (`node` trace event `timing`), in milliseconds.
+#[derive(Clone, Debug, Default)]
+struct Timing {
+    /// Waiting for a free session slot (`Slots::acquire`), summed over tries.
+    slot_wait_ms: u64,
+    /// Starting Claude Code sessions (0 for a warm one), summed.
+    session_start_ms: u64,
+    /// Per prompt: until its first streamed output (None: none seen).
+    ttft_ms: Vec<Option<u64>>,
+    /// Per prompt: until its answer.
+    prompt_ms: Vec<u64>,
+}
+
+impl Timing {
+    fn add(&mut self, older: Timing) {
+        self.slot_wait_ms += older.slot_wait_ms;
+        self.session_start_ms += older.session_start_ms;
+        let mut ttft = older.ttft_ms;
+        ttft.append(&mut self.ttft_ms);
+        self.ttft_ms = ttft;
+        let mut prompt = older.prompt_ms;
+        prompt.append(&mut self.prompt_ms);
+        self.prompt_ms = prompt;
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "slot_wait_ms": self.slot_wait_ms,
+            "session_start_ms": self.session_start_ms,
+            "ttft_ms": self.ttft_ms,
+            "prompt_ms": self.prompt_ms,
+        })
+    }
 }
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -396,6 +566,9 @@ pub struct AcpmuxCompactor {
     spec: CompactorSpec,
     slots: Arc<Slots>,
     live: Mutex<HashMap<NodeId, Live>>,
+    /// Slots a node keeps across its fresh size retry (`retire`): the retry
+    /// is part of the same job, so it never queues behind waiting nodes.
+    held: Mutex<HashMap<NodeId, usize>>,
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
@@ -423,6 +596,12 @@ pub struct AcpmuxCompactor {
     me: std::sync::Weak<AcpmuxCompactor>,
     log: Option<Log>,
     trace: crate::trace::Trace,
+    /// Ends the warm sessions after `warm_idle` without compactor work.
+    idle_timer: Arc<dyn IdleTimer>,
+    warm_idle: Duration,
+    /// Counts the nodes opened: an idle check that sees a newer count
+    /// leaves the warm sessions alone.
+    work: AtomicU64,
 }
 
 impl AcpmuxCompactor {
@@ -437,6 +616,7 @@ impl AcpmuxCompactor {
             spec,
             slots,
             live: Mutex::new(HashMap::new()),
+            held: Mutex::new(HashMap::new()),
             prompts: AtomicU64::new(0),
             describes: AtomicU64::new(0),
             stamp: std::time::SystemTime::now()
@@ -453,7 +633,51 @@ impl AcpmuxCompactor {
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
+            idle_timer: Arc::new(ThreadTimer::default()),
+            warm_idle: warm_idle(),
+            work: AtomicU64::new(0),
         }
+    }
+
+    /// Ends the warm sessions `after` the compactor's last work, on `timer`.
+    pub fn with_idle_timer(
+        mut self,
+        timer: Arc<dyn IdleTimer>,
+        after: Duration,
+    ) -> AcpmuxCompactor {
+        self.idle_timer = timer;
+        self.warm_idle = after;
+        self
+    }
+
+    /// When the compactor has no work: in `warm_idle`, unless work came
+    /// meanwhile, ends the warm sessions.
+    fn schedule_idle_reap(&self) {
+        if self.warm == 0 || !self.slots.idle() {
+            return;
+        }
+        let seen = self.work.load(Ordering::SeqCst);
+        let me = self.me.clone();
+        self.idle_timer.after(
+            self.warm_idle,
+            Box::new(move || {
+                let Some(me) = me.upgrade() else { return };
+                if me.work.load(Ordering::SeqCst) != seen || !me.slots.idle() {
+                    return;
+                }
+                let warm = me.slots.drain_warm();
+                if !warm.is_empty() {
+                    me.say(&format!(
+                        "compactor: no work for {} s, ending {} warm session(s)",
+                        me.warm_idle.as_secs(),
+                        warm.len()
+                    ));
+                }
+                for w in &warm {
+                    me.end_warm(w);
+                }
+            }),
+        );
     }
 
     /// Each node's cache TTL: the brain's current one (one TTL for turns
@@ -699,13 +923,33 @@ impl AcpmuxCompactor {
         // Claude only through acpmux's own Claude Code adapter
         // (harness_gate), checked before a slot is taken.
         let admitted = self.admit(node)?;
+        self.work.fetch_add(1, Ordering::SeqCst);
         self.reap_warm();
         let route = self.harness();
         let key = self.warm_key(system, ttl, ours);
-        let (id, slot, cwd, preset) = match self
-            .slots
-            .acquire((self.warm > 0).then_some(key), foreground)
-        {
+        let asked = Instant::now();
+        let kept = self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        let acquired = match kept {
+            // A size retry: a ready warm session, else the slot its first
+            // try held.
+            Some(k) => match (self.warm > 0).then(|| self.slots.take_warm(key)).flatten() {
+                Some(w) => {
+                    self.slots.release_slot(k);
+                    Acquired::Warm(w)
+                }
+                None => Acquired::Slot(k),
+            },
+            None => self
+                .slots
+                .acquire((self.warm > 0).then_some(key), foreground),
+        };
+        let slot_wait = asked.elapsed();
+        let got = Instant::now();
+        let (id, slot, cwd, preset) = match acquired {
             Acquired::Warm(w) => (w.id, w.slot, w.cwd, w.preset),
             other => {
                 let slot = match other {
@@ -746,6 +990,11 @@ impl AcpmuxCompactor {
                     cost: None,
                     error: None,
                     context: Value::Null,
+                    timing: Timing {
+                        slot_wait_ms: slot_wait.as_millis() as u64,
+                        session_start_ms: got.elapsed().as_millis() as u64,
+                        ..Timing::default()
+                    },
                 },
             );
         Ok(id)
@@ -917,6 +1166,8 @@ impl AcpmuxCompactor {
             .get(&node)
             .map_or(0, |l| l.seq);
         let mut begun = false;
+        let asked = Instant::now();
+        let mut ttft = None;
         let prompt_id = format!("optchat-compact:{}:{}:{n}", self.stamp, node.name());
         let (tx, rx) = channel();
         self.port
@@ -933,6 +1184,7 @@ impl AcpmuxCompactor {
                         })
                     {
                         begun = true;
+                        ttft = Some(asked.elapsed().as_millis() as u64);
                         started();
                     }
                 }
@@ -953,6 +1205,15 @@ impl AcpmuxCompactor {
                 }
             }
         };
+        if let Some(l) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&node)
+        {
+            l.timing.ttft_ms.push(ttft);
+            l.timing.prompt_ms.push(asked.elapsed().as_millis() as u64);
+        }
         // acpmux answers a refused Claude turn with a JSON-RPC error that
         // carries Claude Code's text (claude_stdio/inbound.rs), never with
         // `stopReason: "refusal"`; both are refusals.
@@ -1109,6 +1370,8 @@ impl AcpmuxCompactor {
         // node's counts carry over.
         let old = self.retire(node);
         let reply = self.first_call(request, Some(&last.retry), started);
+        // The retry failed before it opened a session: the slot goes back.
+        self.give_held(node);
         if let Some(old) = old
             && let Some(l) = self
                 .live
@@ -1118,6 +1381,7 @@ impl AcpmuxCompactor {
         {
             l.opened = old.opened;
             l.prompts += old.prompts;
+            l.timing.add(old.timing);
             l.cost = match (l.cost, old.cost) {
                 (Some(a), Some(b)) => Some(a + b),
                 (a, b) => a.or(b),
@@ -1160,8 +1424,9 @@ impl AcpmuxCompactor {
         self.prompt(request.node, &session, blocks, started)
     }
 
-    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; its
-    /// slot goes back. Its counts, for the next session of the node.
+    /// Ends `node`'s session for a fresh retry: no trace, no warm-up; the
+    /// node keeps its slot for the retry (`held`). Its counts, for the next
+    /// session of the node.
     fn retire(&self, node: NodeId) -> Option<Live> {
         let live = self
             .live
@@ -1174,7 +1439,10 @@ impl AcpmuxCompactor {
         if live.system.is_some() {
             let _ = self.port.set_system_prompt(&live.preset, "");
         }
-        self.slots.give(live.slot);
+        self.held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(node, live.slot);
         Some(live)
     }
 }
@@ -1236,9 +1504,22 @@ impl CompactModel for AcpmuxCompactor {
 }
 
 impl AcpmuxCompactor {
+    /// Gives back the slot `node` kept for a size retry it did not use.
+    fn give_held(&self, node: NodeId) {
+        let kept = self
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&node);
+        if let Some(k) = kept {
+            self.slots.give(k);
+        }
+    }
+
     /// Ends `node`'s session: purges its transcript, gives its slot back
     /// and logs its use.
     fn end_node(&self, node: NodeId) {
+        self.give_held(node);
         let Some(live) = self
             .live
             .lock()
@@ -1260,6 +1541,7 @@ impl AcpmuxCompactor {
                 "ok": live.error.is_none(),
                 "error": live.error.as_deref().map(|e| self.trace.text(e)),
                 "context": live.context,
+                "timing": live.timing.json(),
             }),
         );
         // Purged: a node's session holds the chat's text, and nothing reads it again.
@@ -1292,6 +1574,7 @@ impl AcpmuxCompactor {
             }
             self.slots.give(live.slot);
         }
+        self.schedule_idle_reap();
         let tokens = match live.usage {
             Some(u) => format!(
                 "uncached {} cache write {} cache read {} output {}",
@@ -1339,6 +1622,7 @@ impl Drop for AcpmuxCompactor {
     /// The warm sessions end with the compactor: no Claude Code process
     /// outlives the host idle.
     fn drop(&mut self) {
+        self.idle_timer.stop();
         for w in self.slots.drain_warm() {
             self.end_warm(&w);
         }
@@ -1671,7 +1955,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..COMPACTOR_SESSIONS)
+        return (0..compactor_slot_count())
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1740,7 +2024,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..COMPACTOR_SESSIONS)
+    (0..compactor_slot_count())
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),
@@ -1896,5 +2180,20 @@ mod slot_order_tests {
             st.took(q);
         }
         assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
+    }
+}
+
+#[cfg(test)]
+mod session_count_tests {
+    use super::*;
+
+    #[test]
+    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
+        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("32")), 32);
+        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
+        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }
