@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSidebar
 import CmuxNextDesign
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
@@ -154,7 +155,14 @@ final class PersonalGroupEditorState {
     var explicit: Set<WorkspaceGroupID> = []
     /// Groups the sidebar made that the daemon is still creating: name and
     /// color edits made meanwhile (the editor is open on the new group).
-    var creating: [WorkspaceGroupID: (name: String?, color: GroupColor?)] = [:]
+    var creating: [WorkspaceGroupID: [Edit]] = [:]
+
+    /// A name or color edit waiting for the daemon's id, with its pending row edit.
+    struct Edit {
+        var name: String?
+        var color: GroupColor?
+        var token: SidebarPendingEdits.Token
+    }
     /// The daemon's id for a group the sidebar made under its own id.
     var created: [WorkspaceGroupID: WorkspaceGroupID] = [:]
 }

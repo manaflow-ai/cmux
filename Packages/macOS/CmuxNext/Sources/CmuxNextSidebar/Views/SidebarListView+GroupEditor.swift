@@ -42,12 +42,12 @@ struct SidebarGroupEditing {
             list.onGroupEditorItem?(id, item)
             if item == Self.moreActionsItem { SidebarGroupEditing(list: list).showMenu(id) }
         }
-        editor.onClose = { [weak list, weak editor] id in
+        // The bubble is its own window: the keys stay where the click put them.
+        editor.onClose = { [weak list] id in
             guard let list else { return }
             for case let header as GroupHeaderRowView in list.rowViews.values { header.isEditing = false }
             list.model.send(.groupEditorEnded(id))
             list.reload(animated: true)
-            list.window?.makeFirstResponder(editor?.previousResponder ?? list)
         }
     }
 
@@ -66,10 +66,8 @@ struct SidebarGroupEditing {
         let chip = view.labelFrame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
         let anchor = window.convertToScreen(list.convert(chip, to: nil))
         list.hoverCards.dismiss(.click)
-        let responder = window.firstResponder
         list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(), anchor: anchor, parent: window,
                               themeAnchor: list)
-        list.groupEditor.previousResponder = responder
         view.isEditing = true
     }
 

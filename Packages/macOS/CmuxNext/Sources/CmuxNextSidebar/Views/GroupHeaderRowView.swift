@@ -134,7 +134,7 @@ final class GroupHeaderRowView: SidebarRowView {
         return NSRect(x: start - Metrics.space2, y: 0, width: name.frame.maxX - start + 2 * Metrics.space2, height: bounds.height)
     }
     var labelFill: CGColor? { pill.isHidden ? nil : pill.backgroundColor }
-    override var titleFont: NSFont { SidebarStyle.headerFont }
+    override var titleFont: NSFont { name.font ?? SidebarStyle.headerFont }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
@@ -191,9 +191,11 @@ final class GroupHeaderRowView: SidebarRowView {
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
         // The more button fades in left of the chevron on hover; its slot is kept.
-        moreButton.frame = NSRect(x: chevronFrame.minX - Metrics.space1 - control, y: (b.height - control) / 2, width: control, height: control)
+        moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
         moreButton.isHidden = false
         moreButton.alphaValue = showsMore ? 1 : 0
+        // Shown to VoiceOver only when it shows; the header's custom action edits the group always.
+        moreButton.setAccessibilityElement(showsMore)
         var trailing = moreButton.frame.minX - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false

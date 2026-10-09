@@ -24,8 +24,6 @@ final class SidebarGroupEditor {
     private var known: Set<GroupID> = []
     /// The group whose editor closed last, and the event time it closed at.
     private var lastClosed: (group: GroupID, time: TimeInterval)?
-    /// The responder to give the keys back to when the editor closes.
-    weak var previousResponder: NSResponder?
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.

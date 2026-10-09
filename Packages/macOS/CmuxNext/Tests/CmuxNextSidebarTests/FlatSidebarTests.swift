@@ -58,6 +58,6 @@ import Testing
         row.layoutSubtreeIfNeeded()
         #expect(header.labelFrame.minX <= row.titleFrame.minX, "chip \(header.labelFrame.minX) row \(row.titleFrame.minX)")
         #expect(header.disclosureFrame.midX > header.titleFrame.maxX)
-        #expect(header.titleFont == SidebarStyle.headerFont)
+        #expect(header.titleFont.pointSize >= 11, "the name's type scales with the row")
     }
 }
