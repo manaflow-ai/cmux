@@ -1268,6 +1268,41 @@ fn spawn_probe(
     }
 }
 
+/// A wait the host can cut short: the start-up probe's retry delay. No
+/// sleep in runtime code: `ProbeDelay` waits on a condition variable that
+/// `stop` wakes (the host's end).
+pub trait Delay: Send + Sync {
+    /// Waits `d`; false when stopped (now or during the wait).
+    fn wait(&self, d: std::time::Duration) -> bool;
+}
+
+/// The host's `Delay`, stopped when the host ends.
+#[derive(Default)]
+pub struct ProbeDelay {
+    stopped: std::sync::Mutex<bool>,
+    woken: std::sync::Condvar,
+}
+
+impl ProbeDelay {
+    pub fn stop(&self) {}
+}
+
+impl Delay for ProbeDelay {
+    fn wait(&self, _d: std::time::Duration) -> bool {
+        true
+    }
+}
+
+/// The start-up probe: `probe` again after each transient failure, with
+/// `delay` between tries; None when the delay was stopped.
+pub fn probe_until_ready(
+    probe: &dyn Fn() -> Result<String, String>,
+    _delay: &dyn Delay,
+    _log: &dyn Fn(&str),
+) -> Option<Result<String, String>> {
+    Some(probe())
+}
+
 /// How long the start-up probe waits before it tries again after `error`
 /// (its `attempt`-th failure, from 0); None: no retry (a real fault).
 pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {

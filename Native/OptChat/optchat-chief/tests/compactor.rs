@@ -2101,3 +2101,42 @@ fn the_probe_is_named_probe_not_a_node_span() {
     let node = events.iter().find(|e| e["ev"] == "node").unwrap();
     assert_eq!(node["node"], "probe");
 }
+
+/// The probe's retry delay waits through an injected `Delay` that the host
+/// stops (no sleep in runtime code): transient failures wait 1 s, 2 s, ...
+/// and the probe then succeeds; a stopped delay ends the probe at once.
+#[test]
+fn the_probe_retries_through_a_stoppable_delay() {
+    use optchat_chief::host::{Delay, ProbeDelay, probe_until_ready};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Recording(Mutex<Vec<Duration>>, bool);
+    impl Delay for Recording {
+        fn wait(&self, d: Duration) -> bool {
+            self.0.lock().unwrap().push(d);
+            self.1
+        }
+    }
+    let tries = AtomicUsize::new(0);
+    let probe = || match tries.fetch_add(1, Ordering::SeqCst) {
+        0 | 1 => Err("claude: Network error. Please check your internet connection.".to_owned()),
+        _ => Ok("user: ping".to_owned()),
+    };
+    let delay = Recording(Mutex::new(Vec::new()), true);
+    let result = probe_until_ready(&probe, &delay, &|_| {});
+    assert_eq!(result, Some(Ok("user: ping".to_owned())));
+    assert_eq!(*delay.0.lock().unwrap(), [Duration::from_secs(1), Duration::from_secs(2)]);
+    tries.store(0, Ordering::SeqCst);
+    let stopped = Recording(Mutex::new(Vec::new()), false);
+    assert_eq!(probe_until_ready(&probe, &stopped, &|_| {}), None);
+    // The real delay: stop wakes a wait at once.
+    let real = Arc::new(ProbeDelay::default());
+    let waiter = {
+        let real = real.clone();
+        std::thread::spawn(move || real.wait(Duration::from_secs(60)))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let started = std::time::Instant::now();
+    real.stop();
+    assert!(!waiter.join().unwrap());
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
