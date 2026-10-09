@@ -1959,3 +1959,42 @@ fn a_line_stuck_on_an_exhausted_route_posts_no_notice() {
     let bad = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl"}}"#;
     assert!(stuck_notice(&status(bad)).is_some());
 }
+
+/// E2: each capacity wait of the compactor is one trace event
+/// (`compactor.capacity`: the route, its retry-after, and the route it fails
+/// over to, or null), so the dogfood counts errors by class from traces.
+#[test]
+fn a_capacity_wait_is_one_trace_event_with_its_route_wait_and_failover() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let exhausted = r#"session/new: model "claude-haiku-5-5" for claude-sr: API error: 503 no non-exhausted claude accounts available; next account frees up in 1h (retry after 3596s)"#;
+    agents
+        .inner
+        .lock()
+        .unwrap()
+        .session_errors
+        .insert("claude-sr".into(), exhausted.into());
+    let trace = optchat_chief::trace::Trace::open(&traces, false).unwrap();
+    let with_alt = compactor(&agents, dir.path())
+        .with_alternate_harness(Some("claude".into()))
+        .with_trace(trace.clone());
+    run_node(&with_alt, &request(1)).unwrap();
+    let without = compactor(&agents, dir.path()).with_trace(trace);
+    assert!(run_node(&without, &request(2)).is_err());
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()));
+    }
+    let capacity: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "compactor.capacity")
+        .collect();
+    assert_eq!(capacity.len(), 2, "{events:?}");
+    assert_eq!(capacity[0]["route"], "claude-sr");
+    assert_eq!(capacity[0]["retry_after_s"], 3596);
+    assert_eq!(capacity[0]["failover"], "claude");
+    assert_eq!(capacity[0]["status"], 503);
+    assert_eq!(capacity[1]["failover"], Value::Null);
+}
