@@ -8,9 +8,11 @@ extension HomeStore {
     /// `passing`: a refusal the caller handles itself (the log and the
     /// send queue stay as they are).
     func submit(_ intent: HomeIntent, passing: HomeRejection? = nil) async throws -> HomeOpResult {
+        noteSubmitted(intent.key)
         do {
             let result = try await source.submit(intent)
             cancelBackoff(intent.key)
+            endOfflineDeadline(intent.key)
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
@@ -44,6 +46,7 @@ extension HomeStore {
                     throw HomeSendState.pendingResend
                 }
                 cancelBackoff(intent.key)
+                endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
