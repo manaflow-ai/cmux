@@ -3,6 +3,7 @@
  "banned": [
   "swift.as_bang",
   "swift.assume_isolated",
+  "swift.async_closure_default_arg@CmuxIrxTransport",
   "swift.fatal_error",
   "swift.force_unwrap",
   "swift.index_subscript@CMUXMobileCore",
@@ -18,6 +19,7 @@
   "swift.int_conversion@CMUXMobileCore",
   "swift.int_conversion@CmuxHomeRender",
   "swift.int_conversion@CmuxIrohTransport",
+  "swift.int_conversion@CmuxIrxTransport",
   "swift.int_conversion@CmuxNextControl",
   "swift.int_conversion@CmuxNextDaemon",
   "swift.int_conversion@CmuxNextMobile",
