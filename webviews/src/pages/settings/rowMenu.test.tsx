@@ -22,7 +22,7 @@ async function openMenu(rendered: Rendered, key: string): Promise<HTMLElement> {
       new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
     );
   });
-  const menu = rowElement(rendered.container, key).querySelector<HTMLElement>("[role=menu]");
+  const menu = document.querySelector<HTMLElement>("[role=menu]");
   if (!menu) throw new Error(`no menu opened on ${key}`);
   return menu;
 }
@@ -57,8 +57,21 @@ describe("a setting row's context menu", () => {
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key }]);
   });
 
+  // cx-dmnf (nxdog77-v1): the menu opened about 340 px right of the pointer. A category's enter
+  // animation (`.section`, fill mode both) keeps a transform on it, and WebKit then makes it the
+  // containing block of fixed descendants, so a fixed menu inside it is offset by the category
+  // column's position. The menu lives at the document root and sits at the pointer.
+  test("opens at the pointer, outside the animated category", async () => {
+    page = await renderPage({ path: "/settings/privacy" });
+    const menu = await openMenu(page, "history.terminalCommands");
+    expect(menu.closest(".section")).toBeNull();
+    expect(page.container.contains(menu)).toBe(false);
+    expect([menu.style.left, menu.style.top]).toEqual(["40px", "60px"]);
+  });
+
   test("a managed setting cannot be reset from the menu", async () => {
     page = await renderPage({ path: "/settings/browser" });
     expect(item(await openMenu(page, mockManagedKey), "Reset to Default")!.disabled).toBe(true);
   });
 });
+
