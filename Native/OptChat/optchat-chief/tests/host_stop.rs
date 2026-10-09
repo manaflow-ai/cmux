@@ -4,7 +4,8 @@
 //! ends that daemon's agent hosts and their sessions. A daemon the host
 //! found running (the app's, a supervisor's) is not its to stop.
 
-use std::os::unix::fs::PermissionsExt;
+mod exe;
+
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -13,7 +14,7 @@ use std::time::{Duration, Instant};
 /// `daemon shutdown` records the call and ends it.
 fn fake_acpmux(dir: &Path) -> std::path::PathBuf {
     let bin = dir.join("fake-acpmux");
-    std::fs::write(
+    exe::write_executable(
         &bin,
         r#"#!/bin/sh
 case "$1 $2" in
@@ -31,9 +32,7 @@ while True:
   kill "$(cat "$ACPMUX_HOME/run.pid")" ;;
 esac
 "#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     bin
 }
 

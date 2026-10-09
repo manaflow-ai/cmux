@@ -162,6 +162,22 @@ pub struct CompactorSpec {
 /// keeps both bounded while a burst still runs 2x the old width.
 pub const COMPACTOR_SESSIONS: usize = 16;
 
+/// The compactor sessions this host runs: `OPTCHAT_COMPACTOR_SESSIONS`
+/// (1 to the core's JOBS, 64), else `COMPACTOR_SESSIONS`. For measuring an
+/// import at other widths; the default stays 16 until those numbers are in.
+pub fn compactor_sessions() -> usize {
+    compactor_sessions_from(std::env::var("OPTCHAT_COMPACTOR_SESSIONS").ok().as_deref())
+}
+
+/// `compactor_sessions` for a setting value: a number from 1 to JOBS, else
+/// the default.
+pub fn compactor_sessions_from(value: Option<&str>) -> usize {
+    value
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| (1..=optchat_core::JOBS).contains(n))
+        .unwrap_or(COMPACTOR_SESSIONS)
+}
+
 /// Warm sessions the main compactor keeps (`with_warm`): a node takes a
 /// Claude Code process that already started instead of waiting for one.
 /// Each idle one costs a process (200-400 MB) and holds a slot; most turns
@@ -1671,7 +1687,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     let base = format!("optchat-compact-{}", home_id(home));
     if family == Family::Codex {
         // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
-        return (0..COMPACTOR_SESSIONS)
+        return (0..compactor_sessions())
             .map(|k| Preset {
                 name: slot_preset(&base, k),
                 harness: harness.to_owned(),
@@ -1740,7 +1756,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
-    (0..COMPACTOR_SESSIONS)
+    (0..compactor_sessions())
         .map(|k| Preset {
             name: slot_preset(&base, k),
             harness: harness.to_owned(),
@@ -1896,5 +1912,20 @@ mod slot_order_tests {
             st.took(q);
         }
         assert_eq!(order, vec![1, 2, 3, 4, 100, 5, 6, 7, 8, 101, 9, 10]);
+    }
+}
+
+#[cfg(test)]
+mod session_count_tests {
+    use super::*;
+
+    #[test]
+    fn the_session_count_setting_takes_1_to_jobs_else_the_default() {
+        assert_eq!(compactor_sessions_from(None), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("32")), 32);
+        assert_eq!(compactor_sessions_from(Some(" 1 ")), 1);
+        assert_eq!(compactor_sessions_from(Some("0")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("65")), COMPACTOR_SESSIONS);
+        assert_eq!(compactor_sessions_from(Some("lots")), COMPACTOR_SESSIONS);
     }
 }

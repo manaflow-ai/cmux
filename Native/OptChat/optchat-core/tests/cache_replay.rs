@@ -365,7 +365,11 @@ fn an_import_reads_most_of_its_compaction_prefix_from_the_cache() {
 /// the whole unmerged import (400 KB) and wrote 179k tokens. With the chat's
 /// view merged in whole batches as nodes are built, turns during an import
 /// see a view near the budget, and after it their cached prefix changes
-/// only when a batch merges (once per batch, never at every node).
+/// only when a batch merges (once per batch, never at every node). During
+/// the import a turn's view shows built lines only, as the reference
+/// client's: an unbuilt imported line is left out, not a placeholder, so
+/// the view ends at the build front and the turn's mark stays within the
+/// cache's lookback of the last turn's (with placeholders, 6.22% read).
 #[test]
 fn turns_during_and_after_an_import_keep_a_small_view_and_their_cache() {
     let system = format!(
@@ -383,7 +387,8 @@ fn turns_during_and_after_an_import_keep_a_small_view_and_their_cache() {
             .messages
             .borrow_mut()
             .push((Kind::Echo, format!("imported {k} {}", "x".repeat(len))));
-        memory.append();
+        let id = memory.append();
+        memory.mark_imported(id);
     }
     let (mut during, mut after) = (Rate::default(), Rate::default());
     let (mut largest, mut churns, mut batches) = (0usize, 0usize, 0usize);
@@ -467,6 +472,11 @@ fn turns_during_and_after_an_import_keep_a_small_view_and_their_cache() {
         after.pct()
     );
     assert!(largest <= 2 * VIEW, "a turn saw a {largest}-byte view");
+    assert!(
+        during.pct() >= 50.0,
+        "turns during the import read {:.2}%",
+        during.pct()
+    );
     assert!(churns <= batches + 1, "{churns} misses, {batches} batches");
     assert!(after.pct() >= 95.0, "turns read {:.2}%", after.pct());
 }
