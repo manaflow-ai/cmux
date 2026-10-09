@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 
 /// Content a pane keeps in place, hidden, while another tab shows (browser
 /// perf phase 2, cx-asb1). Taking a browser's chrome out of the window and
