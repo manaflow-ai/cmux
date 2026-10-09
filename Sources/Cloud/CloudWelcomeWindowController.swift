@@ -10,7 +10,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Versioning the marker lets a later announcement be shown once without
     /// bringing back an older welcome that a user already dismissed.
     nonisolated static let campaignVersion = "0.65.1"
-    static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
+    nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
     /// Launch presentation is considered once, at the first main window. A
