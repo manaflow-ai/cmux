@@ -251,21 +251,33 @@ public final class CmuxWebView: CmuxUndoableWebView {
     })();
     """
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
-        func userContentController(
+        // WebKit invokes script-message handlers on the main thread, but it
+        // does not install Swift's MainActor executor token before entering
+        // the Objective-C callback. A default-isolated method therefore
+        // traps in `_checkExpectedExecutor` before it can schedule the
+        // state update (Sentry CMUXTERM-MACOS-3YKT).
+        nonisolated func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
             guard let webView = message.webView as? CmuxWebView else {
                 return
             }
-            guard let body = message.body as? [String: Any],
-                  let canPaste = body["canPaste"] as? Bool else {
+            guard let canPaste = CmuxWebView.pasteAsPlainTextTargetAvailable(from: message.body) else {
                 return
             }
             Task { @MainActor [weak webView] in
                 webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
             }
         }
+    }
+
+    /// Parses the tiny payload accepted from the isolated paste-focus script.
+    /// Keeping this validation separate makes the WebKit boundary testable
+    /// without constructing framework-owned ``WKScriptMessage`` instances.
+    nonisolated static func pasteAsPlainTextTargetAvailable(from body: Any) -> Bool? {
+        guard let body = body as? [String: Any] else { return nil }
+        return body["canPaste"] as? Bool
     }
 
     private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
