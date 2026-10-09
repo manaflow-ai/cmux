@@ -2,7 +2,7 @@ public import Foundation
 
 /// Keeps cards away while it lasts.
 public nonisolated enum HoverSuppression: String, Hashable, Sendable, CaseIterable {
-    case drag, scroll
+    case drag, scroll, sidebarHide
 }
 
 /// Inputs of the hover card state machine.

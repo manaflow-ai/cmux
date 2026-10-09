@@ -4,6 +4,16 @@ import Testing
 
 /// The literal loopback rule and the proxy head parser.
 struct RoutingTests {
+    /// A token is lowercase hex of the requested length; a negative length used to trap.
+    @Test func randomTokensAreHexOfTheRequestedLength() {
+        let token = ProxyCredential.randomToken(bytes: 16)
+        #expect(token.count == 32)
+        #expect(token.allSatisfy { "0123456789abcdef".contains($0) })
+        #expect(token != ProxyCredential.randomToken(bytes: 16))
+        #expect(ProxyCredential.randomToken(bytes: 0).isEmpty)
+        #expect(ProxyCredential.randomToken(bytes: -1).isEmpty)
+    }
+
     @Test func loopbackHostsAreDecidedWithoutDNS() {
         for host in ["localhost", "LocalHost", "localhost.", "app.localhost", "a-b.c.localhost", "127.0.0.1",
                      "127.12.34.56", "::1", "[::1]", "::ffff:127.0.0.1"] {

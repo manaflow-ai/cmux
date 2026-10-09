@@ -62,6 +62,8 @@ mod tests {
             built: 0,
             busy: Vec::new(),
             failures: Vec::new(),
+            stuck: Vec::new(),
+            recovered: false,
             fatal: None,
             closed: false,
         }

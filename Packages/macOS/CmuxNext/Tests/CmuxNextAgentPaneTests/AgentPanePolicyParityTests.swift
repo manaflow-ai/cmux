@@ -135,6 +135,33 @@ import Testing
                 "\(c["name"] ?? "?")")
     }
 
+    /// Seed the same pending-question keys described by a case's state. The shared
+    /// cases keep the question body out of `state`, so construct the minimal daemon
+    /// pending frame from the answer keys in the request before checking it.
+    static func seedQuestions(_ c: [String: Any], _ state: [String: Any], _ options: AcpmuxPermissionOptions) {
+        let params = ((try? JSONSerialization.jsonObject(
+            with: Data((c["text"] as? String ?? "").utf8), options: [.fragmentsAllowed]
+        )) as? [String: Any])?["params"] as? [String: Any]
+        let answers = params?["answers"] as? [String: Any]
+        let keys = answers.map { Array($0.keys) } ?? ["question"]
+        let denies = (state["denies"] as? [Any] ?? []).compactMap { $0 as? [String] }
+        for case let permission as String in state["questions"] as? [Any] ?? [] {
+            let items = keys.map { ["id": $0] }
+            var request: [String: Any] = ["toolCall": ["_meta": ["acpmux": [
+                "question": ["items": items]
+            ]]]]
+            let optionsForPermission = denies.compactMap { deny -> [String: Any]? in
+                guard deny.count >= 2, deny[0] == permission else { return nil }
+                return ["optionId": deny[1], "kind": "reject_once"]
+            }
+            if !optionsForPermission.isEmpty { request["options"] = optionsForPermission }
+            options.observe(["method": "_acpmux/permission_pending",
+                             "params": ["permissionId": permission,
+                                         "request": request]],
+                            replyTo: nil)
+        }
+    }
+
     @Test func frames() throws {
         for c in try Self.cases("frames.json") { try Self.checkFrame(c) }
     }
@@ -179,18 +206,21 @@ import Testing
     /// runs against `check_frame`) against ``AgentPaneTransport/checkOne(_:_:)``.
     @Test func fullCheckOrder() throws {
         let all = try Self.cases("check.json")
-        #expect(all.count == 28, "check.json: the full order's 28 cases")
+        #expect(all.count == 41, "check.json: the full order's 41 cases")
         for c in all {
             let name = c["name"] as? String ?? "?"
             let state = try #require(c["state"] as? [String: Any])
             let sessions = AcpmuxPaneSessions()
             for case let s as String in state["sessions"] as? [Any] ?? [] { sessions.add(s) }
             let options = AcpmuxPermissionOptions()
+            let questionPermissions = Set((state["questions"] as? [Any] ?? []).compactMap { $0 as? String })
             for case let deny as [String] in state["denies"] as? [Any] ?? [] {
+                if questionPermissions.contains(deny.first ?? "") { continue }
                 options.observe(["method": "_acpmux/permission_pending",
                                  "params": ["permissionId": deny[0], "request": ["options": [["optionId": deny[1], "kind": "reject_once"]]]]],
                                 replyTo: nil)
             }
+            Self.seedQuestions(c, state, options)
             let snapshot = AgentPaneTransport.Snapshot(
                 isFirst: state["first"] as? Bool ?? false, localAppToken: state["token"] as? String,
                 modeFields: (state["mode_fields"] as? [String]).map(Set.init), sessions: sessions, options: options)

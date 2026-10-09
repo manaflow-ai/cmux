@@ -131,12 +131,12 @@ for (const mode of ["monochrome", "hierarchical", "multicolor"]) {
 }
 picker.store.setSymbolMode("monochrome");
 
-// Category jumps: every jump bar target on both grids -> next frame.
+// Section jumps (Alt-Down): every section on both grids -> next frame.
 const jumpTimes = [];
 for (const tab of ["emoji", "symbol"]) {
   picker.open({ id: `jump-${tab}`, tab });
   await nextFrame();
-  for (const target of picker.store.getSnapshot().jumps) {
+  for (const target of picker.store.getSnapshot().layout.sections) {
     const t0 = performance.now();
     const top = picker.store.jump(target.id);
     const scroller = grid();

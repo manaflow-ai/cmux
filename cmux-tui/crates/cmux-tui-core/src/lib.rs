@@ -15,6 +15,7 @@ mod browser;
 pub mod browser_host;
 mod browser_provider;
 pub mod cloud_conversations;
+mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
@@ -72,6 +73,8 @@ mod surface;
 mod terminal_backend;
 mod terminal_end;
 #[cfg(unix)]
+mod terminal_loss_cause;
+#[cfg(unix)]
 mod terminal_loss_log;
 mod terminal_metadata;
 pub mod terminal_respawn_text;
@@ -79,8 +82,12 @@ pub mod terminal_respawn_text;
 mod windows_processes;
 mod workspace_registry;
 
+#[cfg(unix)]
+mod host_exe;
 pub mod layout;
 pub mod platform;
+#[cfg(unix)]
+mod process_identity;
 pub mod process_resources;
 pub mod server;
 pub mod terminal_host;
@@ -88,6 +95,7 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod user_settings;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,

@@ -36,7 +36,8 @@ final class ChromeIconButton: NSButton {
             density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
         ])
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applySymbol()
         }
@@ -162,7 +163,8 @@ class ChromeTextButton: NSButton {
         wantsLayer = true
         density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
         titleText = title
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             layer?.cornerRadius = BrowserMetrics.controlCornerRadius
             applyTitle()
             invalidateIntrinsicContentSize()
@@ -175,6 +177,17 @@ class ChromeTextButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var isHighlighted: Bool { didSet { updateFill() } }
+
+    /// The themed title: a plain `title` write would be replaced by the old
+    /// text at the next repaint (hover, appearance change).
+    override var title: String {
+        get { titleText }
+        set {
+            titleText = newValue
+            applyTitle()
+            invalidateIntrinsicContentSize()
+        }
+    }
 
     override var intrinsicContentSize: NSSize {
         let size = attributedTitle.size()
@@ -239,7 +252,8 @@ class ChromeTextField: NSTextField {
         lineBreakMode = .byTruncatingTail
         cell?.isScrollable = true
         cell?.wraps = false
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             font = BrowserMetrics.bodyFont
             applyPlaceholder()
         }

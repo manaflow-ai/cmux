@@ -85,13 +85,15 @@ extension TabStripView {
     }
 
     public override func mouseExited(with event: NSEvent) {
-        buttonReveal.pointerInStrip = false
-        setHovered(nil)
-        setHoveredChip(nil)
-        if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
-        closeHoveredID = nil
-        newTabButton.isHovered = false
+        pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
+
+    /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
+    func pointerLeft() {
+        buttonReveal.pointerInStrip = false
+        clearHover()
+        newTabButton.isHovered = false
         if closingModeWidth != nil, drag == nil {
             // Deferred relayout: tabs resize once the pointer leaves.
             closingModeWidth = nil
@@ -295,7 +297,7 @@ extension TabStripView {
         menuEndObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: menu, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endMenuTracking() }
+            MainActor.assumeIsolated { self?.endMenuTracking() } // main-proof: observer on queue: .main
         }
     }
 

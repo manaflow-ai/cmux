@@ -40,6 +40,24 @@ struct MDPalette {
         #endif
     }
 
+    /// Cached per bubble side and palette generation (a theme or appearance change makes new ones).
+    private static var cache: [Int: MDPalette] = [:]
+    private static let cacheLock = NSLock()
+    static func palette(outgoing: Bool) -> MDPalette {
+        let k = Fixture.paletteGeneration &* 4 &+ (Fixture.lightAppearance ? 2 : 0) &+ (outgoing ? 1 : 0)
+        let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
+        cacheLock.lock()
+        // The text colour can change without a new generation (an elevated window): compare it.
+        if let p = cache[k], p.text.isEqual(text) { cacheLock.unlock(); return p }
+        cacheLock.unlock()
+        let p = make(outgoing: outgoing)
+        cacheLock.lock()
+        if cache.count > 8 { cache.removeAll() }
+        cache[k] = p
+        cacheLock.unlock()
+        return p
+    }
+
     static func make(outgoing: Bool) -> MDPalette {
         let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
         // getWhite is valid only for a grey colour: a host theme's sRGB (or HDR sRGB) text
@@ -75,8 +93,12 @@ enum MarkdownDraw {
 
     /// Draws a markdown body. `body` is the bubble rect in the context (its origin is
     /// the layout's origin). `offsets`: horizontal scroll per region.
-    static func draw(_ ctx: CGContext, _ md: MarkdownLayout, body: CGRect, outgoing: Bool, offsets: [Int: CGFloat] = [:], mode: Mode = .all) {
-        let pal = MDPalette.make(outgoing: outgoing)
+    /// `slice`: body-local y range of a tile (long messages): boxes are clipped to it and only text
+    /// lines whose slot starts in it are drawn (whole, so glyphs overflow into the next tile's room,
+    /// which does not draw them again).
+    static func draw(_ ctx: CGContext, _ md: MarkdownLayout, body: CGRect, outgoing: Bool, offsets: [Int: CGFloat] = [:], mode: Mode = .all,
+                     slice: Range<CGFloat>? = nil) {
+        let pal = MDPalette.palette(outgoing: outgoing)
         ctx.saveGState()
         ctx.translateBy(x: body.minX, y: body.minY)
         if case let .region(r) = mode {
@@ -87,17 +109,20 @@ enum MarkdownDraw {
             ctx.restoreGState()
             return
         }
-        drawContent(ctx, md, region: -1, pal: pal)
+        drawContent(ctx, md, region: -1, pal: pal, slice: slice)
         for (i, reg) in md.regions.enumerated() {
             if case .skipScrollable = mode, MarkdownOverlay.usesOverlay(reg) { continue }
+            if let s = slice, reg.frame.maxY <= s.lowerBound || reg.frame.minY >= s.upperBound { continue }
             let off = min(reg.maxOffset, max(0, offsets[i] ?? 0))
             ctx.saveGState()
             ctx.clip(to: reg.frame)
             if reg.kind == .code { roundedClip(ctx, reg.frame, 6) }
             ctx.translateBy(x: -off, y: 0)
-            drawContent(ctx, md, region: i, pal: pal)
+            drawContent(ctx, md, region: i, pal: pal, slice: slice)
             ctx.restoreGState()
-            if reg.scrollable { drawIndicator(ctx, reg, offset: off, pal: pal) }
+            if reg.scrollable, slice.map({ reg.frame.maxY - 4 >= $0.lowerBound && reg.frame.maxY - 4 < $0.upperBound }) ?? true {
+                drawIndicator(ctx, reg, offset: off, pal: pal)
+            }
         }
         ctx.restoreGState()
     }
@@ -119,9 +144,15 @@ enum MarkdownDraw {
         ctx.fillPath()
     }
 
-    static func drawContent(_ ctx: CGContext, _ md: MarkdownLayout, region: Int, pal: MDPalette) {
+    static func drawContent(_ ctx: CGContext, _ md: MarkdownLayout, region: Int, pal: MDPalette, slice: Range<CGFloat>? = nil) {
+        // A tile slice: boxes clipped to it exactly (adjacent tiles meet without double alpha).
+        if let s = slice {
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: -100_000, y: s.lowerBound, width: 200_000, height: s.upperBound - s.lowerBound))
+        }
+        let boxes = slice.map { s in md.boxes.filter { $0.rect.maxY > s.lowerBound - 1 && $0.rect.minY < s.upperBound + 1 } } ?? md.boxes
         // Fills under text, then text, then lines over fills.
-        for b in md.boxes where b.region == region {
+        for b in boxes where b.region == region {
             switch b.kind {
             case .codeBlock:
                 ctx.setFillColor(pal.inset.cgColor)
@@ -141,8 +172,14 @@ enum MarkdownDraw {
             default: break
             }
         }
-        for f in md.frags where f.region == region { drawFrag(ctx, f, pal) }
-        for b in md.boxes where b.region == region {
+        if let s = slice { ctx.restoreGState()
+            for f in md.frags where f.region == region && f.origin.y >= s.lowerBound - 0.01 && f.origin.y < s.upperBound - 0.01 { drawFrag(ctx, f, pal) }
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: -100_000, y: s.lowerBound, width: 200_000, height: s.upperBound - s.lowerBound))
+        } else {
+            for f in md.frags where f.region == region { drawFrag(ctx, f, pal) }
+        }
+        for b in boxes where b.region == region {
             switch b.kind {
             case .gridH, .gridV, .rule:
                 ctx.setFillColor(pal.line.cgColor); ctx.fill(b.rect)
@@ -168,6 +205,7 @@ enum MarkdownDraw {
             default: break
             }
         }
+        if slice != nil { ctx.restoreGState() }
     }
 
     static func drawFrag(_ ctx: CGContext, _ f: MDFrag, _ pal: MDPalette) {

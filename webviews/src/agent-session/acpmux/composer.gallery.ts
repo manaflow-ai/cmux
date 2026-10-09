@@ -190,6 +190,21 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "model-menu-keyboard": {
+      note: "Play: open the model picker and move its highlight with the keyboard.",
+      snapshot: chat(finished, {
+        harness: "claude",
+        model: "claude-opus-5-5",
+        title: "Model picker interaction",
+      }),
+      play: async (ctx) => {
+        const picker = ".acpmux-model .acpmux-picker-button";
+        await ctx.click({ selector: picker });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-menu"));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp-active"));
+      },
+    },
     "access-menu": {
       note: "The footer keeps permission mode behind a quiet lock; the menu explains each choice and checks the active one.",
       snapshot: chat(finished, {

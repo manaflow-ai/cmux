@@ -60,8 +60,9 @@ struct TextLayout: Hashable {
                 a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
             }
             // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
+            // One font for the process (HomeFonts.code): one made per run on RowBitmaps' threads came back nil.
             if r.style?.contains("code") == true {
-                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
+                a.addAttribute(.font, value: HomeFonts.code, range: range)
             }
             if r.link != nil {
                 a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)

@@ -431,10 +431,17 @@ git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
+conversation list                                             (cmux-tui only)
+conversation <conv_id> get [--tail <0..500>]
+conversation <conv_id> history --before-seq <n> --limit <1..500>
+conversation search <words>... [--limit <1..100>]
+conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
+conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 agent list|report
 agent plugin list|install|use|update|remove
 pairing request list
-pairing request <selector> respond <accept|reject>
+pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
 projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
@@ -522,6 +529,28 @@ results relative to `search_root`, the folder searched; `root` is the
 repository top level.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
+
+`conversation` maps one verb to each `conversation.*` operation of the local
+conversation owner (resource-api-v2.md, "Conversations"); it is a
+`cmux-tui` scope only, and the conversation operations are not MCP tools,
+because MCP clients act as the local user. `send` takes its idempotency key
+from `--idempotency-key` or a random one; the key is the message's
+`client_msg_id`. `events` prints one item per line with `--jsonl`.
+
+`chief` is the chat with the person's Chief over the same operations: it
+selects the Chief conversation (the oldest one with participant `agent_mux`),
+reads `conversation.events`, and sends with `conversation.send` as the
+person, so Home and the CLI show the same messages live. With `-p <text>`, or
+with text on stdin, it sends one message, prints the Chief's reply (live from
+its `draft` items when stdout is a terminal, else only the posted messages,
+or each as a JSON line with `--json`) and exits 0 when the turn that answers
+the message ends; `--timeout` exits 124. On a terminal it opens an inline
+chat: finished messages go into the terminal's scrollback, the live reply and
+the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
+Ctrl+D quits, `/help` lists the commands. It refuses a socket under
+`~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
+Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
+timeout.
 
 `git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
 `git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw

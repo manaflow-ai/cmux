@@ -73,7 +73,7 @@ public struct IrxListeningPortScanner: Sendable {
                 byPort[listener.port] = target
             }
         }
-        return byPort.keys.sorted().prefix(maximumPorts).map { IrxListeningPort(port: $0, address: byPort[$0]!) }
+        return byPort.sorted { $0.key < $1.key }.prefix(maximumPorts).map { IrxListeningPort(port: $0.key, address: $0.value) }
     }
 
     #if os(macOS)
