@@ -133,8 +133,11 @@ enum RoomHandlers {
         RoomMoveHandlers.bind(bind, context: context)
     }
 
-    /// A new space with the next free color; the active window enters it
-    /// (`enter`, else a switch that opens a new terminal workspace there).
+    /// A new space with the next free color and its own first workspace.
+    /// One path for the palette, menu, keyboard, CLI, `action.run` and the
+    /// strip's New Space button: `enter` (Open Link in New Space) or
+    /// `WindowManager.startNewProfile`, which shows the space only when the
+    /// run may change the view.
     static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
                        enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
         let store = context.services.machines.local.store
@@ -158,8 +161,10 @@ enum RoomHandlers {
                 // files the new workspace unpinned (so in `default`) and
                 // the window falls back as from a deleted room (cx-d8x5).
                 await services.machines.local.store.mirrored(profile: id)
-                if let active, let state = services.windows.states[active.id] {
-                    if let enter { enter(id, state) } else { services.windows.switchProfile(id, in: state) }
+                if let enter, let active, let state = services.windows.states[active.id] {
+                    enter(id, state)
+                } else {
+                    try await services.windows.startNewProfile(id, from: active?.id)
                 }
                 return nil
             } catch {

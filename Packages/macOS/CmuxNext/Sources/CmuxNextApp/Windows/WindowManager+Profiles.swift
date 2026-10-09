@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -38,6 +39,28 @@ extension WindowManager {
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
         state.enterProfile(profile)
         select(remembered ?? visible.first, in: state)
+    }
+
+    /// Gives the new, empty space `profile` its first workspace (New
+    /// Space). A run that may change the view shows the space in window
+    /// `windowID` (`switchProfile`, which creates the workspace there). Any
+    /// other run (a script, the CLI without `focus`) files the workspace,
+    /// pinned to `profile`, into that window without showing it: the window
+    /// stays in its space and its current space never lists the new
+    /// workspace. With no open window, a new window opens in the space
+    /// (behind for a run without view permission).
+    func startNewProfile(_ profile: ProfileID, from windowID: String?) async throws {
+        if let windowID, let state = states[windowID], registry.value.window(windowID)?.isOpen == true {
+            if ActionRunScope.viewChangeAllowed() {
+                switchProfile(profile, in: state)
+            } else {
+                _ = try await createWorkspace(WorkspaceSpawn(profile: profile), into: windowID)
+            }
+            return
+        }
+        let newWindow = UUID().uuidString.lowercased()
+        state(for: newWindow).enterProfile(profile)
+        _ = try await createWorkspace(WorkspaceSpawn(profile: profile), into: newWindow)
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
