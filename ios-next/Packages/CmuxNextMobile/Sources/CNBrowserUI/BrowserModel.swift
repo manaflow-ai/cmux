@@ -15,6 +15,8 @@ struct PageFrame {
     /// Average color of the top rows, used to fill the status-bar strip.
     var topColor: UIColor
     var seq: UInt32
+    /// Document scroll offset (CSS px) at capture time, when the host sends it.
+    var scroll: CGPoint?
 
     var uiImage: UIImage { UIImage(cgImage: image) }
 }
@@ -48,6 +50,8 @@ final class BrowserModel {
     private(set) var desktopTabs: Set<String> = []
     private(set) var loaded = false
     private(set) var errorText: String?
+    /// Short-lived message for a failed action (shown as a toast).
+    var notice: String?
     /// Tab whose screencast another phone took over (`browser.detached`,
     /// reason `displaced`). Its last frame stays on screen, dimmed.
     private(set) var displacedTabId: String?
@@ -99,7 +103,9 @@ final class BrowserModel {
             errorText = nil
             tabs = list
             loaded = true
-            let keep = activeTabId.flatMap { id in list.contains { $0.id == id } ? id : nil }
+            let routed = pendingRoute.flatMap { id in list.contains { $0.id == id } ? id : nil }
+            pendingRoute = nil
+            let keep = routed ?? activeTabId.flatMap { id in list.contains { $0.id == id } ? id : nil }
             let next = keep ?? list.first(where: \.active)?.id ?? list.first?.id
             // A reconnect invalidates the old stream id; attach again.
             streamId = nil
@@ -126,6 +132,7 @@ final class BrowserModel {
             } else {
                 tabs.append(tab)
             }
+            if tab.id == pendingRoute { open(tabId: tab.id) }
         case .browserClosed(let tabId):
             removeLocally(tabId)
         default:
@@ -194,7 +201,7 @@ final class BrowserModel {
         input.reset()
         do {
             let result = try await client.attachTab(BrowserAttachParams(tabId: tabId, width: vp.width, height: vp.height,
-                                                                        scale: vp.scale, mobile: vp.mobile))
+                                                                        scale: vp.scale, mobile: vp.mobile, frameMeta: true))
             guard token == attachToken else {
                 try? await client.detachTab(streamId: result.streamId)
                 client.closeStream(id: result.streamId)
@@ -209,12 +216,13 @@ final class BrowserModel {
             let frames = client.openBrowserStream(id: sid)
             streamTask = Task { [weak self] in
                 for await frame in frames {
+                    // Ack on receipt (before decoding), so the host's window of
+                    // unacked frames is spent on the network, not on this
+                    // phone's decoder. Undecodable frames are acked too.
+                    Task { try? await client.ackFrame(streamId: sid, seq: frame.seq) }
                     let decoded = await Self.decode(frame)
                     guard let self, self.streamId == sid else { return }
                     if let decoded { self.frames[tabId] = decoded }
-                    // Ack even an undecodable frame: the host stops sending
-                    // after two unacked frames.
-                    try? await client.ackFrame(streamId: sid, seq: frame.seq)
                 }
             }
             // The size may have changed while attaching.
@@ -270,7 +278,8 @@ final class BrowserModel {
             guard let src = CGImageSourceCreateWithData(data as CFData, nil),
                   let image = CGImageSourceCreateImageAtIndex(src, 0, options) else { return nil }
             return PageFrame(image: image, cssSize: CGSize(width: Double(frame.cssWidth), height: Double(frame.cssHeight)),
-                             topColor: topColor(of: image), seq: frame.seq)
+                             topColor: topColor(of: image), seq: frame.seq,
+                             scroll: frame.meta.map { CGPoint(x: Double($0.scrollX), y: Double($0.scrollY)) })
         }.value
     }
 
@@ -316,6 +325,19 @@ final class BrowserModel {
 
     // MARK: Tabs
 
+    /// Tab requested by the shell before the tab list loaded.
+    @ObservationIgnored private var pendingRoute: String?
+
+    /// Shows `tabId` (a drawer row). Waits for the tab list if needed.
+    func open(tabId: String) {
+        guard loaded, tabs.contains(where: { $0.id == tabId }) else {
+            pendingRoute = tabId
+            return
+        }
+        pendingRoute = nil
+        select(tabId)
+    }
+
     func select(_ tabId: String) {
         guard tabId != activeTabId || streamTabId != tabId else { return }
         activeTabId = tabId
@@ -344,9 +366,23 @@ final class BrowserModel {
         }
     }
 
+    /// Removes the tab at once and closes it in Chrome. If the host refuses,
+    /// the tab comes back and the error is shown.
     func close(_ tabId: String) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let tab = tabs[index]
+        let wasActive = activeTabId == tabId
         removeLocally(tabId)
-        Task { try? await connection.client?.closeTab(tabId) }
+        Task {
+            do {
+                guard let client = connection.client else { throw HostClientError.notConnected }
+                try await client.closeTab(tabId)
+            } catch {
+                if !tabs.contains(where: { $0.id == tabId }) { tabs.insert(tab, at: min(index, tabs.count)) }
+                if wasActive { select(tabId) }
+                notice = "Couldn't close \(tab.title.isEmpty ? tab.displayHost : tab.title): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            }
+        }
     }
 
     private func removeLocally(_ tabId: String) {

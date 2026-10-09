@@ -62,7 +62,7 @@ else until the hello is accepted.
 | --- | --- | --- | --- |
 | 1 `termOutput` | int | host -> phone | raw PTY bytes |
 | 2 `termInput` | int | phone -> host | raw input bytes (already encoded by Ghostty) |
-| 3 `browserFrame` | blk | host -> phone | `[u32 seq][u16 cssW][u16 cssH][u16 pxW][u16 pxH][u8 format 0=jpeg 1=png]` + image bytes |
+| 3 `browserFrame` | blk | host -> phone | `[u32 seq][u16 cssW][u16 cssH][u16 pxW][u16 pxH][u8 format 0=jpeg 1=png]` + image bytes. With `frameMeta` (below), format has bit 0x80 set and `[f32 scrollX][f32 scrollY][f32 pageScale][f32 offsetTop]` (CSS px, BE) follows the header |
 
 Stream ids are allocated by the host and returned by the `*.attach` call.
 
@@ -133,10 +133,15 @@ Terminal `{id, title, cwd, cols, rows, running, createdAt}`
 Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, active}`
 - `browser.list {}` -> `{tabs:[Tab]}`
 - `browser.create {url?}` -> `{tab}`
-- `browser.attach {tabId, width, height, scale, mobile:true}` -> `{streamId, tab}` (width/height in CSS px)
+- `browser.attach {tabId, width, height, scale, mobile:true, frameMeta?:bool}` -> `{streamId, tab}` (width/height in CSS px).
+  The emulated viewport is exactly width x height CSS px at `scale`; frames are that size (pxW = width*scale).
+  `mobile:true` also sets an iPhone Safari user agent (the page reloads once if it was loaded with the
+  desktop one); `mobile:false` keeps the browser's own user agent and desktop metrics. Detach restores the
+  desktop user agent and metrics. `frameMeta:true` adds the document scroll offset to every frame (§3).
+  The host keeps at most 4 frames unacked and lowers JPEG quality while touch input arrives.
 - `browser.detach {streamId}` / `browser.close {tabId}` / `browser.activate {tabId}` -> `{}`
 - `browser.viewport {tabId, width, height, scale}` -> `{}`
-- `browser.ack {streamId, seq}` -> `{}` (host keeps at most 2 unacked frames)
+- `browser.ack {streamId, seq}` -> `{}` (acks every frame up to seq; host keeps at most 4 unacked frames)
 - `browser.navigate {tabId, url}` / `browser.back {tabId}` / `browser.forward {tabId}` / `browser.reload {tabId}` / `browser.stop {tabId}` -> `{}`
 - `browser.pointer {tabId, type:"down"|"up"|"move", x, y, button:"left"|"none", clickCount}` -> `{}` (CSS px)
 - `browser.touch {tabId, type:"start"|"move"|"end"|"cancel", points:[{x,y,id}]}` -> `{}`

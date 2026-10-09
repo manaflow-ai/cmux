@@ -13,19 +13,24 @@ enum BrowserInputEvent: Sendable {
     case scroll(BrowserScrollParams)
 }
 
-/// Sends input to the host strictly in order. Each RPC is awaited before
-/// the next is sent, so a slow link cannot reorder a touch end before its
-/// moves. While a call is in flight, consecutive touch moves with the same
-/// touch ids collapse into the newest one, which keeps scrolling current
-/// instead of replaying a backlog.
+/// Sends input to the host in order without waiting a round trip per
+/// event. Each call is started from the main actor in FIFO order and its
+/// request is written on the `HostClient` actor before the call suspends, so
+/// requests leave in order while up to `maxInFlight` responses are
+/// outstanding. (Awaiting each response capped a drag at one move per RTT,
+/// a few per second over a relay.) Beyond that window, consecutive touch
+/// moves with the same touch ids collapse into the newest one.
 ///
 /// When the host answers `browser.touch` with `unsupported`, touches fall
 /// back to `browser.pointer` (a single-pointer mouse drag and click) for the
 /// rest of the session.
 @MainActor
 final class BrowserInputPump {
+    static let maxInFlight = 8
+
     private var queue: [BrowserInputEvent] = []
-    private var draining = false
+    private var inFlight = 0
+    private var generation = 0
     private(set) var touchUnsupported = false
     private let clientProvider: @MainActor () -> HostClient?
 
@@ -40,34 +45,42 @@ final class BrowserInputPump {
         } else {
             queue.append(event)
         }
-        guard !draining else { return }
-        draining = true
-        Task { await drain() }
+        pump()
     }
 
     /// Drops queued input (tab switch or reconnect).
     func reset() {
         queue.removeAll()
+        generation += 1
+        inFlight = 0
     }
 
-    private func drain() async {
-        while !queue.isEmpty {
+    private func pump() {
+        while inFlight < Self.maxInFlight, !queue.isEmpty {
             let event = queue.removeFirst()
-            guard let client = clientProvider() else { queue.removeAll(); break }
-            for converted in convert(event) {
-                do {
-                    try await deliver(converted, client: client)
-                } catch let error as RPCError where error.code == .unsupported {
-                    if case .touch = converted, !touchUnsupported {
-                        touchUnsupported = true
-                        for fallback in convert(converted) { try? await deliver(fallback, client: client) }
-                    }
-                } catch {
-                    // Input is best effort: a dropped event must not stall the queue.
-                }
-            }
+            guard let client = clientProvider() else { queue.removeAll(); return }
+            for converted in convert(event) { launch(converted, client: client) }
         }
-        draining = false
+    }
+
+    private func launch(_ event: BrowserInputEvent, client: HostClient) {
+        inFlight += 1
+        let gen = generation
+        Task { @MainActor in
+            do {
+                try await deliver(event, client: client)
+            } catch let error as RPCError where error.code == .unsupported {
+                if case .touch = event, !touchUnsupported {
+                    touchUnsupported = true
+                    for fallback in convert(event) { try? await deliver(fallback, client: client) }
+                }
+            } catch {
+                // Input is best effort: a dropped event must not stall the queue.
+            }
+            guard gen == generation else { return }
+            inFlight -= 1
+            pump()
+        }
     }
 
     private func convert(_ event: BrowserInputEvent) -> [BrowserInputEvent] {

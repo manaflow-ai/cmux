@@ -23,6 +23,8 @@ struct PageMenu: View {
     /// Content fades in over 80-200 ms and unblurs over 260 ms, on its own clock.
     var contentVisible: Bool
     var onDismiss: () -> Void
+    /// The shell's leading item (the drawer hamburger), shown as the first row.
+    var shellItem: AnyView? = nil
 
     private let style = BrowserStyle.shared
     @State private var measured: CGFloat?
@@ -45,6 +47,15 @@ struct PageMenu: View {
                 .accessibilityHidden(true)
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let shellItem {
+                        shellItem
+                            .buttonStyle(ShellMenuRowButtonStyle(title: "Show Sidebar"))
+                            .simultaneousGesture(TapGesture().onEnded { onDismiss() })
+                        Rectangle().fill(style.colors.separator)
+                            .frame(height: 0.5)
+                            .padding(.leading, 27).padding(.trailing, 10)
+                            .frame(height: style.metrics.menuGroupGap)
+                    }
                     ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
                         if index > 0 {
                             Rectangle().fill(style.colors.separator)
@@ -96,6 +107,48 @@ struct PageMenu: View {
         }
         .buttonStyle(.plain)
         .disabled(!item.enabled)
+    }
+}
+
+/// Restyles the shell's hamburger button as a page-menu row: its glyph in
+/// the icon column and a title, full-row hit area.
+struct ShellMenuRowButtonStyle: ButtonStyle {
+    var title: String
+    private let style = BrowserStyle.shared
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 0) {
+            configuration.label
+                .font(.system(size: 18))
+                .frame(width: 30)
+                .padding(.leading, 25)
+            Text(title)
+                .font(.system(size: 17))
+                .padding(.leading, 10)
+            Spacer(minLength: 12)
+        }
+        .foregroundStyle(style.colors.label)
+        .padding(.vertical, 10)
+        .frame(width: style.metrics.menuWidth, alignment: .leading)
+        .frame(minHeight: style.metrics.menuRow)
+        .contentShape(.rect)
+        .opacity(configuration.isPressed ? 0.5 : 1)
+    }
+}
+
+/// The shell's leading item as a glass circle (tab overview top bar): the
+/// whole circle is the hit area.
+struct ShellCircleButtonStyle: ButtonStyle {
+    var diameter: CGFloat
+    private let style = BrowserStyle.shared
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(style.colors.label)
+            .frame(width: diameter, height: diameter)
+            .contentShape(.circle)
+            .opacity(configuration.isPressed ? 0.5 : 1)
     }
 }
 

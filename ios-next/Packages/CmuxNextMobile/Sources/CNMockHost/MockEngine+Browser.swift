@@ -25,6 +25,7 @@ struct MockBrowserStream {
     var sentSeq: UInt32 = 0
     var ackedSeq: UInt32 = 0
     var dirty = true
+    var frameMeta = false
     var task: Task<Void, Never>?
 }
 
@@ -87,7 +88,7 @@ extension MockEngine {
             }
         }
         let streamId = allocateStream(for: session)
-        var stream = MockBrowserStream(tabId: p.tabId, width: p.width, height: p.height, scale: p.scale)
+        var stream = MockBrowserStream(tabId: p.tabId, width: p.width, height: p.height, scale: p.scale, frameMeta: p.frameMeta == true)
         stream.task = Task { await self.browserLoop(streamId) }
         browserStreams[streamId] = stream
         updateTab(p.tabId, broadcastTab: false) { $0.viewportHeight = Double(p.height) }
@@ -126,7 +127,8 @@ extension MockEngine {
                 if let (jpeg, pxW, pxH) = renderer.renderJPEG(cssWidth: Double(s.width), cssHeight: Double(s.height), scale: s.scale) {
                     s.sentSeq &+= 1
                     let frame = BrowserFrame(seq: s.sentSeq, cssWidth: UInt16(clamping: s.width), cssHeight: UInt16(clamping: s.height),
-                                             pixelWidth: UInt16(clamping: pxW), pixelHeight: UInt16(clamping: pxH), format: .jpeg, image: jpeg)
+                                             pixelWidth: UInt16(clamping: pxW), pixelHeight: UInt16(clamping: pxH), format: .jpeg,
+                                             meta: s.frameMeta ? BrowserFrameMeta(scrollX: 0, scrollY: Float(tab.scrollY)) : nil, image: jpeg)
                     sendFrame(StreamFrame(kind: .browserFrame, streamId: streamId, payload: frame.encodedPayload()))
                 }
                 s.dirty = false

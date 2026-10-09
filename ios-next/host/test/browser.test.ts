@@ -3,7 +3,15 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { decodeBrowserFramePayload } from "../src/rpc/frames.ts";
-import { jpegSize, normalizeUrl } from "../src/providers/browser/index.ts";
+import {
+  IPHONE_USER_AGENT,
+  MAX_UNACKED,
+  QUALITY_IDLE,
+  QUALITY_INTERACTIVE,
+  decodeBrowserFrameMeta,
+  jpegSize,
+  normalizeUrl,
+} from "../src/providers/browser/index.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,8 +81,10 @@ async function startFakeCdp(): Promise<FakeCdp> {
           return sendFrame(ws);
         case "Page.screencastFrameAck":
           reply({});
-          if (frame < 3) sendFrame(ws);
+          if (frame < 6) sendFrame(ws);
           return;
+        case "Target.closeTarget":
+          return reply({ success: msg.params.targetId !== "GONE" });
         default:
           return reply({});
       }
@@ -130,17 +140,20 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     client.onStream(streamId, (p) => frames.push(decodeBrowserFramePayload(Uint8Array.from(p))));
     const metrics = cdp.calls.find((c) => c.method === "Emulation.setDeviceMetricsOverride")!;
     expect(metrics).toMatchObject({ sessionId: "S1", params: { width: 390, height: 844, deviceScaleFactor: 3, mobile: true } });
-    expect(cdp.calls.find((c) => c.method === "Page.startScreencast")!.params).toMatchObject({ format: "jpeg", quality: 70, maxWidth: 1170, maxHeight: 2532 });
+    expect(cdp.calls.find((c) => c.method === "Page.startScreencast")!.params).toMatchObject({ format: "jpeg", quality: QUALITY_IDLE, maxWidth: 1170, maxHeight: 2532 });
+    // mobile:true also sets the iPhone user agent.
+    expect(cdp.calls.find((c) => c.method === "Emulation.setUserAgentOverride")!.params).toMatchObject({ userAgent: IPHONE_USER_AGENT, platform: "iPhone" });
 
-    // Two frames arrive; the second CDP ack is held until the phone acks.
-    await waitFor(() => frames.length === 2);
+    // MAX_UNACKED frames arrive; the last CDP ack is held until the phone acks.
+    await waitFor(() => frames.length === MAX_UNACKED);
     await new Promise((r) => setTimeout(r, 50));
-    expect(frames.length).toBe(2);
+    expect(frames.length).toBe(MAX_UNACKED);
     expect(frames[0]!.header).toEqual({ seq: 1, cssW: 390, cssH: 844, pxW: 1170, pxH: 2532, format: 0 });
-    expect(cdp.calls.filter((c) => c.method === "Page.screencastFrameAck").map((c) => c.params.sessionId)).toEqual([101]);
+    const acks = () => cdp.calls.filter((c) => c.method === "Page.screencastFrameAck").map((c) => c.params.sessionId);
+    expect(acks()).toEqual([101, 102, 103]);
     await client.request("browser.ack", { streamId, seq: 1 });
-    await waitFor(() => frames.length === 3);
-    expect(cdp.calls.filter((c) => c.method === "Page.screencastFrameAck").map((c) => c.params.sessionId)).toEqual([101, 102]);
+    await waitFor(() => frames.length === MAX_UNACKED + 1);
+    expect(acks()).toEqual([101, 102, 103, 104]);
 
     await client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] });
     await client.request("browser.pointer", { tabId: "T1", type: "down", x: 5, y: 6, button: "left", clickCount: 1 });
@@ -168,6 +181,36 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
 
     const created = await client.request("browser.create", { url: "new.example" });
     expect(created.tab).toMatchObject({ id: "T2", active: true });
+  });
+
+  it("sends scroll metadata on request, lowers JPEG quality while touching and closes tabs it lost track of", async () => {
+    const cdp = await startFakeCdp();
+    cleanups.push(() => cdp.close());
+    const { core, client } = await connectedCore({ browser: { cdp: cdp.base, launch: false } });
+    cleanups.push(() => core.shutdown());
+    await client.request("browser.list");
+    const { streamId } = await client.request("browser.attach", { tabId: "T1", width: 390, height: 844, scale: 3, mobile: true, frameMeta: true });
+    const payloads: Uint8Array[] = [];
+    client.onStream(streamId, (p) => payloads.push(Uint8Array.from(p)));
+    expect(cdp.calls.some((c) => c.method === "Runtime.addBinding" && c.params.name === "__cmuxNextScroll")).toBe(true);
+    await waitFor(() => payloads.length >= 1);
+    expect(decodeBrowserFrameMeta(payloads[0]!)).toEqual({ scrollX: 0, scrollY: 0, pageScale: 1, offsetTop: 0 });
+
+    await client.request("browser.touch", { tabId: "T1", type: "start", points: [{ x: 10, y: 20, id: 0 }] });
+    await waitFor(() => cdp.calls.some((c) => c.method === "Page.startScreencast" && c.params.quality === QUALITY_INTERACTIVE));
+    await waitFor(() => cdp.calls.filter((c) => c.method === "Page.startScreencast").at(-1)!.params.quality === QUALITY_IDLE, 3_000);
+
+    // Desktop mode restores the browser's own user agent.
+    await client.request("browser.detach", { streamId });
+    await client.request("browser.attach", { tabId: "T1", width: 980, height: 1980, scale: 1.2, mobile: false });
+    const metrics = cdp.calls.filter((c) => c.method === "Emulation.setDeviceMetricsOverride").at(-1)!;
+    expect(metrics.params).toMatchObject({ width: 980, mobile: false });
+
+    await client.request("browser.close", { tabId: "T1" });
+    expect(cdp.calls.filter((c) => c.method === "Target.closeTarget").at(-1)!.params).toEqual({ targetId: "T1" });
+    // A target the host no longer tracks is still closed in Chrome.
+    await client.request("browser.close", { tabId: "UNTRACKED" });
+    await expect(client.request("browser.close", { tabId: "GONE" })).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("stops the old screencast before a new attachment takes over and tells the displaced client", async () => {

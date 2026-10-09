@@ -84,6 +84,7 @@ struct BrowserScreen: View {
     /// not re-render on every live frame.
     @State private var overviewImages: [String: UIImage] = [:]
     @Environment(\.cnLeadingBarItem) private var leadingItem
+    @Environment(\.cnShellRoute) private var shellRoute
     @Environment(\.displayScale) private var displayScale
 
     private let style = BrowserStyle.shared
@@ -155,10 +156,31 @@ struct BrowserScreen: View {
                 PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: style.metrics.control, height: style.metrics.control),
                          capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
-                         onDismiss: closeMenu)
+                         onDismiss: closeMenu, shellItem: leadingItem)
                     .opacity(chrome.menuOpen ? 1 : 0)
                     .allowsHitTesting(chrome.menuOpen)
                     .accessibilityHidden(!chrome.menuOpen)
+            }
+
+            if let notice = model.notice {
+                Text(notice)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(style.colors.label)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 20))
+                    .padding(.horizontal, 24)
+                    .padding(.top, safeTop + 8)
+                    .frame(width: size.width, alignment: .top)
+                    .onTapGesture { model.notice = nil }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .task(id: notice) {
+                        // Toast lifetime (a UI timeout, not synchronization).
+                        try? await Task.sleep(for: .seconds(5))
+                        if model.notice == notice { withAnimation { model.notice = nil } }
+                    }
+                    .accessibilityAddTraits(.isStaticText)
             }
 
             if let error = model.errorText, model.tabs.isEmpty {
@@ -169,6 +191,14 @@ struct BrowserScreen: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .onChange(of: geometryKey, initial: true) { _, _ in pushGeometry() }
+        // A browser row in the drawer opens that tab (by id).
+        .onChange(of: shellRoute?.nonce, initial: true) { _, _ in
+            guard let route = shellRoute, route.kind == .browserTab, let id = route.id else { return }
+            if chrome.editing { endEditing() }
+            if chrome.menuOpen { closeMenu() }
+            if chrome.overview { closeOverview(selecting: id) }
+            model.open(tabId: id)
+        }
         .onChange(of: model.thumbnails) { _, _ in if chrome.overview { captureOverviewImages() } }
         .onChange(of: model.tabs.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.

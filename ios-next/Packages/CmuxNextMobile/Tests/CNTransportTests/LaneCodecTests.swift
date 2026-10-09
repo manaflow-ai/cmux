@@ -65,6 +65,11 @@ import Testing
         let decoded = try StreamFrame(decoding: frame.encoded())
         #expect(decoded == frame)
         #expect(try BrowserFrame(payload: decoded.payload) == bf)
+        var withMeta = bf
+        withMeta.meta = BrowserFrameMeta(scrollX: 0, scrollY: 1234.5, pageScale: 1, offsetTop: 0)
+        let metaPayload = withMeta.encodedPayload()
+        #expect(metaPayload[12] == 0x80)
+        #expect(try BrowserFrame(payload: metaPayload) == withMeta)
         #expect(StreamFrameKind.termInput.lane == .interactive && StreamFrameKind.browserFrame.lane == .bulk)
     }
 }

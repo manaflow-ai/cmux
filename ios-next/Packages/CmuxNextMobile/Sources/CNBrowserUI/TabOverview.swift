@@ -157,7 +157,7 @@ struct TabOverview: View {
                     ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
                         TabCard(tab: tab, image: images[tab.id], startPage: model.showsStartPage(tab.id),
-                                width: r.width, height: r.height, showsClose: tab.id != model.activeTabId,
+                                width: r.width, height: r.height, showsClose: true,
                                 detailsOpacity: detailsOpacity, onClose: { onClose(tab.id) })
                             .opacity(tab.id == hiddenTabId ? 0 : 1)
                             .contentShape(.rect)
@@ -191,9 +191,11 @@ struct TabOverview: View {
         let y = layout.safeTop + 4 + style.metrics.overviewTopControl / 2
         return ZStack(alignment: .topLeading) {
             if let leadingItem {
+                // Plain glass (an interactive glass shape over the button
+                // swallowed its taps) and a full-circle hit area.
                 leadingItem
-                    .frame(width: style.metrics.overviewTopControl, height: style.metrics.overviewTopControl)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .buttonStyle(ShellCircleButtonStyle(diameter: style.metrics.overviewTopControl))
+                    .glassEffect(.regular, in: .circle)
                     .position(x: 20 + 18, y: y)
             }
             Menu {

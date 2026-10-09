@@ -31,8 +31,11 @@ public struct BrowserAttachParams: Codable, Sendable, Hashable {
     public var height: Int
     public var scale: Double
     public var mobile: Bool
-    public init(tabId: String, width: Int, height: Int, scale: Double, mobile: Bool = true) {
-        self.tabId = tabId; self.width = width; self.height = height; self.scale = scale; self.mobile = mobile
+    /// Ask for the extended frame header with scroll offsets (PROTOCOL.md §3).
+    /// Hosts that predate it ignore the field and send plain frames.
+    public var frameMeta: Bool?
+    public init(tabId: String, width: Int, height: Int, scale: Double, mobile: Bool = true, frameMeta: Bool? = nil) {
+        self.tabId = tabId; self.width = width; self.height = height; self.scale = scale; self.mobile = mobile; self.frameMeta = frameMeta
     }
 }
 

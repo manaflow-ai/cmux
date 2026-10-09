@@ -62,15 +62,18 @@ struct StatusAccessory: View {
                         .font(.footnote.weight(.medium))
                         .lineLimit(1)
                 } else {
+                    // Hierarchical styles follow the glass's own light/dark
+                    // adaptation over the page behind it; the app's palette
+                    // tokens follow the app scheme and went white-on-light.
                     Text(agentText(running: running, waiting: waiting, unread: unread))
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.cn(\.textPrimary))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(summary.compact)
                         .font(.footnote)
                         .monospacedDigit()
-                        .foregroundStyle(.cn(\.textSecondary))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }

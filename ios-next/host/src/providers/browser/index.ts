@@ -10,7 +10,26 @@ import type { Logger } from "../../util.ts";
 import { CdpConnection } from "./cdp.ts";
 import { fetchVersion, findChromeBinaries, ownEndpoint, resolveCdpEndpoint, retireUnsafeProfileChrome } from "./chrome.ts";
 
-export const MAX_UNACKED = 2;
+/** Frames the host keeps in flight before holding CDP acks (flow control). */
+export const MAX_UNACKED = 4;
+/** JPEG quality at rest and while the phone is touching the page. */
+export const QUALITY_IDLE = 72;
+export const QUALITY_INTERACTIVE = 50;
+/** Back to idle quality this long after the last touch. */
+const INTERACTIVE_HOLD_MS = 700;
+/** Header flag on the format byte: an extended header follows (PROTOCOL.md §3). */
+export const FRAME_META_FLAG = 0x80;
+export const IPHONE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
+const SCROLL_BINDING = "__cmuxNextScroll";
+const SCROLL_SCRIPT = `(() => {
+  if (window.__cmuxNextScrollHooked) return;
+  window.__cmuxNextScrollHooked = true;
+  let queued = false;
+  const post = () => { queued = false; try { ${SCROLL_BINDING}(scrollX + "," + scrollY); } catch {} };
+  addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(post); } }, { passive: true, capture: true });
+  post();
+})()`;
 
 interface Cast {
   session: ClientSession;
@@ -18,10 +37,17 @@ interface Cast {
   width: number;
   height: number;
   scale: number;
+  /** Mobile emulation (iPhone user agent) vs desktop metrics. */
+  mobile: boolean;
+  /** Phone asked for the extended frame header with scroll offsets. */
+  meta: boolean;
+  quality: number;
   seq: number;
   unacked: number[];
   pendingCdpAck: number | null;
   lastFrame?: Buffer;
+  idleTimer?: NodeJS.Timeout;
+  scrollScriptId?: string;
 }
 
 interface TabState {
@@ -33,6 +59,10 @@ interface TabState {
   lastShot?: Buffer;
   /** Tail of the per-tab attach/detach/viewport chain. */
   chain?: Promise<unknown>;
+  /** Latest document scroll offset reported by the page (CSS px). */
+  scroll?: { x: number; y: number };
+  /** User agent mode the current document was loaded with. */
+  uaMode?: "mobile" | "desktop";
 }
 
 /** Runs `fn` after every earlier attach/detach/viewport of the same tab. */
@@ -64,6 +94,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private readonly log: Logger;
   private endpoint: string | null = null;
   private lastActivated: string | null = null;
+  private defaultUserAgent: string | null = null;
 
   private endpointSeen = false;
 
@@ -111,6 +142,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     if (!version) throw new RpcError("unavailable", `CDP endpoint ${endpoint} is not responding`);
     this.endpoint = endpoint;
     this.endpointSeen = true;
+    const ua = (version as { "User-Agent"?: unknown })["User-Agent"];
+    this.defaultUserAgent = typeof ua === "string" ? ua : null;
     const cdp = await CdpConnection.connect(version.webSocketDebuggerUrl);
     this.cdp = cdp;
     this.log(`connected to ${version.Browser ?? "browser"} at ${endpoint}`);
@@ -266,6 +299,12 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       case "Page.screencastFrame":
         this.onScreencastFrame(t, params);
         return;
+      case "Runtime.bindingCalled":
+        if (params.name === SCROLL_BINDING && typeof params.payload === "string") {
+          const [x, y] = params.payload.split(",").map(Number);
+          if (Number.isFinite(x) && Number.isFinite(y)) t.scroll = { x: x!, y: y! };
+        }
+        return;
     }
   }
 
@@ -343,14 +382,39 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async closeTab(tabId: string): Promise<void> {
     const cdp = await this.connect();
-    this.get(tabId);
-    await cdp.send("Target.closeTarget", { targetId: tabId });
+    // Close the Chrome target even when this host lost track of it (for
+    // example after a reconnect raced the target list); only an unknown
+    // target id is an error.
+    let closed = false;
+    try {
+      const r = await cdp.send<{ success?: boolean }>("Target.closeTarget", { targetId: tabId });
+      closed = r?.success !== false;
+    } catch (err) {
+      this.log(`browser.close ${tabId}: Target.closeTarget failed: ${(err as Error).message}`);
+    }
+    if (!closed && this.endpoint) {
+      // Fallback: the DevTools HTTP endpoint closes any page target.
+      const res = await fetch(`${this.endpoint}/json/close/${encodeURIComponent(tabId)}`).catch(() => null);
+      closed = Boolean(res?.ok);
+    }
+    if (!closed) {
+      if (!this.tabs.has(tabId)) throw new RpcError("not_found", `tab ${tabId} not found`);
+      throw new RpcError("unavailable", `Chrome did not close tab ${tabId}`);
+    }
     this.removeTab(tabId);
   }
 
   // ---------------------------------------------------------------- screencast
 
-  async attach(session: ClientSession, tabId: string, width: number, height: number, scale: number): Promise<{ streamId: number; tab: Tab }> {
+  async attach(
+    session: ClientSession,
+    tabId: string,
+    width: number,
+    height: number,
+    scale: number,
+    mobile = true,
+    meta = false,
+  ): Promise<{ streamId: number; tab: Tab }> {
     const { cdp, t, sid } = await this.session(tabId);
     // Attach/detach/viewport of one tab run one at a time, so two concurrent
     // attaches cannot both start a screencast and orphan a stream.
@@ -364,10 +428,10 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         if (displaced.session.open) {
           displaced.session.sendEvent("browser.detached", { streamId: displaced.streamId, tabId, reason: "displaced" });
         }
-        await this.stopCast(t);
+        await this.stopCast(t, displaced);
       }
       if (!session.open) throw new RpcError("unavailable", "client disconnected");
-      const cast: Cast = { session, streamId: 0, width, height, scale, seq: 0, unacked: [], pendingCdpAck: null };
+      const cast: Cast = { session, streamId: 0, width, height, scale, mobile, meta, quality: QUALITY_IDLE, seq: 0, unacked: [], pendingCdpAck: null };
       cast.streamId = session.addStream({
         kind: "browser",
         target: tabId,
@@ -375,7 +439,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
           // Link closed or explicit detach: stop through the same chain.
           if (t.cast !== cast) return;
           t.cast = undefined;
-          void serialized(t, () => this.stopCast(t)).catch(() => {});
+          void serialized(t, () => this.stopCast(t, cast)).catch(() => {});
         },
       });
       t.cast = cast;
@@ -384,7 +448,12 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
       this.lastActivated = tabId;
       this.updateActive();
       await this.applyViewport(cdp, sid, cast);
+      const reload = await this.applyUserAgent(cdp, t, sid, cast.mobile);
+      if (cast.meta) await this.installScrollReporter(cdp, sid, cast);
       await this.startCast(cdp, sid, cast);
+      // A document loaded with the other user agent keeps its layout until
+      // it reloads (desktop Wikipedia at 1120 CSS px on a phone).
+      if (reload) await cdp.send("Page.reload", {}, sid).catch(() => {});
       return { streamId: cast.streamId, tab: { ...t.tab } };
     });
   }
@@ -401,19 +470,64 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     if (t?.chain) await t.chain;
   }
 
-  private async applyViewport(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+  private async applyViewport(cdp: CdpConnection, sid: string, cast: Pick<Cast, "width" | "height" | "scale" | "mobile">): Promise<void> {
+    // The emulated viewport is exactly the CSS size the phone asked for, so
+    // frame pixels map 1:1 onto the phone's view (no fit or letterboxing).
     const w = Math.max(1, Math.round(cast.width));
     const h = Math.max(1, Math.round(cast.height));
-    await cdp.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: cast.scale, mobile: true, screenWidth: w, screenHeight: h }, sid);
+    await cdp.send(
+      "Emulation.setDeviceMetricsOverride",
+      { width: w, height: h, deviceScaleFactor: cast.scale, mobile: cast.mobile, screenWidth: w, screenHeight: h },
+      sid,
+    );
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }, sid).catch(() => {});
   }
 
+  /** Sets the iPhone (mobile) or the browser's own (desktop) user agent. Returns true when the loaded document should reload. */
+  private async applyUserAgent(cdp: CdpConnection, t: TabState, sid: string, mobile: boolean): Promise<boolean> {
+    const mode = mobile ? "mobile" : "desktop";
+    if (mobile) {
+      await cdp
+        .send(
+          "Emulation.setUserAgentOverride",
+          {
+            userAgent: IPHONE_USER_AGENT,
+            platform: "iPhone",
+            userAgentMetadata: { brands: [], fullVersionList: [], platform: "iOS", platformVersion: "18.5", architecture: "", model: "iPhone", mobile: true },
+          },
+          sid,
+        )
+        .catch(() => {});
+    } else {
+      await this.restoreUserAgent(cdp, sid);
+    }
+    const previous = t.uaMode ?? "desktop";
+    t.uaMode = mode;
+    return previous !== mode && /^https?:/i.test(t.tab.url);
+  }
+
+  private async restoreUserAgent(cdp: CdpConnection, sid: string): Promise<void> {
+    await cdp.send("Emulation.setUserAgentOverride", { userAgent: this.defaultUserAgent ?? "" }, sid).catch(() => {});
+  }
+
+  /** Reports document scroll offsets through a binding (frame header metadata). */
+  private async installScrollReporter(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+    await cdp.send("Runtime.addBinding", { name: SCROLL_BINDING }, sid).catch(() => {});
+    const r = await cdp
+      .send<{ identifier?: string }>("Page.addScriptToEvaluateOnNewDocument", { source: SCROLL_SCRIPT }, sid)
+      .catch(() => null);
+    cast.scrollScriptId = r?.identifier;
+    await cdp.send("Runtime.evaluate", { expression: SCROLL_SCRIPT }, sid).catch(() => {});
+  }
+
   private async startCast(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
+    // maxWidth/maxHeight are the phone's pixel size, so Chrome renders the
+    // viewport at the phone's scale without downscaling.
     await cdp.send(
       "Page.startScreencast",
       {
         format: "jpeg",
-        quality: 70,
+        quality: cast.quality,
         maxWidth: Math.round(cast.width * cast.scale),
         maxHeight: Math.round(cast.height * cast.scale),
         everyNthFrame: 1,
@@ -422,16 +536,53 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     );
   }
 
-  private async stopCast(t: TabState): Promise<void> {
+  /** Restarts the screencast at a new JPEG quality (no viewport change). */
+  private async setQuality(t: TabState, cast: Cast, quality: number): Promise<void> {
+    if (cast.quality === quality) return;
+    cast.quality = quality;
+    await serialized(t, async () => {
+      const cdp = this.cdp;
+      if (!cdp || !t.sessionId || t.cast !== cast) return;
+      await cdp.send("Page.stopScreencast", {}, t.sessionId).catch(() => {});
+      cast.unacked = [];
+      cast.pendingCdpAck = null;
+      await this.startCast(cdp, t.sessionId, cast);
+    });
+  }
+
+  /** Touch input: smaller frames (faster) while interacting, full quality after. */
+  private noteInteraction(t: TabState): void {
+    const cast = t.cast;
+    if (!cast) return;
+    if (cast.idleTimer) clearTimeout(cast.idleTimer);
+    cast.idleTimer = setTimeout(() => {
+      cast.idleTimer = undefined;
+      if (t.cast === cast) void this.setQuality(t, cast, QUALITY_IDLE).catch(() => {});
+    }, INTERACTIVE_HOLD_MS);
+    cast.idleTimer.unref?.();
+    if (cast.quality !== QUALITY_INTERACTIVE) void this.setQuality(t, cast, QUALITY_INTERACTIVE).catch(() => {});
+  }
+
+  private async stopCast(t: TabState, cast?: Cast): Promise<void> {
+    if (cast?.idleTimer) clearTimeout(cast.idleTimer);
     const cdp = this.cdp;
     const sid = t.sessionId;
     if (!cdp || !sid) return;
     await cdp.send("Page.stopScreencast", {}, sid).catch(() => {});
+    if (cast?.scrollScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.scrollScriptId }, sid).catch(() => {});
+    if (cast?.meta) await cdp.send("Runtime.removeBinding", { name: SCROLL_BINDING }, sid).catch(() => {});
+    // The Mac's own window goes back to its desktop user agent; the loaded
+    // page keeps its layout until the user reloads it there.
+    if (t.uaMode === "mobile") await this.restoreUserAgent(cdp, sid);
+    t.uaMode = "desktop";
     await cdp.send("Emulation.clearDeviceMetricsOverride", {}, sid).catch(() => {});
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false }, sid).catch(() => {});
   }
 
-  private onScreencastFrame(t: TabState, params: { data: string; metadata: { deviceWidth: number; deviceHeight: number }; sessionId: number }): void {
+  private onScreencastFrame(
+    t: TabState,
+    params: { data: string; metadata: { deviceWidth: number; deviceHeight: number; pageScaleFactor?: number; offsetTop?: number }; sessionId: number },
+  ): void {
     const cast = t.cast;
     const cdp = this.cdp;
     if (!cdp || !t.sessionId) return;
@@ -442,17 +593,17 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     const image = Buffer.from(params.data, "base64");
     const dims = jpegSize(image);
     cast.seq = (cast.seq + 1) >>> 0;
-    const payload = encodeBrowserFramePayload(
-      {
-        seq: cast.seq,
-        cssW: params.metadata.deviceWidth || cast.width,
-        cssH: params.metadata.deviceHeight || cast.height,
-        pxW: dims?.width ?? Math.round(cast.width * cast.scale),
-        pxH: dims?.height ?? Math.round(cast.height * cast.scale),
-        format: 0,
-      },
-      image,
-    );
+    const header = {
+      seq: cast.seq,
+      cssW: params.metadata.deviceWidth || cast.width,
+      cssH: params.metadata.deviceHeight || cast.height,
+      pxW: dims?.width ?? Math.round(cast.width * cast.scale),
+      pxH: dims?.height ?? Math.round(cast.height * cast.scale),
+      format: 0 as const,
+    };
+    const payload = cast.meta
+      ? encodeBrowserFrameMeta(header, { scrollX: t.scroll?.x ?? 0, scrollY: t.scroll?.y ?? 0, pageScale: params.metadata.pageScaleFactor ?? 1, offsetTop: params.metadata.offsetTop ?? 0 }, image)
+      : encodeBrowserFramePayload(header, image);
     cast.lastFrame = image;
     t.lastShot = image;
     cast.session.sendFrame(FrameKind.browserFrame, cast.streamId, payload);
@@ -489,7 +640,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private async applyViewportChange(cdp: CdpConnection, t: TabState, sid: string, width: number, height: number, scale: number): Promise<void> {
     const cast = t.cast;
     if (!cast) {
-      await this.applyViewport(cdp, sid, { width, height, scale } as Cast);
+      await this.applyViewport(cdp, sid, { width, height, scale, mobile: t.uaMode !== "desktop" });
       return;
     }
     cast.width = width;
@@ -538,7 +689,8 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   async touch(tabId: string, type: string, points: { x: number; y: number; id: number }[]): Promise<void> {
-    const { cdp, sid } = await this.session(tabId);
+    const { cdp, t, sid } = await this.session(tabId);
+    this.noteInteraction(t);
     const map: Record<string, string> = { start: "touchStart", move: "touchMove", end: "touchEnd", cancel: "touchCancel" };
     const cdpType = map[type];
     if (!cdpType) throw new RpcError("bad_request", `bad touch type ${type}`);
@@ -594,14 +746,28 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     server.register("browser.list", async () => ({ tabs: await this.list() }));
     server.register("browser.create", async (p) => ({ tab: await this.create(optStr(p, "url")) }));
     server.register("browser.attach", (p, session) =>
-      this.attach(session, str(p, "tabId"), num(p, "width", 390), num(p, "height", 844), num(p, "scale", 3)),
+      this.attach(
+        session,
+        str(p, "tabId"),
+        num(p, "width", 390),
+        num(p, "height", 844),
+        num(p, "scale", 3),
+        p.mobile !== false,
+        p.frameMeta === true,
+      ),
     );
     server.register("browser.detach", async (p, session) => {
       await this.detach(session, num(p, "streamId"));
       return {};
     });
     server.register("browser.close", async (p) => {
-      await this.closeTab(str(p, "tabId"));
+      const tabId = str(p, "tabId");
+      try {
+        await this.closeTab(tabId);
+      } catch (err) {
+        this.log(`browser.close ${tabId} failed: ${(err as Error).message}`);
+        throw err;
+      }
       return {};
     });
     server.register("browser.activate", async (p) => {
@@ -661,6 +827,37 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 }
 
 // ---------------------------------------------------------------- helpers
+
+export interface BrowserFrameMeta {
+  scrollX: number;
+  scrollY: number;
+  pageScale: number;
+  offsetTop: number;
+}
+
+/** Extended frame payload (PROTOCOL.md §3): format byte | 0x80, then
+ * `[f32 scrollX][f32 scrollY][f32 pageScale][f32 offsetTop]` (CSS px, BE)
+ * after the 13-byte header, then the image. Sent only to phones that attach
+ * with `frameMeta:true`. */
+export function encodeBrowserFrameMeta(h: Parameters<typeof encodeBrowserFramePayload>[0], meta: BrowserFrameMeta, image: Uint8Array): Uint8Array {
+  const base = encodeBrowserFramePayload(h, new Uint8Array(0));
+  const out = new Uint8Array(base.byteLength + 16 + image.byteLength);
+  out.set(base, 0);
+  const v = new DataView(out.buffer);
+  v.setUint8(12, (h.format & 0x7f) | FRAME_META_FLAG);
+  v.setFloat32(13, meta.scrollX, false);
+  v.setFloat32(17, meta.scrollY, false);
+  v.setFloat32(21, meta.pageScale, false);
+  v.setFloat32(25, meta.offsetTop, false);
+  out.set(image, base.byteLength + 16);
+  return out;
+}
+
+export function decodeBrowserFrameMeta(p: Uint8Array): BrowserFrameMeta | null {
+  const v = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  if (p.byteLength < 29 || (v.getUint8(12) & FRAME_META_FLAG) === 0) return null;
+  return { scrollX: v.getFloat32(13, false), scrollY: v.getFloat32(17, false), pageScale: v.getFloat32(21, false), offsetTop: v.getFloat32(25, false) };
+}
 
 export function normalizeUrl(input: string): string {
   const s = input.trim();
