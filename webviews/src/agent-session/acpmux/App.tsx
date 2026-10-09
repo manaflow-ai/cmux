@@ -1248,6 +1248,8 @@ function AcpmuxPane() {
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
+  /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
+  const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
@@ -1834,6 +1836,7 @@ function AcpmuxPane() {
     const heldPrompt = heldPrompts((intent) =>
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
+    holdPrompt.current = () => void heldPrompt.hold();
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -2602,7 +2605,17 @@ function AcpmuxPane() {
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {
-              if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
+              if (projectDraft && !snapshot.sessionId)
+                // The chat's start is part of this send: a trust refusal there asks the folder's
+                // question, keeps this prompt (with its send's gesture) and sends it after Trust
+                // (cx-nn3e P0b; the prompt was lost when only the start ran again).
+                await callNative("chat.new", { cwd: projectDraft }).catch((error: unknown) => {
+                  if (isTrustRefusal(error)) {
+                    holdPrompt.current?.();
+                    trustRefused.current?.(error, () => composerHandle.current?.send());
+                  }
+                  throw error;
+                });
               return callNative("chat.send", { text, attachments, accepted: () => accept(true) });
             };
             // The composer that holds the prompt: a refusal that comes once it is gone (the pane

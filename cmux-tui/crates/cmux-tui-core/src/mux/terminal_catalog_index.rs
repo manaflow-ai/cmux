@@ -12,7 +12,7 @@ thread_local! {
 }
 
 /// Catalog scans by host id on this thread (test hook).
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn catalog_scans_for_test() -> u64 {
     CATALOG_SCANS.with(std::cell::Cell::get)
 }
@@ -95,5 +95,6 @@ impl Mux {
     }
 }
 
-#[cfg(test)]
+// The tests build hosted placeholders, which exist on Unix only.
+#[cfg(all(test, unix))]
 mod tests;
