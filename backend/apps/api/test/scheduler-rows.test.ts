@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
+import { schedulerRead } from "../src/scheduler-reads.ts"
 import { SYSTEM, USER, withSchedulerEngine, type Harness } from "./setup/scheduler-engine.ts"
 
 /**
@@ -120,5 +121,45 @@ describe("SchedulerDO cancel on disable, delete and deny (g1)", { timeout: 300_0
       expect(JSON.parse(h.headJson()).open_runs).toEqual([started])
       expect(JSON.parse(h.headJson()).finished_count).toBe(90)
     })
+  })
+})
+
+describe("SchedulerDO run paging past one scan step (g1 review)", { timeout: 300_000 }, () => {
+  it("a sparse filter over more than 200 kept runs scans every step and ends without an empty last page", async () => {
+    await withSchedulerEngine("sparse", (h) => {
+      const make = (name: string) => h.op(USER, "automation.create", { name, triggers: [{ type: "manual" }], body: steps(name), concurrency: { max: 5, on_limit: "queue" } }).id as string
+      const b = make("b")
+      // b's two runs are the oldest kept runs and stay open (queued), so prune keeps them.
+      const b1 = run(h, b).id
+      const b2 = run(h, b).id
+      const a = make("a")
+      for (let i = 0; i < 205; i++) finish(h, run(h, a).id)
+      // 200 finished runs of a plus b's 2 open runs: more than one 200-row scan step.
+      expect(h.rows("run")).toHaveLength(202)
+      const list = (params: Record<string, unknown>) => {
+        const r = schedulerRead(h.engine.currentState, "run.list", params, USER, h.engine.rows)
+        expect(r.ok, JSON.stringify(r)).toBe(true)
+        return (r as { value: { runs: Array<{ id: string }>; next_cursor: string | null } }).value
+      }
+      // Exactly `limit` matches: no cursor to an empty page.
+      const both = list({ automation: b, limit: 2 })
+      expect(both.runs.map((r) => r.id)).toEqual([b2, b1])
+      expect(both.next_cursor).toBeNull()
+      const first = list({ automation: b, limit: 1 })
+      expect(first.runs.map((r) => r.id)).toEqual([b2])
+      expect(first.next_cursor).not.toBeNull()
+      const second = list({ automation: b, limit: 1, cursor: first.next_cursor })
+      expect(second.runs.map((r) => r.id)).toEqual([b1])
+      expect(second.next_cursor).toBeNull()
+    })
+  })
+})
+
+describe("SchedulerDO reads on a head from before (g1) (review)", () => {
+  it("answer the retryable owner.migrating, the same as the reducer", () => {
+    const legacy = { owner: null, automations: {}, runs: {}, chains: {} } as unknown as Parameters<typeof schedulerRead>[0]
+    for (const op of ["automation.list", "automation.get", "automation.runs.list", "run.list", "run.get", "automation.settings.get", "automation.webhook.get"]) {
+      expect(schedulerRead(legacy, op, {}, USER, undefined), op).toMatchObject({ ok: false, code: "owner.migrating", retryable: true })
+    }
   })
 })

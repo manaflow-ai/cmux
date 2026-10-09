@@ -182,3 +182,71 @@ describe("SchedulerDO migration of an old JSON head (g1)", { timeout: 120_000 },
     expect(team).toBe(owner)
   })
 })
+
+describe("SchedulerDO dispatch after an await (g1 review)", { timeout: 120_000 }, () => {
+  it("re-reads each run before it builds the params, so a run pruned meanwhile is skipped and onWake goes on", async () => {
+    const { t, team, stub } = await signedIn("sched-rows-dispatch-1")
+    // This instance's own alarm must not dispatch first: the test runs the wake itself.
+    await runIn(stub, async (instance) => {
+      instance.alarm = async () => {}
+    })
+    const a = (await op(t, "automation.create", { name: "a", triggers: [{ type: "manual" }], body: steps("a") })).id as string
+    const b = (await op(t, "automation.create", { name: "b", triggers: [{ type: "manual" }], body: steps("b") })).id as string
+    const ra = (await op(t, "automation.run", { automation: a })).id as string
+    const rb = (await op(t, "automation.run", { automation: b })).id as string
+    await runIn(stub, async (instance, state) => {
+      const sql = state.storage.sql
+      const realEnv = instance.env
+      const created: Array<string> = []
+      const principal = { identity: "session:x", kind: "session", user: "user_dddddddddddddddddddd", team }
+      instance.env = {
+        ...realEnv,
+        AUTOMATION_RUN: {
+          create: async ({ id }: { id: string }) => {
+            created.push(id)
+            if (id !== ra) return
+            // While the first create awaits: b is deleted (its queued run is cancelled), and prune
+            // drops that run with the last reference to its body, as for a long-queued run.
+            const del = await instance.submit(team, principal, { t: "op", op: "automation.delete", params: { automation: b }, idempotency_key: "k-del-b", origin: "cli" })
+            expect(del.frames.find((f: { t: string }) => f.t === "result"), JSON.stringify(del.frames)).toBeDefined()
+            const hash = JSON.parse(String(sql.exec("SELECT json FROM own_rows WHERE tbl = 'run' AND k = ?", rb).one().json)).body_hash as string
+            sql.exec("DELETE FROM own_rows WHERE (tbl IN ('run', 'finished') AND k = ?) OR (tbl = 'body' AND k = ?)", rb, hash)
+          },
+          get: async () => ({ status: async () => ({ status: "running" }), terminate: async () => {} })
+        }
+      }
+      try {
+        await instance.onWake(Date.now())
+      } finally {
+        instance.env = realEnv
+      }
+      expect(created).toEqual([ra])
+    })
+  })
+})
+
+describe("SchedulerDO migration of a refilled head keeps rows the maps lack (g1 review)", { timeout: 120_000 }, () => {
+  it("merges: the maps win per id, and a row that is not in the maps stays with its body", async () => {
+    const { t, stub } = await signedIn("sched-rows-migrate-merge")
+    const ids: Array<string> = []
+    for (let i = 0; i < 2; i++) ids.push((await op(t, "automation.create", { name: `g${i}`, triggers: [{ type: "manual" }], body: steps(`g${i}`) })).id)
+    const automations = await Promise.all(ids.map((automation) => read(t, "automation.get", { automation })))
+    // A head refilled with maps that hold only the first automation (renamed), while both rows remain.
+    const fromMap = { ...automations[0], name: "from-map" }
+    await runIn(stub, async (instance, state) => {
+      const sql = state.storage.sql
+      const cur = JSON.parse(String(sql.exec("SELECT json FROM own_state WHERE id = 1").one().json))
+      const { automation_count: _a, open_runs: _o, finished_count: _f, row_seq: _r, ...rest } = cur
+      sql.exec("UPDATE own_state SET json = ? WHERE id = 1", JSON.stringify({ ...rest, automations: { [fromMap.id]: fromMap }, runs: {}, chains: cur.chains ?? {} }))
+      instance.engine = undefined
+    })
+    const listed = await read(t, "automation.list")
+    expect(listed.automations).toEqual([fromMap, automations[1]])
+    expect(listed.automation_count).toBe(2)
+    const bodies = await runIn(stub, async (_i, state) =>
+      state.storage.sql.exec("SELECT json FROM own_rows WHERE tbl = 'body'").toArray().map((x) => JSON.parse(String(x.json)) as { refs: number; body: unknown })
+    )
+    expect(bodies).toHaveLength(2)
+    for (const b of bodies) expect(b.refs).toBe(1)
+  })
+})
