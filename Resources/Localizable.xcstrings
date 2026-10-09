@@ -647133,6 +647133,65 @@
           }
         }
       }
+    },
+    "cli.help.jumpToLastPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux jump-to-last-prompt\n\nFocus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. Reports opened: false when there is none.\n\nFlags:\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux jump-to-last-prompt\n\nالتركيز على السطح الذي أرسلت فيه آخر موجّه إلى وكيل برمجة، مع التبديل بين مساحات العمل والنوافذ عند الحاجة. يُبلغ عن opened: false عند عدم وجود سطح.\n\nالخيارات:\n  --json                طباعة بتنسيق JSON\n  --id-format <mode>    refs، أو uuids، أو كلاهما"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux jump-to-last-prompt\n\nFokussiert die Oberfläche, in der du zuletzt einen Prompt an einen Coding-Agent gesendet hast, und wechselt dafür bei Bedarf Workspace und Fenster. Meldet opened: false, wenn es keine gibt.\n\nFlags:\n  --json                JSON ausgeben\n  --id-format <mode>    refs, uuids oder beides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux jump-to-last-prompt\n\nEnfoca la superficie donde enviaste el último prompt a un agente de código, cambiando de espacio de trabajo y de ventana si hace falta. Devuelve opened: false cuando no hay ninguna.\n\nOpciones:\n  --json                Muestra JSON\n  --id-format <mode>    refs, uuids o ambos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux jump-to-last-prompt\n\nCible la surface où vous avez envoyé votre dernier prompt à un agent de code, en changeant d'espace de travail et de fenêtre si nécessaire. Renvoie opened: false s'il n'y en a aucune.\n\nOptions :\n  --json                Affiche le JSON\n  --id-format <mode>    refs, uuids ou both"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux jump-to-last-prompt\n\nコーディングエージェントに最後にプロンプトを送ったサーフェスへフォーカスし、必要に応じてワークスペースとウィンドウを切り替えます。該当がない場合は opened: false を返します。\n\nFlags:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux jump-to-last-prompt\n\n코딩 에이전트에 마지막으로 프롬프트를 보낸 서피스에 포커스를 두고, 필요하면 워크스페이스와 창을 전환합니다. 없으면 opened: false를 보고합니다.\n\n플래그:\n  --json                JSON 출력\n  --id-format <mode>    refs, uuids 또는 둘 다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux jump-to-last-prompt\n\n聚焦你最后一次向编码代理发送提示的界面，必要时切换工作区和窗口。若没有则返回 opened: false。\n\n标志:\n  --json                输出 JSON\n  --id-format <mode>    refs、uuids 或 both"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux jump-to-last-prompt\n\n聚焦你最後一次向程式碼代理傳送提示的介面，必要時切換工作區與視窗。若沒有則回報 opened: false。\n\n旗標：\n  --json                列印 JSON\n  --id-format <mode>    refs、uuids 或兩者皆是"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
