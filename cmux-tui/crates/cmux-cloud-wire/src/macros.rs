@@ -85,29 +85,37 @@ macro_rules! wire_literal {
     };
 }
 
-/// The closed error code set of one op ([`crate::WireError`]).
+/// The error codes of one op ([`crate::WireError`]); a code the op does not
+/// declare decodes to `Unknown` and encodes back unchanged.
 macro_rules! wire_errors {
     ($(#[$meta:meta])* $name:ident { $($variant:ident = $code:literal),* $(,)? }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         pub enum $name {
             $($variant,)*
+            /// A code this op does not declare (a newer backend), kept verbatim.
+            Unknown(String),
         }
 
         impl $crate::WireError for $name {
             const CODES: &'static [&'static str] = &[$($code),*];
 
-            fn code(self) -> &'static str {
+            fn code(&self) -> &str {
                 match self {
                     $(Self::$variant => $code,)*
+                    Self::Unknown(code) => code,
                 }
             }
 
-            fn from_code(code: &str) -> Option<Self> {
+            fn from_code(code: &str) -> Self {
                 match code {
-                    $($code => Some(Self::$variant),)*
-                    _ => None,
+                    $($code => Self::$variant,)*
+                    other => Self::Unknown(other.to_owned()),
                 }
+            }
+
+            fn is_declared(&self) -> bool {
+                !matches!(self, Self::Unknown(_))
             }
         }
 

@@ -1,5 +1,5 @@
-//! The [`Op`] trait every generated op marker implements, and the closed
-//! error code enums ([`WireError`]).
+//! The [`Op`] trait every generated op marker implements, and the op error
+//! code enums ([`WireError`]).
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -73,16 +73,19 @@ impl WirePrincipal {
     }
 }
 
-/// The closed set of error codes one op declares. A code outside the set
-/// does not decode: the caller reports a protocol error instead of guessing
-/// a meaning.
-pub trait WireError: Copy + Debug + PartialEq + Sized + 'static {
+/// The error codes one op declares, plus `Unknown` for a code this build
+/// does not know (a newer backend may add one; it decodes, it does not fail).
+/// The caller can tell a declared code from a new one with
+/// [`WireError::is_declared`].
+pub trait WireError: Clone + Debug + PartialEq + Sized + 'static {
     /// Every declared code, sorted as in the catalog.
     const CODES: &'static [&'static str];
     /// The wire code of this error.
-    fn code(self) -> &'static str;
-    /// The error of a declared code, or `None` for an undeclared one.
-    fn from_code(code: &str) -> Option<Self>;
+    fn code(&self) -> &str;
+    /// The error of a wire code; `Unknown` for a code the op does not declare.
+    fn from_code(code: &str) -> Self;
+    /// `false` for `Unknown`.
+    fn is_declared(&self) -> bool;
 }
 
 /// One catalog op. Implemented by the generated marker types.
@@ -121,6 +124,5 @@ pub(crate) fn deserialize_error<'de, E: WireError, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<E, D::Error> {
     let code = <String as serde::Deserialize>::deserialize(deserializer)?;
-    E::from_code(&code)
-        .ok_or_else(|| serde::de::Error::custom(format_args!("undeclared error code {code:?}")))
+    Ok(E::from_code(&code))
 }
