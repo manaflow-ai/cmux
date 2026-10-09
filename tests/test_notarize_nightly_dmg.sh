@@ -372,12 +372,16 @@ step = step.group(1)
 step_timeout = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)
 assert step_timeout, "the notarize step needs its own timeout-minutes"
 step_timeout = int(step_timeout.group(1))
-wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (\d+)m$", step, re.M)
+wait = re.search(r"^          CMUX_NOTARY_WAIT_TIMEOUT: (.+)$", step, re.M)
 assert wait, "the notarize step must set CMUX_NOTARY_WAIT_TIMEOUT"
-wait = int(wait.group(1))
+# `${{ <nightly-next> && '20m' || '40m' }}`: the last value is main's and RC's.
+waits = [int(value) for value in re.findall(r"\b(\d+)m\b", wait.group(1))]
+assert waits, f"no wait in {wait.group(1)!r}"
 # Run 37648507383: Apple had not finished any of the 3 DMGs after 25m, so
 # nothing published. A healthy submission returns in minutes; wait 40m.
-assert wait >= 40, f"the {wait}m notary wait gives up before Apple usually finishes a stalled DMG"
+# Published nightly-next waits less: it hands a slow one to its next run.
+assert waits[-1] >= 40, f"the {waits[-1]}m notary wait gives up before Apple usually finishes a stalled DMG"
+wait = max(waits)
 assert step_timeout >= wait + 10, f"step {step_timeout}m must cover the {wait}m wait plus 10m of DMG work and verification"
 assert job_timeout >= step_timeout + 20, f"job {job_timeout}m must cover the {step_timeout}m notarize step plus 20m of other steps"
 PY
