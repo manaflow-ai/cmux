@@ -1646,6 +1646,12 @@ fn an_older_acpmux_keeps_the_args_it_knows() {
         ]
     );
     assert_eq!(without_isolation_args(&[json!("--tools"), json!("")]), None);
+    // A turn's built-in list goes too (its denied tools still apply).
+    let turn: Vec<Value> = optchat_chief::host::turn_isolation_args()
+        .into_iter()
+        .map(Value::String)
+        .collect();
+    assert_eq!(without_isolation_args(&turn), Some(Vec::new()));
 }
 
 /// A compactor slot loads no user setting source, so its project settings

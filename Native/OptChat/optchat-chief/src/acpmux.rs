@@ -331,7 +331,7 @@ impl Acpmux {
                 {
                     *args = kept;
                     log(&format!(
-                        "acpmux refused the isolation args of preset {} ({text}); installed without --setting-sources and --disable-slash-commands",
+                        "acpmux refused the isolation args of preset {} ({text}); installed without --setting-sources, --disable-slash-commands and a --tools list (the project settings' denied tools still apply)",
                         preset.name
                     ));
                     continue;
@@ -491,8 +491,9 @@ impl Acpmux {
     }
 }
 
-/// `args` without `--setting-sources <value>` and `--disable-slash-commands`
-/// (newer preset allowlist words); None when it has neither.
+/// `args` without the newer preset allowlist words: `--setting-sources
+/// <value>`, `--disable-slash-commands` and `--tools <names>` (`--tools ""`
+/// stays, an older acpmux takes it); None when it has none of them.
 pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
     let mut kept = Vec::new();
     let mut dropped = false;
@@ -504,6 +505,13 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
                 dropped = true;
             }
             Some("--disable-slash-commands") => dropped = true,
+            Some("--tools") => match words.next() {
+                Some(value) if value.as_str() == Some("") => {
+                    kept.push(word.clone());
+                    kept.push(value.clone());
+                }
+                _ => dropped = true,
+            },
             _ => kept.push(word.clone()),
         }
     }

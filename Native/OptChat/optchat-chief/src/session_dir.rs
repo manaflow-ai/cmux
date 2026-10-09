@@ -164,8 +164,10 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// so the turn's prefix stays small (measured 2026-10-08: 20.7k to 12.1k
 /// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch, WebSearch,
 /// and ToolSearch (it loads the MCP tools on demand); work beyond those goes
-/// to subagents. A tool a later Claude Code adds is offered until it is
-/// listed here.
+/// to subagents. The turn preset's `--tools` allowlist (`host::TURN_TOOLS`)
+/// is the main guard: a tool a later Claude Code adds is not offered. This
+/// list stays as the second guard, for an acpmux older than that preset
+/// arg (the preset is then installed without it).
 pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Task",
     "Agent",
