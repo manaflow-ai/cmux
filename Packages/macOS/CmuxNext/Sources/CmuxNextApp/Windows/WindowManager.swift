@@ -186,7 +186,8 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
+        let firstWorkspaceNeeded = FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover)
+        if firstWorkspaceNeeded {
             services.onboarding.freshWorkspaceID = await createWorkspace(newTabPage: true)
         }
         let restoredRegistry = WindowRegistry(records: document.windows)
@@ -216,6 +217,9 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
+        // Once per launch, after the snapshot: a user with data never sees
+        // the first run (plans/cmux-next/onboarding.md 4).
+        services.onboarding.evaluateFirstRun(firstWorkspaceNeeded: firstWorkspaceNeeded)
     }
 
     /// The launch window takes the frontmost saved window's identity and

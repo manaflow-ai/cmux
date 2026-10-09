@@ -7,8 +7,14 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     static let classicBundleIdentifiers = [stableBundleIdentifier, "com.cmuxterm.app.nightly"]
     public let fileURL: URL
 
-    public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
+    /// Names the snapshot file instead of classic's own (test launches of
+    /// tagged builds, so they never read the account's classic sessions).
+    public static let environmentKey = "CMUX_NEXT_CLASSIC_SESSION"
+
+    public init(fileURL: URL? = nil, fileManager: FileManager? = nil,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let fileURL { self.fileURL = fileURL }
+        else if let path = environment[Self.environmentKey], !path.isEmpty { self.fileURL = URL(fileURLWithPath: path) }
         else {
             let manager = fileManager ?? FileManager.default
             let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -30,6 +36,13 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             return date.map { (url, $0) }
         }
         return saved.max { $0.1 < $1.1 }?.0 ?? candidates[0]
+    }
+
+    /// Whether classic cmux saved a session snapshot (the first-run gate's
+    /// data check; `FirstRunGate.classicSnapshot`).
+    public var hasSnapshot: Bool {
+        // concurrency-allow: one stat; callers hop to a detached utility task.
+        FileManager.default.fileExists(atPath: fileURL.path)
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.

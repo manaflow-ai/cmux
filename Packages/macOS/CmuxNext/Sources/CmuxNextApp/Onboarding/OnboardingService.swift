@@ -7,10 +7,10 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import os
 
-/// Owns the onboarding window: shows it on the first launch (once per Mac
-/// account, `OnboardingStateFile`), reopens it from the palette, the menu
-/// and the import and default-app actions, and feeds imported history to
-/// the omnibar at launch.
+/// Owns onboarding: decides the first run once per launch (`FirstRunGate`),
+/// opens the onboarding window from the palette, the menu and the import and
+/// default-app actions (never at launch: the first run is the New Tab page),
+/// and feeds imported history to the omnibar at launch.
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -28,7 +28,7 @@ final class OnboardingService {
     private var projectScanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
-    /// Shows onboarding on the first launch even in a no-activate test launch.
+    /// Turns on the cookie import card even in a no-activate test launch.
     static let forceKey = "CMUX_NEXT_ONBOARDING"
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and this step.
@@ -39,10 +39,11 @@ final class OnboardingService {
         OnboardingWindowPresenter.reusesWindow(showing: steps, for: step)
     }
 
-    init(services: AppServices) {
+    /// `stateFile` replaces the channel's state file (tests).
+    init(services: AppServices, stateFile: OnboardingStateFile? = nil) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
-        state = OnboardingStateQueue(file: OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID))
+        state = OnboardingStateQueue(file: stateFile ?? OnboardingStateFile.live(environment: environment, bundleID: services.environment.launch.bundleID))
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -162,24 +163,39 @@ final class OnboardingService {
         }
     }
 
-    /// First launch: show once the first window is up. A no-activate launch
-    /// (agents, tests) skips it unless `CMUX_NEXT_ONBOARDING=1`.
-    func showIfNeeded() {
-        let forced = ProcessInfo.processInfo.environment[Self.forceKey] == "1"
-        guard forced || !services.environment.noActivate else { return }
-        // task-owner: one-shot launch check; ends after one queued file read
-        Task { [weak self] in
-            guard let state = self?.state else { return }
-            let decision = await state.perform { $0.takeLaunchShow() }
-            guard let self, !isShowing else { return }
-            switch decision {
-            case .start: presenter.showFirstRun(resumingAt: nil)
-            // An unfinished first run with launches left (each launch that
-            // showed it counts, closed or quit) resumes at its step.
-            case .resume(let step): presenter.showFirstRun(resumingAt: step)
-            case .none: break
-            }
+    /// cmux-next.json before this launch seeded it, read by the app delegate
+    /// before seeding (`FirstRunGate.ConfigOrigin.beforeSeeding`).
+    var configOrigin: FirstRunGate.ConfigOrigin = .absent
+    /// This launch's first-run decision; nil until the daemon snapshot.
+    private(set) var firstRunDecision: FirstRunGate.Decision?
+    private var firstRunGate: Task<Void, Never>?
+
+    /// The launch's first-run gate, once, after the daemon snapshot
+    /// (`WindowManager.restore`). Reads acpmux history and classic's
+    /// snapshot, then decides on the state queue. Nothing opens: a fresh
+    /// user's first run is the launch's New Tab page, and a user with data
+    /// ends onboarding silently (`reason: existing-data`).
+    func evaluateFirstRun(firstWorkspaceNeeded: Bool) {
+        guard firstRunGate == nil else { return }
+        let config = configOrigin
+        // task-owner: one-shot launch gate; one journal read, one stat, one queued file write
+        firstRunGate = Task { [weak self] in
+            guard let history = self?.services.history.agents else { return }
+            await history.refresh()
+            let sessions = history.sessions.count
+            let classic = await Task.detached { ClassicSessionImporter().hasSnapshot }.value
+            _ = await self?.decideFirstRun(FirstRunGate(firstWorkspaceNeeded: firstWorkspaceNeeded, agentSessions: sessions,
+                                                        config: config, classicSnapshot: classic))
         }
+    }
+
+    /// Decides the first run in one queued operation: on existing data the
+    /// same operation marks onboarding done with its reason.
+    func decideFirstRun(_ gate: FirstRunGate) async -> FirstRunGate.Decision {
+        let decision = await state.perform { $0.decideFirstRun(gate) }
+        firstRunDecision = decision
+        logger.info("first run: \(String(describing: decision), privacy: .public)")
+        return decision
     }
 
     func markDone(completed: Bool) {

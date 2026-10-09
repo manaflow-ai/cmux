@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
@@ -65,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
+        // The first-run gate reads cmux-next.json's seed source, so before seeding.
+        let configOrigin = FirstRunGate.ConfigOrigin.beforeSeeding()
         let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
         TerminalThemeSetting.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
@@ -171,7 +174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
-        services.onboarding.showIfNeeded()
+        // The first-run gate runs after the daemon snapshot (`WindowManager.restore`).
+        services.onboarding.configOrigin = configOrigin
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).

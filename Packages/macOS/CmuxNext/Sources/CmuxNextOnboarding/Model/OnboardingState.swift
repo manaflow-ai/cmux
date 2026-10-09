@@ -48,24 +48,88 @@ public nonisolated struct OnboardingStateFile: Sendable {
         return id.isEmpty ? "unbundled" : id
     }
 
-    struct Record: Codable {
-        var version: Int
-        var completed: Bool
-        var date: Date
+    /// The file's one record. Version 1 throughout: fields added later are
+    /// optional, so a record written by an older build still decodes and a
+    /// finished user stays finished.
+    public struct Record: Codable, Sendable, Equatable {
+        public var version: Int
+        public var completed: Bool
+        public var date: Date
         /// False while the first run is unfinished; nil in records written
         /// before resume existed, which were always an end.
-        var finished: Bool?
+        public var finished: Bool?
         /// The step the first run is at (`Step` raw value); kept after it
         /// finished, for Continue Setup.
-        var step: String?
+        public var step: String?
         /// Later launches that still show an unfinished first run. Each
         /// launch that shows it uses one, however it ends (close, quit,
         /// crash); moving to a step gives the run its launches back.
-        var launchesLeft: Int?
+        public var launchesLeft: Int?
+        /// Why onboarding ended without the person ending it
+        /// (`EndReason` raw value); nil when they did, or it has not ended.
+        public var reason: String?
+        /// What the first-run page saw (plans/cmux-next/onboarding.md 2).
+        public var firstRun: FirstRun?
+
+        public init(version: Int, completed: Bool, date: Date, finished: Bool? = nil, step: String? = nil,
+                    launchesLeft: Int? = nil, reason: String? = nil, firstRun: FirstRun? = nil) {
+            self.version = version
+            self.completed = completed
+            self.date = date
+            self.finished = finished
+            self.step = step
+            self.launchesLeft = launchesLeft
+            self.reason = reason
+            self.firstRun = firstRun
+        }
 
         /// Finished or skipped for the current version.
-        var isFinished: Bool { version >= OnboardingStateFile.currentVersion && finished != false }
+        public var isFinished: Bool { version >= OnboardingStateFile.currentVersion && finished != false }
     }
+
+    /// Why onboarding ended by itself.
+    public enum EndReason: String, Sendable {
+        /// The launch found data of the user's own (`FirstRunGate`).
+        case existingData = "existing-data"
+    }
+
+    /// The first-run page's local record: kept on this Mac only, never sent.
+    public struct FirstRun: Codable, Sendable, Equatable {
+        /// The furthest stage the page reached.
+        public enum Stage: String, Codable, Sendable {
+            case shown, projectPicked, signInShown, signInDone, promptSent
+        }
+
+        /// The first action that ended the first run.
+        public enum Action: String, Codable, Sendable {
+            case prompt, shell, url, dismiss
+        }
+
+        public var stage: Stage?
+        public var action: Action?
+        /// Time to first prompt: first main window visible to the first
+        /// prompt acpmux accepted.
+        public var firstPromptMilliseconds: Int?
+        /// Whether "Make it yours" was opened from the page.
+        public var openedMakeItYours: Bool?
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey { case stage, action, firstPromptMilliseconds, openedMakeItYours }
+
+        /// A stage or action from a later build reads as nil instead of
+        /// failing the whole record (which would reset onboarding).
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            stage = (try? container.decodeIfPresent(String.self, forKey: .stage)).flatMap { $0.flatMap(Stage.init(rawValue:)) }
+            action = (try? container.decodeIfPresent(String.self, forKey: .action)).flatMap { $0.flatMap(Action.init(rawValue:)) }
+            firstPromptMilliseconds = try? container.decodeIfPresent(Int.self, forKey: .firstPromptMilliseconds)
+            openedMakeItYours = try? container.decodeIfPresent(Bool.self, forKey: .openedMakeItYours)
+        }
+    }
+
+    /// The current record, nil when none was written (or it does not decode).
+    public func record() -> Record? { read() }
 
     private func read() -> Record? {
         // concurrency-allow: nonisolated; callers read it on OnboardingStateQueue, off the main thread
@@ -148,7 +212,8 @@ public nonisolated struct OnboardingStateFile: Sendable {
         }
         let unfinished = previous.flatMap { $0.version >= Self.currentVersion ? $0 : nil }
         let left = interacted ? Self.notNowLaunches : unfinished?.launchesLeft ?? Self.notNowLaunches
-        try write(Record(version: Self.currentVersion, completed: false, date: now, finished: false, step: step.rawValue, launchesLeft: left))
+        try write(Record(version: Self.currentVersion, completed: false, date: now, finished: false, step: step.rawValue, launchesLeft: left,
+                         firstRun: unfinished?.firstRun))
     }
 
     /// The step Continue Setup opens: where the first run was left, also
@@ -158,11 +223,12 @@ public nonisolated struct OnboardingStateFile: Sendable {
         return record.step.flatMap(OnboardingModel.Step.init(rawValue:))
     }
 
-    /// Records that onboarding ended (`completed` false: skipped). A run
-    /// once completed stays completed.
-    public func markDone(completed: Bool, now: Date = Date()) throws {
+    /// Records that onboarding ended (`completed` false: skipped; `reason`:
+    /// it ended by itself). A run once completed stays completed.
+    public func markDone(completed: Bool, reason: EndReason? = nil, now: Date = Date()) throws {
         let previous = read()
         let wasCompleted = previous?.isFinished == true && previous?.completed == true
-        try write(Record(version: Self.currentVersion, completed: completed || wasCompleted, date: now, finished: true, step: previous?.step))
+        try write(Record(version: Self.currentVersion, completed: completed || wasCompleted, date: now, finished: true, step: previous?.step,
+                         reason: reason?.rawValue, firstRun: previous?.firstRun))
     }
 }
