@@ -338,4 +338,16 @@ extension TerminalSizingPolicy {
         completed.priority.append(contentsOf: participants.map(\.priorityKey).filter { seen.insert($0).inserted })
         return completed
     }
+
+    /// Applies a new order for attached keys while retaining detached keys in
+    /// their existing slots.
+    ///
+    /// - Parameter visibleKeys: The attached keys in their new order.
+    /// - Returns: A policy with the visible keys reordered.
+    public func withReorderedPriority(visibleKeys: [String]) -> TerminalSizingPolicy {
+        var seen = Set<String>()
+        let visible = visibleKeys.filter { seen.insert($0).inserted }
+        let detached = priority.filter { !seen.contains($0) }
+        return TerminalSizingPolicy(mode: mode, priority: visible + detached, fixed: fixed)
+    }
 }
