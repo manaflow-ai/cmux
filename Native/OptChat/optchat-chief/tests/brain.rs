@@ -235,8 +235,16 @@ fn a_host_stopped_mid_turn_resumes_the_turn_and_answers_the_message_once() {
     assert_eq!(prompts.len(), 1, "one resume turn runs");
     assert_eq!(prompts[0].last().unwrap()["text"], RESUMED);
     let log = h.log();
-    assert_eq!(log.iter().filter(|(_, t)| t == "hello").count(), 1, "{log:?}");
-    assert_eq!(log.iter().filter(|(_, t)| t == RESUMED).count(), 1, "{log:?}");
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == RESUMED).count(),
+        1,
+        "{log:?}"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert_eq!(sends[0].1, "answer 0", "{sends:?}");
@@ -266,7 +274,11 @@ fn a_resume_turn_that_is_cut_again_resumes_again_and_answers_once() {
     h.connect();
     h.settle();
     let log = h.log();
-    assert_eq!(log.iter().filter(|(_, t)| t == "hello").count(), 1, "{log:?}");
+    assert_eq!(
+        log.iter().filter(|(_, t)| t == "hello").count(),
+        1,
+        "{log:?}"
+    );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1, "{sends:?}");
     assert_eq!(sends[0].1, "answer 0", "{sends:?}");

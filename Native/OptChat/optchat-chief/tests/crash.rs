@@ -180,7 +180,17 @@ fn a_crash_while_a_turn_is_folded_logs_each_step_once() {
         let log = h.log();
         assert_eq!(count(&log, "user", "hello"), 1, "{point}: {log:?}");
         // A session that never got its prompt did nothing; one that did has
-        // each step in the log exactly once.
+        // each step in the log exactly once. Then the cut turn resumes once
+        // (E23) and its own turn logs the same script's steps once more.
+        assert_eq!(
+            count(
+                &log,
+                "user",
+                "The server restarted, cutting the turn; nothing was lost: go on."
+            ),
+            1,
+            "{point}: {log:?}"
+        );
         for (kind, text) in [
             ("talk", "Checking."),
             ("tool", "Bash {\"command\":\"ls\"}"),
@@ -189,7 +199,7 @@ fn a_crash_while_a_turn_is_folded_logs_each_step_once() {
         ] {
             assert_eq!(
                 count(&log, kind, text),
-                usize::from(folded),
+                usize::from(folded) + 1,
                 "{point}: {kind} {text}: {log:?}"
             );
         }
