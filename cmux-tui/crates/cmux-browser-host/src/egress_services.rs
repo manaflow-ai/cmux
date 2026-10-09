@@ -31,28 +31,40 @@ const SERVICE_NAMES: &[&str] = &[
     "chromium",
     "chromium-browser",
     "chrome-headless-shell",
+    "headless_shell",
+    "msedge",
+    "brave",
+    "electron",
 ];
 
 /// Whether an executable file name is a cmux service.
 pub fn is_service_name(name: &str) -> bool {
     let name = name.strip_suffix(" (deleted)").unwrap_or(name);
-    SERVICE_NAMES.contains(&name) || name.starts_with("cmux-")
+    SERVICE_NAMES.contains(&name) || name.starts_with("cmux-") || name.starts_with("cmuxd")
 }
 
-/// This machine's check.
+/// This machine's check before a dial (a listener may not exist yet).
 pub fn system_check() -> ServiceCheck {
-    Arc::new(|addr| service_refusal(addr.port()))
+    Arc::new(|addr| service_refusal(addr.port(), false))
+}
+
+/// This machine's check of a connected peer: a listener exists, so one
+/// this host cannot see refuses the port (fail closed).
+pub fn system_connected_check() -> ServiceCheck {
+    Arc::new(|addr| service_refusal(addr.port(), true))
 }
 
 #[cfg(target_os = "linux")]
-fn service_refusal(port: u16) -> Option<String> {
+fn service_refusal(port: u16, connected: bool) -> Option<String> {
     let Some(inodes) = listening_inodes(port) else {
         return Some(format!(
             "loopback port {port} cannot be checked: the kernel's socket tables are unreadable"
         ));
     };
     if inodes.is_empty() {
-        return None;
+        // A connect proved a listener: one the tables do not show refuses.
+        return connected
+            .then(|| format!("loopback port {port} is held by a socket this host cannot see"));
     }
     let (held, exes) = holders(&inodes);
     if let Some(name) = exes.iter().flatten().find(|name| is_service_name(name)) {
@@ -66,52 +78,130 @@ fn service_refusal(port: u16) -> Option<String> {
     None
 }
 
-/// macOS: the listeners on the port come from `lsof` (always installed),
-/// each holder's executable from `proc_pidpath`. A port nobody listens on is
-/// allowed; a holder whose executable cannot be read, or an `lsof` that
-/// cannot run, refuses the port (fail closed). Before, every loopback port
-/// was refused on macOS, so the isolated scope reached no dev server there.
-#[cfg(target_os = "macos")]
-fn service_refusal(port: u16) -> Option<String> {
-    let unreadable = || Some(format!("loopback port {port} cannot be checked: lsof failed"));
-    let Ok(output) = std::process::Command::new("/usr/sbin/lsof")
-        .args(["-nPw", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
-        .output()
-    else {
-        return unreadable();
-    };
-    let pids: Vec<i32> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.strip_prefix('p')?.parse().ok())
-        .collect();
-    // lsof exits 1 with no listener lines when nothing listens on the port;
-    // any other exit without them means it could not look.
-    if pids.is_empty() {
-        let nobody = matches!(output.status.code(), Some(0 | 1));
-        return if nobody { None } else { unreadable() };
+/// One `lsof` run: the pids it listed and its exit code (`None`: it timed
+/// out, was killed, or could not start).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) struct Lsof {
+    pub(crate) pids: Vec<i32>,
+    pub(crate) exit: Option<i32>,
+}
+
+/// The verdict for a loopback `port` from one `lsof` run (pure, every OS):
+/// `connected` means a connect to the port just succeeded, so a listener
+/// exists. lsof lists only the processes this user may inspect: a listener
+/// of another user or of root is invisible, and with `connected` it refuses
+/// the port (fail closed). Before a dial, nothing visible is "nobody
+/// listens" (allowed; the dial fails by itself, and the connected check runs
+/// after it). A failed lsof, or one that listed holders and then failed,
+/// refuses. A holder whose executable cannot be read refuses.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn lsof_verdict(
+    port: u16,
+    lsof: &Lsof,
+    connected: bool,
+    executable: impl Fn(i32) -> Option<String>,
+) -> Option<String> {
+    let failed = || Some(format!("loopback port {port} cannot be checked: lsof failed"));
+    match (lsof.pids.is_empty(), lsof.exit) {
+        (_, None) => return failed(),
+        (true, _) if connected => {
+            return Some(format!(
+                "loopback port {port} is held by a process this host cannot inspect"
+            ));
+        }
+        (true, Some(0 | 1)) => return None,
+        (true, Some(_)) | (false, Some(1..)) => return failed(),
+        _ => {}
     }
-    for pid in pids {
-        let Some(path) = executable_path(pid) else {
+    for &pid in &lsof.pids {
+        let Some(path) = executable(pid) else {
             return Some(format!(
                 "the process that listens on loopback port {port} cannot be identified"
             ));
         };
         let name = path.rsplit('/').next().unwrap_or(&path);
-        if is_service_name(name) || is_macos_service_name(name) {
+        if is_service_name(name) || is_app_service_name(name) {
             return Some(format!("loopback port {port} is the cmux service {name}"));
         }
     }
     None
 }
 
-/// macOS executable names of cmux and Chrome (app bundles name them with
-/// spaces): `cmux DEV <tag>`, `Google Chrome`, `Chromium`, and their helpers.
-#[cfg(target_os = "macos")]
-fn is_macos_service_name(name: &str) -> bool {
+/// App bundle executable names (macOS names them with spaces): cmux
+/// (`cmux DEV <tag>`), Chrome, Chromium, other Chromium-based browsers and
+/// Electron, and their helpers: any of them can serve a DevTools port.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn is_app_service_name(name: &str) -> bool {
     name == "cmux"
         || name.starts_with("cmux ")
-        || name.starts_with("Google Chrome")
-        || name.starts_with("Chromium")
+        || ["Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser", "Electron"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+}
+
+/// macOS: the listeners on the port come from `lsof` (always installed;
+/// bounded, killed after [`LSOF_DEADLINE`]), each holder's executable from
+/// `proc_pidpath`; the decision is [`lsof_verdict`]'s.
+#[cfg(target_os = "macos")]
+fn service_refusal(port: u16, connected: bool) -> Option<String> {
+    lsof_verdict(port, &run_lsof(port), connected, executable_path)
+}
+
+/// How long one `lsof` run may take before the port is refused.
+#[cfg(target_os = "macos")]
+const LSOF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(target_os = "macos")]
+fn run_lsof(port: u16) -> Lsof {
+    use std::io::Read;
+    let failed = Lsof { pids: Vec::new(), exit: None };
+    let Ok(mut child) = std::process::Command::new("/usr/sbin/lsof")
+        .args(["-nPw", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return failed;
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return failed;
+    };
+    // The reader thread owns the child: it drains stdout, then reaps it, so
+    // the caller's wait for both is bounded by the deadline. A late lsof is
+    // killed by pid (only while not reaped, so the pid is still its own).
+    let pid = child.id() as libc::pid_t;
+    let reaped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = reaped.clone();
+    let (sent, received) = std::sync::mpsc::channel();
+    let reader = std::thread::Builder::new().name("lsof-reader".into()).spawn(move || {
+        let mut out = Vec::new();
+        let _ = stdout.read_to_end(&mut out);
+        let exit = child.wait().ok().and_then(|status| status.code());
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = sent.send((out, exit));
+    });
+    let kill = || {
+        if !reaped.load(std::sync::atomic::Ordering::SeqCst) {
+            // SAFETY: plain syscall on the pid of our own unreaped child.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+    };
+    if reader.is_err() {
+        kill();
+        return failed;
+    }
+    let Ok((out, exit)) = received.recv_timeout(LSOF_DEADLINE) else {
+        kill();
+        return failed;
+    };
+    let pids = String::from_utf8_lossy(&out)
+        .lines()
+        .filter_map(|line| line.strip_prefix('p')?.parse().ok())
+        .collect();
+    Lsof { pids, exit }
 }
 
 #[cfg(target_os = "macos")]
@@ -128,7 +218,7 @@ fn executable_path(pid: i32) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn service_refusal(port: u16) -> Option<String> {
+fn service_refusal(port: u16, _connected: bool) -> Option<String> {
     // The holder cannot be read here, so the port is refused (fail closed).
     Some(format!("loopback port {port} cannot be checked on this system"))
 }
@@ -200,3 +290,70 @@ fn holders(inodes: &[u64]) -> (usize, Vec<Option<String>>) {
 #[cfg(test)]
 #[path = "egress_services_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod lsof_tests {
+    use super::*;
+
+    fn exe(name: &'static str) -> impl Fn(i32) -> Option<String> {
+        move |_| Some(format!("/Applications/x.app/Contents/MacOS/{name}"))
+    }
+
+    /// A connect proved a listener exists: no holder lsof can see (another
+    /// user's or root's) refuses the port. Before the dial, nothing seen is
+    /// "nobody listens" (allowed).
+    #[test]
+    fn a_hidden_listener_refuses_a_connected_port() {
+        let nobody = Lsof { pids: Vec::new(), exit: Some(1) };
+        assert!(lsof_verdict(3000, &nobody, true, exe("node")).is_some());
+        assert!(lsof_verdict(3000, &nobody, false, exe("node")).is_none());
+    }
+
+    /// lsof that failed (timeout, signal, an exit other than 0/1), or that
+    /// listed holders and then failed, refuses the port; after a connect, no
+    /// listed pid refuses whatever lsof exited with.
+    #[test]
+    fn a_failed_or_partial_lsof_refuses() {
+        let timed_out = Lsof { pids: Vec::new(), exit: None };
+        assert!(lsof_verdict(3000, &timed_out, false, exe("node")).is_some());
+        let partial = Lsof { pids: vec![7], exit: Some(1) };
+        assert!(lsof_verdict(3000, &partial, false, exe("node")).is_some());
+        let error = Lsof { pids: Vec::new(), exit: Some(2) };
+        assert!(lsof_verdict(3000, &error, false, exe("node")).is_some());
+        let partial_error = Lsof { pids: vec![7], exit: Some(2) };
+        assert!(lsof_verdict(3000, &partial_error, true, exe("node")).is_some());
+        let empty_ok = Lsof { pids: Vec::new(), exit: Some(0) };
+        assert!(lsof_verdict(3000, &empty_ok, true, exe("node")).is_some());
+        assert!(lsof_verdict(3000, &empty_ok, false, exe("node")).is_none());
+    }
+
+    /// Linux executable names of Chromium-based browsers count as services.
+    #[test]
+    fn linux_browser_names_are_services() {
+        for name in ["msedge", "brave", "electron", "headless_shell", "chrome"] {
+            assert!(is_service_name(name), "{name}");
+        }
+        assert!(!is_service_name("node"));
+    }
+
+    /// A visible dev server is allowed; a cmux service, Chrome or another
+    /// Chromium-based browser is refused.
+    #[test]
+    fn holders_are_checked_by_executable_name() {
+        let one = Lsof { pids: vec![7], exit: Some(0) };
+        assert!(lsof_verdict(3000, &one, true, exe("node")).is_none());
+        let services = [
+            "cmux DEV tag",
+            "Google Chrome",
+            "Chromium",
+            "Microsoft Edge",
+            "Brave Browser",
+            "Electron",
+            "cmuxd-remote",
+        ];
+        for name in services {
+            assert!(lsof_verdict(3000, &one, true, exe(name)).is_some(), "{name}");
+        }
+        assert!(lsof_verdict(3000, &one, true, |_| None).is_some(), "an unreadable holder");
+    }
+}
