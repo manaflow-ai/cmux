@@ -99,7 +99,8 @@ export class SignalingClient extends EventEmitter<SignalingEvents> {
       this.log("signaling connected");
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.ping();
+        // JSON ping: the backend's Durable Object auto-responds without waking.
+        if (ws.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}');
       }, this.opts.pingMs ?? 25_000);
       this.emit("open");
     });
@@ -110,11 +111,14 @@ export class SignalingClient extends EventEmitter<SignalingEvents> {
       } catch {
         return;
       }
+      if ((frame as { type: string }).type === "pong") return;
       if (frame.type === "welcome") this.peerId = frame.peerId;
       this.emit("frame", frame);
     });
     ws.on("unexpected-response", (_req, res) => {
-      this.log(`signaling rejected: HTTP ${res.statusCode}`);
+      this.log(`signaling rejected: HTTP ${res.statusCode}${res.statusCode === 401 ? " (host token invalid or revoked; run login again)" : ""}`);
+      // Do not hammer the backend with a bad token.
+      if (res.statusCode === 401 || res.statusCode === 403) this.attempt = Math.max(this.attempt, 10);
     });
     ws.on("error", (err) => this.log(`signaling error: ${err.message}`));
     ws.on("close", (code, reason) => {

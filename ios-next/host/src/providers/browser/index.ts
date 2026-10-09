@@ -8,7 +8,7 @@ import { FrameKind, type Tab } from "../../protocol.ts";
 import { RpcError, type ClientSession, type RpcServer, encodeBrowserFramePayload, num, optStr, str } from "../../rpc/index.ts";
 import type { Logger } from "../../util.ts";
 import { CdpConnection } from "./cdp.ts";
-import { fetchVersion, findChromeBinaries, resolveCdpEndpoint } from "./chrome.ts";
+import { DEFAULT_CDP_PORT, fetchVersion, findChromeBinaries, resolveCdpEndpoint } from "./chrome.ts";
 
 export const MAX_UNACKED = 2;
 
@@ -56,15 +56,24 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   private endpoint: string | null = null;
   private lastActivated: string | null = null;
 
+  private endpointSeen = false;
+
   constructor(private readonly opts: BrowserProviderOptions = {}) {
     super();
     this.log = opts.log ?? (() => {});
+    // A browser already listening on the default CDP port counts as capable.
+    if (!opts.resolveEndpoint && !opts.cdp) {
+      void fetchVersion(`http://127.0.0.1:${DEFAULT_CDP_PORT}`, 1_000).then((v) => {
+        if (v) this.endpointSeen = true;
+      });
+    }
   }
 
   /** Whether a browser is (or can be made) available for browser.v1. */
   get capable(): boolean {
     if (this.cdp && !this.cdp.isClosed) return true;
-    if (this.opts.resolveEndpoint || this.opts.cdp || process.env.CMUX_NEXT_CDP) return true;
+    if (this.opts.cdp || process.env.CMUX_NEXT_CDP || this.endpointSeen) return true;
+    if (this.opts.resolveEndpoint) return false;
     return this.opts.launch !== false && findChromeBinaries().length > 0;
   }
 
@@ -92,6 +101,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     const version = await fetchVersion(endpoint);
     if (!version) throw new RpcError("unavailable", `CDP endpoint ${endpoint} is not responding`);
     this.endpoint = endpoint;
+    this.endpointSeen = true;
     const cdp = await CdpConnection.connect(version.webSocketDebuggerUrl);
     this.cdp = cdp;
     this.log(`connected to ${version.Browser ?? "browser"} at ${endpoint}`);
