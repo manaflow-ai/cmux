@@ -25,9 +25,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Freestyle } from "freestyle";
+import { freestyleDevKey } from "../../../scripts/lib/freestyle-dev-key.mjs";
 import { API_ORIGINS, HOST_CLI } from "./host-agent";
 import { assertDevOrigin, readEnvFile } from "./dev-e2e";
-import { argValue, freestyleApiKey, run, type Vm } from "./guest";
+import { argValue, run, type Vm } from "./guest";
 
 const ORIGIN = API_ORIGINS.dev;
 const STACK = "https://api.stack-auth.com";
@@ -169,7 +170,7 @@ export async function main(argv = process.argv): Promise<number> {
   const result: Record<string, unknown> = { origin: ORIGIN };
   const save = () => writeFileSync(path.join(outDir, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
   const api = new Api(await signin(readEnvFile(readFileSync(path.join(os.homedir(), ".secrets/cmuxterm-dev.env"), "utf8"))), log);
-  const fs = new Freestyle({ apiKey: freestyleApiKey({ FREESTYLE_API_KEY_FILE: path.join(os.homedir(), ".secrets/freestyle-cmux-next-dev-20261004.key") }) });
+  const fs = new Freestyle({ apiKey: freestyleDevKey() });
   const tag = `idle-${Date.now().toString(36)}`;
   const created: string[] = [];
   let flippedAt = 0;

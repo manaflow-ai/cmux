@@ -2062,3 +2062,42 @@ fn a_transient_probe_error_posts_no_notice_and_is_retried() {
     assert!(probe_notice(CompactRoute::Acpmux, login).is_some());
     assert_eq!(probe_retry_wait(login, 0), None);
 }
+
+/// CLI dogfood at 64d57f35a20f: host.log said "compactor node
+/// 0+9223372036854775808": the start-up probe's id (level 63, a span of
+/// 2^63 messages no chat reaches), never stored, named as a node. The probe
+/// and image descriptions are named for what they are in the log and the
+/// trace, and the probe stores nothing.
+#[test]
+fn the_probe_is_named_probe_not_a_node_span() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap())
+        .with_log(Arc::new(move |l: &str| {
+            sink.lock().unwrap().push(l.to_owned())
+        }));
+    assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
+    let lines = lines.lock().unwrap();
+    assert!(
+        lines.iter().all(|l| !l.contains("9223372036854775808")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("compactor probe (")),
+        "{lines:?}"
+    );
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        events.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
+    }
+    let node = events.iter().find(|e| e["ev"] == "node").unwrap();
+    assert_eq!(node["node"], "probe");
+}

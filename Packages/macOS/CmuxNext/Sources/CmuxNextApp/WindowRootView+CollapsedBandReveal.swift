@@ -11,10 +11,12 @@ extension WindowRootView {
     func setUpCollapsedBandReveal() {
         collapsedBand.install(in: self)
         collapsedBand.shownPresence = { [weak self] in self?.toolbarBandPresence ?? 0 }
+        collapsedBand.reveal = titlebarReveal
         titlebarReveal.onStateChange = { [weak self] state in
-            self?.collapsedBand.setEngaged(CollapsedBandReveal.isEngaged(state))
+            guard let band = self?.collapsedBand else { return }
+            band.setEngaged(band.isEngaged(state))
         }
-        collapsedBand.setEngaged(CollapsedBandReveal.isEngaged(titlebarReveal.state))
+        collapsedBand.setEngaged(collapsedBand.isEngaged(titlebarReveal.state))
     }
 
     /// How much of the toolbar band shows: the sidebar's on-screen share of

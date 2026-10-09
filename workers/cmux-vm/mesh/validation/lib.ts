@@ -16,8 +16,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { generateKeyPairSync } from "node:crypto";
 
-export const KEY_FILE =
-  process.env.MESH_KEY_FILE ?? `${process.env.HOME}/.secrets/freestyle-cmux-next-dev-20261004.key`;
+/** MESH_KEY_FILE (run-remote.sh sets it on the remote host); unset: the one Freestyle dev key, see devKey(). */
+export const KEY_FILE: string | undefined = process.env.MESH_KEY_FILE || undefined;
 export const API = process.env.MESH_API_URL ?? "https://api.freestyle.sh";
 export const RUN_ID = process.env.MESH_RUN_ID ?? new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "").toLowerCase();
 export const PREFIX = `cmux-mesh-validation-${RUN_ID}`;
@@ -33,8 +33,16 @@ function readKey(file: string): string {
   return (m ? m[1] : raw).trim().replace(/^["']|["']$/g, "");
 }
 let KEY = "";
+/**
+ * The one Freestyle dev key from ~/.secrets/cmux.env (scripts/lib/freestyle-dev-key.mjs). Loaded lazily:
+ * the remote host gets only this directory and always runs with MESH_KEY_FILE.
+ */
+function devKey(): string {
+  const helper = require("../../../../scripts/lib/freestyle-dev-key.mjs") as { freestyleDevKey: () => string };
+  return helper.freestyleDevKey();
+}
 export function key(): string {
-  if (!KEY) KEY = readKey(KEY_FILE);
+  if (!KEY) KEY = KEY_FILE === undefined ? devKey() : readKey(KEY_FILE);
   return KEY;
 }
 export function keyFrom(file: string): string {
