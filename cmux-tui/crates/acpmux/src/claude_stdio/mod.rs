@@ -33,62 +33,23 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// so they stay.
 const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
 
-/// The model choices until Claude Code answers `initialize` with its own list
-/// (`models`, which is then the authority). Aliases only: each runs Claude
-/// Code's newest model of that family, so the fallback never offers a stale
-/// release. The `[1m]` suffix asks for the 1M context window.
-const MODELS: [(&str, &str); 9] = [
+/// Model aliases Claude Code accepts on `set_model` and `--model`. Aliases
+/// track Claude Code's own defaults; the `[1m]` suffix asks for the 1M
+/// context window, and the full ids pin a model regardless of alias drift.
+const MODELS: [(&str, &str); 12] = [
     ("default", "Default (Claude Code's choice)"),
-    ("fable", "Fable"),
-    ("fable[1m]", "Fable · 1M context"),
+    ("claude-fable-5-1", "Fable 5.1"),
+    ("claude-fable-5-1[1m]", "Fable 5.1 · 1M context"),
     ("opus", "Opus"),
     ("opus[1m]", "Opus · 1M context"),
+    ("claude-opus-5", "Opus 5"),
     ("opusplan", "Opus plan · Sonnet execute"),
     ("sonnet", "Sonnet"),
     ("sonnet[1m]", "Sonnet · 1M context"),
+    ("claude-sonnet-5", "Sonnet 5"),
     ("haiku", "Haiku"),
+    ("claude-haiku-4-5-20251001", "Haiku 4.5"),
 ];
-
-/// One model Claude Code reported at `initialize`, as a picker choice.
-#[derive(Debug, Clone)]
-struct ReportedModel {
-    /// What `set_model` takes ("opus").
-    value: String,
-    /// What the value runs now, from Claude Code's own words ("Opus 5.5").
-    name: String,
-    description: Option<String>,
-    /// The concrete model id the value runs now ("claude-opus-5-5"). What an
-    /// alias runs depends on the installed Claude Code (2.1.287's `haiku` is
-    /// Haiku 4.5, 2.1.295's is Haiku 5.5), so only this reply says it.
-    resolved: Option<String>,
-}
-
-fn reported_model(model: &Value) -> Option<ReportedModel> {
-    let value = model.get("value").and_then(Value::as_str).filter(|v| !v.is_empty())?;
-    let resolved = model.get("resolvedModel").and_then(Value::as_str).map(str::to_owned);
-    if value == "default" {
-        return Some(ReportedModel {
-            value: value.to_owned(),
-            name: MODELS[0].1.to_owned(),
-            description: None,
-            resolved,
-        });
-    }
-    let display = model.get("displayName").and_then(Value::as_str).unwrap_or(value);
-    let description = model.get("description").and_then(Value::as_str).unwrap_or("");
-    // "Opus 5.5 · Best for everyday, complex tasks · $4/$20 per Mtok": the first
-    // part names the resolved release when it starts with the display name.
-    let mut parts = description.split(" · ");
-    let head = parts.next().unwrap_or("").trim();
-    let mut name =
-        if !head.is_empty() && head.starts_with(display) { head } else { display }.to_owned();
-    if value.ends_with("[1m]") && !name.contains("1M") {
-        name.push_str(" · 1M context");
-    }
-    let rest: Vec<&str> = parts.collect();
-    let description = (!rest.is_empty()).then(|| rest.join(" · "));
-    Some(ReportedModel { value: value.to_owned(), name, description, resolved })
-}
 
 /// Effort levels Claude Code accepts for `--effort` and the live
 /// `apply_flag_settings` control request. "default" leaves the model's own.
@@ -216,9 +177,6 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
-    /// The models Claude Code reported at `initialize`; empty until it
-    /// answers, when [`MODELS`] stands in.
-    reported_models: Mutex<Vec<ReportedModel>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
     stdin_replies: Mutex<Vec<Value>>,
@@ -265,7 +223,6 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
-            reported_models: Mutex::new(Vec::new()),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
@@ -316,51 +273,10 @@ impl Translator {
         })
     }
 
-    /// Keeps the models Claude Code reported in its `initialize` reply.
-    pub(super) async fn remember_reported_models(&self, models: Option<&Value>) {
-        let list: Vec<_> = models
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(reported_model)
-            .collect();
-        if !list.is_empty() {
-            *self.reported_models.lock().await = list;
-        }
-    }
-
-    /// The model choices: what Claude Code reported, else the alias fallback,
-    /// plus the session's own model when neither lists it.
-    async fn model_options(&self, current: &str) -> Vec<Value> {
-        let reported = self.reported_models.lock().await.clone();
-        let mut options: Vec<Value> = if reported.is_empty() {
-            MODELS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect()
-        } else {
-            reported
-                .iter()
-                .map(|m| {
-                    let mut option = json!({"value": m.value, "name": m.name});
-                    if let Some(d) = &m.description {
-                        option["description"] = json!(d);
-                    }
-                    if let Some(r) = &m.resolved {
-                        option["resolvedModel"] = json!(r);
-                    }
-                    option
-                })
-                .collect()
-        };
-        if !current.is_empty() && !options.iter().any(|o| o["value"] == current) {
-            options.push(json!({"value": current, "name": current}));
-        }
-        options
-    }
-
     pub async fn config_options_value(&self) -> Value {
-        let model = self.model.lock().await.clone();
         json!([
-            {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": model,
-             "options": self.model_options(&model).await},
+            {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
+             "options": MODELS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
              "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "effort", "name": "Effort", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,
