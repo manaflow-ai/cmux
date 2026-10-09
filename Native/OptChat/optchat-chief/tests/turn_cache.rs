@@ -245,3 +245,108 @@ fn a_session_pooled_before_a_ttl_change_reruns_its_turn_once_at_the_old_ttl() {
     drop(inner);
     assert_eq!(session_settings(&h, "settings.json")["promptCacheTtl"], "5m");
 }
+
+/// The TTL Claude Code gives its own marks from its settings: the env
+/// FORCE_PROMPT_CACHING_5M wins, then `promptCacheTtl`, then a subscription
+/// login's 1 hour (Claude Code 2.1.287; the worst case for our marks).
+fn harness_ttl(settings: &Value, env: Option<&std::collections::BTreeMap<String, String>>) -> &'static str {
+    let forced = settings["env"]["FORCE_PROMPT_CACHING_5M"] == "1"
+        || env.is_some_and(|e| e.get("FORCE_PROMPT_CACHING_5M").map(String::as_str) == Some("1"));
+    if forced {
+        return "5m";
+    }
+    match settings["promptCacheTtl"].as_str() {
+        Some("5m") => "5m",
+        _ => "1h",
+    }
+}
+
+fn ttl_of(mark: &Value) -> &'static str {
+    if mark["ttl"] == "1h" { "1h" } else { "5m" }
+}
+
+/// Claude Code's request order: its system marks, our marks, its end mark.
+/// The API refuses a 1h mark after a 5m one.
+fn assert_non_increasing(harness: &str, ours: &[&str], what: &str) {
+    let mut order = vec![harness];
+    order.extend_from_slice(ours);
+    order.push(harness);
+    for pair in order.windows(2) {
+        assert!(
+            !(pair[0] == "5m" && pair[1] == "1h"),
+            "{what}: marks {order:?}: a 1h mark after a 5m one is refused"
+        );
+    }
+}
+
+#[test]
+fn turn_requests_never_put_a_one_hour_mark_after_a_five_minute_one_for_either_setting() {
+    for chief in [None, Some(json!({"cache": {"ttl": "5m"}})), Some(json!({"cache": {"ttl": "1h"}}))] {
+        let mut h = claude_harness(chief.clone());
+        fill(&h.chat, 0, 1_200);
+        h.connect();
+        h.say("user_local", "one");
+        h.settle();
+        let settings = session_settings(&h, "settings.json");
+        let inner = h.agents.inner.lock().unwrap();
+        let blocks = &inner.prompts[0];
+        let ours: Vec<&str> = markers(blocks)
+            .iter()
+            .map(|&k| ttl_of(&blocks[k]["cache_control"]))
+            .collect();
+        assert_non_increasing(harness_ttl(&settings, None), &ours, &format!("turn, setting {chief:?}"));
+    }
+}
+
+#[test]
+fn compactor_requests_never_put_a_one_hour_mark_after_a_five_minute_one() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::compactor::{cached_prompt, compactor_presets, compactor_settings};
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    let presets = compactor_presets(&paths, dir.path(), "claude", Family::Claude);
+    assert!(!presets.is_empty());
+    let mut context = String::from("<chat>\n");
+    for i in 0..40 {
+        context.push_str(&format!("{i}+1|note: line {i}\n"));
+    }
+    context.push_str("</chat>");
+    let request = optchat_core::CompactRequest {
+        node: optchat_core::NodeId::new(0, 40),
+        system: "system".into(),
+        context,
+        step: "step".into(),
+        cut: None,
+    };
+    let prompt = cached_prompt(&request, true);
+    let ours: Vec<&str> = markers(&prompt.blocks)
+        .iter()
+        .map(|&k| ttl_of(&prompt.blocks[k]["cache_control"]))
+        .collect();
+    assert_eq!(ours.len(), 1);
+    for preset in &presets {
+        assert_non_increasing(
+            harness_ttl(&compactor_settings(), Some(&preset.env)),
+            &ours,
+            &format!("compactor preset {}", preset.name),
+        );
+        assert_eq!(
+            preset.env.get("FORCE_PROMPT_CACHING_5M").map(String::as_str),
+            Some("1"),
+            "{}: Claude Code's own marks pinned to 5m",
+            preset.name
+        );
+    }
+}
+
+#[test]
+fn a_five_minute_setting_forces_claude_codes_marks_to_five_minutes() {
+    let mut h = claude_harness(Some(json!({"cache": {"ttl": "5m"}})));
+    fill(&h.chat, 0, 1_200);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    for file in ["settings.json", "settings.local.json"] {
+        assert_eq!(session_settings(&h, file)["env"]["FORCE_PROMPT_CACHING_5M"], "1", "{file}");
+    }
+}
