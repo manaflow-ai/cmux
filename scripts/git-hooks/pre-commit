@@ -160,7 +160,7 @@ if (( ${#STAGED_RUST_PATHS[@]} > 0 )); then
         done
         (
             cd "$REPO_ROOT/cmux-tui"
-            "$RUSTFMT_BIN" --config-path "$REPO_ROOT/cmux-tui/rustfmt.toml" "${RUSTFMT_PATHS[@]}"
+            "$RUSTFMT_BIN" --edition 2024 --config-path "$REPO_ROOT/cmux-tui/rustfmt.toml" "${RUSTFMT_PATHS[@]}"
         )
         git add -- "${STAGED_RUST_PATHS[@]}"
     fi
