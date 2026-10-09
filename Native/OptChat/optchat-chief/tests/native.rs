@@ -130,12 +130,14 @@ fn a_native_turn_logs_its_steps_and_lays_out_the_request_for_the_cache() {
     );
     assert_eq!(first["tools"], bodies[1]["tools"], "byte-identical tools");
     let opening = first["messages"][0]["content"].as_array().unwrap();
-    assert_eq!(opening[0]["text"], "<chat>\n</chat>");
-    // An empty view has no whole 4-line block: nothing to mark in it.
-    assert!(opening[0].get("cache_control").is_none());
-    assert_eq!(first["system"][0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(opening[1]["text"], "what does echo say?");
+    // An empty view has no whole 4-line block: its header block is marked.
+    assert_eq!(opening[0]["text"], "<chat>\n");
+    assert_eq!(opening[0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(opening[1]["text"], "</chat>");
     assert!(opening[1].get("cache_control").is_none());
+    assert_eq!(first["system"][0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(opening[2]["text"], "what does echo say?");
+    assert!(opening[2].get("cache_control").is_none());
     let second = bodies[1]["messages"].as_array().unwrap();
     assert_eq!(second.len(), 3);
     assert_eq!(
@@ -301,10 +303,11 @@ fn final_stream(text: &str) -> Vec<Value> {
     ]
 }
 
-// m6 (decision 2026-10-04): a human message stops the model at once, even
-// mid-thinking, and a new call starts with the message delivered.
+// Decision 2026-10-09 (replaces m6 of 2026-10-04): a message never stops
+// the model. The streaming step finishes; the message reaches the model
+// after the next tool results, or the next turn takes it.
 #[test]
-fn a_message_during_thinking_aborts_the_stream_and_starts_a_new_call() {
+fn a_message_during_thinking_never_aborts_the_stream() {
     let model = Arc::new(Streaming {
         calls: Mutex::new(vec![thinking_stream(), final_stream("You're welcome.")].into()),
         bodies: Mutex::new(Vec::new()),
@@ -330,33 +333,30 @@ fn a_message_during_thinking_aborts_the_stream_and_starts_a_new_call() {
         gate.1 = true;
         model.changed.notify_all();
     }
-    h.settle();
+    h.settle_posts();
     assert_eq!(
         *model.stopped_at.lock().unwrap(),
-        Some(4),
-        "the stream stops at the first chunk after the message"
+        None,
+        "the stream is not stopped"
     );
     assert_eq!(
         pairs(&h.log()),
         vec![
             ("user", "plan the release"),
+            ("talk", "Half an ans"),
             ("user", "thanks"),
             ("talk", "You're welcome."),
-        ],
-        "nothing of the interrupted step is logged"
+        ]
     );
-    let bodies = model.bodies.lock().unwrap().clone();
-    assert_eq!(bodies.len(), 2);
-    let messages = bodies[1]["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 1, "the interrupted output is not resent");
-    let opening = messages[0]["content"].as_array().unwrap();
-    assert_eq!(
-        opening.last().unwrap(),
-        &json!({"type": "text", "text": "thanks"})
-    );
-    let sends = h.owner.lock().unwrap().sends();
-    assert_eq!(sends.len(), 1);
-    assert_eq!(sends[0].1, "You're welcome.");
+    let sends: Vec<String> = h
+        .owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect();
+    assert_eq!(sends, vec!["Half an ans", "You're welcome."]);
 }
 
 // m6: a running tool call finishes, its result is logged and sent, then the

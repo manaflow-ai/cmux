@@ -46,7 +46,7 @@ extension PaletteController {
             ranked = await searcher.search(entries: state.entries, version: state.version,
                                            query: text, generation: 0, sectionOrders: state.sectionOrders, frecency: model.frecency,
                                            now: model.now(), showsRecent: page.showsRecent,
-                                           keepsSectionOrder: page.keepsSectionOrder).sections
+                                           keepsSectionOrder: page.keepsSectionOrder, ranksPrefixFirst: page.ranksPrefixFirst).sections
         }
         return state.resolve(ranked).flatMap { section in
             section.rows.map { row in
@@ -74,7 +74,7 @@ extension PaletteController {
     }
 
     /// `scope`'s page with every provider's items loaded, built headless.
-    private func loadedPage(_ scope: PaletteScopeID) async -> (PalettePageSpec, PageState)? {
+    func loadedPage(_ scope: PaletteScopeID) async -> (PalettePageSpec, PageState)? {
         configureScopes()
         guard scope == .root || model.navigation.graph.contains(scope), let page = page(forScope: scope, context: nil) else { return nil }
         let state = PageState(kind: .list(page))

@@ -35,6 +35,11 @@ export interface Receipt {
   /** compat-smoke: the cmux-old release tag (and its commit) whose requests were replayed. */
   readonly release?: string
   readonly releaseSha?: string
+  /** compat-smoke: signed in as the agent profile; per-class counts; requests probed shape-only; staging vs production web revisions. */
+  readonly authenticated?: boolean
+  readonly counts?: Readonly<Record<string, number>>
+  readonly shapeOnly?: ReadonlyArray<string>
+  readonly revisions?: { readonly staging: { readonly host: string; readonly sha?: string; readonly error?: string }; readonly production: { readonly host: string; readonly sha?: string; readonly error?: string }; readonly relation: string; readonly source: string }
   readonly by: string
 }
 

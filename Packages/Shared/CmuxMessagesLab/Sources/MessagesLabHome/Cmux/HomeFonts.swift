@@ -70,7 +70,7 @@ enum HomeFonts {
         guard let d = base.fontDescriptor.withSymbolicTraits(all), let font = NSFont(descriptor: d, size: key.size) else { return nil }
         return store.withLock { fonts in
             if let held = fonts[key] { return held }
-            fonts[key] = font
+            fonts.updateValue(font, forKey: key) // // crash program: dictionary write
             return font
         }
     }
@@ -95,7 +95,7 @@ enum HomeFonts {
         store.withLock { fonts in
             if let held = fonts[key] { return held }
             let font = make()
-            fonts[key] = font
+            fonts.updateValue(font, forKey: key) // // crash program: dictionary write
             return font
         }
     }

@@ -19,7 +19,7 @@ final class HomeMedia {
     typealias Fetch = @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     /// Where the pictures are written (one folder per process).
-    static let directory: URL = FileManager.default.temporaryDirectory
+    nonisolated static let directory: URL = FileManager.default.temporaryDirectory
         .appendingPathComponent("cmux-home-media-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
 
     var fetch: Fetch?
@@ -32,7 +32,7 @@ final class HomeMedia {
     private var locals: [String: LocalAttachmentFiles] = [:]
 
     /// The `file:` asset of a hash's picture, nil until it is ready.
-    func asset(_ hash: String) -> String? { ready[hash] }
+    func asset(_ hash: String) -> String? { ready.value(for: hash) } // // crash program: dictionary read
 
     /// Local files of my own attachment (a draft or a send in flight).
     func useLocal(_ files: LocalAttachmentFiles, for hash: String) {
@@ -53,7 +53,7 @@ final class HomeMedia {
     /// failed, or when the part has no picture).
     func request(_ ref: AttachmentRef) {
         let hash = ref.hash
-        guard ready[hash] == nil, jobs[hash] == nil, !failed.contains(hash) else { return }
+        guard !ready.keys.contains(hash), !jobs.keys.contains(hash), !failed.contains(hash) else { return } // // crash program: dictionary reads
         let kind = HomeMapping.kind(of: ref)
         guard kind == "image" || kind == "video" else { return }
         let local = locals[hash]
@@ -66,7 +66,7 @@ final class HomeMedia {
             guard let self else { return }
             self.jobs[hash] = nil
             guard let file else { self.failed.insert(hash); return }
-            self.ready[hash] = file.absoluteString
+            self.ready.updateValue(file.absoluteString, forKey: hash) // // crash program: dictionary write
             self.onReady(hash)
         }
     }
@@ -89,7 +89,7 @@ final class HomeMedia {
     nonisolated static func maxPixel(_ ref: AttachmentRef) -> Int {
         guard let w = ref.width, let h = ref.height, w > 0, h > 0 else { return 1024 }
         let long = max(w, h)
-        return min(long, max(1024, Int((600.0 * Double(long) / Double(w)).rounded(.up))))
+        return min(long, max(1024, CrashGuard.int((600.0 * Double(long) / Double(w)).rounded(.up))))
     }
 
     private nonisolated static func load(_ ref: AttachmentRef, isVideo: Bool, local: LocalAttachmentFiles?, fetch: Fetch?,

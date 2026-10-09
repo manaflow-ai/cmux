@@ -18,6 +18,13 @@ pub(crate) use browser_tab_create::{
 pub(crate) mod app_terminals;
 mod cloud_conversations;
 mod conversations;
+mod deadline_fanout;
+#[cfg(test)]
+use deadline_fanout::DeadlineCompletion;
+use deadline_fanout::{
+    CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
+    bounded_deadline_map,
+};
 mod dock_columns;
 mod exit_settle;
 mod host_close;
@@ -28,11 +35,26 @@ mod journal_plugin_host;
 mod journal_retention;
 mod kitty_reservation;
 use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
+mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_undo_commit;
+pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
+mod notification_types;
+pub use notification_types::{
+    NotificationEvent, NotificationSource, ResourceNotification, SurfaceNotification,
+};
+mod notification_level;
+pub use notification_level::NotificationLevel;
 mod personal;
 mod presentation;
+mod provider_authority;
+pub(crate) use provider_authority::ProviderWorkspaceState;
+pub use provider_authority::{
+    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError,
+};
+use provider_authority::{constant_time_eq, validate_mux_generation};
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
@@ -43,11 +65,15 @@ mod resource_topology;
 mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
+mod signaled_mutex;
+pub(crate) use signaled_mutex::SignaledMutex;
 mod session_paths;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
 mod tab_workspace_name;
+mod time;
+pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
@@ -56,6 +82,8 @@ mod orphan_hosts;
 mod pending_terminals;
 pub(crate) mod terminal_archive;
 mod terminal_directory;
+mod terminal_lifecycle_commit;
+use terminal_lifecycle_commit::commit_terminal_lifecycle;
 mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -102,22 +130,17 @@ use public_projections::{RestoredPublicProjections, restore_public_projections};
 use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{
-    Arc, Condvar, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError,
-    TryLockResult, Weak,
-};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::time::{Duration, Instant};
 use topology_result::persist_public_topology_result;
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroize;
 
 use crate::Actor;
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
@@ -183,152 +206,6 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 /// log, so the core does not need to know how diagnostics are persisted.
 pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
 
-pub(crate) struct SignaledMutex<T> {
-    value: Mutex<T>,
-    release_epoch: Mutex<u64>,
-    released: Condvar,
-    /// Contention record with `#[track_caller]` attribution, reported by
-    /// `server-stats` so lock convoys are visible without external sampling.
-    stats: crate::diagnostics::LockStats,
-}
-
-impl<T> SignaledMutex<T> {
-    fn new(value: T) -> Self {
-        Self {
-            value: Mutex::new(value),
-            release_epoch: Mutex::new(0),
-            released: Condvar::new(),
-            stats: crate::diagnostics::LockStats::new(),
-        }
-    }
-
-    fn stats(&self) -> &crate::diagnostics::LockStats {
-        &self.stats
-    }
-
-    fn guard<'a>(
-        &'a self,
-        value: MutexGuard<'a, T>,
-        site: crate::diagnostics::LockSite,
-        waited_from: Instant,
-        blocker: Option<crate::diagnostics::LockSite>,
-    ) -> SignaledMutexGuard<'a, T> {
-        self.stats.acquired(site, waited_from.elapsed(), blocker);
-        SignaledMutexGuard { value: Some(value), owner: self, site, acquired_at: Instant::now() }
-    }
-
-    #[track_caller]
-    pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
-        let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
-        let blocker = self.stats.wait_started();
-        match self.value.lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(error) => {
-                Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
-            }
-        }
-    }
-
-    #[cfg(test)]
-    #[track_caller]
-    fn try_lock(&self) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        self.try_lock_at(std::panic::Location::caller(), Instant::now(), None)
-    }
-
-    fn try_lock_at(
-        &self,
-        site: crate::diagnostics::LockSite,
-        waited_from: Instant,
-        blocker: Option<crate::diagnostics::LockSite>,
-    ) -> TryLockResult<SignaledMutexGuard<'_, T>> {
-        match self.value.try_lock() {
-            Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
-            Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
-            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(PoisonError::new(
-                self.guard(error.into_inner(), site, waited_from, blocker),
-            ))),
-        }
-    }
-
-    #[track_caller]
-    fn lock_until(&self, deadline: Instant) -> anyhow::Result<SignaledMutexGuard<'_, T>> {
-        let site = std::panic::Location::caller();
-        let waited_from = Instant::now();
-        let blocker = self.stats.wait_started();
-        loop {
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let observed = *self.release_epoch.lock().unwrap();
-            match self.try_lock_at(site, waited_from, blocker) {
-                Ok(value) => return Ok(value),
-                Err(TryLockError::Poisoned(_)) => {
-                    self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                    anyhow::bail!("mutex is poisoned")
-                }
-                Err(TryLockError::WouldBlock) => {}
-            }
-
-            let mut epoch = self.release_epoch.lock().unwrap();
-            if *epoch != observed {
-                continue;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
-            }
-            let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
-            epoch = next;
-            if result.timed_out() && *epoch == observed {
-                self.stats.wait_failed(site, waited_from.elapsed(), blocker);
-                return Err(crate::JournalContention::MUTEX_DEADLINE.into());
-            }
-        }
-    }
-}
-
-pub(crate) struct SignaledMutexGuard<'a, T> {
-    value: Option<MutexGuard<'a, T>>,
-    owner: &'a SignaledMutex<T>,
-    site: crate::diagnostics::LockSite,
-    acquired_at: Instant,
-}
-
-impl<T> Deref for SignaledMutexGuard<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.value.as_deref().expect("signaled mutex guard has a value")
-    }
-}
-
-impl<T> DerefMut for SignaledMutexGuard<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.value.as_deref_mut().expect("signaled mutex guard has a value")
-    }
-}
-
-impl<T> Drop for SignaledMutexGuard<'_, T> {
-    fn drop(&mut self) {
-        // Clear holder attribution before the inner mutex is released, so a
-        // waiter that acquires next can never have its holder record erased
-        // by this older unlock.
-        self.owner.stats.released(self.site, self.acquired_at.elapsed());
-        drop(self.value.take());
-        let mut epoch = self.owner.release_epoch.lock().unwrap();
-        *epoch = epoch.wrapping_add(1);
-        self.owner.released.notify_all();
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaemonIdentity {
     pub(crate) pid: u32,
@@ -365,10 +242,6 @@ const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
-const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
-const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
-const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
-const DEADLINE_FANOUT_IDLE_TIMEOUT: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const CELL_PIXEL_RETRY_MAX: Duration = Duration::from_millis(250);
 const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
@@ -576,349 +449,8 @@ fn workspace_resource_upsert(
     })
 }
 
-/// An opaque per-mux credential provisioned by the external machine
-/// provider. Debug output is deliberately redacted.
-#[derive(PartialEq, Eq)]
-pub struct ProviderWorkspaceAuthority(Box<str>);
-
-impl ProviderWorkspaceAuthority {
-    pub fn new(value: impl Into<String>) -> anyhow::Result<Self> {
-        let mut value = value.into();
-        if !(PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES..=PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES)
-            .contains(&value.len())
-            || value.bytes().any(|byte| byte.is_ascii_control())
-        {
-            value.zeroize();
-            anyhow::bail!(
-                "provider workspace authority must be 32 to 512 bytes without control characters"
-            );
-        }
-        Ok(Self(value.into_boxed_str()))
-    }
-
-    pub(crate) fn expose(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
-/// Public, non-secret state exposed by the provider management socket.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ProviderWorkspaceAuthorityStatus {
-    pub managed: bool,
-    pub mux_generation: Option<String>,
-    pub authority_generation: u64,
-    pub authority_installed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderWorkspaceAuthorityUpdateError {
-    Unmanaged,
-    MuxGenerationMismatch,
-    ExpectedGenerationMismatch,
-    GenerationConflict,
-    InvalidGeneration,
-}
-
-impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Unmanaged => "workspace lifecycle is not provider-managed",
-            Self::MuxGenerationMismatch => "mux generation does not match the running process",
-            Self::ExpectedGenerationMismatch => "authority generation changed concurrently",
-            Self::GenerationConflict => {
-                "authority generation already contains a different credential"
-            }
-            Self::InvalidGeneration => "authority generation must advance by exactly one",
-        })
-    }
-}
-
-impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
-
-#[derive(Default)]
-pub(crate) struct ProviderWorkspaceState {
-    managed: bool,
-    mux_generation: Option<Box<str>>,
-    authority_generation: u64,
-    authority: Option<ProviderWorkspaceAuthority>,
-}
-
-impl ProviderWorkspaceState {
-    fn status(&self) -> ProviderWorkspaceAuthorityStatus {
-        ProviderWorkspaceAuthorityStatus {
-            managed: self.managed,
-            mux_generation: self.mux_generation.as_deref().map(str::to_owned),
-            authority_generation: self.authority_generation,
-            authority_installed: self.authority.is_some(),
-        }
-    }
-}
-
-impl fmt::Debug for ProviderWorkspaceAuthority {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("ProviderWorkspaceAuthority([redacted])")
-    }
-}
-
-impl Drop for ProviderWorkspaceAuthority {
-    fn drop(&mut self) {
-        // NUL bytes remain valid UTF-8, so the boxed string can be cleared in
-        // place before its allocation is released.
-        self.0.zeroize();
-    }
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    let length = left.len().max(right.len());
-    for index in 0..length {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or(0) ^ right.get(index).copied().unwrap_or(0),
-        );
-    }
-    difference == 0
-}
-
-fn validate_mux_generation(value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        anyhow::bail!("mux generation must be 32 lowercase hexadecimal characters");
-    }
-    Ok(())
-}
-
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
-}
-
-type DeadlineFanoutJob = Box<dyn FnOnce() + Send + 'static>;
-
-#[derive(Default)]
-struct DeadlineFanoutState {
-    jobs: VecDeque<DeadlineFanoutJob>,
-    worker_count: usize,
-    admitted_jobs: usize,
-    next_worker: u64,
-    shutdown: bool,
-}
-
-#[derive(Default)]
-struct DeadlineFanoutInner {
-    state: Mutex<DeadlineFanoutState>,
-    changed: Condvar,
-}
-
-struct DeadlineFanoutPool {
-    inner: Arc<DeadlineFanoutInner>,
-}
-
-impl DeadlineFanoutPool {
-    fn new() -> Self {
-        Self { inner: Arc::new(DeadlineFanoutInner::default()) }
-    }
-
-    fn submit(&self, job: DeadlineFanoutJob) -> bool {
-        self.submit_until(None, job)
-    }
-
-    fn submit_before(&self, deadline: Instant, job: DeadlineFanoutJob) -> bool {
-        self.submit_until(Some(deadline), job)
-    }
-
-    fn submit_until(&self, deadline: Option<Instant>, job: DeadlineFanoutJob) -> bool {
-        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline)
-            || state.shutdown
-            || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS
-        {
-            return false;
-        }
-
-        let active_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
-        let available_workers = state.worker_count.saturating_sub(active_jobs);
-        if state.jobs.len() + 1 > available_workers
-            && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
-        {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
-            state.worker_count += 1;
-            let inner = self.inner.clone();
-            if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
-            {
-                state.worker_count -= 1;
-                if state.worker_count == 0 {
-                    return false;
-                }
-            }
-        }
-
-        // Thread creation can outlive a short shared deadline. Sample time
-        // again while queue capacity is still protected by the admission lock.
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return false;
-        }
-
-        state.jobs.push_back(job);
-        state.admitted_jobs += 1;
-        self.inner.changed.notify_one();
-        true
-    }
-
-    #[cfg(test)]
-    fn worker_count(&self) -> usize {
-        self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).worker_count
-    }
-}
-
-impl Drop for DeadlineFanoutPool {
-    fn drop(&mut self) {
-        let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.shutdown = true;
-        state.admitted_jobs = state.admitted_jobs.saturating_sub(state.jobs.len());
-        state.jobs.clear();
-        self.inner.changed.notify_all();
-    }
-}
-
-fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
-    loop {
-        let job = {
-            let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.shutdown {
-                state.worker_count = state.worker_count.saturating_sub(1);
-                inner.changed.notify_all();
-                return;
-            }
-            let (mut state, _) = inner
-                .changed
-                .wait_timeout_while(state, DEADLINE_FANOUT_IDLE_TIMEOUT, |state| {
-                    !state.shutdown && state.jobs.is_empty()
-                })
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if state.shutdown || state.jobs.is_empty() {
-                state.worker_count = state.worker_count.saturating_sub(1);
-                inner.changed.notify_all();
-                return;
-            }
-            state.jobs.pop_front().expect("deadline fanout queue was checked as non-empty")
-        };
-
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
-        let mut state = inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.admitted_jobs = state.admitted_jobs.saturating_sub(1);
-    }
-}
-
-struct DeadlinePending<R> {
-    result: Arc<Mutex<Option<DeadlineCompletion<R>>>>,
-}
-
-struct DeadlineCompletion<R> {
-    completed_at: Instant,
-    value: R,
-}
-
-impl<R> DeadlinePending<R> {
-    fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take().map(|completion| completion.value)
-    }
-
-    fn try_take_before(&self, deadline: Instant) -> Option<R> {
-        let mut result = self.result.lock().unwrap();
-        if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
-            result.take().map(|completion| completion.value)
-        } else {
-            None
-        }
-    }
-}
-
-enum DeadlineMapResult<R> {
-    Complete(R),
-    Pending(DeadlinePending<R>),
-    Unscheduled,
-}
-
-fn bounded_deadline_map<T, R, F>(
-    pool: &DeadlineFanoutPool,
-    items: &[T],
-    deadline: Instant,
-    operation: F,
-) -> Vec<DeadlineMapResult<R>>
-where
-    T: Clone + Send + 'static,
-    R: Send + 'static,
-    F: Fn(&T, Instant) -> R + Send + Sync + 'static,
-{
-    if items.is_empty() {
-        return Vec::new();
-    }
-
-    let mut ordered = std::iter::repeat_with(|| DeadlineMapResult::Unscheduled)
-        .take(items.len())
-        .collect::<Vec<_>>();
-    let operation = Arc::new(operation);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let mut submitted = 0;
-    for (index, item) in items.iter().cloned().enumerate() {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let sender = sender.clone();
-        let operation = operation.clone();
-        let result = Arc::new(Mutex::new(None));
-        let job_result = result.clone();
-        let job = Box::new(move || {
-            let value = operation(&item, deadline);
-            *job_result.lock().unwrap() =
-                Some(DeadlineCompletion { completed_at: Instant::now(), value });
-            let _ = sender.send(index);
-        });
-        if pool.submit_before(deadline, job) {
-            submitted += 1;
-            ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
-        }
-    }
-    drop(sender);
-
-    while submitted > 0 {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        match receiver.recv_timeout(remaining) {
-            Ok(index) => {
-                let pending =
-                    std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
-                match pending {
-                    DeadlineMapResult::Pending(pending) => {
-                        if let Some(result) = pending.try_take_before(deadline) {
-                            ordered[index] = DeadlineMapResult::Complete(result);
-                            submitted -= 1;
-                        } else {
-                            ordered[index] = DeadlineMapResult::Pending(pending);
-                        }
-                    }
-                    result => ordered[index] = result,
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    for result in &mut ordered {
-        let completed = match result {
-            DeadlineMapResult::Pending(pending) => pending.try_take_before(deadline),
-            DeadlineMapResult::Complete(_) | DeadlineMapResult::Unscheduled => None,
-        };
-        if let Some(completed) = completed {
-            *result = DeadlineMapResult::Complete(completed);
-        }
-    }
-    ordered
 }
 
 #[derive(Debug, Default)]
@@ -949,222 +481,6 @@ struct CellPixelCompletionTracker {
     completed: Mutex<HashSet<SurfaceId>>,
 }
 
-/// Structured graphics failures localized by the presentation frontend.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GraphicsStatus {
-    KittyImageBudgetWorkerStartFailed { error: Arc<str> },
-    KittyImageBudgetUpdateFailed { retry_exhausted: bool, summary: Arc<str> },
-    CellPixelUpdateRetriesExhausted { attempts: u8, remaining: usize, cell_pixels: (u16, u16) },
-}
-
-/// Events pushed to subscribed frontends.
-#[derive(Debug, Clone)]
-pub enum MuxEvent {
-    /// New output arrived in a surface (coalesced; cleared when rendered).
-    SurfaceOutput(SurfaceId),
-    /// A surface's runtime changed size.
-    SurfaceResized {
-        surface: SurfaceId,
-        cols: u16,
-        rows: u16,
-        reservation_id: Option<u64>,
-    },
-    /// An asynchronous browser resize failed after queue acceptance.
-    SurfaceResizeFailed {
-        surface: SurfaceId,
-        cols: u16,
-        rows: u16,
-        error: Arc<str>,
-        retry_after_ms: Option<u64>,
-        reservation_id: Option<u64>,
-    },
-    /// A surface's child exited. Hosted terminal views have been atomically
-    /// detached while their durable exit receipt remains queryable; local
-    /// terminals have already been reaped when this arrives.
-    SurfaceExited(SurfaceId),
-    TitleChanged {
-        surface: SurfaceId,
-        title: Arc<str>,
-    },
-    /// The latest agent state for one surface changed.
-    AgentChanged {
-        surface: SurfaceId,
-        state: Arc<str>,
-        source: Arc<str>,
-        session: Option<Arc<str>>,
-        agent: Option<Arc<str>>,
-        updated_at_ms: u64,
-    },
-    Bell(SurfaceId),
-    Notification(NotificationEvent),
-    GraphicsStatus(GraphicsStatus),
-    Status(String),
-    /// A frontend should reload its local mux configuration and redraw.
-    ConfigReloadRequested,
-    /// A frontend should set its host terminal window title. Empty clears it.
-    WindowTitleRequested(String),
-    /// A PTY surface viewport moved within its scrollback.
-    ScrollChanged {
-        surface: SurfaceId,
-        offset: u64,
-        at_bottom: bool,
-    },
-    /// The workspace/screen/pane/tab tree changed (from any frontend or
-    /// the control socket).
-    TreeChanged,
-    /// Delta subscribers need a coarse snapshot resync for a selection-only change.
-    TreeSelectionChanged,
-    /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
-    /// back to the legacy `tree-changed` event.
-    TreeDelta(TreeDelta),
-    FrontendProjectionChanged {
-        frontend: String,
-        scope: String,
-        subject_key: String,
-        projection_revision: u64,
-        origin: String,
-        mutation_id: String,
-    },
-    /// The home session's personal state (rooms, sessions, personal groups
-    /// and order; `profiles-v1`) changed. Consumers refetch `list-personal`.
-    PersonalChanged {
-        personal_revision: u64,
-    },
-    BookmarksChanged(personal::BookmarksChange),
-    Conversation(Arc<crate::conversation_store::ConversationEvent>),
-    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
-    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
-    /// A durable terminal-registry mutation committed. Consumers use this as
-    /// a barrier, then fetch `terminal-events` or a fresh snapshot.
-    TerminalRegistryChanged {
-        registry_id: String,
-        generation: String,
-        terminal_revision: u64,
-    },
-    /// The owner ended a terminal that had no tab placement for the reap
-    /// grace period and was not marked `keep` (`terminal-reap-v1`).
-    TerminalReaped {
-        /// Stable terminal host id.
-        terminal_id: String,
-        /// Public `term_` resource id, when the terminal had one.
-        terminal: Option<String>,
-        grace_ms: u64,
-    },
-    /// A screen's pane geometry changed. Clients should re-fetch layout.
-    LayoutChanged(ScreenId),
-    /// A control connection attached its first surface.
-    ClientAttached {
-        client: u64,
-        transport: String,
-        name: Option<String>,
-        kind: Option<String>,
-    },
-    /// A control connection updated its display metadata.
-    ClientChanged {
-        client: u64,
-        name: Option<String>,
-        kind: Option<String>,
-    },
-    /// A control connection ended.
-    ClientDetached(u64),
-    /// The shared sizing state of a terminal changed. Emitted once per
-    /// placement of the terminal runtime; `generation` orders the states.
-    SizeStateChanged {
-        surface: SurfaceId,
-        runtime: SurfaceId,
-        state: Arc<TerminalSizingState>,
-    },
-    /// A recovered event subscription may have missed client lifecycle
-    /// events, so consumers must reload the authoritative client list.
-    ClientListInvalidated,
-    /// An unauthenticated browser is waiting for a trusted TUI decision.
-    PairingRequested(PairingChallenge),
-    /// A pairing request was approved, denied, disconnected, or expired.
-    PairingResolved {
-        request: u64,
-    },
-    /// The daemon's machine-level model spend readout changed. `None` means
-    /// the readout is unavailable and frontends must hide it.
-    MachineUsageChanged(Option<MachineUsage>),
-    /// Every workspace is gone.
-    Empty,
-}
-
-/// Machine-level model spend for the machine hosting this daemon, as
-/// reported by coderouter for the trailing `period_days` window. Frontends
-/// show it as an informational readout beside the machine identity.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MachineUsage {
-    pub vm_id: String,
-    pub period_days: u32,
-    pub total_tokens: u64,
-    pub api_equivalent_usd: f64,
-    /// Server-side timestamp of the snapshot, when known.
-    pub as_of: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TreeDeltaKind {
-    WorkspaceAdded,
-    WorkspaceClosed,
-    WorkspaceRenamed,
-    WorkspaceMoved,
-    /// Workspace presentation (color, icon, title) changed.
-    WorkspaceChanged,
-    ScreenAdded,
-    ScreenClosed,
-    ScreenRenamed,
-    /// Screen presentation (color, icon, pin, group) or position changed.
-    ScreenChanged,
-    PaneAdded,
-    PaneClosed,
-    TabAdded,
-    TabClosed,
-    TabRenamed,
-    /// Tab metadata (pinned flag, directory, git HEAD, unread marker)
-    /// changed.
-    TabChanged,
-}
-
-impl TreeDeltaKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::WorkspaceAdded => "workspace-added",
-            Self::WorkspaceClosed => "workspace-closed",
-            Self::WorkspaceRenamed => "workspace-renamed",
-            Self::WorkspaceMoved => "workspace-moved",
-            Self::WorkspaceChanged => "workspace-changed",
-            Self::ScreenAdded => "screen-added",
-            Self::ScreenClosed => "screen-closed",
-            Self::ScreenRenamed => "screen-renamed",
-            Self::ScreenChanged => "screen-changed",
-            Self::PaneAdded => "pane-added",
-            Self::PaneClosed => "pane-closed",
-            Self::TabAdded => "tab-added",
-            Self::TabClosed => "tab-closed",
-            Self::TabRenamed => "tab-renamed",
-            Self::TabChanged => "tab-changed",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TreeDelta {
-    pub kind: TreeDeltaKind,
-    pub workspace: WorkspaceId,
-    pub screen: Option<ScreenId>,
-    pub pane: Option<PaneId>,
-    pub surface: Option<SurfaceId>,
-    pub index: Option<usize>,
-    pub entity: Value,
-    /// Present for ordered workspace-registry mutations. Consumers can apply
-    /// only the exact next revision and refetch after a gap.
-    pub workspace_revision: Option<u64>,
-    /// The client transaction id of the command that caused this delta, so
-    /// a frontend can reconcile its optimistic UI.
-    pub transaction: Option<Arc<str>>,
-}
-
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.
 pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
@@ -1175,96 +491,6 @@ pub(crate) fn validate_client_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NotificationLevel {
-    Info,
-    Warning,
-    Error,
-}
-
-impl NotificationLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationLevel::Info => "info",
-            NotificationLevel::Warning => "warning",
-            NotificationLevel::Error => "error",
-        }
-    }
-}
-
-/// Who posted a notification (`notification-source-v1`). Frontends apply
-/// per-source preferences from it instead of guessing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NotificationSource {
-    /// `cmux notify`, the `notify` verb without a source, or
-    /// `notification.create`.
-    Cli,
-    /// A program in the terminal: OSC 9, OSC 777 `notify` or kitty OSC 99,
-    /// parsed by the daemon from the terminal's output.
-    Terminal,
-    /// An agent hook (Claude Code, Codex, ...), daemon-side or reported by a
-    /// frontend.
-    Agent,
-    /// Any other daemon producer.
-    Daemon,
-}
-
-impl NotificationSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NotificationSource::Cli => "cli",
-            NotificationSource::Terminal => "terminal",
-            NotificationSource::Agent => "agent",
-            NotificationSource::Daemon => "daemon",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "cli" => Some(NotificationSource::Cli),
-            "terminal" => Some(NotificationSource::Terminal),
-            "agent" => Some(NotificationSource::Agent),
-            "daemon" => Some(NotificationSource::Daemon),
-            _ => None,
-        }
-    }
-
-    /// The source of a durable notification written before sources existed,
-    /// from its idempotency key: agent hooks mint `agent-hook-notification-*`;
-    /// every other producer then was `notify` or `notification.create`.
-    pub(crate) fn from_legacy_key(idempotency_key: &str) -> Self {
-        if idempotency_key.starts_with("agent-hook-notification-") {
-            NotificationSource::Agent
-        } else {
-            NotificationSource::Cli
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct NotificationEvent {
-    pub notification: u64,
-    pub title: String,
-    pub body: String,
-    pub level: NotificationLevel,
-    pub surface: Option<SurfaceId>,
-    pub source: NotificationSource,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResourceNotification {
-    pub id: NotificationPublicId,
-    pub title: String,
-    /// Second line under the title, as `cmux notify --subtitle`.
-    pub subtitle: Option<String>,
-    pub body: String,
-    pub level: NotificationLevel,
-    pub terminal_id: Option<TerminalPublicId>,
-    pub created_at_ms: u64,
-    pub source: NotificationSource,
-    pub(crate) surface: Option<SurfaceId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1517,14 +743,6 @@ enum AgentReportOrigin {
 enum AgentReportTarget<'a> {
     Surface(SurfaceId),
     Resource { selectors: &'a crate::ResourceSelectors, terminal_id: &'a TerminalPublicId },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SurfaceNotification {
-    pub notification: u64,
-    pub level: NotificationLevel,
-    pub unread: bool,
-    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5635,6 +4853,7 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            projection.restates_all,
         )?;
         state.resource_revision = commit.revision;
         drop(state);
@@ -5655,7 +4874,7 @@ impl Mux {
             idempotency_key,
             operation,
             fingerprint,
-            |registry, state| self.resource_effect_projection_locked(registry, state, result),
+            |registry, state| self.created_view_projection_locked(registry, state, result),
         )
     }
 
@@ -14318,12 +13537,12 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
         Ok(TerminalPlacementResult {
             placement: Some(placement),
             terminal_id: identity.terminal_id,
             terminal_incarnation: Some(identity.incarnation),
-            terminal_revision: snapshot.revision,
+            terminal_revision,
             replayed: false,
             created_path: Some(created_path),
             created_surface: Some(surface.id),
@@ -16830,7 +16049,7 @@ impl Mux {
                 let terminal = registry
                     .terminal_record(terminal_id)?
                     .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-                let current_revision = registry.terminal_snapshot()?.revision;
+                let current_revision = registry.terminal_revision()?;
                 let changed = replay.result["changed"].as_bool().unwrap_or(true);
                 #[cfg(test)]
                 if let Some(hook) = self.terminal_move_before_projection.lock().unwrap().clone() {
@@ -17439,51 +16658,6 @@ fn commit_terminal_transition(
     Ok(commit.revision)
 }
 
-/// Advance only renderer lifecycle fields from the latest durable row. This
-/// deliberately re-reads under the registry writer mutex and uses the
-/// terminal revision as a CAS: a GUI move committed while a host launch or
-/// adoption was in flight can never be overwritten by a stale row clone.
-fn commit_terminal_lifecycle(
-    registry: &mut WorkspaceRegistry,
-    event_kind: &str,
-    operation: &str,
-    terminal_id: &str,
-    lifecycle: TerminalLifecycle,
-    incarnation: Option<&str>,
-    exit: Option<Value>,
-) -> anyhow::Result<(RegistryTerminal, u64)> {
-    let snapshot = registry.terminal_snapshot()?;
-    let mut terminal = registry
-        .terminal_record(terminal_id)?
-        .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-    terminal.lifecycle = lifecycle;
-    if let Some(incarnation) = incarnation {
-        terminal.incarnation = Some(incarnation.to_string());
-    }
-    terminal.exit = exit;
-    let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
-    let commit = registry.commit_terminal(
-        &mutation,
-        &serde_json::json!({
-            "op": operation,
-            "terminal_id": terminal.terminal_id,
-            "incarnation": terminal.incarnation,
-            "lifecycle": terminal.lifecycle,
-        }),
-        Some(&snapshot.generation),
-        Some(snapshot.revision),
-        event_kind,
-        &terminal,
-        &serde_json::json!({
-            "terminal_id": terminal.terminal_id,
-            "workspace_key": terminal.workspace_key,
-            "incarnation": terminal.incarnation,
-            "state": terminal.lifecycle,
-        }),
-    )?;
-    Ok((terminal, commit.revision))
-}
-
 #[cfg(test)]
 fn commit_terminal_workspace(
     registry: &mut WorkspaceRegistry,
@@ -17920,13 +17094,6 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         })
         .cloned()
         .collect()
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn sidebar_retry_delay(failures: u32) -> Duration {

@@ -1,0 +1,22 @@
+[package]
+name = "cmux-tui-cloud-conversations"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The daemon proxy for cloud conversations (cloud-conversations-v1): typed ops forwarded to the Durable Objects, and their event streams"
+
+[lints]
+workspace = true
+
+[features]
+# The scripted backend (`testing`), for dev-dependencies only.
+test-support = []
+
+[dependencies]
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+zeroize.workspace = true

@@ -49,6 +49,7 @@ extension SettingsSchema {
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabKind",
+        "tabs.newTabTemplate",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "palette.scopes.tabs.prefix",
@@ -114,7 +115,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.allChatsRows",
         "sidebar.cards.tips", "sidebar.showProjects",
         "browser.defaultEngine",
         "browser.newTabPage",
@@ -173,6 +174,7 @@ extension SettingsSchema {
         "app.quitBehavior": .destructive,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
+        "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,
         "app.warnBeforeClosingAgentSession": .destructive,
