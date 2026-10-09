@@ -25,6 +25,7 @@ export interface MenuProps {
 const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
 interface MenuContextValue {
+  isOpen: boolean;
   beginPointer(event: PointerEvent<HTMLElement>): void;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
@@ -43,6 +44,7 @@ export function Menu({ open, onOpenChange, children }: MenuProps) {
     onOpenChange?.(next);
   };
   const context: MenuContextValue = {
+    isOpen,
     beginPointer(event) {
       if (!isMousePress(event)) return;
       const wasOpen = isOpen;
@@ -147,6 +149,11 @@ export function MenuButton({
       onPointerDown={(event) => {
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
+      }}
+      onMouseDown={(event) => {
+        // WebKit dispatches a native mousedown after pointerdown. While an open trigger is
+        // closing the menu on press, cancel that follow-up so Base UI cannot reopen it on click.
+        if (context?.isOpen && event.button === 0) event.preventDefault();
       }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
