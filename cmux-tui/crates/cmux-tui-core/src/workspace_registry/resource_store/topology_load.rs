@@ -55,6 +55,14 @@ impl WorkspaceRegistry {
         Ok(hosts)
     }
 
+    /// One live browser row, or `None` when it is gone.
+    pub(crate) fn live_browser(
+        &self,
+        browser_id: &BrowserPublicId,
+    ) -> anyhow::Result<Option<RegistryBrowser>> {
+        Ok(load_browsers(&self.connection, " AND public_id = ?1", &[&browser_id.as_str()])?.pop())
+    }
+
     /// The live tab rows that show `content_id`, in no particular order.
     pub(crate) fn resource_tabs_of_content(
         &self,
@@ -85,13 +93,13 @@ impl WorkspaceRegistry {
 
 #[cfg(test)]
 thread_local! {
-    static FULL_TOPOLOGY_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static FULL_TOPOLOGY_READS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Full topology reads on this thread (test hook).
 #[cfg(test)]
 pub(crate) fn full_topology_reads_for_test() -> u64 {
-    FULL_TOPOLOGY_READS.with(std::cell::Cell::get)
+    FULL_TOPOLOGY_READS.with(Cell::get)
 }
 
 /// Load the live resource topology from `connection`. The registry's
