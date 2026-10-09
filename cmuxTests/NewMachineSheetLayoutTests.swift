@@ -102,6 +102,11 @@ struct NewMachineSheetLayoutTests {
         NewMachineSheetPresenter.shared.present(model: model, preferredWindow: host, loadPlanFromCache: false)
         defer { model.cancel() }
         let sheet = try #require(host.attachedSheet, "the sheet was not attached to its host window")
+        // AppKit may finish attaching and restore the initial sheet frame on
+        // the next main-loop turn. Capture the anchor after that deferred
+        // pass so later content-driven resizes are compared with the stable
+        // attached frame rather than the temporary 1×0 frame.
+        Self.runMainLoopTurns()
         let initialTopEdge = sheet.frame.maxY
 
         for tick in 0..<12 {

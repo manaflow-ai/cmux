@@ -1413,25 +1413,24 @@ cmux_claude_sideload_flags_disabled_uncached() {
         local domain_dump flag_value
         local newline=$'\n'
         local flag_prefix=$'\n    disableSideloadFlags = '
-        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
+        local quoted_one='"1' quoted_end='";'
         if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
             domain_dump="$newline$domain_dump$newline"
             [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
             flag_value="${domain_dump#*"$flag_prefix"}"
             if [[ "$flag_value" != "$domain_dump" ]]; then
                 flag_value="${flag_value%%"$newline"*}"
-                # The per-key read printed `1` for true, 1, 1.0 and "1", which
-                # all dump as `1;`. It also printed `1` for "1" followed by
-                # newlines, because $(...) strips them; that dumps as
-                # `"1\\n";`, `"1\\n\\n";` and so on.
+                # The per-key read printed 1 for true, 1, 1.0 and "1", which
+                # all dump as 1;. For quoted values, ask the key-specific
+                # form only when the whole-domain dump could contain a trailing
+                # newline. Command substitution strips those newlines, matching
+                # the old per-key decision without depending on how this
+                # macOS version escapes backslashes in a whole-domain dump.
                 [[ "$flag_value" == "1;" ]] && return 0
-                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
-                    flag_value="${flag_value#"$quoted_one"}"
-                    flag_value="${flag_value%"$quoted_end"}"
-                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
-                        flag_value="${flag_value#"$escaped_newline"}"
-                    done
-                    [[ -z "$flag_value" ]] && return 0
+                if [[ "$flag_value" == "$quoted_one"*"$quoted_end" ]]; then
+                    local per_key_value
+                    per_key_value="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)" || per_key_value=""
+                    [[ "$per_key_value" == "1" ]] && return 0
                 fi
             fi
         fi
