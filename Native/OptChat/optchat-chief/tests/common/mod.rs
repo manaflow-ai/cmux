@@ -781,6 +781,10 @@ impl AgentPort for FakeAgents {
         inner.steers.push((session.to_owned(), blocks));
         let at_end = inner.steer_at_end;
         let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(TurnSignal::Changed);
+        }
         drop(inner);
         self.changed.notify_all();
         let me = self.me.upgrade().expect("alive");
