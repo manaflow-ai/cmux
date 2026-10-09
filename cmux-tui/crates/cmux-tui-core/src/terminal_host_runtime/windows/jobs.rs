@@ -22,11 +22,13 @@ use windows_sys::Win32::Security::{
     SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, JOB_OBJECT_QUERY, OpenJobObjectW,
+    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, OpenJobObjectW,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 const SDDL_REVISION_1: u32 = 1;
+/// winnt.h JOB_OBJECT_QUERY (windows-sys has it under SystemServices).
+const JOB_OBJECT_QUERY: u32 = 0x0004;
 
 /// `Local\cmux-tui-job-<user>-<session token>-<terminal hex>-<incarnation hex>`:
 /// session-local, one per terminal incarnation. None for a component with
