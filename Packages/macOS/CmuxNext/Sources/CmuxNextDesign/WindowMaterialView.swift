@@ -84,6 +84,11 @@ public final class WindowMaterialView: NSView {
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
+    /// The theme tint laid over glass while the window is not key (stub).
+    var inactiveTintAlpha: CGFloat { 0 }
+    /// Its color (stub).
+    var inactiveTintColor: CGColor? { nil }
+
     /// Decoration only: clicks reach the views above or the window.
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
