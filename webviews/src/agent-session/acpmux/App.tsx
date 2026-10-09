@@ -2000,7 +2000,13 @@ function AcpmuxPane() {
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId) => {
             const kept = heldPrompt.take();
-            return client.send(text, attachments, promptId, undefined, kept?.promptId === promptId ? kept.ticket : undefined);
+            return client.send(
+              text,
+              attachments,
+              promptId,
+              undefined,
+              kept?.promptId === promptId ? kept.ticket : undefined,
+            );
           },
           setModel: (modelId) => client.setModel(modelId),
           setMode: (modeId, ticket) => client.setMode(modeId, ticket),
