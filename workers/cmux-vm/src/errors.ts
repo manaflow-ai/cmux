@@ -62,7 +62,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
      * per-minute request rate, or the platform's VM capacity (not the team's);
      * for the mesh experiment, which mesh budget (meshes per team, devices per
      * mesh, firewall rules per mesh or per named resource, ACL applies per
-     * mesh per minute) or the platform account's firewall rule limit.
+     * mesh per minute, address changes per device) or the platform account's firewall rule limit.
      */
     budget: Schema.optional(
       Schema.Literal(
@@ -78,6 +78,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
         "firewallRule.account",
         "aclApply.perMeshPerMinute",
         "enrollmentCode.perMeshPerHour",
+        "address.perDevice",
       ),
     ),
   },
