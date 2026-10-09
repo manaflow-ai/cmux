@@ -23,6 +23,8 @@ let package = Package(
         .package(path: "../CMUXDebugLog"),
         // CmuxTestSupport backs FileOpen/ PreferredEditorService UI-test capture.
         .package(path: "../CmuxTestSupport"),
+        // CMUXAgentLaunch owns the OMX HUD command match the Session/ restore policy shares with the CLI.
+        .package(path: "../CMUXAgentLaunch"),
     ],
     targets: [
         .target(
@@ -32,6 +34,7 @@ let package = Package(
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
+                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

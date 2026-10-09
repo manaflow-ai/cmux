@@ -2,6 +2,17 @@ import AppKit
 import Foundation
 import WebKit
 
+/// Keeps a pasteboard handle alive while its provider-backed data is read away
+/// from the drag callback's main-actor stack. AppKit pasteboard handles are
+/// usable from worker threads, but are not statically `Sendable`.
+private final class BrowserFileDropPasteboardReadRequest: @unchecked Sendable {
+    nonisolated(unsafe) let pasteboard: NSPasteboard
+
+    init(pasteboard: NSPasteboard) {
+        self.pasteboard = pasteboard
+    }
+}
+
 @MainActor
 final class BrowserFileDropNavigationGuard {
     static let shared = BrowserFileDropNavigationGuard()
@@ -10,6 +21,7 @@ final class BrowserFileDropNavigationGuard {
     // Read by regression tests via @testable import to observe expiry.
     private(set) var records: [ObjectIdentifier: Record] = [:]
     private var expirySweepTask: Task<Void, Never>?
+    private var pendingDeliveryToken: UUID?
 
     init(timeToLive: TimeInterval = 5) {
         self.timeToLive = timeToLive
@@ -39,17 +51,67 @@ final class BrowserFileDropNavigationGuard {
         pasteboard: NSPasteboard,
         now: Date = Date()
     ) {
+        pendingDeliveryToken = nil
         pruneExpiredRecords(now: now)
-        guard DragOverlayRoutingPolicy.hasFileURL(pasteboard.types) else { return }
+        let pasteboardTypes = pasteboard.types
+        guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else { return }
+
+        // The screenshot thumbnail uses a promised file URL. Reading that
+        // representation synchronously from the drag callback can wait on the
+        // pasteboard provider indefinitely. Keep the page drop responsive and
+        // resolve the fallback record on a utility task instead.
+        if PasteboardFileURLReader.hasPromisedFileURLType(pasteboardTypes ?? []) {
+            recordPromisedDeliveryAsync(
+                webView: webView,
+                pasteboard: pasteboard,
+                now: now
+            )
+            return
+        }
+
         // Already standardized and deduped by path, in pasteboard order.
         let urls = DragOverlayRoutingPolicy.fileURLs(from: pasteboard)
             .filter(\.isFileURL)
             .map(\.standardizedFileURL)
+        storeDelivery(
+            webView: webView,
+            urls: urls,
+            timestamp: now
+        )
+    }
+
+    private func recordPromisedDeliveryAsync(
+        webView: WKWebView,
+        pasteboard: NSPasteboard,
+        now: Date
+    ) {
+        let token = UUID()
+        pendingDeliveryToken = token
+        let request = BrowserFileDropPasteboardReadRequest(pasteboard: pasteboard)
+        let readTask = Task.detached(priority: .utility) {
+            PasteboardFileURLReader.fileURLs(from: request.pasteboard)
+                .filter(\.isFileURL)
+                .map(\.standardizedFileURL)
+        }
+
+        Task { @MainActor [weak self, weak webView] in
+            let urls = await readTask.value
+            guard let self,
+                  self.pendingDeliveryToken == token,
+                  let webView else {
+                return
+            }
+            self.pendingDeliveryToken = nil
+            self.storeDelivery(webView: webView, urls: urls, timestamp: now)
+        }
+    }
+
+    private func storeDelivery(webView: WKWebView, urls: [URL], timestamp: Date) {
         guard !urls.isEmpty else { return }
         records[ObjectIdentifier(webView)] = Record(
             webView: webView,
             urls: urls,
-            timestamp: now
+            timestamp: timestamp
         )
         scheduleExpirySweep()
     }

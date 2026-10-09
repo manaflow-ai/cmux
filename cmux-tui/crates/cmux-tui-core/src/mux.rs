@@ -6890,27 +6890,55 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
-        if let Some(commit) = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_checkpoint_receipt(origin, idempotency_key)?
-        {
-            return Ok(commit);
+        let mut last_error = None;
+        for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+            if let Some(commit) = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .journal_checkpoint_receipt(origin, idempotency_key)?
+            {
+                return Ok(commit);
+            }
+            let captured = match crate::journal_checkpoint::capture(self) {
+                Ok(captured) => captured,
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            match self.workspace_registry.lock().unwrap().create_journal_checkpoint(
+                captured.source_sequence,
+                crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
+                &captured.state,
+                &captured.blobs,
+                origin,
+                idempotency_key,
+            ) {
+                Ok(commit) => {
+                    if !commit.journal.replayed {
+                        self.publish_journal_event();
+                    }
+                    return Ok(commit);
+                }
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let captured = crate::journal_checkpoint::capture(self)?;
-        let commit = self.workspace_registry.lock().unwrap().create_journal_checkpoint(
-            captured.source_sequence,
-            crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
-            &captured.state,
-            &captured.blobs,
-            origin,
-            idempotency_key,
-        )?;
-        if !commit.journal.replayed {
-            self.publish_journal_event();
-        }
-        Ok(commit)
+        Err(last_error.expect("checkpoint retry loop must retain its last error"))
     }
 
     pub(crate) fn journal_checkpoints(

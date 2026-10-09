@@ -13,7 +13,7 @@
 # serving, and restores the replaced binary when the new daemon crashes or
 # never listens.
 #
-# Usage: cmux-tui-upgrade.sh <target-sha256> <target-commit> <run-dir>
+# Usage: cmux-tui-upgrade.sh <target-sha256> <target-commit> <run-dir> [state-mount]
 # <run-dir> holds install.cmd (the pinned install command) and receives
 # `result` (one line: OK, UNVERIFIED, SKIP, PENDING, ROLLBACK or FAIL), `log`, and the
 # replaced binary. One run at a time per machine: a second run reports SKIP busy.
@@ -21,6 +21,7 @@ set -u
 TARGET_SHA=${1:?target sha256}
 TARGET_COMMIT=${2:?target commit}
 RUN=${3:?run dir}
+STATE_MOUNT=${4:-/usr/local/bin/cmux-tui-state-mount}
 OUT="$RUN/result"
 say() { echo "$(date -u +%FT%TZ) $*" >> "$RUN/log"; }
 finish() { echo "$1" > "$OUT"; say "RESULT $1"; exit 0; }
@@ -35,6 +36,27 @@ d=json.load(sys.stdin); print(len(d if isinstance(d,list) else (d.get("terminals
 exe_sha() { sha256sum "/proc/$1/exe" 2>/dev/null | cut -d' ' -f1; }
 bin_sha() { sha256sum "$BIN" 2>/dev/null | cut -d' ' -f1; }
 listening() { ss -ltnH 2>/dev/null | grep -q ':1337 '; }
+state_mount_user() { [ "$H" = /root ] && echo root || echo cmux; }
+STATE_MOUNT_UPDATED=0
+STATE_MOUNT_PREV="$RUN/cmux-tui-state-mount.prev"
+install_state_mount() {
+  [ -f "$RUN/state-mount.sh" ] || return 0
+  sh -n "$RUN/state-mount.sh" || finish "FAIL state-mount-syntax"
+  if [ -f "$STATE_MOUNT" ]; then
+    cp -p "$STATE_MOUNT" "$STATE_MOUNT_PREV" || finish "FAIL state-mount-backup"
+  fi
+  install -m 0755 "$RUN/state-mount.sh" "$STATE_MOUNT" || finish "FAIL state-mount-install"
+  STATE_MOUNT_UPDATED=1
+  "$STATE_MOUNT" ensure "$H" "$(state_mount_user)" || finish "FAIL state-reservation-unavailable"
+}
+restore_state_mount() {
+  [ "$STATE_MOUNT_UPDATED" = 1 ] || return 0
+  if [ -f "$STATE_MOUNT_PREV" ]; then
+    install -m 0755 "$STATE_MOUNT_PREV" "$STATE_MOUNT"
+  else
+    rm -f "$STATE_MOUNT"
+  fi
+}
 # A daemon replays its journal and adopts every live host before it listens,
 # which takes minutes on a large journal, and it defers SIGTERM until then.
 wait_listener() { i=0; while [ $i -lt 600 ]; do listening && return 0; sleep 1; i=$((i+1)); done; return 1; }
@@ -53,9 +75,10 @@ wait_serving() {
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
+install_state_mount
 # A crash-looping daemon is between restarts most of the time.
 D=""; i=0; while [ -z "$D" ] && [ $i -lt 10 ]; do D=$(daemon_pid); [ -n "$D" ] || sleep 0.5; i=$((i+1)); done
-[ -n "$D" ] || finish "SKIP no-daemon"
+[ -n "$D" ] || { [ "$STATE_MOUNT_UPDATED" = 1 ] && finish "OK state-mount-updated no-daemon"; finish "SKIP no-daemon"; }
 tr '\0' ' ' < /proc/$D/cmdline | grep -q -- --remote-ws-trusted-carrier || finish "SKIP no-trusted-carrier"
 if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
   # The next restart runs the binary on disk, so it must match too.
@@ -94,6 +117,7 @@ fi
 # The new daemon crashed or never listened. It may already have migrated the
 # on-disk state, so a restored old binary is only trusted once it serves again.
 say "new daemon did not serve; restoring $OLD_SHA"
+restore_state_mount
 cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" && [ "$(bin_sha)" = "$OLD_SHA" ] \
   || finish "FAIL rollback-restore (target binary may remain; inspect $RUN/log)"
 X=$(daemon_pid); [ -n "$X" ] && kill -TERM "$X"
