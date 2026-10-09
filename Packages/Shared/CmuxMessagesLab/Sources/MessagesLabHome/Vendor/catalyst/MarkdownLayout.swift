@@ -40,7 +40,7 @@ struct MDFrag {
 }
 
 struct MDBox {
-    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint }
+    enum Kind: Equatable { case codeBlock, inlineCode, tableHeader, tableBorder, gridH, gridV, quoteBar, rule, checkbox(Bool), strike, fadeHint, image(CGImage) }
     var rect: CGRect
     var kind: Kind
     var region: Int
@@ -124,6 +124,37 @@ extension Markdown {
 
 // MARK: - Layout
 
+/// Images the host app chooses to show in markdown (shared/MARKDOWN.md, Security). The engine
+/// never loads a URL and never reads a file for `![alt](src)`: it asks this provider, and shows
+/// the image only when the host returns one (an attachment, a local file the host allows).
+/// Without a provider (the default) an image is a link or the text "[Image: alt]".
+protocol MarkdownImageProvider: AnyObject {
+    /// The image for `source` (the destination exactly as written), or nil. Called during layout,
+    /// off the main thread: return only what the host already has, never fetch here. Answers
+    /// must be stable per source (block layouts are cached by content and width).
+    func markdownImage(source: String, alt: String) -> CGImage?
+}
+
+enum MarkdownImages {
+    private static let lock = NSLock()
+    private static weak var current: MarkdownImageProvider?
+    /// The host's provider (weak; nil by default). Set it before the first layout.
+    static var provider: MarkdownImageProvider? {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+    /// Largest image height in a bubble (points).
+    static let maxHeight: CGFloat = 320
+
+    /// The provider's image for a paragraph that is exactly one image, or nil.
+    static func image(_ t: MDText) -> (CGImage, String)? {
+        guard let p = provider, t.spans.count == 1, let sp = t.spans.first, let src = sp.image,
+              sp.location == 0, sp.length == (t.string as NSString).length else { return nil }
+        guard let img = p.markdownImage(source: src, alt: t.string), img.width > 0, img.height > 0 else { return nil }
+        return (img, src)
+    }
+}
+
 enum MarkdownLayoutEngine {
     /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
     private static let cache = MDLRU<BlockKey, BlockLayout>(capacity: 2048)
@@ -202,20 +233,27 @@ enum MarkdownLayoutEngine {
         // Inner width: the widest content, at most the column. Stretchable boxes and
         // regions fill it; wider regions scroll.
         let inner = fill ? maxWidth : min(maxWidth, max(extent, 1).rounded(.up))
-        for i in boxes.indices where boxes[i].stretch {
-            let left = boxes[i].rect.minX - padX
-            boxes[i].rect.size.width = max(boxes[i].rect.width, inner - left)
+        // cmux: mutated element by element in place (no index math, crash program).
+        boxes = boxes.map { box in
+            guard box.stretch else { return box }
+            var box = box
+            box.rect.size.width = max(box.rect.width, inner - (box.rect.minX - padX))
+            return box
         }
-        for i in regions.indices {
-            let left = regions[i].frame.minX - padX
-            let avail = max(0, inner - left)
-            regions[i].frame.size.width = regions[i].stretch ? avail : min(regions[i].contentWidth, avail)
-            if regions[i].kind == .code { regions[i].frame.size.width = avail }
+        regions = regions.map { region in
+            var region = region
+            let avail = max(0, inner - (region.frame.minX - padX))
+            region.frame.size.width = region.stretch ? avail : min(region.contentWidth, avail)
+            if region.kind == .code { region.frame.size.width = avail }
+            return region
         }
         // Region boxes that span the region (code background) follow the frame.
-        for i in boxes.indices where boxes[i].kind == .codeBlock && boxes[i].region >= 0 {
-            let r = regions[boxes[i].region]
-            boxes[i].rect.size.width = max(r.frame.width, r.contentWidth)
+        let regionsNow = regions
+        boxes = boxes.map { box in
+            guard box.kind == .codeBlock, box.region >= 0, let r = regionsNow[checked: box.region] else { return box } // cmux: checked region
+            var box = box
+            box.rect.size.width = max(r.frame.width, r.contentWidth)
+            return box
         }
         let size = CGSize(width: inner + 2 * padX, height: (y + 2 * padY).rounded(.up))
         var h = Hasher(); h.combine(source); h.combine(maxWidth)
@@ -272,7 +310,18 @@ enum MarkdownLayoutEngine {
             let top = y, p0 = plainLen
             switch k {
             case let .paragraph(t):
-                text(t, x: x, width: w, font: Fixture.bodyFont, role: depth > 0 && quoteDepth > 0 ? .quote : .body)
+                if let (img, _) = MarkdownImages.image(t) {
+                    // A host-provided image (MarkdownImageProvider), fitted to the width; 2x pixels.
+                    let natural = CGSize(width: CGFloat(img.width) / 2, height: CGFloat(img.height) / 2)
+                    let scale = min(1, max(1, w) / natural.width, MarkdownImages.maxHeight / natural.height)
+                    let size = CGSize(width: max(1, (natural.width * scale).rounded()), height: max(1, (natural.height * scale).rounded()))
+                    out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: size.width, height: size.height), kind: .image(img), region: -1))
+                    y += (size.height / Markdown.lineHeight).rounded(.up) * Markdown.lineHeight
+                    out.extent = max(out.extent, x + size.width)
+                    appendPlain(t.string)
+                } else {
+                    text(t, x: x, width: w, font: Fixture.bodyFont, role: depth > 0 && quoteDepth > 0 ? .quote : .body)
+                }
                 out.ax.append(MDAXNode(kind: .paragraph, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top)))
             case let .heading(level, t):
                 text(t, x: x, width: w, font: Markdown.headingFont(level), role: .body)
@@ -287,7 +336,7 @@ enum MarkdownLayoutEngine {
                 blocks(bs, x: x + inner, width: w - inner, depth: depth + 1, listDepth: listDepth)
                 quoteDepth -= 1
                 out.boxes.append(MDBox(rect: CGRect(x: x + 1, y: top + 1, width: 3, height: max(14, y - top - 2)), kind: .quoteBar, region: -1))
-                let kids = Array(out.ax[children0...]); out.ax.removeSubrange(children0...)
+                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(kids.count) // cmux: no range subscript
                 out.ax.append(MDAXNode(kind: .quote, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top), children: kids))
             case let .list(l):
                 list(l, x: x, width: w, depth: depth, listDepth: listDepth)
@@ -438,7 +487,7 @@ enum MarkdownLayoutEngine {
                 if l.ordered { return "\(l.start + i)" + (it.marker.last == ")" ? ")" : ".") }
                 return ["•", "◦", "▪"][min(listDepth, 2)]
             }
-            let widest = l.items.indices.map { TextDraw.width(markerText($0, l.items[$0]), font: markerFont) }.max() ?? 0
+            let widest = l.items.enumerated().map { TextDraw.width(markerText($0.offset, $0.element), font: markerFont) }.max() ?? 0 // cmux
             let markerW = max(anyTask ? 14 : 0, widest)
             let wanted = markerW + Markdown.markerGap + (listDepth == 0 && depth == 0 ? 2 : 0)
             let ind = MarkdownLayoutEngine.indent(x: x, wanted: wanted, width: w, level: listDepth + depth)
@@ -466,7 +515,7 @@ enum MarkdownLayoutEngine {
                 let n0 = out.ax.count
                 if it.blocks.isEmpty { y += Markdown.lineHeight }
                 else { blocks(it.blocks, x: x + ind, width: w - ind, depth: depth, listDepth: listDepth + 1, tight: !l.loose) }
-                let sub = Array(out.ax[n0...]); out.ax.removeSubrange(n0...)
+                let sub = Array(out.ax.dropFirst(n0)); out.ax.removeLast(sub.count) // cmux: no range subscript
                 kids.append(MDAXNode(kind: .item, range: NSRange(location: ip0, length: plainLen - ip0), frame: CGRect(x: x, y: itTop, width: w, height: y - itTop), children: sub))
                 out.extent = max(out.extent, x + ind + 4)
             }
@@ -490,15 +539,16 @@ enum MarkdownLayoutEngine {
             for (ri, row) in all.enumerated() {
                 var ra: [NSAttributedString] = []
                 for c in 0..<cols {
-                    let cell = c < row.count ? row[c] : MDText()
+                    let cell = row.dropFirst(c).first ?? MDText() // cmux: no index math
                     let a = MarkdownLayoutEngine.attributed(cell, font: ri == 0 ? headFont : Fixture.bodyFont, role: ri == 0 ? .header : .body, kern: Fixture.bodyKern)
                     ra.append(a)
                     if ri < 2000, a.length > 0 {
                         let line = CTLineCreateWithAttributedString(a)
-                        maxW[c] = max(maxW[c], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up))
                         let word = MarkdownLayoutEngine.longestWord(a, line)
-                        wordW[c] = max(wordW[c], word)
-                        minW[c] = max(minW[c], min(140, word))
+                        // cmux: c < cols == every width array's count; written through checked slots.
+                        if let s = maxW.checkedIndex(c) { maxW[s] = max(maxW[s], CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)).rounded(.up)) }
+                        if let s = wordW.checkedIndex(c) { wordW[s] = max(wordW[s], word) }
+                        if let s = minW.checkedIndex(c) { minW[s] = max(minW[s], min(140, word)) }
                     }
                 }
                 attrs.append(ra)
@@ -509,18 +559,18 @@ enum MarkdownLayoutEngine {
             var colW: [CGFloat]
             if let fixed = fixedColumns, !fixed.isEmpty {
                 // Continued table: the first block's widths; extra columns get their one-line width.
-                colW = (0..<cols).map { $0 < fixed.count ? fixed[$0] : min(maxW[$0], 200) }
+                colW = maxW.enumerated().map { fixed.dropFirst($0.offset).first ?? min($0.element, 200) } // cmux: no index math
                 fixedColumns = nil
             } else if sumMax <= avail { colW = maxW }
             else if sumMin >= avail {
                 // The table scrolls anyway: no column narrower than its longest word (up to
                 // 320 pt) or 200 pt, so cells do not break inside words.
-                colW = (0..<cols).map { min(maxW[$0], max(min(wordW[$0], 320), 200)) }
+                colW = zip(maxW, wordW).map { min($0, max(min($1, 320), 200)) } // cmux: no index math
             }
             else {
                 // Auto layout: every column gets its minimum, the rest in proportion to (max - min).
                 let extra = avail - sumMin, want = sumMax - sumMin
-                colW = (0..<cols).map { (minW[$0] + (maxW[$0] - minW[$0]) * extra / want).rounded(.down) }
+                colW = zip(minW, maxW).map { ($0 + ($1 - $0) * extra / want).rounded(.down) } // cmux: no index math
             }
             let tableW = colW.reduce(0, +) + chrome
             region = rid
@@ -535,24 +585,24 @@ enum MarkdownLayoutEngine {
                 var rowH: CGFloat = Markdown.lineHeight
                 var cellNodes: [MDAXNode] = []
                 let rp0 = plainLen
-                for c in 0..<cols {
+                for (c, (cellText, cw)) in zip(ra, colW).enumerated() { // cmux: no index math (ra and colW have cols entries)
                     if c > 0 { appendPlain("\t"); tsv += "\t" }
                     let save = y
                     y = rowTop + Markdown.cellPadY
                     let cp0 = plainLen
-                    let align = c < t.aligns.count ? t.aligns[c] : .none
-                    lines(ra[c], x: cx + pad, width: colW[c], role: ri == 0 ? .header : .body, align: align, baseline: Markdown.bodyBaseline)
-                    if ra[c].length == 0 { y = rowTop + Markdown.cellPadY + Markdown.lineHeight }
-                    appendPlain(ra[c].string)
-                    tsv += ra[c].string
+                    let align = t.aligns.dropFirst(c).first ?? MDAlign.none
+                    lines(cellText, x: cx + pad, width: cw, role: ri == 0 ? .header : .body, align: align, baseline: Markdown.bodyBaseline)
+                    if cellText.length == 0 { y = rowTop + Markdown.cellPadY + Markdown.lineHeight }
+                    appendPlain(cellText.string)
+                    tsv += cellText.string
                     rowH = max(rowH, y - rowTop - Markdown.cellPadY)
                     cellNodes.append(MDAXNode(kind: .cell(header: ri == 0), range: NSRange(location: cp0, length: plainLen - cp0),
-                                              frame: CGRect(x: cx, y: rowTop, width: colW[c] + 2 * pad, height: 0)))
+                                              frame: CGRect(x: cx, y: rowTop, width: cw + 2 * pad, height: 0)))
                     y = save
-                    cx += colW[c] + 2 * pad
+                    cx += cw + 2 * pad
                 }
                 let h = rowH + 2 * Markdown.cellPadY
-                for k in cellNodes.indices { cellNodes[k].frame.size.height = h }
+                cellNodes = cellNodes.map { var n = $0; n.frame.size.height = h; return n } // cmux: no index writes
                 axRows.append(MDAXNode(kind: .row, range: NSRange(location: rp0, length: plainLen - rp0), frame: CGRect(x: x, y: rowTop, width: tableW, height: h), children: cellNodes))
                 y = rowTop + h
             }
@@ -564,7 +614,7 @@ enum MarkdownLayoutEngine {
             }
             for rt in rowTops.dropFirst() { out.boxes.append(MDBox(rect: CGRect(x: x, y: rt - 0.25, width: tableW, height: 0.5), kind: .gridH, region: rid)) }
             var gx = x + 0.5
-            for c in 0..<(cols - 1) { gx += colW[c] + 2 * pad; out.boxes.append(MDBox(rect: CGRect(x: gx - 0.25, y: top, width: 0.5, height: bottom - top), kind: .gridV, region: rid)) }
+            for cw in colW.dropLast() { gx += cw + 2 * pad; out.boxes.append(MDBox(rect: CGRect(x: gx - 0.25, y: top, width: 0.5, height: bottom - top), kind: .gridV, region: rid)) }
             out.boxes.append(MDBox(rect: CGRect(x: x, y: top, width: tableW, height: bottom - top), kind: .tableBorder, region: rid))
             out.regions.append(MDRegion(kind: .table, frame: CGRect(x: x, y: top, width: min(w, tableW), height: bottom - top), contentWidth: tableW,
                                         range: NSRange(location: p0, length: plainLen - p0), stretch: false, copyText: tsv, lang: ""))
@@ -627,7 +677,7 @@ enum MarkdownLayoutEngine {
 
 extension Markdown {
     static func moreCharacters(_ n: Int) -> String {
-        String(format: String(localized: "markdown.code.more", defaultValue: "… %@ more characters"),
+        String(format: MessagesLabLocalization.string("markdown.code.more", "… %@ more characters"),
                NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal))
     }
 }
@@ -643,13 +693,13 @@ final class MDLRU<K: Hashable, V>: @unchecked Sendable {
     func get(_ k: K) -> V? {
         lock.lock(); defer { lock.unlock() }
         guard let v = map[k] else { return nil }
-        tick += 1; map[k] = (v.0, tick)
+        tick += 1; map.updateValue((v.0, tick), forKey: k) // cmux: dictionary write
         return v.0
     }
     func set(_ k: K, _ v: V) {
         lock.lock(); defer { lock.unlock() }
         tick += 1
-        map[k] = (v, tick)
+        map.updateValue((v, tick), forKey: k) // cmux: dictionary write
         if map.count > capacity {
             // Drop the older half (amortized O(1) per insert).
             let cut = map.values.map(\.1).sorted()[map.count / 2]

@@ -35,6 +35,7 @@ mod side;
 mod spawns;
 mod steer;
 mod turns;
+pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -166,6 +167,12 @@ pub enum Input {
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
     Stop {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {name}: stops ONE subagent at work (or queued), the turn
+    /// and the other subagents going on; answers `{"stopped": bool, ...}`.
+    StopSubagent {
+        name: String,
         reply: Sender<serde_json::Value>,
     },
 }
@@ -392,6 +399,9 @@ pub struct Brain {
     /// The TTL the session settings held when the pool was last hinted: a
     /// pooled session runs Claude Code with it.
     prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// Whether the pool was last hinted for a turn with our mark (Claude
+    /// Code's own marks off, `session_dir::set_session_cache`).
+    prewarm_ours: Option<bool>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -489,6 +499,7 @@ impl Brain {
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
+            prewarm_ours: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_remote: false,
@@ -684,6 +695,9 @@ impl Brain {
             }
             Input::Stop { reply } => {
                 let _ = reply.send(self.owner_stop());
+            }
+            Input::StopSubagent { name, reply } => {
+                let _ = reply.send(self.stop_subagent(&name));
             }
         }
     }
@@ -888,7 +902,8 @@ impl Brain {
         source: Source,
     ) {
         // Section 9: subagents' reports reach a working Chief between its
-        // tool calls; on acpmux that is a stop like a human message's.
+        // tool calls (steered on acpmux); one that cannot reach it waits for
+        // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
         let item = Queued {

@@ -23,7 +23,7 @@ extension MessagesWindowView {
         var changed = false
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard case var .part(p) = r.spec.kind, p.ref.messageId == id, p.ref.partIndex < m.parts.count,
-                  case .text = m.parts[p.ref.partIndex] else { return r.spec }
+                  case .text? = m.parts[checked: p.ref.partIndex] else { return r.spec } // cmux: checked
             let v = MeasureCache.shared.size(m, p.ref.partIndex, width: r.spec.width)
             var s = r.spec
             p.size = v.size; p.text = v.text; p.markdown = v.markdown
@@ -57,8 +57,8 @@ extension MessagesWindowView {
             o.hover(local)
             if let code = o.copyHit(local) { return .copied(code) }
         }
-        // cmux: re-checked at click time (MarkdownLinkPolicy).
-        if let s = md.link(at: local), let url = MarkdownLinkPolicy.url(s) { return .link(url) }
+        // Only URLs the link policy allows (message text is untrusted; shared/MARKDOWN.md, Security).
+        if let s = md.link(at: local), let safe = MarkdownLinkPolicy.sanitize(s), let url = URL(string: safe) { return .link(url) }
         return nil
     }
 
@@ -75,7 +75,7 @@ extension MessagesWindowView {
     /// bubble, a wide table). Gestures there scroll the block; swipe-to-reply skips them.
     func markdownScrollable(at p: CGPoint) -> Bool {
         guard let (_, md, local) = markdownHit(p), let r = md.region(at: local) else { return false }
-        return md.regions[r].scrollable
+        return md.regions[checked: r]?.scrollable ?? false // cmux: checked
     }
 
     /// A horizontal scroll over a scrollable block: scrolls it. Returns the (key, region)

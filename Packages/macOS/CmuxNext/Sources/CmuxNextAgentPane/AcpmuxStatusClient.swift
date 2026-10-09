@@ -76,7 +76,7 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPaneHarnessEnablePrompt(result: result)
     }
 
-    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+    static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                              deadline: Duration) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }

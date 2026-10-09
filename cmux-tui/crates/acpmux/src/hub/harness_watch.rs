@@ -130,6 +130,11 @@ impl Hub {
         self.harness_watch.changes.subscribe()
     }
 
+    /// Sends one `_acpmux/harnesses_changed` payload to the watchers.
+    pub(super) fn send_harness_change(&self, payload: Value) {
+        let _ = self.harness_watch.changes.send(payload);
+    }
+
     /// The config file and profile sources a reload reads.
     pub(super) async fn config_sources(&self) -> Result<(PathBuf, ProfileSources), RpcError> {
         let cfg = self.config.read().await;
@@ -140,7 +145,7 @@ impl Hub {
         Ok((path, cfg.profile_sources.clone()))
     }
 
-    async fn reload_and_announce(self: &Arc<Self>) {
+    pub(crate) async fn reload_and_announce(self: &Arc<Self>) {
         match self.reload_catalog().await {
             Ok(reply) => {
                 let diagnostics = self.config.read().await.profile_diagnostics.clone();

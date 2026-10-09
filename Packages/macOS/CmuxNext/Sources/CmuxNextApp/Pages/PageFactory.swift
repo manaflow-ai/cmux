@@ -93,7 +93,7 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
@@ -105,6 +105,15 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        let harnesses = SettingsHarnesses(
+            environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+            openTerminal: { [weak services] line in
+                guard let pane = services?.windows.active?.focusedPane else { return }
+                pane.newTerminalTab(typing: line + "\r")
+            }
+        )
+        provider.harnessesState = { harnesses.state }
+        provider.harnessesRun = { params in try await harnesses.run(params) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in

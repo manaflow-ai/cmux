@@ -66,10 +66,11 @@ public struct LoginEnvironment: Sendable {
         let markerLine = Data("\n\(marker)\n".utf8)
         guard let range = output.range(of: markerLine) else { return nil }
         var env: [String: String] = [:]
-        for entry in output[range.upperBound...].split(separator: 0, omittingEmptySubsequences: true) {
-            guard let text = String(data: Data(entry), encoding: .utf8),
-                  let equals = text.firstIndex(of: "=") else { continue }
-            env[String(text[..<equals])] = String(text[text.index(after: equals)...])
+        for entry in output.suffix(from: range.upperBound).split(separator: 0, omittingEmptySubsequences: true) {
+            guard let text = String(data: Data(entry), encoding: .utf8) else { continue }
+            let parts = text.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, let key = parts.first, let value = parts.last else { continue }
+            env[String(key)] = String(value)
         }
         return env.isEmpty ? nil : env
     }

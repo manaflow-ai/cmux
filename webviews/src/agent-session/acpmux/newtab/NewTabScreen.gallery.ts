@@ -34,10 +34,17 @@ export default agentPaneEntry({
   title: "New Tab page",
   area: "New Tab",
   height: 560,
+  checks: {
+    layoutShiftMax: {
+      value: 0.4,
+      reason: "Typing shows the suggestion rows between the field and the chat cards, which move down.",
+    },
+  },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
+    "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
   ],
   variants: {
     empty: {
@@ -78,6 +85,25 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
     },
+    "typed-prompt": {
+      note: "A typed prompt over recent chats and tools: the rows keep their height, and Down to the last row scrolls to it (dogfood 2026-10-08).",
+      ready: newTab({
+        omnibar: {
+          tabs: [{ id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "https://cmux.dev/release", title: "cmux release notes" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("release", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
+        // "release" makes six rows: five presses end on the last one.
+        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+      },
+    },
     "omnibar-row-kinds": {
       note: "Open tab, workspace, history, search, agent and shell intent rows.",
       ready: newTab({
@@ -91,6 +117,26 @@ export default agentPaneEntry({
         },
       }),
       snapshot: noChat(manySessions(3)),
+    },
+    "template-composer": {
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      ready: newTab({ template: "composer" }),
+      snapshot: noChat(manySessions(4)),
+    },
+    "template-threads": {
+      note: "Threads template: the field and the recent chats as a list.",
+      ready: newTab({ template: "threads" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-console": {
+      note: "Console template: a monospace field with a > prompt, chats as lines.",
+      ready: newTab({ template: "console" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-classic": {
+      note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
+      ready: newTab({ template: "classic" }),
+      snapshot: noChat(manySessions(4)),
     },
   },
 });

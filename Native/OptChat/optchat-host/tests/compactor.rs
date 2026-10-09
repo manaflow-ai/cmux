@@ -461,11 +461,33 @@ fn a_node_that_always_fails_with_a_request_error_does_not_block_settle() {
 #[derive(Default)]
 struct Recording {
     waits: Mutex<Vec<Duration>>,
+    recorded: std::sync::Condvar,
+}
+
+impl Recording {
+    /// The first `n` waits, once that many were recorded (each job thread
+    /// sleeps after it releases the chat's lock, so a settle that returned
+    /// does not mean the stuck wait is recorded yet).
+    fn first(&self, n: usize) -> Vec<Duration> {
+        let waits = self.waits.lock().unwrap();
+        let (waits, timeout) = self
+            .recorded
+            .wait_timeout_while(waits, Duration::from_secs(10), |w| w.len() < n)
+            .unwrap();
+        assert!(
+            !timeout.timed_out(),
+            "only {} waits: {:?}",
+            waits.len(),
+            *waits
+        );
+        waits[..n].to_vec()
+    }
 }
 
 impl Clock for Recording {
     fn sleep(&self, d: Duration) {
         self.waits.lock().unwrap().push(d);
+        self.recorded.notify_all();
         if d >= STUCK_RETRY {
             std::thread::park();
         }
@@ -484,7 +506,9 @@ fn compactor_retries_back_off_honor_retry_after_and_stop_holding_turns_after_8_t
         let calls = calls.clone();
         Arc::new(Fake(move |_: &CompactRequest, _: &[Followup]| {
             let k = calls.fetch_add(1, Ordering::SeqCst);
-            let e = ModelError::new(r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#);
+            let e = ModelError::new(
+                r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+            );
             Err(if k == 2 {
                 e.with_retry_after(Duration::from_secs(7))
             } else {
@@ -499,7 +523,7 @@ fn compactor_retries_back_off_honor_retry_after_and_stop_holding_turns_after_8_t
         chat.settle(None, Some(Duration::from_secs(10))),
         "a node failing 8 times still holds the turn"
     );
-    let waits: Vec<u64> = clock.waits.lock().unwrap().iter().map(Duration::as_secs).collect();
+    let waits: Vec<u64> = clock.first(8).iter().map(Duration::as_secs).collect();
     assert_eq!(waits, vec![1, 2, 7, 8, 16, 32, 64, STUCK_RETRY.as_secs()]);
     assert_eq!(calls.load(Ordering::SeqCst), 8);
 }

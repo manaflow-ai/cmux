@@ -1,7 +1,24 @@
-import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
-import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  dragHasFiles,
+  filesFrom,
+  readAttachments,
+  thumbnail,
+  type AttachmentError,
+  type ComposerAttachment,
+} from "./attachments";
+import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
@@ -24,7 +41,15 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
-import { readNativePersistedDraft, readPersistedDraft, seededText, writePersistedDraft } from "./composerDraft";
+import {
+  flushPendingDraftWrites,
+  hasPendingDraftWrite,
+  readDurableDraft,
+  readPersistedDraft,
+  seededText,
+  useDraftActionsVersion,
+  writePersistedDraft,
+} from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -49,6 +74,7 @@ export const COMPOSER_LABELS = {
   noMatchingCommands: "composer.noMatchingCommands",
   attachments: "composer.attachments",
   removeAttachment: "composer.removeAttachment",
+  openAttachment: "composer.openAttachment",
   dropFiles: "composer.dropFiles",
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
@@ -75,6 +101,8 @@ export type ComposerHandle = {
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
+  /// Puts the caret in the prompt (Edit and Resend).
+  focus(): void;
 };
 
 type Props = {
@@ -114,6 +142,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
+  onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
@@ -162,6 +192,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onBrowseFolder,
   onConnect,
   localName,
   movedTo,
@@ -175,6 +206,9 @@ export function Composer({
   blocked,
 }: Props) {
   const t = useT();
+  // The native action map is replaced on reconnect while the session stays the same. Subscribe
+  // so a durable read retries as soon as that map is available again.
+  const draftActionsVersion = useDraftActionsVersion();
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
@@ -216,6 +250,7 @@ export function Composer({
   const refocusSend = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
+  const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
@@ -297,6 +332,7 @@ export function Composer({
           ]);
       },
       send: () => submitNow.current(true),
+      focus: () => field.current?.focus(),
     }),
     [],
   );
@@ -310,8 +346,9 @@ export function Composer({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     const previous = persistedSession.current;
-    if (previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     persistedSession.current = sessionId;
+    hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     setText(restored);
@@ -320,21 +357,32 @@ export function Composer({
   }, [sessionId, text]);
   useEffect(() => {
     let current = true;
-    void readNativePersistedDraft(sessionId).then((restored) => {
-      if (!current || !restored || field.current?.value() || textRef.current) return;
-      setText(restored);
-      setCaret(restored.length);
-      pendingCaret.current = restored.length;
+    void readDurableDraft(sessionId).then((restored) => {
+      if (!current) return;
+      const hasPendingWrite = hasPendingDraftWrite(sessionId);
+      const currentText = field.current?.value() ?? textRef.current;
+      if (!hasPendingWrite && restored && !currentText) {
+        restoringSession.current = true;
+        setText(restored);
+        setCaret(restored.length);
+        pendingCaret.current = restored.length;
+      } else if (!hasPendingWrite && currentText.trim()) {
+        // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
+        writePersistedDraft(sessionId, currentText);
+      }
+      hydratedSession.current = sessionId;
+      flushPendingDraftWrites();
     });
     return () => {
       current = false;
     };
-  }, [sessionId]);
+  }, [sessionId, draftActionsVersion]);
   useEffect(() => {
     if (restoringSession.current) {
       restoringSession.current = false;
       return;
     }
+    if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
   const commands = snapshot.commands;
@@ -890,6 +938,7 @@ export function Composer({
         <ComposerContext
           projectChoices={projectChoices}
           onBrowseProject={onBrowseProject}
+          onBrowseFolder={onBrowseFolder}
           onConnect={onConnect}
           summary={snapshot.summary}
           sessions={snapshot.sessions}
@@ -919,8 +968,25 @@ export function Composer({
   );
 }
 
+/// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
+/// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
 function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
   const t = useT();
+  const openImage = useContext(ImageViewerContext);
+  const [broken, setBroken] = useState(false);
+  const [thumb, setThumb] = useState<string>();
+  const image = attachment.kind === "image" && attachment.data && !broken;
+  const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
+  useEffect(() => {
+    if (!image || !attachment.data) return;
+    let live = true;
+    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
+      if (live) setThumb(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, [attachment.data, attachment.mimeType, image]);
   const remove = (
     <button
       type="button"
@@ -928,16 +994,31 @@ function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachme
       aria-label={t(COMPOSER_LABELS.removeAttachment, { name: attachment.name })}
       onClick={() => onRemove(attachment.id)}
     >
-      ×
+      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
+        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
     </button>
   );
-  if (attachment.kind === "image")
+  if (image && source) {
+    const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
     return (
       <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
-        <img alt={attachment.name} src={`data:${attachment.mimeType};base64,${attachment.data}`} />
+        {openImage ? (
+          <button
+            type="button"
+            className="acpmux-attachment-open"
+            aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
+            onClick={() => openImage(source, attachment.name)}
+          >
+            {img}
+          </button>
+        ) : (
+          img
+        )}
         {remove}
       </div>
     );
+  }
   return (
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>

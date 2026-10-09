@@ -443,6 +443,11 @@ pub struct Agents {
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
+    /// `new_session` of a session whose name contains the text takes this
+    /// long (a Claude Code process that starts slowly).
+    pub slow_session: Option<(String, Duration)>,
+    /// `new_session` on this harness profile fails with the text.
+    pub session_errors: BTreeMap<String, String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -459,6 +464,10 @@ pub struct Agents {
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
     pub steers: Vec<(String, Vec<Value>)>,
+    /// The next this many steers fail (acpmux refused them).
+    pub steer_errors: usize,
+    /// Steers that failed.
+    pub failed_steers: usize,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -581,6 +590,15 @@ impl FakeAgents {
 
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
+            return Err(e.clone());
+        }
+        let slow = self.inner.lock().unwrap().slow_session.clone();
+        if let Some((part, delay)) = slow
+            && spec.name.contains(&part)
+        {
+            std::thread::sleep(delay);
+        }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
         if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
             return Err(format!(
@@ -733,6 +751,13 @@ impl AgentPort for FakeAgents {
         let mut inner = self.inner.lock().unwrap();
         if !inner.steering {
             return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
         }
         inner.steers.push((session.to_owned(), blocks));
         drop(inner);
@@ -975,6 +1000,15 @@ impl Harness {
         while !self.brain.is_idle() {
             let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
             self.brain.step(input);
+        }
+    }
+
+    /// Settles, then posts every reply the agent gap holds back (G11).
+    pub fn settle_posts(&mut self) {
+        self.settle();
+        while let Some(at) = self.brain.next_timer() {
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+            self.brain.on_timer();
         }
     }
 

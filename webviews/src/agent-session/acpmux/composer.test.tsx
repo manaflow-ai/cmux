@@ -33,6 +33,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
+const { ImageViewerContext } = await import("./conversation/imageViewerContext");
 const { readPersistedDraft, writePersistedDraft } = await import("./composerDraft");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
@@ -646,6 +647,53 @@ describe("acpmux composer slash menu", () => {
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
     });
 
+    // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): the image chip could not be opened and
+    // drew as an empty dark square.
+    const renderWithViewer = async (opened: [string, string][]) => {
+      await act(async () =>
+        root.render(
+          createElement(
+            ImageViewerContext.Provider,
+            { value: (src: string, alt: string) => opened.push([src, alt]) },
+            createElement(Composer, {
+              snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: true } } },
+              chips: () => null,
+              onSend: () => {},
+              onStop: () => {},
+            }),
+          ),
+        ),
+      );
+      await ready();
+    };
+
+    test("clicking an image chip opens it in the chat's image viewer", async () => {
+      const opened: [string, string][] = [];
+      await renderWithViewer(opened);
+      await paste([png()]);
+      const open = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Open image shot.png"]');
+      expect(open).not.toBeNull();
+      await act(async () => open!.click());
+      expect(opened).toEqual([["data:image/png;base64,iVBORw==", "shot.png"]]);
+      // Removing is its own control and opens nothing.
+      await act(async () =>
+        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove shot.png"]')!.click(),
+      );
+      expect(opened).toHaveLength(1);
+    });
+
+    test("an image the pane cannot draw shows its name, never an empty square", async () => {
+      await renderWithViewer([]);
+      await paste([png()]);
+      const image = dom.window.document.querySelector(".acpmux-attachment img")!;
+      expect(image).not.toBeNull();
+      await act(async () => image.dispatchEvent(new dom.window.Event("error")));
+      const chip = dom.window.document.querySelector(".acpmux-attachment")!;
+      expect(chip.querySelector("img")).toBeNull();
+      expect(chip.textContent).toContain("shot.png");
+      expect(chip.querySelector('[aria-label="Remove shot.png"]')).not.toBeNull();
+    });
+
     test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
       await act(async () =>
         root.render(
@@ -717,7 +765,7 @@ describe("acpmux composer draft", () => {
 
   test("restores an unsent prompt for the same agent session after the page remounts", async () => {
     const sessionId = "session-with-a-draft";
-    writePersistedDraft(sessionId, "");
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
     let root = createRoot(dom.window.document.getElementById("root")!);
     const sent: string[] = [];
     const render = async () => {
@@ -750,6 +798,139 @@ describe("acpmux composer draft", () => {
     expect(sent).toEqual(["keep this across relaunch"]);
     expect(readPersistedDraft(sessionId)).toBeUndefined();
     await act(async () => root.unmount());
+  });
+
+  test("restores the daemon draft when acpmux reconnects without changing sessions", async () => {
+    const sessionId = "session-reconnected-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      expect(promptField().value).toBe("");
+
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => ({ draft: "restored after reconnect" }),
+        "chat.writeDraft": async () => undefined,
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("restored after reconnect");
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
+  });
+
+  test("does not send an empty mount value before restoring a daemon draft", async () => {
+    const sessionId = "session-mount-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    window.localStorage.removeItem(`cmux.acpmux.composer-draft.${encodeURIComponent(sessionId)}`);
+    const writes: Record<string, unknown>[] = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => ({ draft: "draft from daemon" }),
+        "chat.writeDraft": async (params) => {
+          writes.push(params);
+          return undefined;
+        },
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("draft from daemon");
+      expect(writes).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
+  });
+
+  test("keeps a typed draft queued until acpmux reconnects", async () => {
+    const sessionId = "session-queued-draft";
+    const previousActions = (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+    writePersistedDraft(sessionId, "");
+    const writes: Record<string, unknown>[] = [];
+    let root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            sessionId,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      await act(async () => typeInto(promptField(), "typed before reconnect"));
+      (
+        dom.window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions = {
+        "chat.readDraft": async () => undefined,
+        "chat.writeDraft": async (params) => {
+          writes.push(params);
+          return undefined;
+        },
+      };
+      await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux.acpmux.actions-changed")));
+      await ready();
+      expect(promptField().value).toBe("typed before reconnect");
+      expect(writes).toContainEqual({ sessionId, text: "typed before reconnect" });
+    } finally {
+      await act(async () => root.unmount());
+      if (previousActions) {
+        (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = previousActions;
+      } else {
+        delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
+      }
+    }
   });
 });
 

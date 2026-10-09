@@ -55,7 +55,13 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 #[test]
 fn args_select_pipe_text_timeout_and_history() {
-    assert_eq!(parse_args(&[]).unwrap(), Args { history: 20, ..Args::default() });
+    // Pipe mode never waits forever: 30 minutes unless --timeout says
+    // otherwise (0 waits without a limit).
+    assert_eq!(
+        parse_args(&[]).unwrap(),
+        Args { history: 20, timeout_secs: Some(1800), ..Args::default() }
+    );
+    assert_eq!(parse_args(&strings(&["--timeout", "0"])).unwrap().timeout_secs, None);
     let parsed = parse_args(&strings(&["-p", "hello", "--timeout=30", "--history", "5"])).unwrap();
     assert_eq!(parsed.prompt.as_deref(), Some("hello"));
     assert_eq!(parsed.timeout_secs, Some(30));
@@ -258,4 +264,131 @@ fn wrap_keeps_lines_and_breaks_at_spaces_by_width() {
     assert_eq!(wrap("one two three", 8), vec!["one two", "three"]);
     assert_eq!(wrap("a\nb", 8), vec!["a", "b"]);
     assert_eq!(wrap("日本語日本語", 8).len(), 2, "wide characters count two columns");
+}
+
+#[test]
+fn the_chief_home_resolves_as_the_app_resolves_it() {
+    use super::home::ChiefHome;
+    use std::path::{Path, PathBuf};
+    let user = Path::new("/Users/a");
+    let cwd = Path::new("/work");
+    let none = |_: &str| None::<String>;
+    let default = ChiefHome::resolve(None, none, user, cwd);
+    assert_eq!(default.root, PathBuf::from("/Users/a/.cmux/chief/default"));
+    assert!(!default.isolated);
+    // The app's FNV-1a 32 of the root path (ChiefHome.sessionName).
+    assert_eq!(default.session(), "cmux-chief-aa441d8a");
+    let env = |key: &str| match key {
+        "CMUX_NEXT_CHIEF_ACCOUNT" => Some("work acct!".to_owned()),
+        _ => None,
+    };
+    assert_eq!(
+        ChiefHome::resolve(None, env, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/work-acct")
+    );
+    let isolated = |key: &str| (key == "CMUX_NEXT_NO_ACTIVATE").then(|| "1".to_owned());
+    assert_eq!(
+        ChiefHome::resolve(None, isolated, user, cwd).root,
+        PathBuf::from("/Users/a/.cmux/chief/isolated/untagged")
+    );
+    // --chief-home wins over every variable, relative to the working
+    // directory, standardized like Foundation's path.
+    let both = |key: &str| (key == "CMUX_CHIEF_HOME").then(|| "/tmp/x/iso".to_owned());
+    let explicit = ChiefHome::resolve(Some(Path::new("tests/../iso/")), both, user, cwd);
+    assert_eq!(explicit.root, PathBuf::from("/work/iso"));
+    assert!(explicit.isolated);
+    let by_env = ChiefHome::resolve(None, both, user, cwd);
+    assert_eq!(by_env.root, PathBuf::from("/tmp/x/iso"));
+    assert_eq!(by_env.session(), "cmux-chief-36e35ec2");
+}
+
+#[test]
+fn the_acpmux_socket_follows_acpmux_length_rule() {
+    use super::home::ChiefHome;
+    let short = ChiefHome { root: "/h/c".into(), isolated: true };
+    assert_eq!(short.acpmux_socket(501), std::path::PathBuf::from("/h/c/acpmux/acpmux.sock"));
+    let long = ChiefHome { root: format!("/{}", "x".repeat(100)).into(), isolated: true };
+    let socket = long.acpmux_socket(501).to_string_lossy().into_owned();
+    assert!(socket.starts_with("/tmp/acpmux-501/") && socket.ends_with(".sock"), "{socket}");
+}
+
+#[test]
+fn engine_and_stop_are_one_call_each() {
+    use super::control::{Control, engine_line};
+    let parsed = parse_args(&strings(&["engine", "--model", "m", "--effort=high"])).unwrap();
+    assert_eq!(
+        parsed.control,
+        Some(Control::Engine(vec![("model".into(), "m".into()), ("effort".into(), "high".into())]))
+    );
+    assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop));
+    let homed = parse_args(&strings(&["--chief-home", "/tmp/h", "engine"])).unwrap();
+    assert_eq!(homed.control, Some(Control::Engine(vec![])), "a global flag may come first");
+    assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
+    let report = json!({"engine": {"harness": "claude", "model": "", "effort": "high"}});
+    assert_eq!(engine_line(&report), "claude · default · high");
+}
+
+#[test]
+fn a_dropped_typing_off_is_recovered_from_the_snapshot_after_a_gap() {
+    let mut watch = TurnWatch::new(10);
+    watch.on(&cursor(10));
+    watch.on(&typing(true));
+    watch.on(&UiEvent::Message(message(11, "agent_mux", "answer", "turn:optchat:10")));
+    // The stream ended with a gap; the typing-off was lost. The reopened
+    // stream's snapshot shows the Chief read the message and types no more.
+    let summary = json!({"id": CONV, "participants": [], "read_cursors": {"agent_mux": 11}});
+    let messages =
+        vec![message(10, "user_local", "q", "k"), message(11, "agent_mux", "answer", "t")];
+    watch.on(&UiEvent::Snapshot {
+        summary: summary.clone(),
+        messages: messages.clone(),
+        typing: vec![],
+    });
+    assert!(watch.done, "the turn ended while the stream was down");
+    assert_eq!(watch.replies.len(), 1, "a reply is printed once");
+
+    // Still typing in the snapshot: wait for the live typing-off.
+    let mut busy = TurnWatch::new(10);
+    busy.on(&cursor(10));
+    busy.on(&UiEvent::Snapshot { summary, messages, typing: vec!["agent_mux".into()] });
+    assert!(!busy.done);
+    assert_eq!(busy.replies.len(), 1, "a reply posted during the gap is kept");
+    busy.on(&typing(false));
+    assert!(busy.done);
+}
+
+#[test]
+fn a_reply_posted_after_the_typing_off_still_ends_the_turn() {
+    // The owner's agent rate limit can hold the brain's reply in its outbox
+    // until after the turn's typing-off (seen live): the turn ends with the
+    // reply, not with the typing-off.
+    let mut watch = TurnWatch::new(3);
+    watch.on(&cursor(3));
+    watch.on(&typing(true));
+    watch.on(&typing(false));
+    assert!(!watch.done, "no reply yet");
+    assert!(
+        watch.on(&UiEvent::Message(message(4, "agent_mux", "late", "turn:optchat:2"))).is_some()
+    );
+    assert!(watch.done);
+}
+
+#[test]
+fn a_brain_gets_the_harness_logins_and_nothing_else() {
+    use super::launch::brain_env_allowed;
+    for name in [
+        "HOME",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CODEX_HOME",
+        "ANTHROPIC_BASE_URL",
+        "LC_ALL",
+        "MUX_HARNESS",
+        "OPTCHAT_CHIEF_HARNESS",
+        "CMUX_MCP_COMMAND",
+    ] {
+        assert!(brain_env_allowed(name), "{name}");
+    }
+    for name in ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DYLD_INSERT_LIBRARIES", "PWD"] {
+        assert!(!brain_env_allowed(name), "{name}");
+    }
 }

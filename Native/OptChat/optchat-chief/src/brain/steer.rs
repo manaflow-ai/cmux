@@ -3,11 +3,12 @@
 //! (`AgentPort::steer`, a steered `session/prompt` with `steerOnly`); Claude
 //! Code reads them at its next tool boundary, and the turn's one reply
 //! answers them too. They are logged as `user` once acpmux says the harness
-//! read them. A session that cannot steer now gets the stop of decision
-//! 2026-10-04 instead, and the messages wait for the next turn.
+//! read them. When the session cannot steer now (acpmux refuses, or the
+//! harness does not steer), the messages wait at the head of the queue and
+//! the next turn starts the moment this one ends. A message never stops a
+//! turn (decision 2026-10-09); only chief.stop does.
 
 use super::{Brain, Input, Phase, Queued, Source};
-use crate::acpmux::Family;
 
 /// One steer on its way: the turn it went to and its messages.
 pub(super) struct Steering {
@@ -18,21 +19,19 @@ pub(super) struct Steering {
 
 impl Brain {
     /// Steers what is queued for the running turn's conversation into its
-    /// session. False: this turn cannot be steered now (not a Claude
-    /// harness, its session not started yet, or an item of another
-    /// conversation is ahead (G9: it is never passed)); the caller stops
-    /// the turn instead, as before. One steer at a time, so the messages
-    /// keep their order; the next goes when this one is read.
+    /// session. False: this turn cannot be steered now (its session not
+    /// started yet, or an item of another conversation is ahead (G9: it is
+    /// never passed)); the messages wait for the next turn. One steer at a
+    /// time, so the messages keep their order; the next goes when this one
+    /// is read.
     pub(super) fn try_steer(&mut self) -> bool {
         let Some(turn) = self.state.turn.as_ref() else {
             return false;
         };
         let (key, session) = (turn.key.clone(), turn.session_id.clone());
-        let claude = self
-            .turn_engine
-            .as_ref()
-            .is_some_and(|e| self.family_of(&e.harness) == Family::Claude);
-        let Some(session) = session.filter(|_| claude) else {
+        // Any harness: acpmux steers when the session's harness says it can
+        // (Claude Code through its adapter, codex-acp), else refuses.
+        let Some(session) = session else {
             return false;
         };
         if self.steering.is_some() {
@@ -60,19 +59,11 @@ impl Brain {
         let prompt_id = format!("optchat-steer:{key}:{id}");
         self.steering = Some(Steering { id, key, items });
         let (agents, tx) = (self.agents.clone(), self.tx.clone());
-        let interrupt = self.interrupt.clone();
         let spawned = std::thread::Builder::new()
             .name("steer".into())
             .spawn(move || {
                 let result = agents.steer(&session, blocks, &prompt_id);
-                let failed = result.is_err();
-                // The outcome first: the brain then knows the stop is for
-                // these messages before the stopped turn can end.
                 let _ = tx.send(Input::Steered { id, result });
-                if failed {
-                    // The stop leaves at once, off the brain thread.
-                    interrupt.request();
-                }
             });
         if let Err(e) = spawned {
             (self.log)(&format!("starting a steer failed: {e}"));
@@ -106,16 +97,14 @@ impl Brain {
                 }
             }
             Err(e) => {
+                // Never a stop: the messages go back to the head of the
+                // queue, and the next turn starts the moment this one ends.
                 (self.log)(&format!(
-                    "turn {}: the message could not reach the running turn ({e}); stopping the turn",
+                    "turn {}: the message could not reach the running turn ({e}); it waits for the next turn",
                     steer.key
                 ));
                 for item in steer.items.into_iter().rev() {
                     self.queue.push_front(item);
-                }
-                if current {
-                    self.stop_wanted = true;
-                    self.interrupt.request();
                 }
             }
         }

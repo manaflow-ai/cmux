@@ -1019,6 +1019,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_route.py
 
+      - name: Validate cmux-next self-hosted checkouts retry once
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_checkout_retry.py
+
       - name: Validate the nightly dSYM upload retries and never fails the nightly
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_upload_sentry_dsyms.sh

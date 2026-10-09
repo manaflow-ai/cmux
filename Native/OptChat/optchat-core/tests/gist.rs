@@ -373,11 +373,12 @@ fn the_view_is_cut_in_blocks_of_four_lines() {
     let pieces = block_pieces(&view);
     assert_eq!(pieces.concat(), view);
     let lines = memory.view().len();
-    assert_eq!(pieces.len(), lines / BLOCK_LINES + 1);
-    assert!(pieces[0].starts_with("<chat>\n"));
-    for piece in &pieces[..pieces.len() - 1] {
-        let body = piece.strip_prefix("<chat>\n").unwrap_or(piece);
-        assert_eq!(body.lines().count(), BLOCK_LINES, "{piece:?}");
+    // The `<chat>` header is its own block (the reference client's grid),
+    // then whole 4-line blocks, then the rest with the closing tag.
+    assert_eq!(pieces.len(), lines / BLOCK_LINES + 2);
+    assert_eq!(pieces[0], "<chat>\n");
+    for piece in &pieces[1..pieces.len() - 1] {
+        assert_eq!(piece.lines().count(), BLOCK_LINES, "{piece:?}");
         assert!(piece.ends_with('\n'));
     }
     assert!(pieces.last().unwrap().ends_with("</chat>"));
@@ -469,4 +470,30 @@ fn compaction_tasks_carry_the_ruler_and_the_too_long_retry() {
         size_check(&["12+4|user: keep it".into()]),
         SizeCheck::Accept("user: keep it".into())
     );
+}
+
+/// A view with no whole 4-line block still has a block to mark: the
+/// `<chat>` header (the reference client's layout). Every request then
+/// carries our mark, from the first turn on.
+#[test]
+fn the_header_is_its_own_block_and_takes_the_mark_while_no_whole_block_exists() {
+    let small = "<chat>\n0+1|user: hi\n1+1|talk: hello\n</chat>";
+    assert_eq!(
+        block_pieces(small),
+        vec!["<chat>\n", "0+1|user: hi\n1+1|talk: hello\n</chat>"]
+    );
+    assert_eq!(mark_piece(small, None), Some(0));
+    assert_eq!(block_pieces("<chat>\n</chat>"), vec!["<chat>\n", "</chat>"]);
+    assert_eq!(mark_piece("<chat>\n</chat>", None), Some(0));
+    let mut nine = String::from("<chat>\n");
+    for k in 0..9 {
+        nine.push_str(&format!("{k}+1|note: {k}\n"));
+    }
+    nine.push_str("</chat>");
+    let pieces = block_pieces(&nine);
+    assert_eq!(pieces.len(), 4, "header, two whole blocks, the rest");
+    assert_eq!(mark_piece(&nine, None), Some(2));
+    // The header's mark is a prefix of the next view's: the next turn's
+    // mark finds it.
+    assert_eq!(mark_piece(&nine, Some("<chat>\n")), Some(2));
 }

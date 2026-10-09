@@ -20,6 +20,8 @@ mod questions;
 mod steer_only;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
+#[path = "hub_integration/drafts.rs"]
+mod drafts;
 
 struct TestClient {
     tx: mpsc::Sender<String>,

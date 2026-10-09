@@ -18,7 +18,7 @@ extension AppControl {
                 let source = call.params["source"]?.stringValue ?? "journal"
                 let entries: [InputJournalEntry]
                 if source == "report" {
-                    guard let report = services?.input.monitor.reports.last else { return .value(["error": "no desync report"]) }
+                    guard let report = services?.input.monitor?.reports.last else { return .value(["error": "no desync report"]) }
                     entries = report.journal
                 } else {
                     entries = InputJournal.shared.entries()
@@ -33,6 +33,10 @@ extension AppControl {
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugMouse.send(call.params, services: services))
+            },
+            .mainActor("debug.home.sidebar_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeSidebarFixture.handle(call.params, services: services))
             },
             .mainActor("debug.tab_drag") { [weak services] _ in
                 guard let services else { return .value(.null) }
