@@ -62,7 +62,7 @@ extension SessionRestorableAgentSnapshot {
         workingDirectorySelection: RestorableAgentWorkingDirectorySelection
     ) -> String? {
         let policy = NormallyEndedClaudeResumePolicy()
-        resumeStartupInput(
+        return resumeStartupInput(
             useLocalRestoreVerb: policy.usesLocalRestoreVerb(
                 requested: useLocalRestoreVerb,
                 agentKind: kind.rawValue,
