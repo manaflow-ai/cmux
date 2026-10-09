@@ -244,3 +244,55 @@ def test_without_windows_arguments_no_windows_object_is_written(tmp_path: Path) 
     _assets, digests, uploaded = _run_publish(tmp_path)
     assert WINDOWS_NAME not in digests
     assert not any(WINDOWS_NAME in item["key"] or "completion-windows" in item["key"] for item in uploaded)
+
+
+def _write_once_uploader(uploader: Path, cdn: Path) -> None:
+    """A write-once store like upload-r2-object.py --write-once: an identical
+    existing object is accepted, a different one is refused (exit 1)."""
+    uploader.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, shutil, sys\n"
+        "args = sys.argv[1:]\n"
+        "def value(name): return args[args.index(name) + 1]\n"
+        f"target = pathlib.Path({str(cdn)!r}) / value('--key')\n"
+        "source = pathlib.Path(value('--file'))\n"
+        "if '--write-once' not in args: sys.exit('not write-once')\n"
+        "if target.exists():\n"
+        "    sys.exit(0 if target.read_bytes() == source.read_bytes() else 'write-once object differs: ' + value('--key'))\n"
+        "target.parent.mkdir(parents=True, exist_ok=True)\n"
+        "shutil.copy(source, target)\n"
+    )
+
+
+def test_a_windows_daemon_with_another_digest_under_the_key_fails_the_publication(tmp_path: Path) -> None:
+    # Write-once (hq-ed): a republication that adds the Windows daemon never
+    # replaces an existing object. When the key already has a Windows daemon
+    # with another digest, the publication fails with an error; it never
+    # skips it and never overwrites it.
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    windows_manifest = _windows_fixture(tmp_path, "c" * 40)
+    cdn = tmp_path / "cdn"
+    _write_once_uploader(uploader, cdn)
+    existing = cdn / f"cmux-tui/tree/{'b' * 40}/{WINDOWS_NAME}"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"another windows build")
+    try:
+        publisher.publish_tree(
+            key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+            endpoint_url="https://r2.example", bucket="cmux-binaries",
+            manifest_file=manifest, source_file=source,
+            windows_manifest_file=windows_manifest, windows_source_commit="c" * 40)
+    except publisher.PublicationError as error:
+        assert WINDOWS_NAME in str(error) and "differs" in str(error), error
+    else:
+        raise AssertionError("a different Windows daemon under the key was accepted")
+    assert existing.read_bytes() == b"another windows build", "the existing object was replaced"
+    assert not (existing.parent / "completion-windows.json").exists(), "a completion was written for a failed publication"
+    # The same bytes again (a rerun of the same build) are accepted.
+    existing.write_bytes((assets / WINDOWS_NAME).read_bytes())
+    publisher.publish_tree(
+        key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+        endpoint_url="https://r2.example", bucket="cmux-binaries",
+        manifest_file=manifest, source_file=source,
+        windows_manifest_file=windows_manifest, windows_source_commit="c" * 40)
+    assert (existing.parent / "completion-windows.json").exists()

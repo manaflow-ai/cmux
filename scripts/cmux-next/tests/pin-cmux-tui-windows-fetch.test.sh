@@ -3,7 +3,9 @@
 # cmux-tui-x86_64-pc-windows-gnu.exe from the tree, checks its published
 # .sha256, and writes it as <tree>/x86_64-pc-windows-gnu/cmux-tui.exe (no
 # companions: the Windows daemon has no app, cloud or browser host).
-# A tree published before the Windows target fails at once instead of waiting.
+# A tree with no Windows daemon (published before the Windows target, or its
+# optional Windows build failed) fails at once with "no Windows daemon
+# published for tree <key>" and how to republish, never a bare 404.
 # A binary whose bytes differ from the published .sha256 is refused.
 # CMUX_TUI_TREE_TARGET=x86_64-pc-windows-gnu fetches it from any host.
 # No network: a curl shim serves the CDN from files; a uname shim plays the host.
@@ -82,7 +84,11 @@ out=$(run $WINHOST fetch) || status=$?
 $out"
 (( $(date +%s) - started < 30 )) || fail "fetch on Windows waited for a target the tree will never have:
 $out"
-grep -q 'x86_64-pc-windows-gnu' <<<"$out" || fail "the refusal does not name the Windows target:
+grep -qF "no Windows daemon published for tree $key" <<<"$out" || fail "the refusal does not say the tree has no Windows daemon:
+$out"
+grep -q 'cmux-tui-pin-' <<<"$out" || fail "the refusal does not say how to republish:
+$out"
+! grep -qi '404\|error 22\|curl:' <<<"$out" || fail "the refusal is a bare download error:
 $out"
 
 # A Windows binary whose bytes differ from its published .sha256 is refused.
