@@ -88,8 +88,8 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func listTeams() async throws -> [CMUXAuthTeam] {
-        guard let user = try await stack.getUser(or: .returnNull) else {
-            return []
+        guard let user = try await stack.getUser(or: .throw) else {
+            throw AuthError.unauthorized
         }
         let teams = try await user.listTeams()
         var summaries: [CMUXAuthTeam] = []
