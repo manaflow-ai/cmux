@@ -244828,6 +244828,7 @@
         }
       }
     },
+
     "menu.file.newWorkspaceGroup": {
       "extractionState": "manual",
       "localizations": {
