@@ -2,10 +2,10 @@
 // used by the entry view and matrix runner. It is intentionally a view of the registry rather
 // than a second set of synthetic thumbnails, so a card is useful for both visual scanning and
 // opening the exact entry/variant that produced it.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { GalleryEnv } from "../env";
 import type { GalleryEntry } from "../format";
-import { browseFrameHref, browseItems } from "./browseModel";
+import { browseFrameHref, filterBrowseItems, browseItems, nextBrowseVariant, type BrowseKind } from "./browseModel";
 import { Stage } from "./Stage";
 
 export function BrowseView({
@@ -22,20 +22,65 @@ export function BrowseView({
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
   const items = browseItems(entries);
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<BrowseKind>("all");
+  const [cycle, setCycle] = useState(false);
+  const visible = filterBrowseItems(items, query, kind);
   return (
     <section className="gallery-browse" aria-labelledby="gallery-browse-title">
       <header className="gallery-browse-header">
         <div>
           <h1 id="gallery-browse-title">Browse gallery</h1>
           <p>
-            {items.length} live entries, each rendered by its real host. Pick a variant to scan the surface, then open
-            it for the full-size view or replay its motion.
+            {visible.length} of {items.length} entries, each rendered by its real host. Scan the contact sheet, switch
+            variants, or cycle multi-state previews before opening a full view.
           </p>
         </div>
+        <div className="gallery-browse-tools">
+          <label>
+            <span>Filter previews</span>
+            <input
+              type="search"
+              aria-label="Filter previews"
+              value={query}
+              placeholder="Search title or surface"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <fieldset className="gallery-browse-kind-filter">
+            <legend>Show</legend>
+            {(
+              [
+                ["all", "All"],
+                ["static", "Static"],
+                ["motion", "Motion"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-label={`Show ${label.toLowerCase()} previews`}
+                aria-pressed={kind === value}
+                onClick={() => setKind(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+          <label className="gallery-browse-cycle">
+            <input
+              type="checkbox"
+              aria-label="Cycle previews"
+              checked={cycle}
+              onChange={(event) => setCycle(event.target.checked)}
+            />
+            Cycle previews
+          </label>
+        </div>
       </header>
-      {items.length ? (
+      {visible.length ? (
         <div className="gallery-browse-grid">
-          {items.map(({ entry, variant }) => (
+          {visible.map(({ entry, variant }) => (
             <BrowseCard
               key={entry.id}
               entry={entry}
@@ -44,6 +89,7 @@ export function BrowseView({
               tune={tune}
               onOpen={onOpen}
               hrefFor={hrefFor}
+              cycle={cycle}
             />
           ))}
         </div>
@@ -61,6 +107,7 @@ function BrowseCard({
   tune,
   onOpen,
   hrefFor,
+  cycle,
 }: {
   entry: GalleryEntry;
   initialVariant: string;
@@ -68,6 +115,7 @@ function BrowseCard({
   tune: string;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  cycle: boolean;
 }) {
   const [variant, setVariant] = useState(initialVariant);
   const [width, setWidth] = useState(420);
@@ -79,8 +127,17 @@ function BrowseCard({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const variants = Object.keys(entry.variants);
+  const variants = useMemo(() => Object.keys(entry.variants), [entry]);
   const fixture = entry.variants[variant];
+  useEffect(() => {
+    if (!cycle || variants.length < 2 || env.reducedMotion) return;
+    const timer = window.setInterval(() => {
+      setVariant((current) => {
+        return nextBrowseVariant(current, variants) ?? current;
+      });
+    }, 2600);
+    return () => window.clearInterval(timer);
+  }, [cycle, env.reducedMotion, variants]);
   return (
     <article className="gallery-browse-card" data-gallery-browse-entry={entry.id}>
       <header className="gallery-browse-card-header">
@@ -102,6 +159,9 @@ function BrowseCard({
             {name}
           </button>
         ))}
+        {variants.length > 1 && (
+          <span className="gallery-browse-cycle-note">{cycle && !env.reducedMotion ? "cycling" : "multi-state"}</span>
+        )}
       </fieldset>
       <div ref={previewRef} className="gallery-browse-preview">
         <Stage
