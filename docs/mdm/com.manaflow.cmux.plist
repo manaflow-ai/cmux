@@ -311,13 +311,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>auto</string>
+			<string>system</string>
 			<key>pfm_description</key>
 			<string>A thin bar under the columns that shows and moves the visible range.</string>
 			<key>pfm_name</key>
 			<string>layout.stripScrollbar</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>system</string>
 				<string>auto</string>
 				<string>always</string>
 				<string>off</string>

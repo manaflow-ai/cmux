@@ -191,7 +191,7 @@ pub fn terminate_unadoptable_terminal_host(
 
 /// Positive proof that no process has `pid` (ESRCH). Permission errors and
 /// live processes are not proof.
-pub(super) fn process_definitely_absent(pid: u32) -> bool {
+pub(crate) fn process_definitely_absent(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
     // SAFETY: signal zero performs a liveness/permission probe and does not
     // deliver a signal to the target process.

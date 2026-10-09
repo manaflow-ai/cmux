@@ -46,6 +46,16 @@ if ! [[ "$suite_jobs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 lock_args=()
 [ "$suite_jobs" -eq 1 ] || lock_args=(--ignore-lock)
+# CMUX_SWIFT_TEST_DIRECT=1 runs each suite from the built test bundle the way
+# `swift test` runs it (run_swift_test_bundle.py), without a SwiftPM process per
+# suite: that process cost 1-2 s of startup per suite and opened .build/build.db,
+# where 8 parallel suites hit "database is locked". 0 keeps one
+# `swift test --skip-build --filter` per suite (fallback until 2026-10-16).
+direct="${CMUX_SWIFT_TEST_DIRECT:-0}"
+if [ "$direct" != 0 ] && [ "$direct" != 1 ]; then
+  echo "CMUX_SWIFT_TEST_DIRECT must be 0 or 1 (got '$direct')" >&2
+  exit 2
+fi
 # CMUX_SWIFT_TEST_SHARD=i/n (1-based) splits one package's suites across n
 # fleet steps: each shard builds, then runs every n-th suite of the sorted list,
 # starting at the i-th. Round-robin over a sorted list is deterministic and keeps
@@ -105,6 +115,35 @@ if [ -n "${tree_path_job:-}" ]; then
   tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
   [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
 fi
+if [ "$direct" -eq 1 ]; then
+  # Everything the suites need from SwiftPM and the toolchain, resolved once:
+  # which listed tests are XCTest (the rest are Swift Testing), the test
+  # bundle, and the two runners with the platform paths SwiftPM sets.
+  swift test list --package-path "$package_path" --skip-build --disable-swift-testing \
+    > "$evidence_dir/xctest-tests.txt"
+  bin_path="$(swift build --package-path "$package_path" --show-bin-path)"
+  bundles=()
+  for candidate in "$bin_path"/*.xctest; do
+    [ -d "$candidate" ] && bundles+=("$candidate")
+  done
+  if [ "${#bundles[@]}" -ne 1 ]; then
+    echo "error: expected one .xctest bundle in $bin_path, found ${#bundles[@]}; no .xctest bundle to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+    exit 1
+  fi
+  test_bundle="${bundles[0]}"
+  xctest_tool="$(xcrun --find xctest)"
+  testing_helper="$(dirname "$(xcrun --find swift-test)")/../libexec/swift/pm/swiftpm-testing-helper"
+  platform_path="$(xcrun --sdk macosx --show-sdk-platform-path)"
+  sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+  for tool in "$xctest_tool" "$testing_helper"; do
+    if [ ! -x "$tool" ]; then
+      echo "error: $tool is not executable; cannot run suites directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+      exit 1
+    fi
+  done
+  package_dir="$(cd "$package_path" && pwd -P)"
+  echo "Running suites directly from $test_bundle (CMUX_SWIFT_TEST_DIRECT=1)."
+fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
 # list each suite's result and exit with the first failure's status (first in
@@ -134,11 +173,21 @@ attempt_suite() {
   # scheduler's completion pipe out of the test processes. On a stall the
   # watchdog names the tests still running, samples them, and also kills
   # swiftpm-testing-helper, which runs in its own process group.
+  local command
+  if [ "$direct" -eq 1 ]; then
+    command=(python3 "$script_dir/run_swift_test_bundle.py"
+      --bundle "$test_bundle" --xctest "$xctest_tool" --helper "$testing_helper"
+      --platform "$platform_path" --sdk "$sdk_path" --cwd "$package_dir"
+      --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
+      --filter "$suite")
+  else
+    command=(swift test --package-path "$package_path" --skip-build
+      ${lock_args[@]+"${lock_args[@]}"} --filter "$suite")
+  fi
   python3 "$script_dir/hung_test_watchdog.py" \
     --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
     --label "$suite" \
-    -- swift test --package-path "$package_path" --skip-build \
-    ${lock_args[@]+"${lock_args[@]}"} --filter "$suite" \
+    -- "${command[@]}" \
     < /dev/null 3>&- 2>&1 | tee "$execution" | "$@"
 }
 
