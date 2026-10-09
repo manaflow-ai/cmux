@@ -260,6 +260,74 @@ pub fn is_ttl_refused_error(error: &str) -> bool {
     lower.contains("cache_control") && lower.contains("ttl")
 }
 
+/// The current cache TTL, shared by the brain (which decides it per turn)
+/// and the compactor (whose nodes take the same TTL on the same route).
+#[derive(Clone, Debug)]
+pub struct SharedTtl(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl SharedTtl {
+    pub fn new(ttl: CacheTtl) -> SharedTtl {
+        SharedTtl(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            ttl == CacheTtl::OneHour,
+        )))
+    }
+
+    pub fn get(&self) -> CacheTtl {
+        if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            CacheTtl::OneHour
+        } else {
+            CacheTtl::FiveMinutes
+        }
+    }
+
+    pub fn set(&self, ttl: CacheTtl) {
+        self.0.store(
+            ttl == CacheTtl::OneHour,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+}
+
+impl Default for SharedTtl {
+    /// 1 hour: the Claude Code path's default.
+    fn default() -> SharedTtl {
+        SharedTtl::new(CacheTtl::OneHour)
+    }
+}
+
+/// Requests that go without our mark after Claude Code refused one (it
+/// already placed the API's four): then the mark is tried again, since a
+/// refusal costs one fast rerun and a lost mark costs the view on every
+/// request.
+pub const MARK_RETRY_AFTER: u32 = 10;
+
+/// Whether our mark goes on the next request: off for `MARK_RETRY_AFTER`
+/// requests after a refusal, then on again. Shared by a turn's worker.
+#[derive(Clone, Debug, Default)]
+pub struct MarkLatch(std::sync::Arc<std::sync::atomic::AtomicU32>);
+
+impl MarkLatch {
+    /// Whether this request carries our mark (counts a skipped one).
+    pub fn take(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.0
+            .fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1))
+            .is_err()
+    }
+
+    /// Whether marks are off now (without counting a request).
+    pub fn is_off(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
+    /// Claude Code refused our mark: the next `MARK_RETRY_AFTER` requests
+    /// go without it.
+    pub fn refused(&self) {
+        self.0
+            .store(MARK_RETRY_AFTER, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Our one mark in a cached layout: the view piece it sits on
 /// (`optchat_core::mark_piece`) and its TTL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

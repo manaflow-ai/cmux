@@ -21,8 +21,7 @@ extension SidebarBridge {
         switch intent {
         case .reorder(let ids, let position):
             let before = model.sections
-            model.apply(intent)
-            placePersonal(ids, at: position, in: before)
+            placePersonal(ids, at: position, in: before, edit: rows.add(intent)) // pending until the store holds it (cx-odqn)
         case .move(let ids, let group):
             groupFlow.move(ids, into: group, intent)
         case .createGroup(let group, let name, let color, let ids, _, let collapsed):
@@ -59,12 +58,12 @@ extension SidebarBridge {
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, _):
-            model.apply(intent)
+            let edit = rows.add(intent)
             // The intent's index counts section nodes; the daemon wants a
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
             let v2 = statePersonal, move = place.move, top = place.topIndex
-            personal("move-personal-group") { connection in
+            personal("move-personal-group", edit: edit) { connection in
                 if let move {
                     if v2 {
                         try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
@@ -83,14 +82,17 @@ extension SidebarBridge {
     /// Personal order and group for `ids` at `position` in this window's
     /// `sections` (taken before the move): one `set-personal-workspace`
     /// each in the home session; the workspace's own daemon is not written.
-    func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+    func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection],
+                       edit: SidebarPendingEdits.Token? = nil) {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return resync() }
+        let (failed, applied) = rows.outcome(edit, resync: { [weak self] in self?.resync() })
+        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return failed() }
         let regroup = statePersonal ? plan.regroup : []
         // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
         let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
         let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: resync) { connection in
+        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
+                    applied: applied) { connection in
             for step in plan.steps {
                 try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
                                                                   resource: step.workspace.resource,
@@ -115,11 +117,9 @@ extension SidebarBridge {
     }
 
     /// Sends one personal-state command to the home daemon; a failure
-    /// re-syncs the sidebar.
-    private func personal(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
-        let home = services.machines.local
-        Task {
-            if await home.request(label, body) == nil { resync() }
-        }
+    /// re-syncs the sidebar; a pending `edit` settles (SidebarRows.send).
+    private func personal(_ label: String, edit: SidebarPendingEdits.Token? = nil,
+                          _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+        rows.send(label, edit: edit, on: services.machines.local, resync: { [weak self] in self?.resync() }, body)
     }
 }

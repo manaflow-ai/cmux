@@ -107,10 +107,13 @@ extension SidebarListView {
         reload(animated: true)
         land(drag)
     }
-    /// Flies the lifted view to its row's current frame, then swaps it out.
-    func land(_ drag: Drag) {
-        let destination = SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+    /// Flies the lifted view to its row's current frame (or `slot`, the
+    /// band slot of a pin drop), then swaps it out and runs `then`.
+    func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
+        let destination = slot
+            ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
+            defer { then?() }
             guard let self else { return }
             self.suppressed.subtract(drag.hiddenKeys)
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }

@@ -74,8 +74,7 @@ and render-server field animation, blurred header and native scrolling.
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
-| LongText | the off-main streaming tail renders a block's tiles from its layout without a force unwrap (crash ratchet) |
-| MarkdownStore, LongText | `isPlain`/`setPlain`: a message HomeMapping marks plain (a person's text) never takes the Markdown engine; only an agent's text is Markdown |
+| MarkdownStore, LongText | `isPlain`/`setPlain`: a message HomeMapping marks plain (a person's text, or a part with mentions) never takes the Markdown engine; only an agent's text is Markdown |
 | MarkdownParser, MarkdownHost | `MarkdownLinkPolicy` (interim, same API as MessagesLab's coming rule): only http, https and mailto (plus `extraSchemes`, empty) become links; other, obfuscated and relative destinations are plain text; a click re-checks (`Cmux/PaneLinks.swift` for Home) |
 | ComposeAttachments, WindowView, TiledBubble | checked casts instead of `as!` (crash ratchet, cx-6so) |
 
@@ -92,8 +91,8 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-08): every file at 285538d (7d072dd plus 86c3cb3's sidebar row-text and
-pinned-dot fixes, cmux-next's rules taken upstream: our two patches are gone), the sidebar's included
+that are wip checkpoints. Current pins (2026-10-08): every file at 2579028 (285538d plus the LongText tail guard from our crash
+ratchet; 285538d = 7d072dd plus 86c3cb3's sidebar row-text and pinned-dot fixes: those patches are gone), the sidebar's included
 (7d072dd and c7b32bb, verified with verify-clean 5/5: the header avatar stays centred on the pill after a
 resize, and ChromeView's `leadingEdgeIsWindowEdge`; Home hides ChromeView, so it keeps the default;
 pinned tiles are layers and the unread dot sits below the unread bubble (`SidebarDraw.tileUnreadDot`); cc52c46, verified with MessagesLab's tools/verify-clean.sh 5/5: selection drags its text out, the
