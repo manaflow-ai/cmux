@@ -172,6 +172,67 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     expect(rekey).toBeGreaterThan(daemonStart);
     expect(devboxBoot).toContain('low="nice -n 19"');
   });
+
+  test("a reboot clears stale daemon markers but preserves failed finalization", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-reboot-recovery-"));
+    try {
+      const state = path.join(root, "remote");
+      const session = path.join(state, "sessions", "cloud");
+      const bootFile = path.join(root, "daemon-boot-id");
+      const bootSource = path.join(root, "boot-id");
+      mkdirSync(session, { recursive: true });
+      writeFileSync(path.join(session, "runtime.json"), "runtime");
+      writeFileSync(bootFile, "old-boot\n");
+      writeFileSync(bootSource, "new-boot\n");
+      const start = devboxBoot.indexOf("recover_rebooted_daemon_state() {");
+      const end = devboxBoot.indexOf("\n}\n", start) + 3;
+      const functionBody = devboxBoot.slice(start, end);
+      const runRecovery = async () =>
+        runChild("sh", ["-c", [
+          `BOOT_ID_FILE='${bootFile}' BOOT_ID_SOURCE='${bootSource}' REMOTE_STATE_DIR='${state}'`,
+          functionBody,
+          "recover_rebooted_daemon_state",
+        ].join("\n")], { timeout: 5_000 });
+
+      const missingOutcome = await runRecovery();
+      expect({ status: missingOutcome.status, stderr: missingOutcome.stderr }).toEqual({ status: 0, stderr: "" });
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(false);
+      expect(existsSync(path.join(session, "shutdown.json"))).toBe(false);
+      expect(readFileSync(bootFile, "utf8")).toBe("new-boot\n");
+
+      writeFileSync(path.join(session, "runtime.json"), "runtime");
+      writeFileSync(path.join(session, "shutdown.json"), '{"status":"succeeded"}\n');
+      const sameBoot = await runRecovery();
+      expect(sameBoot.status).toBe(0);
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
+      expect(existsSync(path.join(session, "shutdown.json"))).toBe(true);
+
+      writeFileSync(path.join(session, "runtime.json"), "runtime");
+      writeFileSync(path.join(session, "shutdown.json"), '{"status":"failed"}\n');
+      writeFileSync(bootFile, "old-boot\n");
+      const failedOutcome = await runRecovery();
+      expect(failedOutcome.status).toBe(0);
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
+      expect(existsSync(path.join(session, "shutdown.json"))).toBe(true);
+
+      writeFileSync(path.join(session, "shutdown.json"), '{"status":"succeeded"}\n');
+      writeFileSync(bootFile, "old-boot\n");
+      const successfulOutcome = await runRecovery();
+      expect(successfulOutcome.status).toBe(0);
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(false);
+      expect(existsSync(path.join(session, "shutdown.json"))).toBe(false);
+
+      writeFileSync(path.join(session, "runtime.json"), "runtime");
+      writeFileSync(path.join(session, "shutdown.json"), "malformed");
+      writeFileSync(bootFile, "old-boot\n");
+      const malformedOutcome = await runRecovery();
+      expect(malformedOutcome.status).toBe(0);
+      expect(existsSync(path.join(session, "runtime.json"))).toBe(true);
+      expect(existsSync(path.join(session, "shutdown.json"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // The private-network announce (services/vms/images/network.ts): the VPC
@@ -385,6 +446,7 @@ describe("devbox warm template terminal", () => {
     expect(prepare).toContain("test ! -e /run/cmux/template-arm");
     const park = devboxParkDaemonCommand();
     expect(park).toContain("pgrep -f '[_]_terminal-host'");
+    expect(park).toContain("/etc/cmux/daemon-boot-id");
     expect(park).toContain("rm -f /run/cmux/bound /run/cmux/clone-started /run/cmux/first-prompt-named");
   });
 });
