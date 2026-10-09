@@ -137,7 +137,7 @@ describe("popup layer rules", () => {
     );
   });
 
-  test("the step verdict fails on popup problems unless the entry gives a reason", () => {
+  test("popup problems warn by default, fail when the entry gates them, and can be turned off", () => {
     const measured = {
       step: "click",
       action: "click" as const,
@@ -149,7 +149,10 @@ describe("popup layer rules", () => {
       frameSource: "raf" as const,
       popupProblems: ["popup menu is covered at center by div.x (z-index or portal)"],
     };
-    expect(judgeStep(measured).status).toBe("fail");
+    expect(judgeStep(measured)).toEqual({ status: "warn", problems: measured.popupProblems });
+    expect(
+      judgeStep(measured, { popupLayer: { value: true, reason: "tournament screening gates layers" } }).status,
+    ).toBe("fail");
     expect(
       judgeStep(measured, { popupLayer: { value: false, reason: "the popup sits under a modal by design here" } })
         .status,

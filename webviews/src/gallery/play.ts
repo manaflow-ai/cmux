@@ -57,7 +57,10 @@ export type PlayChecks = {
   anchorMovePx?: { value: number; reason: string };
   longFrameFailMs?: { value: number; reason: string };
   layoutShiftMax?: { value: number; reason: string };
-  /** `false` turns the popup layer check off for an entry (with its reason). */
+  /**
+   * Popup layer problems (judgePopups) warn by default while the matrix baseline is unknown;
+   * `true` makes them fail (a UI-tournament round's screening sets it), `false` turns them off.
+   */
   popupLayer?: { value: boolean; reason: string };
 };
 
@@ -102,9 +105,36 @@ export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: Ste
 
 // ---- Pure rules (unit tested) ----
 
-/** The problems of the open popups after a step (stub until the rule lands). */
-export function judgePopups(_popups: PopupMeasure[], _viewport: { width: number; height: number }): string[] {
-  return [];
+/** Pixels a popup may overhang the viewport (subpixel rounding). */
+const VIEWPORT_SLACK = 1;
+
+/**
+ * The problems of the open popups after a step: a popup must be the top element at its sampled
+ * points (else a z-index or a missing portal hides part of it) and neither an ancestor's overflow
+ * nor the viewport may clip it (webviews/src/ui/README.md, "Layers and transparency").
+ */
+export function judgePopups(popups: PopupMeasure[], viewport: { width: number; height: number }): string[] {
+  const problems: string[] = [];
+  for (const popup of popups) {
+    for (const hit of popup.hits)
+      if (hit.covered)
+        problems.push(
+          `popup ${popup.label} is covered at ${hit.point} by ${hit.by ?? "another element"} (z-index or portal)`,
+        );
+    for (const clip of popup.clippedBy)
+      problems.push(`popup ${popup.label} is clipped by ${clip} (render it in the portal)`);
+    const { x, y, width, height } = popup.rect;
+    if (
+      x < -VIEWPORT_SLACK ||
+      y < -VIEWPORT_SLACK ||
+      x + width > viewport.width + VIEWPORT_SLACK ||
+      y + height > viewport.height + VIEWPORT_SLACK
+    )
+      problems.push(
+        `popup ${popup.label} runs past the viewport (${Math.round(x)},${Math.round(y)} ${Math.round(width)}x${Math.round(height)})`,
+      );
+  }
+  return problems;
 }
 
 export function rectDelta(before: Rect | null, after: Rect | null): number {
@@ -134,8 +164,13 @@ export function judgeStep(
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
   if (measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
-  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs);
-  return { status: problems.length ? "fail" : warn ? "warn" : "pass", problems };
+  const popupProblems = checks.popupLayer?.value === false ? [] : (measured.popupProblems ?? []);
+  if (checks.popupLayer?.value === true) problems.push(...popupProblems);
+  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || popupProblems.length > 0;
+  return {
+    status: problems.length ? "fail" : warn ? "warn" : "pass",
+    problems: problems.length ? problems : popupProblems,
+  };
 }
 
 /** Every loosened check names its reason (an entry file states why). */
