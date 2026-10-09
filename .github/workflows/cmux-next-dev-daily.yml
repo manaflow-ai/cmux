@@ -124,7 +124,10 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/$APP_ARCHIVE_NAME"
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "$archive"
-          shasum -a 256 "$archive" > "$archive.sha256"
+          (
+            cd "$(dirname "$archive")"
+            shasum -a 256 "$(basename "$archive")"
+          ) > "$archive.sha256"
           notes="$(cat <<EOF
           Rolling cmux NEXT DEV Release build from feat-cmux-next commit $SOURCE_SHA.
 
