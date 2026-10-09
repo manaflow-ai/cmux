@@ -199,6 +199,21 @@ mod tests {
         )
     }
 
+    /// The Chief's turns and compactor load no user settings, MCP servers,
+    /// skills or slash commands (`--setting-sources project` keeps only the
+    /// session directory's own settings, its denied tools included), while
+    /// the user's login still signs them in (credentials are not a setting
+    /// source). An empty source list stays refused: it would drop the
+    /// project's denied tools too.
+    #[test]
+    fn setting_sources_project_and_disable_slash_commands_pass() {
+        assert_eq!(claude(&["--setting-sources", "project", "--disable-slash-commands"]), Ok(()));
+        assert_eq!(
+            claude(&["--tools", "", "--strict-mcp-config", "--setting-sources", "project"]),
+            Ok(())
+        );
+    }
+
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
@@ -224,6 +239,12 @@ mod tests {
 
     refused! {
         refuses_an_unknown_flag: ["--verbose"];
+        refuses_user_setting_source: ["--setting-sources", "user"];
+        refuses_local_setting_source: ["--setting-sources", "local"];
+        refuses_a_setting_source_list_with_user: ["--setting-sources", "project,user"];
+        refuses_setting_sources_without_a_value: ["--setting-sources"];
+        refuses_setting_sources_equals_project: ["--setting-sources=project"];
+        refuses_disable_slash_commands_equals: ["--disable-slash-commands=true"];
         refuses_a_bare_word: ["hello"];
         refuses_tools_with_a_value: ["--tools", "Bash"];
         refuses_tools_without_a_value: ["--tools"];

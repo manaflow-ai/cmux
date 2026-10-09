@@ -141,6 +141,46 @@ pub fn turn_preset(
     })
 }
 
+/// A subagent preset `name`: the user's own environment (subagents do real
+/// work in the user's repositories), the pinned cmux env, its cache key,
+/// and on a Claude harness its system prompt `text`.
+#[allow(clippy::too_many_arguments)]
+pub fn subagent_preset(
+    paths: &Paths,
+    home: &std::path::Path,
+    name: String,
+    profile: &str,
+    family: Family,
+    isolate: bool,
+    text: &str,
+    pinned: &BTreeMap<String, String>,
+) -> Preset {
+    let mut env = if isolate {
+        session_dir::isolation_env(paths)
+    } else {
+        BTreeMap::new()
+    };
+    env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+    // Subagents' cmux calls reach the same app daemon as the Chief's.
+    env.extend(pinned.clone());
+    if family == Family::Codex {
+        env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+    }
+    if family == Family::Claude {
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+            codex_cache_key(home, "sub"),
+        );
+    }
+    Preset {
+        name,
+        harness: profile.to_owned(),
+        env,
+        args: Vec::new(),
+        system_prompt: (family == Family::Claude).then(|| text.to_owned()),
+    }
+}
+
 /// The turn preset's name: `optchat-chief-<home id>`, and
 /// `optchat-chief-codex-<home id>` for codex, so both can be installed and
 /// a turn can swap harness families (engine.rs).
@@ -561,30 +601,7 @@ fn start(
     // turn preset (whose system prompt is the Chief's view).
     let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
     let sub_preset = |name: String, profile: &str, family: Family, text: &str| {
-        let mut env = if isolate {
-            session_dir::isolation_env(paths)
-        } else {
-            BTreeMap::new()
-        };
-        env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
-        // Subagents' cmux calls reach the same app daemon as the Chief's.
-        env.extend(pinned.clone());
-        if family == Family::Codex {
-            env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
-        }
-        if family == Family::Claude {
-            env.insert(
-                crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
-                codex_cache_key(home, "sub"),
-            );
-        }
-        Preset {
-            name,
-            harness: profile.to_owned(),
-            env,
-            args: Vec::new(),
-            system_prompt: (family == Family::Claude).then(|| text.to_owned()),
-        }
+        subagent_preset(paths, home, name, profile, family, isolate, text, &pinned)
     };
     if uses_acpmux {
         required.push(sub_preset(

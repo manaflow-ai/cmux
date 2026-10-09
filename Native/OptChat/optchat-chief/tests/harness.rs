@@ -654,6 +654,43 @@ fn an_isolated_claude_turn_keeps_the_users_login() {
     assert!(!codex.env.contains_key("CLAUDE_CONFIG_DIR"), "{:?}", codex.env);
 }
 
+/// The reference's Claude Code path: Chief turns and compactor nodes load
+/// no user settings, user MCP servers, user skills or slash commands
+/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// Code 2.1.287: a user MCP server and a user skill leave the session's
+/// init, the session directory's .mcp.json and denied tools stay).
+/// Subagents keep the user's environment: they do real work.
+#[test]
+fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::{subagent_preset, turn_preset};
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let isolated = ["--setting-sources", "project", "--disable-slash-commands"];
+    for harness in ["claude", "claude-sr"] {
+        let turn = turn_preset(&paths, &home, harness, Family::Claude, true, "SYS").unwrap();
+        assert_eq!(turn.args, isolated, "{harness}");
+    }
+    for preset in optchat_chief::compactor::compactor_presets(&paths, &home, "claude", Family::Claude) {
+        for word in isolated {
+            assert!(preset.args.iter().any(|a| a == word), "{}: {:?}", preset.name, preset.args);
+        }
+    }
+    let sub = subagent_preset(
+        &paths,
+        &home,
+        "optchat-sub-x".into(),
+        "claude",
+        Family::Claude,
+        true,
+        "SUB",
+        &Default::default(),
+    );
+    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
+}
+
 /// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run
 /// at medium effort on both engines unless `OPTCHAT_CHIEF_EFFORT` names
 /// another; on acpmux a harness of another family keeps its own default

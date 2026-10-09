@@ -1606,3 +1606,16 @@ fn a_refused_marker_comes_back_after_ten_nodes() {
     }
     assert_eq!(markers(&inner.prompts[12]).len(), 1, "the 12th node tries the mark again");
 }
+
+/// Claude Code without the model in its own table answers a failed call
+/// with "[claude-code:unrecognized_model]" (2.1.287 on claude-haiku-5-5):
+/// the compactor falls back to the turn model then too.
+#[test]
+fn an_unrecognized_model_counts_as_unavailable() {
+    assert!(optchat_chief::compactor::is_model_unavailable(
+        r#"[claude-code:unrecognized_model] {"model":"claude-haiku-5-5","query_source":"sdk"}"#
+    ));
+    assert!(!optchat_chief::compactor::is_model_unavailable(
+        "API Error: 529 overloaded"
+    ));
+}
