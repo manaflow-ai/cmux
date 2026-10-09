@@ -108,6 +108,12 @@ struct NewMachineSheetLayoutTests {
         // attached frame rather than the temporary 1×0 frame.
         Self.runMainLoopTurns()
         let initialTopEdge = sheet.frame.maxY
+        // Moving the host moves an attached sheet. Its later content-driven
+        // resizes must follow that new position instead of snapping back to
+        // the top edge captured at presentation.
+        host.setFrameOrigin(NSPoint(x: host.frame.minX, y: host.frame.minY - 80))
+        Self.runMainLoopTurns()
+        let movedTopEdge = sheet.frame.maxY
 
         for tick in 0..<12 {
             let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 81920, usedVcpus: 32 + tick % 3, usedMemoryMb: 65536)
@@ -142,7 +148,7 @@ struct NewMachineSheetLayoutTests {
         let content = sheet.contentRect(forFrameRect: sheet.frame).size
         #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
-        #expect(abs(sheet.frame.maxY - initialTopEdge) <= 1, "sheet top edge moved from \(initialTopEdge) to \(sheet.frame.maxY)")
+        #expect(abs(sheet.frame.maxY - movedTopEdge) <= 1, "sheet top edge moved from \(movedTopEdge) to \(sheet.frame.maxY) after the host moved (initially \(initialTopEdge))")
     }
 
     /// The grid's pop-ups read as one column: each starts at the column's

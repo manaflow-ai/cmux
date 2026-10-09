@@ -30,6 +30,11 @@ final class CloudSheetWindow {
     // deferred geometry callback runs. Keep the first stable top edge so a
     // content-driven resize cannot inherit that temporary shift.
     private var topEdgeAnchor: CGFloat?
+    // Registration is main-actor-only; deinit only removes these opaque
+    // Foundation tokens through NotificationCenter's thread-safe cleanup API.
+    nonisolated(unsafe) private var windowMoveObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var hostMoveObserver: NSObjectProtocol?
+    private var isApplyingFrame = false
 
     init<Content: View>(rootView: Content) {
         // The presenter retains this wrapper while the window is presented;
@@ -49,11 +54,38 @@ final class CloudSheetWindow {
             window.setContentSize(initialContentSize)
         }
         reporter.owner = self
+        windowMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.recordExternalMoveIfStable()
+            }
+        }
+    }
+
+    deinit {
+        if let windowMoveObserver {
+            NotificationCenter.default.removeObserver(windowMoveObserver)
+        }
+        if let hostMoveObserver {
+            NotificationCenter.default.removeObserver(hostMoveObserver)
+        }
     }
 
     /// Attaches the sheet to `host`; the size is held until the open
     /// animation has finished.
     func beginSheet(on host: NSWindow, completionHandler: ((NSApplication.ModalResponse) -> Void)? = nil) {
+        hostMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: host,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.recordExternalMoveIfStable()
+            }
+        }
         isOpening = true
         host.beginSheet(window, completionHandler: completionHandler)
         isOpening = false
@@ -106,7 +138,7 @@ final class CloudSheetWindow {
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
         frame.origin.x = oldFrame.midX - frame.width / 2
         frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
-        window.setFrame(frame, display: window.isVisible, animate: false)
+        setFrameInternally(frame)
     }
 
     private func restoreInitialContentSizeIfNeeded() {
@@ -122,7 +154,23 @@ final class CloudSheetWindow {
         var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: initialContentSize))
         frame.origin.x = oldFrame.midX - frame.width / 2
         frame.origin.y = (topEdgeAnchor ?? oldFrame.maxY) - frame.height
+        setFrameInternally(frame)
+    }
+
+    private func setFrameInternally(_ frame: NSRect) {
+        isApplyingFrame = true
         window.setFrame(frame, display: window.isVisible, animate: false)
+        isApplyingFrame = false
+    }
+
+    private func recordExternalMoveIfStable() {
+        guard !isOpening, !isApplyingFrame else { return }
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        // During attachment AppKit can briefly publish a 1×0 frame and move
+        // its bottom edge. It is not a user move and must not replace the
+        // stable anchor used to restore the initial content size.
+        guard contentSize.width > 1, contentSize.height > 1 else { return }
+        topEdgeAnchor = window.frame.maxY
     }
 
     private static func rounded(_ size: NSSize) -> NSSize {
