@@ -32,11 +32,13 @@ struct Daemon {
 
 impl Daemon {
     fn new(name: &str) -> Self {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+        let stamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
         // Short: AF_UNIX paths are limited on Windows too.
         let dir = std::env::temp_dir().join(format!("cwth-{name}-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut daemon = Self { child: None, socket: dir.join("mux.sock"), state: dir.join("state"), dir };
+        let mut daemon =
+            Self { child: None, socket: dir.join("mux.sock"), state: dir.join("state"), dir };
         daemon.start();
         daemon
     }
@@ -86,7 +88,9 @@ impl Daemon {
 impl Drop for Daemon {
     fn drop(&mut self) {
         if self.child.is_some() {
-            if let Ok(identify) = std::panic::catch_unwind(|| request(&self.socket, serde_json::json!({"cmd": "identify"}))) {
+            if let Ok(identify) = std::panic::catch_unwind(|| {
+                request(&self.socket, serde_json::json!({"cmd": "identify"}))
+            }) {
                 let _ = request_response(
                     &self.socket,
                     serde_json::json!({
@@ -160,7 +164,10 @@ fn a_terminal_survives_a_fenced_daemon_restart_on_windows() {
     let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
-    request(&daemon.socket, serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": format!("echo {marker}\r")}));
+    request(
+        &daemon.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": format!("echo {marker}\r")}),
+    );
     assert!(wait_for_screen(&daemon.socket, surface, &marker).contains(&marker));
 
     daemon.stop_keeping_terminals();
@@ -186,9 +193,18 @@ fn a_terminal_survives_a_fenced_daemon_restart_on_windows() {
         );
         std::thread::sleep(Duration::from_millis(100));
     };
-    assert!(wait_for_screen(&daemon.socket, adopted, &marker).contains(&marker), "the screen from before the restart is gone");
+    assert!(
+        wait_for_screen(&daemon.socket, adopted, &marker).contains(&marker),
+        "the screen from before the restart is gone"
+    );
 
     let after = format!("after-restart-{}", std::process::id());
-    request(&daemon.socket, serde_json::json!({"id": 4, "cmd": "send", "surface": adopted, "text": format!("echo {after}\r")}));
-    assert!(wait_for_screen(&daemon.socket, adopted, &after).contains(&after), "input after the restart did not reach the same shell");
+    request(
+        &daemon.socket,
+        serde_json::json!({"id": 4, "cmd": "send", "surface": adopted, "text": format!("echo {after}\r")}),
+    );
+    assert!(
+        wait_for_screen(&daemon.socket, adopted, &after).contains(&after),
+        "input after the restart did not reach the same shell"
+    );
 }
