@@ -262,7 +262,8 @@ impl Inner {
         };
         let started = Instant::now();
         if !walk_is_cheaper(counted_ms, last_count) {
-            let count = self.closed_root_count(session, cdp, &root_frame, world, dom_was_on, deadline);
+            let count =
+                self.closed_root_count(session, cdp, &root_frame, world, dom_was_on, deadline);
             let ms = started.elapsed().as_secs_f64() * 1000.0;
             let mut state = self.lock();
             if let Some(tab) = state.tabs.get_mut(&session.target_id) {
@@ -342,7 +343,8 @@ impl Inner {
             )
             .ok()?;
         if let Some(id) = search["searchId"].as_str() {
-            let _ = self.send_on(cdp, "DOM.discardSearchResults", json!({"searchId": id}), deadline);
+            let _ =
+                self.send_on(cdp, "DOM.discardSearchResults", json!({"searchId": id}), deadline);
         }
         let nodes = search["resultCount"].as_u64()?;
         Some((nodes, nodes == reachable))
