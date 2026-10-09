@@ -52,6 +52,14 @@ assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
 install_client
 cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
 assert_layout "$APP"
+# Release bundles carry no agent screen detector until its notices are mapped
+# (scripts/cmux-next/bundle-cmux-tui.sh places it in dev builds only): an
+# install drops a stale copy, even one beside a local client.
+printf stale > "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
+printf detector > "$TEST_DIR/cmux-agent-screen-detection"
+install_client
+[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
+rm -f "$TEST_DIR/cmux-agent-screen-detection"
 # A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
 # replaces both files with the symlinks.
 rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"

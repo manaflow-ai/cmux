@@ -143,15 +143,28 @@ mod tests {
         serde_json::from_str(json).expect("agents section parses")
     }
 
+    fn write_sibling(directory: &Path, contents: &[u8], mode: u32) -> PathBuf {
+        let sibling = directory.join(BUNDLED_SCREEN_DETECTION_FILE);
+        let _ = std::fs::remove_file(&sibling);
+        std::fs::write(&sibling, contents).expect("write sibling");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&sibling, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        sibling
+    }
+
     fn host_with_sibling() -> (tempfile::TempDir, PathBuf) {
         let directory = tempfile::tempdir().expect("temp dir");
-        let sibling = directory.path().join(BUNDLED_SCREEN_DETECTION_FILE);
-        std::fs::write(&sibling, b"#!/bin/sh\n").expect("write sibling");
+        let sibling = write_sibling(directory.path(), b"#!/bin/sh\n", 0o755);
         (directory, sibling)
     }
 
     fn host(exe_dir: Option<&Path>, supported: bool) -> DaemonHost<'_> {
-        DaemonHost { exe_dir, revision: "0.1.0 (abc123)", supported }
+        DaemonHost { exe_dir, supported }
     }
 
     #[test]
@@ -163,8 +176,35 @@ mod tests {
         assert_eq!(options.id, "cmux_screen_detection");
         assert_eq!(options.command, vec![sibling.to_str().unwrap().to_string()]);
         assert_eq!(options.cwd, None);
-        assert_eq!(options.revision.as_deref(), Some("0.1.0 (abc123)"));
+        assert_eq!(options.revision, bundled_revision(&sibling));
+        assert!(options.revision.is_some(), "the default carries a restart revision");
         options.validate().expect("the default passes the supervisor's validation");
+    }
+
+    #[test]
+    fn a_replaced_sibling_gets_a_new_revision() {
+        // An app update replaces the file (the bundle phase removes, then
+        // copies), so the supervisor must see a new revision and restart.
+        let (directory, sibling) = host_with_sibling();
+        let first = bundled_revision(&sibling).expect("revision");
+        assert_eq!(
+            bundled_revision(&sibling).as_deref(),
+            Some(first.as_str()),
+            "stable for one file"
+        );
+        let replaced = write_sibling(directory.path(), b"#!/bin/sh\n# the next build\n", 0o755);
+        let second = bundled_revision(&replaced).expect("revision");
+        assert_ne!(first, second, "a replaced detector must restart the child");
+        let options = agent_plugin(raw("{}"), &host(Some(directory.path()), true)).unwrap();
+        assert_eq!(options.revision.as_deref(), Some(second.as_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sibling_that_is_not_executable_is_not_run() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        write_sibling(directory.path(), b"#!/bin/sh\n", 0o644);
+        assert!(agent_plugin(raw("{}"), &host(Some(directory.path()), true)).is_none());
     }
 
     #[test]
@@ -181,6 +221,14 @@ mod tests {
         let options =
             agent_plugin(raw(r#"{"screen_detection":false}"#), &host(Some(directory.path()), true));
         assert!(options.is_none(), "agents.screen_detection=false must run no bundled plugin");
+    }
+
+    #[test]
+    fn an_invalid_agents_section_runs_nothing() {
+        // config.rs marks a section (or file) that failed to parse: the user's
+        // agents settings are unknown, so the bundled default must stay off.
+        let (directory, _sibling) = host_with_sibling();
+        assert!(agent_plugin(RawAgents::invalid(), &host(Some(directory.path()), true)).is_none());
     }
 
     #[test]
@@ -211,6 +259,8 @@ mod tests {
             r#"{"plugin":{"id":"mine","command":[]}}"#,
             r#"{"plugin":{"id":"mine","command":["relative/plugin"]}}"#,
             r#"{"plugin":{"id":"cmux_agent","command":["/opt/mine/plugin"]}}"#,
+            // The bundled detector's id is reserved for the bundled default.
+            r#"{"plugin":{"id":"cmux_screen_detection","command":["/opt/mine/plugin"]}}"#,
         ] {
             let options = agent_plugin(raw(json), &host(Some(directory.path()), true));
             assert!(options.is_none(), "{json} must disable agent plugins, not select the default");
@@ -238,9 +288,17 @@ mod tests {
         assert!(agent_plugin(raw("{}"), &host(Some(directory.path()), false)).is_none());
     }
 
+    #[cfg(unix)]
     #[test]
-    fn this_daemon_supports_the_default_only_on_unix() {
-        assert_eq!(this_daemon_supports_bundled_plugin(), cfg!(unix));
+    fn the_daemon_directory_resolves_a_symlinked_executable() {
+        // A PATH link to the bundled `cmux` still finds the app's bin/ siblings.
+        let app_bin = tempfile::tempdir().expect("app bin");
+        let path_dir = tempfile::tempdir().expect("path dir");
+        let exe = app_bin.path().join("cmux");
+        std::fs::write(&exe, b"").unwrap();
+        let link = path_dir.path().join("cmux");
+        std::os::unix::fs::symlink(&exe, &link).unwrap();
+        assert_eq!(daemon_dir_of(&link), Some(std::fs::canonicalize(app_bin.path()).unwrap()));
     }
 
     #[test]

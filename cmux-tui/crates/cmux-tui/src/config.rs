@@ -8169,6 +8169,41 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_agents_settings_keep_the_bundled_detector_off() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old = (std::env::var_os("CMUX_TUI_CONFIG"), std::env::var_os("CMUX_MUX_CONFIG"));
+        let directory = TestDirectory::new("agents-invalid");
+        let (bin, path) = (directory.path.join("bin"), directory.path.join("mux.json"));
+        std::fs::create_dir(&bin).unwrap();
+        crate::test_exec::write_executable(&bin.join("cmux-agent-screen-detection"), "#!/bin/sh\n");
+        let mut plugin_ids = Vec::new();
+        for text in [
+            "{}",
+            r#"{"agents":{"plugin":{"id":"mine","command":"/opt/mine"}}}"#,
+            r#"{"agents":{"plugin":{"id":"mine","command":["/opt/mine"],"bogus":1}}}"#,
+            r#"{"agents":{"screen_detection":"false"}}"#,
+            r#"{"agents":{"screen_detection":false"#,
+            "[]",
+            r#"{"not_a_section":{}}"#,
+        ] {
+            std::fs::write(&path, text).unwrap();
+            // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+            unsafe {
+                std::env::remove_var("CMUX_TUI_CONFIG");
+                std::env::set_var("CMUX_MUX_CONFIG", &path);
+            }
+            let config = crate::agent_plugin_config::with_test_daemon_dir(&bin, load);
+            plugin_ids.push(config.agents.plugin.map(|plugin| plugin.id));
+        }
+        restore_env_var("CMUX_TUI_CONFIG", old.0);
+        restore_env_var("CMUX_MUX_CONFIG", old.1);
+        let mut expected = vec![None; 7];
+        expected[0] = Some("cmux_screen_detection".to_string());
+        assert_eq!(plugin_ids, expected, "only a readable config may enable the bundled detector");
+    }
+
     #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
