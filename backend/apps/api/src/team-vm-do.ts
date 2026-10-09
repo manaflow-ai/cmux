@@ -3,15 +3,17 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
-import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
+import { fromBase64, isStream, journalCaller, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
 import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
 import { prefixReport, TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
 import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
 import { BindRunner } from "./team-vm-bind-run.ts"
 import { FakeGuest, type FakeGuestMode } from "./team-vm-fake-guest.ts"
-import { adminAction, pauseRetired, taintSummary, type AdminReply, type AdminRequest, type TaintRunDeps, type TaintSummary } from "./team-vm-taint-run.ts"
+import { adminAction, pauseRetired, taintSummary, type AdminReply, type AdminRequest, type TaintSummary } from "./team-vm-taint-run.ts"
 import { taintView } from "./domains/team-vm-taint.ts"
+import { downloadExport, exportUnknown, type ExportRunDeps } from "./team-vm-export-run.ts"
+import { ExportTickets } from "./team-vm-export.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 /** Retry of undelivered registry events when the alarm next runs for this object. */
@@ -50,18 +52,6 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     return this.journalStore
   }
 
-  /**
-   * The journal is the team's zero-loss tier and holds every person's files: only the VM's own
-   * install for the current epoch reads or writes it, never a member's session or another install.
-   */
-  private journalCaller(state: TeamVmState, p: Principal, risk: "read" | "mutate-own"): { ok: true } | { ok: false; code: string; message: string } {
-    if (p.kind !== "install" || p.team === undefined || p.team !== state.team) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
-    if (!state.vm_install) return { ok: false, code: "team_vm.not_bound", message: "the team VM has not bound its install yet" }
-    if (p.install !== state.vm_install) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
-    if (!p.grant_classes?.includes(risk)) return { ok: false, code: "auth.forbidden", message: `grant does not cover ${risk}` }
-    return { ok: true }
-  }
-
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, teamVmDomain as Domain<TeamVmState>, "team_vm")
   }
@@ -76,7 +66,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
 
   protected read(state: TeamVmState, op: string, params: unknown, principal: Principal): ReadResult {
     if (op === "team_vm.journal.high_water" || op === "team_vm.journal.read") {
-      const allowed = this.journalCaller(state, principal, "read")
+      const allowed = journalCaller(state, principal, "read")
       if (!allowed.ok) return allowed
       const p = (params ?? {}) as { stream?: unknown; from_seq?: unknown }
       if (!isStream(p.stream)) return { ok: false, code: "validation.invalid", message: "unknown journal stream" }
@@ -120,9 +110,9 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   // Taint after a member removal (cx-q4f3): team-vm-taint-run.ts.
-  private get taintDeps(): TaintRunDeps {
+  private get taintDeps(): ExportRunDeps {
     const driver = () => (providerRefusal(this.env) ? null : teamVmDriver(this.env, this.sqlStore))
-    return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile() }
+    return { state: () => this.boundEngine?.currentState, driver, refusal: () => providerRefusal(this.env), submitSystem: (op, p, k) => this.submitSystem(op, p, k), deleteVm: (id, by) => this.deleteVm(this.boundEngine!.stream.slice("team_vm:".length), id, by), reconcile: () => this.reconcile(), exportTickets: () => new ExportTickets(this.sqlStore) }
   }
 
   /** RPC from TeamDO's certificate issue: the taint of a team that has a VM record (never creates one). */
@@ -137,6 +127,9 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     this.bind(entity)
     return adminAction(this.taintDeps, req)
   }
+
+  /** The team files download (`GET /v1/team-vm/export/<team>/<ticket>`, cx-lyvg): the ticket the export op minted, single use. */
+  async exportDownload(entity: string, ticket: string): Promise<Response> { return this.isBound(entity) ? (this.bind(entity), downloadExport(this.taintDeps, ticket)) : exportUnknown() }
 
   /** A member-removal notice for a team that never had a VM creates no record here. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
@@ -185,7 +178,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     })
     const state = this.boundEngine?.currentState
     if (!state) return reject("owner.unreachable", "team VM record not open")
-    const allowed = this.journalCaller(state, principal, "mutate-own")
+    const allowed = journalCaller(state, principal, "mutate-own")
     if (!allowed.ok) return reject(allowed.code, allowed.message)
     const p = (frame.params ?? {}) as { stream?: unknown; epoch?: unknown; first_seq?: unknown; last_seq?: unknown; bytes?: unknown; sha256?: unknown }
     if (!isStream(p.stream) || typeof p.epoch !== "number" || typeof p.first_seq !== "number" || typeof p.last_seq !== "number" || typeof p.bytes !== "string" || typeof p.sha256 !== "string")

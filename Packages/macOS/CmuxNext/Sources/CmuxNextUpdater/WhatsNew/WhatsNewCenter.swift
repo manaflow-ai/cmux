@@ -23,8 +23,9 @@ public final class WhatsNewCenter {
 
     /// Whether the sidebar's What's New item shows (with its unread dot).
     public var showsItem: Bool { isItemEnabled && !unseen.isEmpty }
-    /// This launch's version is newer than the last seen one, and neither
-    /// the page nor the "cmux Updated!" card's x has marked it seen (cx-7py7).
+    /// This launch's stable or RC version is newer than the last seen one,
+    /// and neither the page nor the "cmux Updated!" card's x has marked it
+    /// seen (cx-7py7). Nightly versions never set it.
     public private(set) var isUpdated = false
     /// Whether the sidebar shows the "cmux Updated!" card: after any update,
     /// with or without notes, until the page opens or the x; never on a
@@ -58,7 +59,7 @@ public final class WhatsNewCenter {
         }
         let tracker = seen.tracker(current: current)
         self.tracker = tracker
-        isUpdated = tracker.lastSeen.map { $0 < current } ?? false
+        isUpdated = Self.announcesUpdate(to: current) && (tracker.lastSeen.map { $0 < current } ?? false)
         let sources = sources
         let task = Task { [weak self] in
             var documents: [WhatsNewDocument] = []
@@ -89,6 +90,13 @@ public final class WhatsNewCenter {
         unseen = []
         isUpdated = false
         return presented
+    }
+
+    /// Whether an update to `version` shows the "cmux Updated!" card: stable
+    /// and RC versions do; nightly builds update several times a day, so they
+    /// do not (chief, 2026-10-08).
+    static func announcesUpdate(to version: WhatsNewVersion) -> Bool {
+        version.prerelease?.kind != "nightly"
     }
 
     /// The "cmux Updated!" card's x: this version is seen, so the card and
