@@ -42,7 +42,21 @@ import Testing
         #expect(!policy("com.cmuxterm.app.debug.t", debug: true, env: ["XCTestConfigurationFilePath": "/x"]).shouldStart)
         #expect(!policy("com.cmuxterm.app.debug.t", debug: true, env: ["CMUX_UI_TEST_MODE": "1"]).shouldStart)
         #expect(policy("com.cmuxterm.app.debug.t", debug: true,
-                       env: ["CMUX_TEST_PROCESS": "1", "CMUX_TEST_SENTRY_ENABLED": "1"]).shouldStart)
+                       env: ["CMUX_TEST_PROCESS": "1", "CMUX_TEST_SENTRY_ENABLED": "1", "CMUX_NEXT_DEV_SENTRY": "1"]).shouldStart)
+    }
+
+    @Test func devBuildsStayOffUnlessOptedIn() {
+        // Deliberate test crashes from many lanes must not reach the production project.
+        #expect(!policy("com.cmuxterm.app.debug.t", debug: true).shouldStart)
+        #expect(!policy("com.cmuxterm.app.staging").shouldStart)
+        #expect(!policy("com.cmuxterm.app.debug.t", debug: true, env: ["CMUX_NEXT_DEV_SENTRY": "0"]).shouldStart)
+        #expect(policy("com.cmuxterm.app.debug.t", debug: true, env: ["CMUX_NEXT_DEV_SENTRY": "1"]).shouldStart)
+        #expect(!policy("com.cmuxterm.app.debug.t", debug: true, optIn: false, env: ["CMUX_NEXT_DEV_SENTRY": "1"]).shouldStart,
+                "the opt-in never overrides the user's choice")
+        // NIGHTLY, RC and release need no opt-in.
+        #expect(policy("com.cmuxterm.app.nightly").shouldStart)
+        #expect(policy("com.cmuxterm.app.rc").shouldStart)
+        #expect(policy("com.cmuxterm.app").shouldStart)
     }
 
     @Test func theTelemetryChoiceIsOnUntilTheUserTurnsItOff() throws {
