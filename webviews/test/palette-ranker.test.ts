@@ -130,6 +130,24 @@ describe("shared palette ranker", () => {
     expect(rankedIDs(entries, "clsoe tab")[0]).toBe("close");
   });
 
+  // Chief review of step 2: ten settings are titled "Color"; a command with the word comes first.
+  // A shortcut only breaks exact ties (Split Right over the unbound Split Up), never adds score.
+  test("a command beats a setting with an equal or close match, a shortcut only breaks ties", () => {
+    const entries = [
+      entry("setting:focusRing.color", "Color", { subtitle: "Focus Ring", demoted: true }),
+      entry("setting:attention.color", "Color", { subtitle: "Attention Ring", demoted: true }),
+      entry("action:workspaceColor", "Set Workspace Color…"),
+      entry("action:splitUp", "Split Up"),
+      entry("action:splitRight", "Split Right", { hasShortcut: true }),
+      entry("action:splitTabs", "Split Tabs Evenly"),
+    ];
+    expect(rankedIDs(entries, "color")[0]).toBe("action:workspaceColor");
+    expect(rankedIDs(entries, "split").slice(0, 2)).toEqual(["action:splitRight", "action:splitUp"]);
+    const scores = rankPalette({ entries, query: "split", now }).flatMap((section) => section.rows);
+    const score = (id: string) => scores.find((row) => entries[row.index].id === id)?.score;
+    expect(score("action:splitRight")).toBe(score("action:splitUp"));
+  });
+
   test("frecency decays by its half-life and orders recent keys", () => {
     const store: PaletteFrecency = { entries: { a: { score: 2, lastUsed: now } }, halfLife: 100 };
     const score = (at: number) => store.entries!.a.score * 2 ** (-(at - store.entries!.a.lastUsed) / store.halfLife!);
