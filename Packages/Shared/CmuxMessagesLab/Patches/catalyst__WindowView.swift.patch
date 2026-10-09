@@ -470,7 +470,7 @@
 -        let width = model.rows[i0].spec.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
 +        guard let i0 = model.index[key], let spec0 = model.rows[checked: i0]?.spec, case let .part(p0) = spec0.kind, case let .text(t, _) = p0.part else { return } // cmux
 +        let width = spec0.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
-         let l = LongTextStore.shared.layout(t, width: width)
+         let l = LongTextStore.shared.layout(t, width: width, message: id, markdown: p0.markdownFormat)
          let head = pad + CGFloat(LongTextFold.headLines) * lh
          let oldAnchor = fold ? pad + CGFloat(l.totalLines) * lh : head
          let newAnchor = fold ? pad + CGFloat(LongTextFold.headLines + LongTextFold.tailLines) * lh + LongTextFold.bandHeight : head
@@ -491,9 +491,9 @@
          var inner: (LongTextLayout, LongTextLayout.Anchor, CGFloat)?
          let textTop = Fixture.bubblePadY
 -        if case let .part(p) = model.rows[i0].spec.kind, case let .text(t, _) = p.part, p.text == nil {
--            let l = LongTextStore.shared.layout(t, width: model.rows[i0].spec.width)
+-            let l = LongTextStore.shared.layout(t, width: model.rows[i0].spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
 +        if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil { // cmux
-+            let l = LongTextStore.shared.layout(t, width: spec0.width)
++            let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
              let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
              inner = (l, l.anchor(atTextY: y), y)
          }
@@ -502,9 +502,9 @@
          } else if let i = model.index[key0] {
              newOffset += layout.contentTop(i) - (oldTop + rebase)
 -            if let (old, a, y) = inner, case let .part(p) = model.rows[i].spec.kind, case let .text(t, _) = p.part {
--                let l = LongTextStore.shared.layout(t, width: model.rows[i].spec.width)
+-                let l = LongTextStore.shared.layout(t, width: model.rows[i].spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
 +            if let (old, a, y) = inner, let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, case let .text(t, _) = p.part { // cmux
-+                let l = LongTextStore.shared.layout(t, width: spec.width)
++                let l = LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId, markdown: p.markdownFormat)
                  newOffset += (l === old ? old.textY(of: a) : l.textY(of: a)) - y
              }
          }

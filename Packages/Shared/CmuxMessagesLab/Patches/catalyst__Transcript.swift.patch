@@ -98,7 +98,7 @@
          let keepEnd = rows.count - dropTail
          guard dropHead <= keepEnd else { return }
          let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
--        rows = newHead.map(make) + rows[dropHead..<keepEnd] + newTail.map(make)
+-        rows = newHead.map(make) + Array(rows[dropHead..<keepEnd]) + newTail.map(make)
 +        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // cmux: clamped slice
          rebuild()
      }
@@ -341,7 +341,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -683,7 +692,7 @@
+@@ -684,7 +693,7 @@
              let t0 = CACurrentMediaTime()
              let img = RowBitmaps.render(spec)
              RowCell.mainDrawSpent += CACurrentMediaTime() - t0
@@ -350,7 +350,7 @@
              RowCell.syncRenders += 1
              Reclaimer.release(bitmap.contents)
              MediaPlaceholder.clear(bitmap)
-@@ -735,7 +744,9 @@
+@@ -747,7 +756,9 @@
          guard let spec else { return }
          let img: CGImage
          if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
@@ -361,7 +361,7 @@
              RowBitmaps.shared.insert([(spec, img)])
              RowCell.syncRenders += 1
          }
-@@ -789,7 +800,7 @@
+@@ -821,7 +832,7 @@
              if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
              return
          }
@@ -370,7 +370,7 @@
          let side: CGFloat = p.outgoing ? -1 : 1
          let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
          let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }
-@@ -827,12 +838,12 @@
+@@ -859,12 +870,12 @@
              mask.path = PartRenderer.badgePath(center: CGPoint(x: 20, y: 20), side: side, tails: i == 0).cgPath
          }
          let key = "\(kind)|\(Fixture.renderScale)|\(Fixture.paletteGeneration)"
@@ -385,7 +385,7 @@
          }
          glyph.contents = img
          glyph.contentsScale = Fixture.renderScale
-@@ -852,7 +863,7 @@
+@@ -884,7 +895,7 @@
      static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
      private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
          func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
@@ -394,7 +394,7 @@
              let a = CAKeyframeAnimation(keyPath: "transform.scale")
              a.values = (0...n).map { NSNumber(value: max(0.001, f(Double($0) / 240))) }
              a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
-@@ -965,6 +976,16 @@
+@@ -997,6 +1008,16 @@
          CATransaction.commit()
      }
  

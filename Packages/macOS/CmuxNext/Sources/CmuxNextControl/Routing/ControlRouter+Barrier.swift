@@ -15,8 +15,9 @@ extension ControlRouter {
         switch after {
         // `Double(UInt64.max)` rounds up to 2^64, which `UInt64` cannot hold;
         // a full-width sequence goes as a string.
-        case .number(let value) where value.isFinite && value >= 0 && value < Double(UInt64.max) && value == value.rounded():
-            sequence = UInt64(value)
+        // UInt64(exactly:) is nil for fractions, negatives, NaN, infinity and 2^64.
+        case .number(let value) where UInt64(exactly: value) != nil:
+            sequence = UInt64(exactly: value) ?? 0
         case .string(let text) where UInt64(text) != nil:
             sequence = UInt64(text) ?? 0
         case .string("sync"):

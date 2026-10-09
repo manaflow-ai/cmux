@@ -274,7 +274,7 @@ final class ComposeView: UIView {
     static let maxLines = 8
     static let writingTools: NSWritingToolsBehavior = {
         let a = ProcessInfo.processInfo.arguments
-        switch a.firstIndex(of: "--writing-tools").flatMap({ $0 + 1 < a.count ? a[$0 + 1] : nil }) {
+        switch a.firstIndex(of: "--writing-tools").flatMap({ a.dropFirst($0 + 1).first }) /* cmux: no index math */ {
         case "none": return .none
         case "complete": return .complete
         case "default": return .default
@@ -607,10 +607,11 @@ final class ComposeView: UIView {
     /// faded (catalyst's `tintOverBubble`).
     func tintOverBubble(begin: CFTimeInterval, exit: CFTimeInterval) {
         let e = Springs.fieldOpacity
-        let n = max(2, Int((exit - begin) * 240) + 1)
-        var values: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
-        let low = values.indices.min { values[$0] < values[$1] } ?? n
-        for i in 0...n { values[i] = i < low || i == n ? 0 : 1 - values[i] }
+        let n = max(2, CrashGuard.int((exit - begin) * 240, in: 0...14_400) + 1) // cmux: at most 60 s, no trap on NaN
+        let samples: [Double] = (0...n).map { min(1, max(0, e.value(Double($0) / 240, from: 1, to: 1))) }
+        // cmux: no index math.
+        let low = samples.enumerated().min { $0.element < $1.element }?.offset ?? n
+        let values = samples.enumerated().map { $0.offset < low || $0.offset == n ? 0 : 1 - $0.element }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.values = values.map { NSNumber(value: $0) }
         a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }

@@ -73,6 +73,7 @@ public final class WebKitDriver: DriverCallHandler {
     /// Resumes once WebKit has sent the view's activity state (visible,
     /// focused, in a window) to the web process.
     static func afterActivityStateUpdate(_ webView: WKWebView) async {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
         guard webView.responds(to: selector) else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
