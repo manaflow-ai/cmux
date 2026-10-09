@@ -65,7 +65,8 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, { pr
     requiredForClient: true,
     security: { bearer: HttpApiSecurity.bearer },
     // OwnerUnreachable (503, retryable): the policy gate could not reach a TeamDO or UserDO (cx-44j.51).
-    error: [Unauthenticated, PolicyRefused, OwnerUnreachable]
+    // Forbidden: x-cmux-team names a team the session is not a member of (cx-3bi.43).
+    error: [Unauthenticated, Forbidden, PolicyRefused, OwnerUnreachable]
   }
 ) {}
 

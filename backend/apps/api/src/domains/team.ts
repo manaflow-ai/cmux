@@ -11,10 +11,12 @@ import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, 
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
+import { reduceMemberProvision, reduceStackMirror, teamDeleted } from "./team-stack.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
-  readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
+  /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
+  readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string; readonly stack_team?: string; readonly deleted_at?: number } | null
   /** Members and hosts are rows (team-members.ts); the head keeps their counts. */
   readonly member_count?: number
   readonly host_count?: number
@@ -25,8 +27,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
 }
 
 /**
- * TeamDO's reducer: the account directory (U2). Phase 1 knows personal teams
- * only; Stack teams arrive by webhook ops once the Stack webhook is configured.
+ * TeamDO's reducer: the account directory (U2). Personal teams come from
+ * user.ensure; Stack teams and their members from the Stack webhook (team-stack.ts).
  * Grants for team ops are checked by UserDO when it mints the token; TeamDO
  * checks membership and the op's principal kind.
  */
@@ -56,6 +58,7 @@ export const teamDomain: Domain<TeamState> = {
     if (HTTP_ONLY_OPS.has(op)) return { code: "validation.invalid", message: `${op} runs through POST /v1/ops only` }
     // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
     if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
+    if (teamDeleted(state)) return { code: "auth.forbidden", message: "this team was deleted" }
     if (op !== "team.ensure_personal") {
       if (!memberOf(state, rows, principal.user)) return { code: "auth.forbidden", message: "not a member of this team" }
     }
@@ -93,8 +96,9 @@ export const teamDomain: Domain<TeamState> = {
         if (typeof user !== "string" || !user) return reject("validation.invalid", "user required")
         const member = memberOf(state, ctx.rows, user)
         if (!member) return { ok: true, state, value: { user, removed: false }, changed: false }
-        // An owner is demoted first, so no team is ever left without one (a personal team's owner never leaves).
-        if (member.role === "owner") return reject("auth.forbidden", "an owner cannot be removed; demote them first")
+        // An owner is demoted first, so no team is ever left without one (a personal team's owner never
+        // leaves); a team Stack deleted removes everyone.
+        if (member.role === "owner" && !teamDeleted(state)) return reject("auth.forbidden", "an owner cannot be removed; demote them first")
         const { [user]: _gone, ...legacyMembers } = state.members ?? {}
         return {
           ok: true,
@@ -104,6 +108,10 @@ export const teamDomain: Domain<TeamState> = {
           ...(state.team ? { outbox: memberLeftItems(state.team, user, ctx.tx, ctx.now) } : {})
         }
       }
+      case "team.stack_mirror":
+        return reduceStackMirror(state, params, ctx)
+      case "team.member.provision":
+        return reduceMemberProvision(state, params, ctx)
       case "team.member.cleaned": {
         // TeamDO's own submit after it put the member's certificates on the KRL (team-member-cleanup.ts).
         if (p.kind !== "system" || p.identity !== "system:team") return reject("auth.forbidden", "internal op")
