@@ -1,5 +1,6 @@
 public import AppKit
 public import Observation
+import CmuxNextWakeups
 import WebKit
 
 /// Whether a WebKit tab's Web Inspector is shown, as an observable value
@@ -31,7 +32,11 @@ public final class WebKitInspectorWatch: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil)
     }
 
-    @objc private func windowWillClose(_ notification: Notification) { refresh() }
+    /// Any window's close notice (`object: nil`), from whichever thread
+    /// posted it: the read runs on main (crash-elimination.md, P1b).
+    @objc nonisolated private func windowWillClose(_ notification: Notification) {
+        MainDelivery().run { [weak self] in self?.refresh() }
+    }
 
     /// Reads the inspector's visibility now and once more on the next turn.
     public func refresh() {
