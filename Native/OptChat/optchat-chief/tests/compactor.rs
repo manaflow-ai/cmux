@@ -1689,3 +1689,36 @@ fn a_compactor_slot_carries_the_users_settings_env() {
     .unwrap();
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "http://router:31415");
 }
+
+/// Claude Code 2.1.287 does not know `claude-haiku-5-5`
+/// ("[claude-code:unrecognized_model]") but takes the `haiku` alias, which
+/// it maps to its current Haiku. A Claude Code compactor asks for the
+/// alias; the Messages API route keeps the full id; another harness keeps
+/// its own default.
+#[test]
+fn the_compactor_model_resolves_per_harness() {
+    use optchat_chief::compactor::compactor_model_for;
+    assert_eq!(compactor_model_for(Family::Claude).as_deref(), Some("haiku"));
+    assert_eq!(compactor_model_for(Family::Codex), None);
+    assert_eq!(compactor_model_for(Family::Other), None);
+    assert_eq!(Config::default().model, "claude-haiku-5-5");
+}
+
+/// The slot settings may hold the user's settings env (an API token among
+/// it): the file is the user's alone (0600).
+#[test]
+fn a_compactor_slots_settings_file_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
+    let spec = CompactorSpec {
+        user_env: [("ANTHROPIC_AUTH_TOKEN".to_owned(), "t".to_owned())].into(),
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS));
+    run_node(&compactor, &request(1)).unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    let file = work.join("slot-0").join(".claude").join("settings.json");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{mode:o}");
+}

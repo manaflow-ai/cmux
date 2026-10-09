@@ -47,6 +47,12 @@ pub struct SessionSetup {
     pub user_env: BTreeMap<String, String>,
 }
 
+/// Whether this host copies the user's Claude Code settings env into its
+/// sessions' settings (`OPTCHAT_COPY_USER_ENV`, `0` turns it off).
+pub fn copy_user_env_allowed(_setting: Option<&str>) -> bool {
+    true
+}
+
 /// The `env` block of the user's Claude Code settings file
 /// (`<Claude home>/settings.json`), string values only; empty when the
 /// file is missing or unreadable.

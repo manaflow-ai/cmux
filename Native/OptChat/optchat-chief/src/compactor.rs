@@ -1466,6 +1466,12 @@ pub fn compactor_effort(family: Family) -> Option<String> {
     }
 }
 
+/// The default compactor model of `family`'s harness (None: the harness's
+/// own default model).
+pub fn compactor_model_for(family: Family) -> Option<String> {
+    (family == Family::Claude).then(|| optchat_host::DEFAULT_MODEL.to_owned())
+}
+
 /// Whether a failed compactor turn says the account cannot use the model:
 /// Claude Code's "There's an issue with the selected model (...). It may
 /// not exist or you may not have access to it", or the API's
