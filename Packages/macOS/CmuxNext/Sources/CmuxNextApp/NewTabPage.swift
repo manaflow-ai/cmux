@@ -304,7 +304,10 @@ extension NewTabPage {
             return
         }
         guard openingPanes.insert(openingKey).inserted else { return }
-        guard let inputToken = services.keyRouter.newTabInputCoordinator.begin(for: pane, omnibar: omnibar) else {
+        // Cmd-L (`omnibar`): the omnibar row is native and takes the keyboard in this turn, so no
+        // key waits for the page; any other open buffers keys until the page's field is ready.
+        let inputToken = omnibar ? nil : services.keyRouter.newTabInputCoordinator.begin(for: pane)
+        guard omnibar || inputToken != nil else {
             openingPanes.remove(openingKey)
             return
         }
@@ -330,7 +333,7 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil, services.presentation.showNow(pane) {
+        if spare != nil || omnibar, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             if omnibar, let key = pane.currentTabKey, let view = services.agentTabs.existingView(key) { _ = NewTabOmnibar.focus(in: view) }
         }

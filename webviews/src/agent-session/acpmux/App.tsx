@@ -30,6 +30,7 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type Tab
 import { setDeviceChats } from "./newtab/deviceChats";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
+import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -929,7 +930,7 @@ function DefaultComposerChips({
   }, [picker]);
   return (
     <ComposerPickers
-      snapshot={snapshot}
+      snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
