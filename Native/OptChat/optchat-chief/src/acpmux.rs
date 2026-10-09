@@ -133,6 +133,9 @@ pub enum AgentEvent {
     },
 }
 
+/// The wait for a steer's answer (`AgentPort::start_steer`).
+pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
+
 /// The acpmux operations the Chief needs. Implemented over the socket here
 /// and by in-process fakes in tests.
 pub trait AgentPort: Send + Sync {
@@ -178,12 +181,24 @@ pub trait AgentPort: Send + Sync {
     ) -> Result<(), String> {
         Err("answering permissions is not supported".into())
     }
-    /// Delivers `blocks` into `session`'s running turn between its tool
-    /// calls (a steered `session/prompt`, `steerOnly`): Ok once the harness
-    /// read them. Err: the session could not take them now (no running turn,
-    /// a harness that does not steer); nothing was delivered.
-    fn steer(&self, _session: &str, _blocks: Vec<Value>, _prompt_id: &str) -> Result<(), String> {
+    /// Sends `blocks` into `session`'s running turn, to be read between its
+    /// tool calls (a steered `session/prompt`, `steerOnly`), and returns at
+    /// once with the wait for acpmux's answer: Ok once the harness took
+    /// them (Claude Code at its next tool boundary; codex-acp at the turn's
+    /// end). Err: the session could not take them (no running turn, a
+    /// harness that does not steer); nothing was delivered. Calls on one
+    /// thread reach the harness in call order.
+    fn start_steer(
+        &self,
+        _session: &str,
+        _blocks: Vec<Value>,
+        _prompt_id: &str,
+    ) -> Result<SteerWait, String> {
         Err("steering is not supported".into())
+    }
+    /// `start_steer`, then its wait.
+    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
+        self.start_steer(session, blocks, prompt_id)?()
     }
     /// Hints acpmux's session pool (`_acpmux/prewarm`) to start a hidden
     /// session of `harness` and `preset` in `cwd`, so the next `session/new`
@@ -814,20 +829,25 @@ impl AgentPort for Acpmux {
             .map_err(|e| format!("permission_respond: {e}"))
     }
 
-    fn steer(&self, session: &str, blocks: Vec<Value>, prompt_id: &str) -> Result<(), String> {
-        // No timeout: acpmux answers when the harness reads the message, at
-        // its next tool boundary, however long the running tool takes.
+    fn start_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<SteerWait, String> {
+        // Written now, on the caller's thread: steers keep their order.
         let answer = self.client()?.start(
             "session/prompt",
             json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id, "steer": true, "steerOnly": true}}}),
         );
-        match answer.recv() {
-            // acpmux answers a steer only once its harness took it (Claude
-            // Code: `steered` at its echo; codex-acp: its own answer).
+        // No timeout: acpmux answers when the harness took the message,
+        // however long the running tool (or the codex turn) takes.
+        Ok(Box::new(move || match answer.recv() {
+            // Claude Code: `steered` at its echo; codex-acp: its own answer.
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),
             Err(_) => Err("steer: the acpmux connection closed".into()),
-        }
+        }))
     }
 
     fn prewarm(
