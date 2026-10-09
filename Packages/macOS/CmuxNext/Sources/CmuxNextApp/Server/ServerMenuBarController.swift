@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextServer
+import os
 
 /// The Mac server's menu bar item (plans/cmux-next/server.md 3 and 14).
 ///
@@ -15,10 +16,11 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     private var popover: NSPopover?
     private var model: ServerModel?
     /// Makes the model's source: the cloud pairing source in the App, the
-    /// mock alone in previews and tests.
-    private let makeSource: @MainActor () -> any ServerSource
+    /// mock alone in previews and tests. Nil once the App's services are gone.
+    private let makeSource: @MainActor () -> (any ServerSource)?
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
-    init(makeSource: @escaping @MainActor () -> any ServerSource = { MockServerSource(scenario: .healthyMac) }) {
+    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
         self.makeSource = makeSource
         super.init()
     }
@@ -53,7 +55,10 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         show()
         guard let button = item?.button else { return }
         popover?.close()
-        let model = currentModel()
+        guard let model = currentModel() else {
+            Self.logger.fault("server menu: no source (the App's services are gone)")
+            return
+        }
         let view = ServerHostView(model: model, surface: surface)
         let size = view.fittingSize
         view.frame = NSRect(origin: .zero, size: NSSize(width: max(size.width, 320), height: max(size.height, 120)))
@@ -81,9 +86,10 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         MainActor.assumeIsolated { popover = nil }
     }
 
-    private func currentModel() -> ServerModel {
+    private func currentModel() -> ServerModel? {
         if let model { return model }
-        let next = ServerModel(source: makeSource())
+        guard let source = makeSource() else { return nil }
+        let next = ServerModel(source: source)
         next.start()
         model = next
         return next

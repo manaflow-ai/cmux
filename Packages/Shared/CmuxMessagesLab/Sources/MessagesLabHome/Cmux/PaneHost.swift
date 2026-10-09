@@ -267,7 +267,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) lazy var frameTick = FrameTick(view: host)
     /// Runs work at the start of the next display frame (FrameTick; tests capture it).
     /// Off screen (no window: captures, the harness) there is no display frame: now.
-    lazy var nextFrame: (@escaping () -> Void) -> Void = { [unowned self] f in
+    lazy var nextFrame: (@escaping () -> Void) -> Void = { [weak self] f in
+        guard let self else { return }
         if self.host.window == nil { f() } else { self.frameTick.next(f) }
     }
     /// Engine jobs held for the next frame (a keystroke went ahead of them).
@@ -319,7 +320,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         store.responder = nil
         start = CACurrentMediaTime()
         demo = MessagesWindowView(store: store)
-        demo.clock = { [unowned self] in self.clock }
+        demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
         // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
