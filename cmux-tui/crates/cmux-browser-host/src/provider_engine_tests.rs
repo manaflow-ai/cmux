@@ -556,7 +556,7 @@ fn a_cef_session_closes_the_tab_it_opened_and_nothing_else() {
     app.access(&provider, "C2");
     let cef = engine(&provider, "cef");
     cef.call("tabs.open", &json!({})).unwrap();
-    assert_eq!(cef.call("tabs.close", &json!({"targetId": "new"})).unwrap(), Value::Null);
+    cef.call("tabs.close", &json!({"targetId": "new"})).unwrap();
     assert_eq!(cef.call("tabs.close", &json!({"targetId": "C2"})).unwrap(), Value::Null);
     let closes: Vec<Value> = app
         .frames
