@@ -39,7 +39,7 @@ pub(crate) fn load(connection: &Connection) -> anyhow::Result<Projects> {
                 eprintln!("cmux-tui: project row {path:?} names another path; skipped");
             }
             Err(error) => {
-                eprintln!("cmux-tui: project row {path:?} does not parse ({error}); skipped")
+                eprintln!("cmux-tui: project row {path:?} does not parse ({error}); skipped");
             }
         }
     }
