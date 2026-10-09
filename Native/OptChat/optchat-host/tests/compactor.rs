@@ -40,7 +40,7 @@ fn nodes_are_built_in_spec_order() {
     };
     let chat = open(dir.path(), 128_000, model);
     // Append everything at once: the compactor must still go in order.
-    for n in 0..64 {
+    for n in 0..256 {
         chat.append(Kind::User, &long(n)).unwrap();
     }
     assert!(chat.wait_idle(None, WAIT));
@@ -48,11 +48,15 @@ fn nodes_are_built_in_spec_order() {
     // Every message is compressed once.
     let mut level0: Vec<u64> = calls.iter().filter(|c| c.0.l == 0).map(|c| c.0.i).collect();
     level0.sort();
-    assert_eq!(level0, (0..64).collect::<Vec<_>>());
+    assert_eq!(level0, (0..256).collect::<Vec<_>>());
     for (node, context, done_before) in calls.iter() {
         // No call ever sees a placeholder (spec 4); its view ends at the node.
         assert!(!context.contains("not summarized yet"), "{node:?}");
-        let upto = if node.l == 0 { node.start() } else { node.end() };
+        let upto = if node.l == 0 {
+            node.start()
+        } else {
+            node.end()
+        };
         for line in context.lines().filter(|l| l.contains('|')) {
             let (id, n) = line.split('|').next().unwrap().split_once('+').unwrap();
             let end: u64 = id.parse::<u64>().unwrap() + n.parse::<u64>().unwrap();
@@ -60,11 +64,14 @@ fn nodes_are_built_in_spec_order() {
         }
         if node.l == 0 {
             // Spec 4 (gist 3c190e0): a message's node starts once fewer than
-            // 8 lines before it are still unbuilt.
+            // AHEAD lines before it are still unbuilt.
             let unbuilt = (0..node.i)
                 .filter(|j| !done_before.contains(&NodeId::new(0, *j)))
                 .count();
-            assert!(unbuilt < 8, "{node:?} started with {unbuilt} unbuilt before it");
+            assert!(
+                unbuilt < optchat_core::AHEAD,
+                "{node:?} started with {unbuilt} unbuilt before it"
+            );
         } else {
             let a = NodeId::new(node.l - 1, 2 * node.i);
             let b = NodeId::new(node.l - 1, 2 * node.i + 1);
@@ -74,10 +81,10 @@ fn nodes_are_built_in_spec_order() {
             );
         }
     }
-    // The whole tree over 64 messages: 64 + 32 + ... + 1 nodes.
-    assert_eq!(calls.len(), 127);
-    assert_eq!(chat.status().built, 127);
-    assert!(peak.load(Ordering::SeqCst) <= 8);
+    // The whole tree over 256 messages: 256 + 128 + ... + 1 nodes.
+    assert_eq!(calls.len(), 511);
+    assert_eq!(chat.status().built, 511);
+    assert!(peak.load(Ordering::SeqCst) <= optchat_core::JOBS);
 }
 
 #[test]
@@ -354,4 +361,97 @@ fn a_cut_line_is_retried_against_its_reduced_room() {
         run_node(&model, &request).unwrap(),
         format!("{prefix}user: short")
     );
+}
+
+/// A model that reports its response start before it answers.
+struct Starting<F>(F);
+
+impl<F> CompactModel for Starting<F>
+where
+    F: Fn(&CompactRequest, &dyn Fn()) -> Result<Reply, ModelError> + Send + Sync,
+{
+    fn call(&self, request: &CompactRequest, _: &[Followup]) -> Result<Reply, ModelError> {
+        (self.0)(request, &|| {})
+    }
+
+    fn call_started(
+        &self,
+        request: &CompactRequest,
+        _: &[Followup],
+        started: &dyn Fn(),
+    ) -> Result<Reply, ModelError> {
+        (self.0)(request, started)
+    }
+}
+
+/// Single-flight (spec 3.3): calls that wait for another call writing the
+/// same marked prefix go as soon as that call's response starts, when the
+/// cache entry exists, not when its whole reply is in; and they go together,
+/// since the entry is there for all of them (hq-6d gap 3a).
+#[test]
+fn single_flight_releases_waiting_calls_together_when_the_writers_response_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let (entered_tx, entered) = mpsc::channel::<NodeId>();
+    let entered_tx = Mutex::new(entered_tx);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = {
+        let (calls, gate) = (calls.clone(), gate.clone());
+        Arc::new(Starting(move |r: &CompactRequest, started: &dyn Fn()| {
+            let k = calls.fetch_add(1, Ordering::SeqCst);
+            entered_tx.lock().unwrap().send(r.node).unwrap();
+            if k == 0 {
+                // The writer's response starts; the others never report one.
+                started();
+            }
+            // Every reply takes long.
+            let (open, cv) = &*gate;
+            let open = open.lock().unwrap();
+            let _ = cv
+                .wait_timeout_while(open, Duration::from_secs(20), |o| !*o)
+                .unwrap();
+            Ok(Reply::text(summary(r.node, 200)))
+        }))
+    };
+    let chat = open(dir.path(), 128_000, model);
+    // Three long messages on an empty chat: every call marks the same prefix.
+    for n in 0..3 {
+        chat.append(Kind::User, &long(n)).unwrap();
+    }
+    let first = entered.recv_timeout(Duration::from_secs(10)).unwrap();
+    let others: Vec<_> = (0..2)
+        .map(|_| entered.recv_timeout(Duration::from_secs(3)))
+        .collect();
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+    assert!(
+        others.iter().all(Result::is_ok),
+        "waiting calls did not all go at the writer's response start ({} writing): {others:?}",
+        first.name()
+    );
+    assert!(chat.wait_idle(None, WAIT));
+}
+
+/// What Claude Code answers for a request the API refuses (400): the same
+/// on every try, so retrying cannot build the node.
+const BAD_REQUEST: &str = r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"cache_control.ttl: a ttl='1h' block must not come after a ttl='5m' block"},"request_id":"req_x"}"#;
+
+/// P0 (hq-6d, nxdog78): a node whose every call fails with a request error
+/// (a 4xx but 408 and 429) must not hold the turn: settle gives up on it
+/// within a few seconds, and the turn reads the view with that line unbuilt.
+#[test]
+fn a_node_that_always_fails_with_a_request_error_does_not_block_settle() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(Fake(|_: &CompactRequest, _: &[Followup]| {
+        Err(ModelError::new(BAD_REQUEST))
+    }));
+    let chat = open(dir.path(), 128_000, model);
+    chat.append(Kind::User, &long(0)).unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        chat.settle(None, Some(Duration::from_secs(8))),
+        "settle waited on a node that can never build"
+    );
+    assert!(started.elapsed() < Duration::from_secs(8));
+    assert_eq!(chat.status().unbuilt, 1);
 }
