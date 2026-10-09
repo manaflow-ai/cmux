@@ -1678,6 +1678,8 @@ enum PtyGeometryTestStep {
     CellPixelStarted,
     CellPixelCommitBoundary,
     ReconnectBackoffStarted,
+    /// `mark_output_dirty` is about to publish `SurfaceOutput` to the mux.
+    OutputEventStarted,
 }
 
 #[cfg(test)]

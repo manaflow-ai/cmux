@@ -319,9 +319,12 @@ impl PtySurface {
     }
 
     pub(super) fn mark_output_dirty(&self) {
-        if !self.dirty.swap(true, Ordering::AcqRel)
-            && let Some(mux) = self.mux.upgrade()
-        {
+        if self.dirty.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        #[cfg(test)]
+        self.run_geometry_test_hook(PtyGeometryTestStep::OutputEventStarted);
+        if let Some(mux) = self.mux.upgrade() {
             mux.emit_terminal_output(self.event_surface_id);
         }
     }
