@@ -245,6 +245,46 @@ jobs:
             echo "| xcframework zip | $(stat -f %z "$RUNNER_TEMP/xcframework/CmuxMobileFFIFFI.xcframework.zip") |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Report linked size
+        run: |
+          set -euo pipefail
+          # An archive holds all of std; what an app pays is the code a link
+          # keeps. Link a program that takes the address of every exported
+          # uniffi symbol, with dead stripping, and compare it to an empty one.
+          work="$RUNNER_TEMP/linked-size"
+          mkdir -p "$work"
+          {
+            echo "### cmux-mobile-ffi linked size (bytes, -dead_strip, every uniffi export kept)"
+            echo
+            echo "| slice | empty program | with library | added |"
+            echo "| --- | --- | --- | --- |"
+            for spec in "ios-arm64 iphoneos arm64-apple-ios17.0" "ios-arm64_x86_64-simulator iphonesimulator arm64-apple-ios17.0-simulator"; do
+              read -r slice sdk triple <<<"$spec"
+              archive="$RUNNER_TEMP/xcframework/$slice/libcmux_mobile_ffi.a"
+              symbols=()
+              while IFS= read -r symbol; do symbols+=("$symbol"); done < <(
+                nm -gU "$archive" 2>/dev/null |
+                  awk '$2 == "T" && $3 ~ /^_(uniffi|ffi)_cmux_mobile_ffi_/ { print substr($3, 2) }' | sort -u
+              )
+              {
+                printf 'extern void %s(void);\n' "${symbols[@]}"
+                echo 'int main(void) { const void *volatile p[] = {'
+                printf '  (const void *)&%s,\n' "${symbols[@]}"
+                echo '  0 }; return p[0] == 0; }'
+              } > "$work/$slice.c"
+              echo 'int main(void) { return 0; }' > "$work/empty.c"
+              sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
+              xcrun --sdk "$sdk" clang -target "$triple" -isysroot "$sysroot" -Os -Wl,-dead_strip \
+                -o "$work/empty-$slice" "$work/empty.c"
+              xcrun --sdk "$sdk" clang -target "$triple" -isysroot "$sysroot" -Os -Wl,-dead_strip \
+                -o "$work/linked-$slice" "$work/$slice.c" "$archive" -framework Foundation -framework Security
+              strip -x "$work/empty-$slice" "$work/linked-$slice"
+              empty="$(stat -f %z "$work/empty-$slice")"
+              linked="$(stat -f %z "$work/linked-$slice")"
+              echo "| $slice (${#symbols[@]} exports) | $empty | $linked | $((linked - empty)) |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Swift fixture tests (macOS slice)
         working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
         run: swift test
@@ -387,8 +427,6 @@ jobs:
 
       - name: Kotlin fixture tests and AAR
         working-directory: cmux-tui/crates/cmux-mobile-ffi/android
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           set -euo pipefail
           gradle --no-daemon --stacktrace \
@@ -396,7 +434,6 @@ jobs:
             -PjniLibsDir="$RUNNER_TEMP/jniLibs" \
             -PhostLibDir="$GITHUB_WORKSPACE/cmux-tui/target/debug" \
             -PsizingFixtures="$GITHUB_WORKSPACE/schemas/terminal-sizing/fixtures.json" \
-            -PndkPath="$ANDROID_NDK_HOME" \
             :ffi:testDebugUnitTest :ffi:assembleRelease
           aar=ffi/build/outputs/aar/ffi-release.aar
           test -s "$aar"
