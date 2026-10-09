@@ -94,6 +94,8 @@ import Testing
 
     static let fastIntent: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "fast", "value": true]]
     static let fastParams: [String: Any] = ["sessionId": "s", "configId": "fast", "value": true]
+    static let sandboxIntent: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "sandbox", "value": "off"]]
+    static let sandboxParams: [String: Any] = ["sessionId": "s", "configId": "sandbox", "value": "off"]
 
     /// Lawrence (2026-10-07, "Remove dialogues."): a mode the user picked goes out at once, even
     /// one that does not ask before it acts (full access). The pick's gesture is the consent.
@@ -147,15 +149,27 @@ import Testing
         #expect(!daemonSaw(rig, "bypassPermissions"))
     }
 
+    /// The lock menu's Fast mode choice is a direct setting pick, so it must not open a permission sheet.
+    @Test func fastModeSwitchGoesOutWithoutASheet() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let sheets = Sheets(on: rig.transport, reply: false)
+        #expect(await rig.send("session/set_config_option", Self.fastParams,
+                               ticket: await rig.ticket(Self.fastIntent)) == nil)
+        #expect(sheets.asked.isEmpty)
+        #expect(await rig.server.wait { $0.last?.frames.contains { $0.contains("\"fast\"") } == true })
+    }
+
     /// A config option that is not free (paired devices, cx-44j.2) keeps its sheet; Cancel refuses.
     @Test func cancelRefusesAnOptionThatIsNotFree() async throws {
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
         let sheets = Sheets(on: rig.transport, reply: false)
-        #expect(await rig.send("session/set_config_option", Self.fastParams, ticket: await rig.ticket(Self.fastIntent)) == .modeNotConfirmed)
-        #expect(sheets.asked == ["fast = true"])
-        #expect(!daemonSaw(rig, "\"fast\""))
+        #expect(await rig.send("session/set_config_option", Self.sandboxParams, ticket: await rig.ticket(Self.sandboxIntent)) == .modeNotConfirmed)
+        #expect(sheets.asked == ["sandbox = off"])
+        #expect(!daemonSaw(rig, "\"sandbox\""))
     }
 
     @Test func everyPaneSharesTheAppWideGate() {
@@ -178,18 +192,18 @@ import Testing
         b.transport.confirmationGate = gate
         let sheetsA = Sheets(on: a.transport, reply: nil)
         let sheetsB = Sheets(on: b.transport, reply: true)
-        let ticketA = await a.ticket(Self.fastIntent)
-        let first = Task { await a.send("session/set_config_option", Self.fastParams, ticket: ticketA) }
+        let ticketA = await a.ticket(Self.sandboxIntent)
+        let first = Task { await a.send("session/set_config_option", Self.sandboxParams, ticket: ticketA) }
         #expect(await eventually { sheetsA.asked.count == 1 })
         #expect(gate.isOpen)
-        #expect(await b.send("session/set_config_option", Self.fastParams, ticket: await b.ticket(Self.fastIntent)) == .modeNotConfirmed)
+        #expect(await b.send("session/set_config_option", Self.sandboxParams, ticket: await b.ticket(Self.sandboxIntent)) == .modeNotConfirmed)
         #expect(sheetsB.asked.isEmpty, "no second sheet")
-        #expect(!daemonSaw(b, "\"fast\""))
+        #expect(!daemonSaw(b, "\"sandbox\""))
         sheetsA.answer(true)
         #expect(await first.value == nil)
         #expect(!gate.isOpen)
-        #expect(await b.send("session/set_config_option", Self.fastParams, ticket: await b.ticket(Self.fastIntent)) == nil)
-        #expect(sheetsB.asked == ["fast = true"])
+        #expect(await b.send("session/set_config_option", Self.sandboxParams, ticket: await b.ticket(Self.sandboxIntent)) == nil)
+        #expect(sheetsB.asked == ["sandbox = off"])
     }
 
     @Test func oneSheetAtATime() async throws {
@@ -199,18 +213,18 @@ import Testing
         let sheets = Sheets(on: rig.transport, reply: nil)
         // Two options that are not free, in different slots (a second ticket for the same slot would
         // replace the first). The pane's frames go in order, so the second asks once the first is answered.
-        let sandbox: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "sandbox", "value": "off"]]
-        let firstTicket = await rig.ticket(Self.fastIntent)
-        let secondTicket = await rig.ticket(sandbox)
-        let first = Task { await rig.send("session/set_config_option", Self.fastParams, ticket: firstTicket) }
+        let network: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "network", "value": "off"]]
+        let firstTicket = await rig.ticket(Self.sandboxIntent)
+        let secondTicket = await rig.ticket(network)
+        let first = Task { await rig.send("session/set_config_option", Self.sandboxParams, ticket: firstTicket) }
         #expect(await eventually { sheets.asked.count == 1 })
         let second = Task {
-            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "sandbox", "value": "off"], ticket: secondTicket)
+            await rig.send("session/set_config_option", ["sessionId": "s", "configId": "network", "value": "off"], ticket: secondTicket)
         }
-        #expect(sheets.asked == ["fast = true"])
+        #expect(sheets.asked == ["sandbox = off"])
         sheets.answer(true)
         #expect(await eventually { sheets.asked.count == 2 })
-        #expect(sheets.asked.last == "sandbox = off")
+        #expect(sheets.asked.last == "network = off")
         sheets.answer(false)
         #expect(await first.value == nil)
         #expect(await second.value == .modeNotConfirmed)

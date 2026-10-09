@@ -158,6 +158,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
         preset: None,
         tags: BTreeMap::new(),
         env: Default::default(),
+        fast: false,
     }
 }
 

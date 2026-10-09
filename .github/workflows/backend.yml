@@ -20,6 +20,8 @@ on:
       - clients/ts/**
       # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
       - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   push:
@@ -29,6 +31,8 @@ on:
       - clients/ts/**
       # The Worker's G8 gate imports the shared per-tool policy (integrations/approval-gate.ts).
       - libs/integrations-core/**
+      # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
+      - libs/svix-webhook/**
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
   workflow_dispatch:

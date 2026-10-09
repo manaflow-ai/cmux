@@ -50,7 +50,12 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The sidebar's hover state (`setHoverRevealed`).
     private(set) var isHoverRevealed = false
     let search = NSSearchField()
-    private let grouping = NSPopUpButton()
+    /// Icon buttons, so the header fits the narrowest sidebar: Search opens
+    /// the search field in the title's place; Group by opens a menu.
+    let searchButton = SidebarIconButton(symbol: "magnifyingglass", label: SidebarChatsView.searchPlaceholder)
+    let groupButton = SidebarIconButton(symbol: "list.bullet.indent", label: SidebarChatsView.groupLabel)
+    /// The search field shows (in the title's place) while opened or holding text.
+    private(set) var isSearchOpen = false
     /// The project filter (`SidebarChatsView+ProjectFilter`) and the project it shows, nil for all.
     let filterButton = SidebarIconButton(symbol: "line.3.horizontal.decrease", label: SidebarChatsView.filterTitle)
     var selectedProject: String?
@@ -94,15 +99,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             self.refilter()
         }
         search.setAccessibilityLabel(Self.searchPlaceholder)
-        grouping.controlSize = .small
-        grouping.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        grouping.isBordered = false
-        grouping.addItems(withTitles: SidebarChatsGrouping.allCases.map(Self.groupTitle))
-        grouping.selectItem(at: SidebarChatsGrouping.allCases.firstIndex(of: selectedGrouping) ?? 0)
-        grouping.target = self
-        grouping.action = #selector(groupingChanged)
-        grouping.toolTip = Self.groupLabel
-        grouping.setAccessibilityLabel(Self.groupLabel)
+        searchButton.onPress = { [weak self] in self?.openSearch() }
+        groupButton.onPress = { [weak self] in self?.showGroupingMenu() }
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("chat"))
         column.isEditable = false
         table.addTableColumn(column)
@@ -119,7 +117,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         scroll.autohidesScrollers = true
         filterButton.onPress = { [weak self] in self?.showProjectMenu() }
         header.onMenu = { [weak self] in self?.headerMenu?() }
-        for control in [titleLabel, search, filterButton, grouping] as [NSView] { header.addSubview(control) }
+        for control in [titleLabel, search, searchButton, filterButton, groupButton] as [NSView] { header.addSubview(control) }
         addSubview(header)
         addSubview(scroll)
         applyHeaderReveal(animated: false)
@@ -180,12 +178,15 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     /// The header shows while hovered, and while a search or project filter
     /// is in effect (a hidden filter would leave rows missing with no sign why).
     var isHeaderRevealed: Bool {
-        isHoverRevealed || !search.stringValue.isEmpty || selectedProject != nil || search.currentEditor() != nil
+        isHoverRevealed || isSearchOpen || !search.stringValue.isEmpty || selectedProject != nil || search.currentEditor() != nil
     }
 
     /// Typing in the search keeps the header shown; leaving it may hide it.
     public func controlTextDidBeginEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
-    public func controlTextDidEndEditing(_ obj: Notification) { applyHeaderReveal(animated: true) }
+    public func controlTextDidEndEditing(_ obj: Notification) {
+        closeSearchIfEmpty()
+        applyHeaderReveal(animated: true)
+    }
 
     private func applyHeaderReveal(animated: Bool) {
         let alpha: CGFloat = isHeaderRevealed ? 1 : 0
@@ -243,11 +244,43 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     @objc private func searchChanged() { onSearchChanged?() }
-    @objc private func groupingChanged() {
-        let index = grouping.indexOfSelectedItem
-        selectedGrouping = SidebarChatsGrouping.allCases.indices.contains(index) ? SidebarChatsGrouping.allCases[index] : .newest
+    /// Group by: Newest, Harness, Folder, Account; the shown one is checked.
+    func groupingMenu() -> NSMenu {
+        let menu = NSMenu()
+        for grouping in SidebarChatsGrouping.allCases {
+            let item = NSMenuItem(title: Self.groupTitle(grouping), action: #selector(pickGrouping(_:)), keyEquivalent: "")
+            item.representedObject = grouping.rawValue
+            item.state = grouping == selectedGrouping ? .on : .off
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func showGroupingMenu() {
+        groupingMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: groupButton.bounds.maxY + Metrics.space1), in: groupButton)
+    }
+
+    @objc private func pickGrouping(_ item: NSMenuItem) {
+        selectedGrouping = (item.representedObject as? String).flatMap(SidebarChatsGrouping.init(rawValue:)) ?? .newest
         defaults.set(selectedGrouping.rawValue, forKey: preferenceKey)
         onSearchChanged?()
+    }
+
+    /// Search: the field takes the title's place and the keyboard.
+    func openSearch() {
+        isSearchOpen = true
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(search)
+        applyHeaderReveal(animated: true)
+    }
+
+    /// The field closes when it is empty and editing ends (Escape, a click elsewhere).
+    private func closeSearchIfEmpty() {
+        guard isSearchOpen, search.stringValue.isEmpty, search.currentEditor() == nil else { return }
+        isSearchOpen = false
+        needsLayout = true
     }
 
     private var onSearchChanged: (() -> Void)? {
@@ -261,17 +294,24 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
         let top = Metrics.sidebarRowHeight
         let controlHeight: CGFloat = 20
         let y = (top - controlHeight) / 2
-        let groupWidth: CGFloat = 76
-        let filterWidth = filterButton.isHidden ? 0 : controlHeight + Metrics.space1
         header.frame = NSRect(x: 0, y: 0, width: bounds.width, height: top)
-        let titleWidth = min(ceil(titleLabel.intrinsicContentSize.width), max(0, bounds.width * 0.4))
-        titleLabel.frame = NSRect(x: Metrics.space3, y: (top - titleLabel.intrinsicContentSize.height) / 2,
-                                  width: titleWidth, height: titleLabel.intrinsicContentSize.height)
-        let searchX = titleLabel.frame.maxX + Metrics.space2
-        let searchWidth = max(0, bounds.width - searchX - groupWidth - Metrics.space2 - filterWidth)
-        search.frame = NSRect(x: searchX, y: y, width: searchWidth, height: controlHeight)
-        filterButton.frame = NSRect(x: search.frame.maxX + Metrics.space1, y: y, width: controlHeight, height: controlHeight)
-        grouping.frame = NSRect(x: max(0, bounds.width - groupWidth - Metrics.space1), y: y, width: groupWidth, height: controlHeight)
+        // Trailing icon buttons (group, filter, search), then the title or the open search field.
+        let searching = isSearchOpen || !search.stringValue.isEmpty
+        var x = bounds.width - Metrics.space2
+        let buttons = [groupButton] + (filterButton.isHidden ? [] : [filterButton]) + (searching ? [] : [searchButton])
+        for button in buttons {
+            x -= controlHeight
+            button.frame = NSRect(x: x, y: y, width: controlHeight, height: controlHeight)
+            x -= Metrics.space1
+        }
+        searchButton.isHidden = searching
+        search.isHidden = !searching
+        titleLabel.isHidden = searching
+        let leading = Metrics.space3
+        let room = max(0, x - Metrics.space1 - leading)
+        let titleHeight = titleLabel.intrinsicContentSize.height
+        titleLabel.frame = NSRect(x: leading, y: (top - titleHeight) / 2, width: min(ceil(titleLabel.intrinsicContentSize.width), room), height: titleHeight)
+        search.frame = NSRect(x: leading, y: y, width: room, height: controlHeight)
         scroll.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
     }
 

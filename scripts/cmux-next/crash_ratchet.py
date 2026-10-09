@@ -46,6 +46,12 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
                       check (PointerHover's KeyWindowObserver trapped CmuxNextAppTests on a
                       willClose posted from a detached thread). Use the block form with
                       `queue: .main` and keep the token
+    async_closure_default_arg  a parameter whose default value is an async closure literal
+                      (`sleep: @Sendable (Duration) async throws -> Void = { ... }`). Swift 6.3.3
+                      emits the default in every calling module under one weak symbol with
+                      different async context sizes; the linker can pair a small context with a
+                      large body: a heap overrun abort (cx-bsue). Use a named static function
+                      or an overload without the parameter
     dynamic_dispatch  NSSelectorFromString, Selector("..."), KVC value/setValue by key
                       (an unknown selector or key raises an Objective-C exception)
     env_write         setenv( / unsetenv( / putenv( / an assignment to environ. Not in
@@ -96,8 +102,11 @@ SWIFT = {
     "dynamic_dispatch": re.compile(
         r"\bNSSelectorFromString\(|\bSelector\(\"|\b(?:setValue|value)\((?:[^()]|\([^()]*\))*\bforKey(?:Path)?:"),
 }
+ASYNC_DEFAULT = re.compile(
+    r"\w+\s*:\s*(?:@\w+(?:\([^)]*\))?\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b[^=]*?=\s*\{")
+STORED_DECL = re.compile(r"\b(?:var|let)\s+\w+\s*:")
 # Counted by objc_selector_hits (needs the declaration, which may span two lines).
-SWIFT_KINDS = list(SWIFT) + ["objc_selector", "objc_observer", "render_font", "index_subscript", "int_conversion"]
+SWIFT_KINDS = list(SWIFT) + ["async_closure_default_arg", "objc_selector", "objc_observer", "render_font", "index_subscript", "int_conversion"]
 # Modules whose drawing runs on background threads (RowBitmaps, tile and measure queues,
 # the sidebar's concurrentPerform), and their font caches (allowlisted when banned).
 RENDER_MODULES = {"MessagesLabHome", "MessagesLabSidebar", "CmuxHomeRender"}
@@ -415,6 +424,9 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
         if kind == "assume_isolated" and (MAIN_PROOF.search(line) or (index > 0 and MAIN_PROOF.search(lines[index - 1]))):
             continue
         hits[kind] = found
+    match = ASYNC_DEFAULT.search(code)
+    if match and not STORED_DECL.search(code[:match.start() + len(match.group(0).split(":")[0]) + 1]):
+        hits["async_closure_default_arg"] = 1
     if objc_selector_hits(lines, index, code):
         hits["objc_selector"] = 1
     found = objc_observer_hits(lines, index, code)

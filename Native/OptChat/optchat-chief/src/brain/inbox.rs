@@ -54,6 +54,8 @@ impl Brain {
                 self.flush_outbox();
                 self.catch_up();
                 self.describe_pending();
+                // After the catch-up: a waiting message has started its turn.
+                self.prewarm_next_turn();
             }
             DaemonEvent::Changed {
                 conversation,

@@ -268,9 +268,9 @@ describe("acpmux composer slash menu", () => {
       return names;
     };
     await render(snapshot());
-    expect(await items()).toEqual(["mention"]);
+    expect(await items()).toEqual(["attach", "mention"]);
     await render(snapshot(commands));
-    expect(await items()).toEqual(["mention", "commands"]);
+    expect(await items()).toEqual(["attach", "mention", "commands"]);
     await type("look at");
     await pickPlus("mention");
     expect(textarea().value).toBe("look at @");
@@ -325,7 +325,7 @@ describe("acpmux composer slash menu", () => {
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Mention a file or folder@", "Plan"]);
+    ).toEqual(["Attach files or images", "Mention a file or folder@", "Plan"]);
     expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
@@ -555,6 +555,45 @@ describe("acpmux composer slash menu", () => {
       expect(sent).toEqual([""]);
       expect(sentAttachments).toEqual([[{ name: "shot.png", kind: "image" }]]);
       expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
+    });
+
+    test("+ Attach files opens the file chooser, and the chosen files become chips", async () => {
+      await render(snapshot());
+      await ready();
+      await act(async () => plusButton().click());
+      const row = dom.window.document.querySelector('.acpmux-composer-plus [data-value="attach"]');
+      expect(row?.textContent).toContain("Attach files");
+      const input = dom.window.document.querySelector<HTMLInputElement>("input.acpmux-attach-input[type=file]")!;
+      expect(input.multiple).toBe(true);
+      let chooser = 0;
+      input.click = () => {
+        chooser += 1;
+      };
+      await act(async () => {
+        row!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+      expect(chooser).toBe(1);
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [png(), new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" })],
+      });
+      await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+      await settleFiles();
+      expect(
+        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+      ).toEqual(["shot.png", "notes.md"]);
+    });
+
+    test("the + menu opens above its button on the shared popup open", async () => {
+      await render(snapshot());
+      await act(async () => plusButton().click());
+      expect(dom.window.document.querySelector(".acpmux-composer-plus .acpmux-menu")?.getAttribute("data-side")).toBe(
+        "above",
+      );
+      // The open animation is the shared ui-popup-open, which grows from the trigger's side
+      // (ui/popupSurface.css); the + menu adds no animation of its own.
+      const css = await Bun.file(new URL("./composerStates.css", import.meta.url)).text();
+      expect(css).not.toContain("acpmux-menu-rise");
     });
 
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): the image chip could not be opened and

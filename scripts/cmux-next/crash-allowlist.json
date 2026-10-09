@@ -14,6 +14,7 @@
   "swift.int_conversion@MessagesLabHome",
   "swift.int_conversion@MessagesLabSidebar",
   "swift.iuo",
+  "swift.objc_observer",
   "swift.objc_selector",
   "swift.precondition",
   "swift.unowned"
