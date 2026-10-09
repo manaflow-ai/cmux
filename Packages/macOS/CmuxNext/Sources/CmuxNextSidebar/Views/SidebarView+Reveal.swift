@@ -8,13 +8,13 @@ extension SidebarView {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
-    /// accessibility tree (a fade, not isHidden), so VoiceOver still reaches
-    /// their items. The footer's update pill is not in a band, so it stays
-    /// visible: it is the only update notice. The top band's hairline fades
-    /// with its band (Lawrence 2026-10-05).
+    /// accessibility tree (a fade), so VoiceOver still reaches their items. The
+    /// footer's update pill stays visible (the only update notice). The top
+    /// band's hairline fades with its band (Lawrence 2026-10-05).
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
+        for region in bandRegions { region.chromeRevealed = revealed }
         cardStack.revealed = revealed
         if changed { onChromeRevealChange?(revealed) }
         let alpha: CGFloat = revealed ? 1 : 0
@@ -30,7 +30,7 @@ extension SidebarView {
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
             }
             aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = below
+            belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
