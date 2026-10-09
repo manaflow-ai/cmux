@@ -246,8 +246,8 @@ import Testing
 
     @Test func constrainedWindowKeepsHostedContentInsideViewport() {
         let fixture = Self.makeFixture()
-        let model = Self.makeMountModel()
-        let root = SettingsWindowRoot(runtime: fixture.runtime, mountModel: model)
+        let model = Self.makeMountModel(initial: .app)
+        let root = SettingsWindowRoot(runtime: fixture.runtime, initialSection: .app, mountModel: model)
             .defaultAppStorage(fixture.defaults)
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = []

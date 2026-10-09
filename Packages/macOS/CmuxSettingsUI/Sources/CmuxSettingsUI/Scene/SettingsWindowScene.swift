@@ -411,6 +411,10 @@ public struct SettingsWindowRoot: View {
                 applyScrollNavigation(notification, proxy: proxy)
             }
             .navigationTitle(activeSection.title)
+            // Keep the detail column flexible when a section has a larger
+            // ideal width. Its scroll view can then expose genuinely wide
+            // editors without widening the split view beyond the viewport.
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
