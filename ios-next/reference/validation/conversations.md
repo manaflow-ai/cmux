@@ -49,7 +49,7 @@ the trackers above replace it.
 | Swipe actions snap | critically damped ~450 ms | close: 0.430 / 1.00, 467 ms (28 fr) | open snap -134.6 -> -130 | card edge 247.7 -> 270 in ~300 ms (recording) | pass |
 | Swipe geometry | 50 pt circles, 10 gaps, open -130 / +70 | -130 trailing; +130 leading (2 actions) | card rests at x 270.7 | card rests at x 270.0 | pass (leading has 2 actions by task) |
 | Timestamp reveal | 0.30 x finger, saturates 60-70; return 0.43 / 1.0, 450 ms (27 fr) | return 0.430 / 1.00, 467 ms (28 fr) | max 52.7 pt for 180 pt finger; return 0.290 / 1.00, 307 ms | max 51.0 pt for 180 pt; return 0.275 / 1.00, 291 ms | pass (1 fr, 1.7 pt) |
-| Send: bubble flight | 0.45 / 0.84, ~19 fr | 0.450 / 0.84, 99% 317 ms (19 fr), overshoot 0.8% | | flight fell into a 500 ms recorder gap (`anim-send.png`) | pass by trace; recording inconclusive |
+| Send: bubble flight | 0.45 / 0.84, ~19 fr | 0.450 / 0.84, 99% 317 ms (19 fr), overshoot 0.8% | squash, lift, land with tail (send3) | same sequence: fill over the field, squash, lift, land; slot bubble hidden until landing (`anim-send.png`, re-recorded) | pass (shape/sequence); recorder bunches the first ~150 ms |
 | Send: transcript shift | 0.30 / 1.0 | `UIView.animate(springDuration: 0.30, bounce: 0)` around the batch update | | | pass by construction |
 | Delivered move | 0.33 / 0.94 | `springDuration 0.33, bounce 0.06`; receipt stays on the previous message until delivered | | visible in recording | pass |
 | Tapback | scale ~1.08 linear while held, menu at ~1.0 s, dim to white x 0.8 in 150 ms | 0.12 s press -> linear scale to 1.08 by 0.5 s; menu at 1.0 s (gesture min duration); panels spring 0.250 / 0.80, 16 fr | menu at ~+900 ms after first visible change | menu at ~+1000 ms after first visible change (scale start) | pass (±1 strip step) |
@@ -88,10 +88,34 @@ Colors follow `CNDesign` by design: outgoing bubble = `outgoingBubble` (ink), in
 `incomingBubble`, unread dot = ink, avatars on `groupHue` / `chiefAvatar`, swipe actions on
 `highlight` / `attention` / group hue / `danger`. The overlays therefore differ in color, not geometry.
 
+## Re-recording at lower host load (14:34, load ~15)
+
+Send, pop and interactive back were re-recorded (`~/nxios-ref/impl/conversations/rerecord/`,
+trace `conversations/trace-rerecord.txt`). The in-app trace is unchanged (push 0.280/1.00,
+pop 0.270/1.00, send 0.450/0.84 with 0.8% overshoot, edge completion 0.245/1.00 from p 0.73).
+Even at load ~15 the simulator recorder still bunches the first frames of each transition
+(3-8 ms PTS spacing, then a catch-up), so pop measures 0.150/1.00 in the recording versus 0.215
+earlier; recording fits for pop and edge back stay inconclusive. The re-recorded send exposed a
+real bug, now fixed: the landing slot's bubble was visible during the flight because
+`configure` reset the alpha that the layout attributes had set (dequeue applies attributes
+first). Body visibility now goes through one path for both. `anim-send.png`, `anim-pop.png`
+and `anim-edge.png` are from the re-recording.
+
+## E2E fixes (2026-10-09, from `e2e.md`)
+
+| Bug | Fix | Verified |
+| --- | --- | --- |
+| 1 Tabs: tab bar stays hidden after the accessory opens Agents | Root applies `.toolbarVisibility(.hidden, for: .tabBar)` only while a thread is on screen (nav `willShow`/`didShow`); SwiftUI scopes it to the Home tab, so switching tabs or popping restores the bar | Tabs: Chief thread (bar hidden) -> accessory -> Agents with bar -> Home (thread, hidden) -> back (bar back) |
+| 11 Raw Markdown | `ConvMarkdown`: inline Markdown (bold, italic, code, strike, links underlined in ink) in bubbles; previews and Copy use plain text | Chief thread shows `dist/` in monospace, no backticks |
+| 12 No indicator while an agent runs | Store tracks `agent.list` / `agent.session` status; `agent:<sessionId>` conversations show the typing bubble while the session is `running` | code path (MockHost agent conversations do not use the `agent:` id) |
+| 21 Header overlap | Intro is one line (subtitle or kind), never the header name, in the lower slot | dark Chief thread |
+| Shell chrome | Search/compose bar and composer stay above the tab bar and bottom accessory (safe area) | `conversations/shells-drawer-tabs.png` |
+
 ## Remaining mismatches (honest list)
 
-- **Recording quality.** Under the remote host's load the recorder drops long stretches (a
-  500 ms gap swallowed the send flight; the reference pop1 has 37 ms frames and a 200 ms gap).
+- **Recording quality.** Under the remote host's load the recorder drops or bunches frames
+  (the reference pop1 has 37 ms frames and a 200 ms gap; our re-recordings at load ~15 still
+  bunch transition starts).
   Timing claims rest on the in-app trace plus same-pipeline comparisons where both recordings
   were trackable (push, timestamp return, swipe snap, collapse). Re-record on an idle host for
   frame-exact video evidence of send, pop and edge back.

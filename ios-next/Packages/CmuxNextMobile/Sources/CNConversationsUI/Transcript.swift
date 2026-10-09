@@ -359,6 +359,7 @@ final class TranscriptCell: UICollectionViewCell {
     private(set) var row: TranscriptRow?
     private var reveal: CGFloat = 0
     private var hiddenBody = false
+    private var failedDim = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -383,6 +384,7 @@ final class TranscriptCell: UICollectionViewCell {
 
     func configure(_ row: TranscriptRow) {
         self.row = row
+        failedDim = false
         let s = ConvStyle.shared
         bubble.isHidden = true
         emoji.isHidden = true
@@ -428,7 +430,7 @@ final class TranscriptCell: UICollectionViewCell {
             bubble.tail = tail
             bubble.fill = m.sender.isMe ? s.outgoing : s.incoming
             bubble.label.attributedText = TranscriptMetrics.bubbleText(m.text, color: m.sender.isMe ? s.outgoingText : s.incomingText)
-            bubble.alpha = m.status == .failed ? 0.55 : 1
+            failedDim = m.status == .failed
             accessibilityLabel = (m.sender.isMe ? String(localized: "You") : m.sender.name) + ", " + m.text
         case .emoji(let m):
             emoji.isHidden = false
@@ -440,6 +442,7 @@ final class TranscriptCell: UICollectionViewCell {
             typing.startAnimating()
             accessibilityLabel = String(localized: "Typing")
         }
+        applyBodyVisibility()
         setNeedsLayout()
     }
 
@@ -449,8 +452,14 @@ final class TranscriptCell: UICollectionViewCell {
         reveal = a.reveal
         hiddenBody = a.hiddenBody
         applyReveal()
-        bubble.layer.opacity = hiddenBody ? 0 : 1
-        emoji.layer.opacity = hiddenBody ? 0 : 1
+        applyBodyVisibility()
+    }
+
+    /// Layout attributes can be applied before or after `configure` (dequeue
+    /// applies them first), so both paths go through here.
+    private func applyBodyVisibility() {
+        bubble.alpha = hiddenBody ? 0 : (failedDim ? 0.55 : 1)
+        emoji.alpha = hiddenBody ? 0 : 1
     }
 
     private func applyReveal() {
