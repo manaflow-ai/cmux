@@ -12628,9 +12628,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func flushWorkspaceWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
-        }
+        // A follow-up belongs to this workspace's host window. Laying out
+        // every visible application window here made each workspace retry
+        // perform unrelated AppKit layout work (and multiplied the cost when
+        // several workspaces were converging at once).
+        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+        guard let window = manager?.window,
+              window.isVisible else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
     }
 
     private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
@@ -12688,8 +12693,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        flushWorkspaceWindowLayouts()
-
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
         let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
@@ -12697,6 +12700,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
         let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
+
+        // `reconcileTerminalGeometryPass` performs its own flush immediately
+        // before reading terminal bounds. Avoid doing that same layout pass a
+        // second time here. Browser-only follow-ups still need one pass to
+        // materialize their portal anchor before readiness is checked.
+        if !layoutFollowUpNeedsGeometryPass,
+           layoutFollowUpBrowserPanelId != nil {
+            flushWorkspaceWindowLayouts()
+        }
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12804,10 +12816,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
-        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
-        }
+        // Flush pending AppKit layout first so terminal-host bounds reflect
+        // latest split topology. Keep the flush scoped to this workspace's
+        // host window; unrelated windows must not participate in a terminal
+        // geometry repair.
+        flushWorkspaceWindowLayouts()
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
