@@ -39,7 +39,8 @@ enum AppBrowserPage {
         let entry = services.cache.existingBrowser(tabID) ?? services.cache.browser(for: tab)
         // Chromium makes a page asynchronously: an action right after
         // `cmux browser open` waits for it, bounded (cx-qncg).
-        let made = entry?.tab ?? (await awaitPage(tabID, services: services, within: actionWait))
+        var made = entry?.tab
+        if made == nil { made = await awaitPage(tabID, services: services, within: actionWait) }
         guard let page = made else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
