@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import os
 
 /// cmux: MessagesLab's Markdown security settings for Home, set once before
 /// the first Markdown parse (MessagesLab caches parsed documents and
@@ -9,23 +10,23 @@ import ImageIO
 enum HomeMarkdownPolicy {
     /// The attachment-only image provider (MarkdownImages holds it weakly).
     static let images = HomeMarkdownImages(directory: HomeMedia.directory)
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var done = false
+    private static let done = OSAllocatedUnfairLock(initialState: false)
     /// True after `install()`; tests set it false to install again.
     static var installed: Bool {
-        get { lock.lock(); defer { lock.unlock() }; return done }
-        set { lock.lock(); done = newValue; lock.unlock() }
+        get { done.withLock { $0 } }
+        set { done.withLock { $0 = newValue } }
     }
 
     /// Thread safe (the sidebar preview may run off the main thread).
     static func install() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !done else { return }
-        done = true
-        // Only http, https and mailto become links: Home allows no extra scheme.
-        MarkdownLinkPolicy.extraSchemes = []
-        MarkdownImages.provider = images
+        // Set inside the lock: a second caller returns only once the policy is in place.
+        done.withLock { was in
+            guard !was else { return }
+            was = true
+            // Only http, https and mailto become links: Home allows no extra scheme.
+            MarkdownLinkPolicy.extraSchemes = []
+            MarkdownImages.provider = images
+        }
     }
 }
 
@@ -36,7 +37,7 @@ enum HomeMarkdownPolicy {
 final class HomeMarkdownImages: MarkdownImageProvider {
     private let directory: String
     private let lock = NSLock()
-    private var cache: [String: CGImage] = [:]
+    private var pictures: [String: CGImage] = [:]
 
     init(directory: URL) {
         self.directory = directory.standardizedFileURL.resolvingSymlinksInPath().path
@@ -47,11 +48,11 @@ final class HomeMarkdownImages: MarkdownImageProvider {
         let file = url.standardizedFileURL.resolvingSymlinksInPath()
         guard file.deletingLastPathComponent().path == directory else { return nil }
         lock.lock()
-        if let hit = cache[file.path] { lock.unlock(); return hit }
+        if let hit = pictures[file.path] { lock.unlock(); return hit }
         lock.unlock()
         guard let src = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
-        lock.lock(); cache[file.path] = image; lock.unlock()
+        lock.lock(); pictures[file.path] = image; lock.unlock()
         return image
     }
 }
