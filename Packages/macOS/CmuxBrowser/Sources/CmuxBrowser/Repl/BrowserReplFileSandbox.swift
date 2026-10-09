@@ -688,6 +688,12 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
 /// (asked of the volume by the id `fstatfs` gave when the file was
 /// protected; a file whose volume id is unknown is never dropped), a new
 /// protection is refused and `secrets.load` fails with nothing read.
+///
+/// Each protection is held by the claims of the sessions that protected
+/// the file (``protect(_:owner:)``). A `secrets.load` that fails loaded
+/// nothing, so it gives back its own claim (``release(_:owner:)``), and the
+/// file stays protected only while another claim holds it: failed loads
+/// take no room in the set (r38 native#1).
 final class BrowserReplSecretSources: @unchecked Sendable {
     static let shared = BrowserReplSecretSources()
 
@@ -696,7 +702,11 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     /// Asks a volume for a file by its id (``BrowserReplFileIdentity/volumePath(_:_:)``).
     private let volumeLookup: BrowserReplVolumeLookup
     private let lock = NSLock()
-    private var identities: Set<BrowserReplFileIdentity> = []
+    /// Each protected file and the claims that hold it.
+    private var identities: [BrowserReplFileIdentity: Set<UUID>] = [:]
+    /// The claim of a protection taken without an owner, which nothing
+    /// gives back.
+    private static let permanentClaim = UUID()
 
     init(maximumSources: Int = 4096, volumeLookup: @escaping BrowserReplVolumeLookup = BrowserReplFileIdentity.volumePath) {
         self.maximumSources = maximumSources
@@ -715,11 +725,15 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     ///
     /// - Throws: `invalid` when ``maximumSources`` files that still exist
     ///   are protected and `identity` is not one of them.
-    func protect(_ identity: BrowserReplFileIdentity) throws {
+    func protect(_ identity: BrowserReplFileIdentity, owner: UUID? = nil) throws {
+        let claim = owner ?? Self.permanentClaim
         try lock.withLock {
-            guard !identities.contains(identity) else { return }
+            if identities[identity] != nil {
+                identities[identity, default: []].insert(claim)
+                return
+            }
             if identities.count >= maximumSources {
-                identities = identities.filter { $0.exists(lookup: volumeLookup) }
+                identities = identities.filter { $0.key.exists(lookup: volumeLookup) }
             }
             guard identities.count < maximumSources else {
                 throw BrowserReplFileSystemError(
@@ -727,9 +741,27 @@ final class BrowserReplSecretSources: @unchecked Sendable {
                     message: "cmux protects at most \(maximumSources) files that secrets.load read, for every session together, and that many still exist; remove secrets files that are no longer needed, or set the secrets with secrets.set"
                 )
             }
-            identities.insert(identity)
+            identities[identity] = [claim]
         }
         if self === Self.shared {
+            NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+        }
+    }
+
+    /// Gives back `owner`'s claim on `identity`, taken by a `secrets.load`
+    /// that then failed and so loaded nothing. The file stays protected
+    /// while another claim holds it (another session loaded it).
+    func release(_ identity: BrowserReplFileIdentity, owner: UUID) {
+        let dropped = lock.withLock { () -> Bool in
+            guard var claims = identities[identity], claims.remove(owner) != nil else { return false }
+            if claims.isEmpty {
+                identities[identity] = nil
+                return true
+            }
+            identities[identity] = claims
+            return false
+        }
+        if dropped, self === Self.shared {
             NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
         }
     }
@@ -750,7 +782,7 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     /// file whose volume id is not known, or one whose path the volume
     /// does not name for a reason other than that it is gone.
     func mayHoldFile(under roots: [String]) -> Bool {
-        let protected = lock.withLock { identities }
+        let protected = lock.withLock { Array(identities.keys) }
         guard !protected.isEmpty else { return false }
         var rootIdentities: Set<BrowserReplFileIdentity> = []
         for root in roots {
@@ -789,7 +821,7 @@ final class BrowserReplSecretSources: @unchecked Sendable {
 
     /// Whether `identity` is a file `secrets.load` read.
     func contains(_ identity: BrowserReplFileIdentity) -> Bool {
-        lock.withLock { identities.contains(identity) }
+        lock.withLock { identities[identity] != nil }
     }
 }
 

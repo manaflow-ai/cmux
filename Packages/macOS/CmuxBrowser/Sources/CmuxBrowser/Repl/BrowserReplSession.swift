@@ -157,6 +157,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// ``BrowserReplResource/secretSourceFiles`` quota. Used only on the
     /// session's thread, inside the file navigation lock.
     private var protectedSecretSources: Set<BrowserReplFileIdentity> = []
+    /// This session's claim on the files it protected
+    /// (``BrowserReplSecretSources/protect(_:owner:)``): a failed load
+    /// gives back only its own claim, never another session's.
+    private let secretSourceOwner = UUID()
 
     // JS-thread state.
     private var context: JSContext?
@@ -2025,57 +2029,40 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let secrets = hostFunction("secrets") { [weak self] op, arguments in
             guard let self else { return nil }
-            var args = JSONSerialization.browserReplObject(arguments)
+            let args = JSONSerialization.browserReplObject(arguments)
             // secrets.load(path) reads the file here, so its values never
             // reach JavaScript.
-            if op == "load", let path = args["path"] as? String {
-                // The file, under any name, never loads in a tab
-                // (BrowserReplSecretSources): a tab would show its values
-                // as pixels no mask covers. Protected in the same hold of
-                // the file navigation lock as the open, before its values
-                // are known to be readable.
-                // A file new to the session takes one of its quota first
-                // (a lifetime count, so a refusal of the app-wide set still
-                // takes it), and is never protected past the quota.
-                let opened: (BrowserReplFileIdentity) throws -> Void = { identity in
-                    guard !self.protectedSecretSources.contains(identity) else { return }
-                    if let refusal = self.ledger.reserve(1, of: .secretSourceFiles) {
-                        throw BrowserReplFileSystemError(code: "limit", message: refusal.message)
-                    }
-                    try BrowserReplSecretSources.shared.protect(identity)
-                    self.protectedSecretSources.insert(identity)
-                }
-                switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
-                case .failure(let error):
-                    return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
-                case .success(let base64):
-                    // Parsing cannot stop midway on this thread, so a file
-                    // past the limit is refused before it is decoded, and
-                    // the deadline is checked around the parse.
-                    let isCancelled = self.boundary.isCancelled
-                    let text = base64 as? String ?? ""
-                    let size = text.utf8.count / 4 * 3
-                    guard size <= BrowserReplSecretStore.maximumLoadFileBytes + 2 else {
-                        let limit = BrowserReplSecretStore.maximumLoadFileBytes >> 20
-                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is about \(size) bytes, past the \(limit) MiB a secrets file may hold"))))
-                    }
-                    let data: Data?
-                    do {
-                        data = try Data(browserReplBase64: text, isCancelled: isCancelled)
-                    } catch {
-                        return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load"))))
-                    }
-                    if let data, let reason = BrowserReplSecretStore.loadSourceRefusal(data) {
-                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) \(reason)"))))
-                    }
-                    guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
-                        if isCancelled() { return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load")))) }
-                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON"))))
-                    }
-                    args["object"] = object
-                }
+            guard op == "load", let path = args["path"] as? String else {
+                return self.boundary.egress(.host(self.boundary.secretsOperation(op, args)))
             }
-            return self.boundary.egress(.host(self.boundary.secretsOperation(op, args)))
+            // The file, under any name, never loads in a tab
+            // (BrowserReplSecretSources): a tab would show its values
+            // as pixels no mask covers. Protected in the same hold of
+            // the file navigation lock as the open, before its values
+            // are known to be readable.
+            // A file new to the session takes one of its quota first
+            // (a lifetime count, so a refusal of the app-wide set, or a
+            // load that fails, still takes it), and is never protected
+            // past the quota. The protection is this session's claim
+            // (secretSourceOwner); a load that fails loaded nothing, so
+            // the claim it took is given back (r38 native#1), and the
+            // file stays protected only while another claim holds it.
+            var claimed: BrowserReplFileIdentity?
+            let opened: (BrowserReplFileIdentity) throws -> Void = { identity in
+                guard !self.protectedSecretSources.contains(identity) else { return }
+                if let refusal = self.ledger.reserve(1, of: .secretSourceFiles) {
+                    throw BrowserReplFileSystemError(code: "limit", message: refusal.message)
+                }
+                try BrowserReplSecretSources.shared.protect(identity, owner: self.secretSourceOwner)
+                self.protectedSecretSources.insert(identity)
+                claimed = identity
+            }
+            let result = self.loadSecretsFile(path: path, args: args, opened: opened)
+            if case .failure = result, let identity = claimed {
+                self.protectedSecretSources.remove(identity)
+                BrowserReplSecretSources.shared.release(identity, owner: self.secretSourceOwner)
+            }
+            return self.boundary.egress(.host(result))
         }
         let policy = hostFunction("policy") { [weak self] op, arguments in
             guard let self else { return nil }
@@ -2129,6 +2116,48 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// refused with nothing parsed, and so are arguments whose JSON holds
     /// more elements or nests deeper than one call may
     /// (``JSONSerialization/browserReplCallStructureRefusal(_:)``).
+    /// `secrets.load(path)`: reads the file through the session's fs, so
+    /// its values never reach JavaScript, and loads it. `opened` protects
+    /// the file the read opened (in the same hold of the file navigation
+    /// lock as the open).
+    private func loadSecretsFile(
+        path: String,
+        args: [String: Any],
+        opened: @escaping (BrowserReplFileIdentity) throws -> Void
+    ) -> Result<Any, BrowserReplDriverError> {
+        var args = args
+        switch fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
+        case .failure(let error):
+            return .failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))
+        case .success(let base64):
+            // Parsing cannot stop midway on this thread, so a file
+            // past the limit is refused before it is decoded, and
+            // the deadline is checked around the parse.
+            let isCancelled = boundary.isCancelled
+            let text = base64 as? String ?? ""
+            let size = text.utf8.count / 4 * 3
+            guard size <= BrowserReplSecretStore.maximumLoadFileBytes + 2 else {
+                let limit = BrowserReplSecretStore.maximumLoadFileBytes >> 20
+                return .failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is about \(size) bytes, past the \(limit) MiB a secrets file may hold"))
+            }
+            let data: Data?
+            do {
+                data = try Data(browserReplBase64: text, isCancelled: isCancelled)
+            } catch {
+                return .failure(BrowserReplBoundary.cancelled("secrets.load"))
+            }
+            if let data, let reason = BrowserReplSecretStore.loadSourceRefusal(data) {
+                return .failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) \(reason)"))
+            }
+            guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
+                if isCancelled() { return .failure(BrowserReplBoundary.cancelled("secrets.load")) }
+                return .failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON"))
+            }
+            args["object"] = object
+        }
+        return boundary.secretsOperation("load", args)
+    }
+
     private func hostFunction(
         _ name: String,
         isFileSystem: Bool = false,

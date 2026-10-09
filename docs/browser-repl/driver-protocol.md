@@ -709,7 +709,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   are dropped (a file is gone when its volume, asked by the `statfs`
   volume id taken when it was protected, names no object with its inode;
   one whose volume id could not be taken is never dropped), `secrets.load` fails closed with `invalid` and reads
-  nothing until protected files are removed. A file
+  nothing until protected files are removed. Only loads that succeed
+  keep a protection: a `secrets.load` that fails after the open (not
+  JSON, weak values, a bad shape, too large, cancelled) gives back the
+  protection it took, so failed loads take no room in the app-wide set,
+  and the file stays protected only while another session's or an
+  earlier successful load holds it (the session's 512 still counts the
+  file). A file
   chooser answer reads its files through `fs`, masked. It must be
   UTF-8 and may not spell a digit with a JSON escape (`\u0030` to
   `\u0039`), else `secrets.load` fails with `invalid`: file reads mask a

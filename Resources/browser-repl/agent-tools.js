@@ -1387,22 +1387,29 @@
       // call's one page-read budget has left (READ_NODES items and
       // READ_SIZE characters of names and values over all frames), and
       // past it the call fails with the note rather than save part of a
-      // state.
+      // state. A frame with no storage costs no items, so the frames read
+      // are bounded too (STORAGE_FRAMES over all tabs, as Markdown export
+      // reads at most MARKDOWN_FRAMES), and a frame is read only while the
+      // budget has items and characters left: a page of many iframes
+      // cannot drive one native call per frame past the budget.
       const { targetIds } = await storeTabs(page, "session.storageState");
       const origins = new Map();
-      const budget = { left: READ_NODES, sizeLeft: READ_SIZE };
+      const budget = { left: READ_NODES, sizeLeft: READ_SIZE, frames: STORAGE_FRAMES };
+      const cutFail = (cut) => { throw new Error(`session.storageState: ${core.readCutNote("localStorage", cut)}; pass { urls } to save fewer origins`); };
       for (const page of [...session.pages.values()]) {
         if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
-          const r = await frame._call("agent", localStorageOfFrame, [Math.max(1, budget.left), Math.max(1, budget.sizeLeft)], [], "localStorage").catch(() => null);
+          if (budget.frames < 1) cutFail({ truncated: "frames", frames: STORAGE_FRAMES });
+          if (budget.left < 1 || budget.sizeLeft < 1) cutFail({ truncated: budget.left < 1 ? "nodes" : "size", maxNodes: READ_NODES, maxSize: READ_SIZE });
+          budget.frames -= 1;
+          const r = await frame._call("agent", localStorageOfFrame, [budget.left, budget.sizeLeft], [], "localStorage").catch(() => null);
           if (!r || !r.origin || r.origin === "null") continue;
           const report = r.report || {};
           budget.left -= Math.max(0, Number(report.visited) || 0);
           budget.sizeLeft -= Math.max(0, Number(report.size) || 0);
           if (report.truncated || budget.left < 0 || budget.sizeLeft < 0) {
-            const cut = { truncated: report.truncated || (budget.left < 0 ? "nodes" : "size"), maxNodes: READ_NODES, maxSize: READ_SIZE };
-            throw new Error(`session.storageState: ${core.readCutNote("localStorage", cut)}; pass { urls } to save fewer origins`);
+            cutFail({ truncated: report.truncated || (budget.left < 0 ? "nodes" : "size"), maxNodes: READ_NODES, maxSize: READ_SIZE });
           }
           if (urls && !urls.some((u) => new core.URL(u).origin === r.origin)) continue;
           if (!inScope(new core.URL(r.origin).hostname)) continue;
@@ -1656,6 +1663,9 @@
   // each gets what the frames before it left and the page's frame count
   // sets no number of calls in flight.
   const MARKDOWN_FRAMES = 100;
+  // The most frames session.storageState reads localStorage from, over
+  // every tab in the store.
+  const STORAGE_FRAMES = 100;
   const READ_NODES = 250000;
   const READ_SIZE = 2000000;
   // `maxSize` lowers the characters (tabs.content splits its budget).
