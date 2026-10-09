@@ -154,8 +154,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false`), so `chief spawn` is its only way to start
   a subagent, as `TURN_TOOLS` leaves a Claude turn no Task tool.
 
-Deviation: `tell` reaches a running subagent after its current turn (acpmux
-queues the prompt; claude-sr has no steering), not between its tool calls.
+`tell` to a running subagent is steered into its session (acpmux steer,
+as for Chief turns): the harness reads it between its tool calls and the
+run's report answers it. A session that cannot steer takes it as its next
+prompt, after the current turn.
 A subagent's first message carries no cache mark of ours, and all of a
 spawn's subagents start at once: Claude Code marks its two system blocks and
 the last two messages of every later request in a session, the API takes at
