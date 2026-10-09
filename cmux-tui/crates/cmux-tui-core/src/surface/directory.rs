@@ -44,8 +44,10 @@ impl Surface {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             (metadata.take_progress_change().is_some(), metadata.program_status())
         };
-        let status_changed =
-            records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_change();
+        let (status_changed, notices) = {
+            let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            (records.take_change(), records.take_notices())
+        };
         if !progress_changed && !status_changed {
             return;
         }
@@ -54,6 +56,7 @@ impl Surface {
         if let Err(error) = mux.publish_terminal_progress(self, mutation) {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
         }
+        crate::program_status_notify::post(&mux, self.id, notices);
     }
 
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.

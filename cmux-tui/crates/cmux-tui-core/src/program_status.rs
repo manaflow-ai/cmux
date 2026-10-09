@@ -29,6 +29,23 @@ pub(crate) const MAX_RECORDS: usize = 256;
 /// Shown text bounds, the same as terminal notifications.
 pub(crate) const MAX_TITLE_CHARS: usize = 256;
 pub(crate) const MAX_MESSAGE_CHARS: usize = 1024;
+/// Notices kept until the publisher takes them (the newest stay).
+pub(crate) const MAX_PENDING_NOTICES: usize = 16;
+
+/// A record that changed into a state the user is told about (`blocked`,
+/// `error`, `done`): the session host posts one notification for it
+/// (`program_status_notify`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProgramStatusNotice {
+    /// The record id (diagnostics and tests; the notification names the terminal).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) id: String,
+    pub(crate) state: ProgramStatusState,
+    pub(crate) kind: Option<ProgramStatusKind>,
+    pub(crate) app: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) message: Option<String>,
+}
 
 /// One kept record. `state` is never `Clear`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +93,8 @@ pub(crate) struct ProgramStatusRecords {
     /// to the public graph.
     revision: u64,
     published: u64,
+    /// Changes into `blocked`, `error` or `done` since the last take.
+    notices: Vec<ProgramStatusNotice>,
 }
 
 impl ProgramStatusRecords {
@@ -125,6 +144,26 @@ impl ProgramStatusRecords {
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
         };
+        let notifies = matches!(
+            record.state,
+            ProgramStatusState::Blocked | ProgramStatusState::Error | ProgramStatusState::Done
+        ) && self.records.get(&id).is_none_or(|previous| {
+            (previous.state, previous.kind, &previous.message)
+                != (record.state, record.kind, &record.message)
+        });
+        if notifies {
+            if self.notices.len() == MAX_PENDING_NOTICES {
+                self.notices.remove(0);
+            }
+            self.notices.push(ProgramStatusNotice {
+                id: id.clone(),
+                state: record.state,
+                kind: record.kind,
+                app: record.app.clone(),
+                title: record.title.clone(),
+                message: record.message.clone(),
+            });
+        }
         self.records.insert(id, record);
         self.revision += 1;
     }
@@ -165,6 +204,11 @@ impl ProgramStatusRecords {
             .map(|(id, record)| record.to_json(id))
             .collect::<Vec<_>>();
         (!records.is_empty()).then_some(Value::Array(records))
+    }
+
+    /// The notices since the last call, oldest first.
+    pub(crate) fn take_notices(&mut self) -> Vec<ProgramStatusNotice> {
+        std::mem::take(&mut self.notices)
     }
 
     /// True once per visible change, marking it published.
