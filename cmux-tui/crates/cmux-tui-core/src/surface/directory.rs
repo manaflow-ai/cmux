@@ -62,7 +62,7 @@ impl Surface {
             let notifications = pty
                 .terminal_metadata
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .admit_program_status_alerts(alerts, Instant::now());
             if !notifications.is_empty() {
                 mux.post_terminal_notifications(self.id, notifications);
