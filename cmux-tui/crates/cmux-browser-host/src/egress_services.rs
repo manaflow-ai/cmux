@@ -22,9 +22,55 @@ pub type ServiceCheck = Arc<dyn Fn(SocketAddr) -> Option<String> + Send + Sync>;
 /// Whether an address belongs to this machine (one of its interfaces).
 pub type OwnAddresses = Arc<dyn Fn(std::net::IpAddr) -> bool + Send + Sync>;
 
-/// This machine's interface addresses (stub; cx-pmq7 red).
+/// This machine's interface addresses, read per check (`getifaddrs`, no
+/// process spawn) so a new interface counts at once. When the list cannot be
+/// read, every address counts as this machine's: the service check runs,
+/// which refuses what it cannot see (fail closed).
 pub fn system_own_addresses() -> OwnAddresses {
-    Arc::new(|_| false)
+    Arc::new(|ip| interface_addresses().is_none_or(|ips| ips.contains(&ip)))
+}
+
+/// The addresses of this machine's interfaces (IPv4-mapped IPv6 as IPv4);
+/// `None` when they cannot be read.
+#[cfg(unix)]
+fn interface_addresses() -> Option<Vec<std::net::IpAddr>> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `list` is a valid out pointer; freed below.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: a non-null node of the list getifaddrs returned.
+        let entry = unsafe { &*at };
+        at = entry.ifa_next;
+        if entry.ifa_addr.is_null() {
+            continue;
+        }
+        // SAFETY: ifa_addr is non-null and points to a sockaddr whose family
+        // tells its real type.
+        let family = i32::from(unsafe { (*entry.ifa_addr).sa_family });
+        if family == libc::AF_INET {
+            // SAFETY: an AF_INET address is a sockaddr_in.
+            let sin = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in>() };
+            out.push(IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr))));
+        } else if family == libc::AF_INET6 {
+            // SAFETY: an AF_INET6 address is a sockaddr_in6.
+            let sin6 = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in6>() };
+            let v6 = Ipv6Addr::from(sin6.sin6_addr.s6_addr);
+            out.push(v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4));
+        }
+    }
+    // SAFETY: the list getifaddrs returned, freed once.
+    unsafe { libc::freeifaddrs(list) };
+    Some(out)
+}
+
+#[cfg(not(unix))]
+fn interface_addresses() -> Option<Vec<std::net::IpAddr>> {
+    None
 }
 
 /// Executable names of cmux services. Anything named `cmux-*` counts too.

@@ -338,18 +338,25 @@ impl EgressRule {
         Ok(addrs)
     }
 
-    /// Why a loopback address is a cmux service's (crate::egress_services),
-    /// or `None` (also for any address that is not loopback).
+    /// Whether `ip` is this machine's: loopback, the unspecified address
+    /// (which connects to loopback), or one of its interface addresses. A
+    /// connection to any of them reaches the same wildcard listeners.
+    fn is_own(&self, ip: IpAddr) -> bool {
+        is_loopback(ip) || ip.is_unspecified() || (self.own_addresses)(ip)
+    }
+
+    /// Why an address of this machine is a cmux service's
+    /// (crate::egress_services), or `None` (also for any other address).
     pub fn service_refusal(&self, addr: SocketAddr) -> Option<String> {
         let addr = canonical(addr);
-        is_loopback(addr.ip()).then(|| (self.services)(addr)).flatten()
+        self.is_own(addr.ip()).then(|| (self.services)(addr)).flatten()
     }
 
     /// `service_refusal` for the peer of a connection that just succeeded:
     /// a listener exists, so one this host cannot see refuses the port.
     pub fn connected_service_refusal(&self, addr: SocketAddr) -> Option<String> {
         let addr = canonical(addr);
-        is_loopback(addr.ip()).then(|| (self.connected_services)(addr)).flatten()
+        self.is_own(addr.ip()).then(|| (self.connected_services)(addr)).flatten()
     }
 
     /// The rule for a URL's literal host only (an IP, `localhost`, a
