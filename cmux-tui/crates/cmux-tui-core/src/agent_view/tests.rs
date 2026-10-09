@@ -88,9 +88,18 @@ fn installs_grants_and_policy_are_user_only() {
     }
     let policy = op("browser.policy.set", "policy:write");
     assert_eq!(agent_view(&policy, &everything()), Exposure::Excluded(Exclusion::UserOnly));
-    // Agents may hide and unhide apps (D55); the owner refuses the other fields.
+    // D55 as amended: origin user for every field of cmux.apps.set.
     let set = OpExposure { risk: Risk::MutateOwn, ..op("cmux.apps.set", "apps:write") };
-    assert_eq!(agent_view(&set, &everything()), Exposure::Offered);
+    assert_eq!(agent_view(&set, &everything()), Exposure::Excluded(Exclusion::UserOnly));
+    // The daemon's origin gate A2 list is the same rule, read once.
+    for name in ["cmux.apps.enable", "cmux.workspace.agent_folder.set"] {
+        let op = OpExposure { risk: Risk::MutateOwn, ..op(name, "apps:write") };
+        assert_eq!(
+            agent_view(&op, &everything()),
+            Exposure::Excluded(Exclusion::UserOnly),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -190,12 +199,13 @@ fn an_ir_op_gives_its_exposure_fields() {
 #[test]
 fn missing_or_unknown_ir_fields_fail_closed() {
     // Only name and scope: never offered, destructive, gesture-only,
-    // restricted. A missing server_only is false (emit-ir omits false).
+    // restricted, secret. A missing server_only is false (emit-ir omits
+    // false); agent_view reads the scope's own flag instead.
     let bare = serde_json::json!({ "name": "cmux.x.y", "kind": "read", "scope": "x:read" });
     let op = OpExposure::from_ir(&bare, enabled).expect("op");
     assert_eq!(
-        (op.mcp, op.risk, op.gesture_required, op.scope_class, op.server_only),
-        (McpExpose::Never, Risk::Destructive, true, ScopeClass::Restricted, false)
+        (op.mcp, op.risk, op.gesture_required, op.scope_class, op.server_only, op.secret_output),
+        (McpExpose::Never, Risk::Destructive, true, ScopeClass::Restricted, false, true)
     );
     let odd = serde_json::json!({ "name": "cmux.x.z", "kind": "read", "scope": "x:read",
         "mcp": { "expose": "always" }, "risk": "chaos", "gesture": "no", "scope_class": "public" });
@@ -251,4 +261,43 @@ fn every_op_in_the_committed_ir_has_an_agent_answer() {
             assert!(matches!(answer, Exposure::Excluded(_)), "{}", op.name);
         }
     }
+}
+
+#[test]
+fn a_server_only_scope_without_the_ir_flag_is_still_excluded() {
+    for scope in ["op:cmux.credential.relay", "process:spawn:git"] {
+        let op = op("acme.tool.run", scope);
+        assert_eq!(
+            agent_view(&op, &everything()),
+            Exposure::Excluded(Exclusion::ServerOnly),
+            "{scope}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_scope_is_excluded() {
+    let odd = op("acme.tool.run", "Not A Scope");
+    assert_eq!(agent_view(&odd, &everything()), Exposure::Excluded(Exclusion::UnknownScope));
+}
+
+#[test]
+fn an_elevated_scope_needs_a_grant_that_names_it() {
+    let backend =
+        OpExposure { risk: Risk::MutateOwn, ..op("cmux.terminal.backend.set", "terminal:backend") };
+    assert_eq!(agent_view(&backend, &everything()), Exposure::Excluded(Exclusion::NotGranted));
+    let named = AgentGrant {
+        standing_approvals: ["cmux.terminal.backend.set".to_owned()].into(),
+        ..grant(&["terminal:backend"])
+    };
+    assert_eq!(agent_view(&backend, &named), Exposure::Offered);
+}
+
+#[test]
+fn a_secret_output_missing_from_the_ir_counts_as_secret() {
+    let ir = serde_json::json!({ "name": "cmux.x.read", "kind": "read", "scope": "x:read",
+        "owner": "first-party", "mcp": { "expose": "default" }, "risk": "read", "gesture": false,
+        "scope_class": "standard" });
+    let op = OpExposure::from_ir(&ir, enabled).expect("op");
+    assert_eq!(agent_view(&op, &everything()), Exposure::Excluded(Exclusion::Secret));
 }
