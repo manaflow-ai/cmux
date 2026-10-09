@@ -728,3 +728,9 @@ pub fn run_after_capacity_waits(
         outcome = again(&next);
     }
 }
+
+/// The wait before try `attempt` (0-based) of a turn that failed with a
+/// transient error; None for other errors.
+pub fn transient_retry_after(_error: &str, _attempt: u32) -> Option<Duration> {
+    None
+}
