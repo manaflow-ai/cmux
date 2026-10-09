@@ -244,6 +244,16 @@ export class FakeDriver implements TeamVmDriver {
     this.sql.exec(`UPDATE fake_vm SET state = 'paused' WHERE id = ?`, id)
   }
 
+  /**
+   * Test only: one inbound connection to `id` as the provider handles it (measured cx-009a):
+   * traffic resumes a paused VM unless its run budget is spent (`fake_fence`).
+   */
+  inbound(id: string): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS fake_fence (id TEXT PRIMARY KEY)`)
+    if (this.sql.exec<{ id: string }>(`SELECT id FROM fake_fence WHERE id = ?`, id)[0]) return
+    this.sql.exec(`UPDATE fake_vm SET state = 'running' WHERE id = ? AND state = 'paused'`, id)
+  }
+
   async exec(id: string, command: string, _timeoutMs: number) {
     if (!this.sql.exec<{ id: string }>(`SELECT id FROM fake_vm WHERE id = ?`, id)[0]) throw new DriverError("team_vm.vm_missing", "exec: 404", true)
     return this.guest.run(id, command)
