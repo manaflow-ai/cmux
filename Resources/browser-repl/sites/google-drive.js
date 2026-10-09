@@ -16,15 +16,29 @@
       async function trashIn(page, ref, press) {
         await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
         await t.sleep(1500);
-        // File > Move to trash (matched by the item's text; retried once if the menu did not open).
-        const item = page.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ }).first();
+        // File > Move to trash: the item is pressed only inside the one
+        // menu the File button opened (the one visible role=menu), by its
+        // label; an item with that text anywhere else on the page (page
+        // content, another menu) is never pressed, and a second open menu
+        // or a second such item presses nothing. Retried once if the menu
+        // did not open.
+        const unverified = (what) => new S.SiteError("target_unverified", `googleDrive.trash: ${what}; nothing was trashed`);
+        const fileButton = page.locator("#docs-file-menu");
+        const menu = page.locator('[role="menu"]').filter({ visible: true });
+        const item = menu.locator('[role="menuitem"]').filter({ hasText: /^(Move to trash|Move to bin)/ });
         for (let attempt = 0; ; attempt++) {
-          await page.locator("#docs-file-menu").click();
-          if (await item.waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
+          const buttons = await fileButton.count();
+          if (buttons !== 1) throw unverified(`expected one File menu button, found ${buttons}`);
+          await fileButton.click();
+          if (await item.first().waitFor({ timeout: 5000 }).then(() => true, () => false)) break;
           if (attempt) throw new S.SiteError("timeout", "googleDrive.trash: the File menu has no Move to trash item");
           await page.keyboard.press("Escape").catch(() => {});
           await t.sleep(1500);
         }
+        const menus = await menu.count();
+        if (menus !== 1) throw unverified(`expected the one open File menu, found ${menus} open menus`);
+        const items = await item.count();
+        if (items !== 1) throw unverified(`expected one Move to trash item in the File menu, found ${items}`);
         await press(item);
         await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
         // A trashed file still opens for its owner, with "File is in trash".
