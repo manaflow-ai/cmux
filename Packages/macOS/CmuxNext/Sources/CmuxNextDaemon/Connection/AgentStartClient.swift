@@ -36,8 +36,9 @@ public struct AgentStartAnswer: Decodable, Sendable, Equatable {
 extension StateResourceClient {
     /// `workspace.agent_start.get {workspace, cwd?}`: a read, no idempotency key.
     public func agentStart(_ workspace: ResourceID, cwd: String?) async throws -> AgentStartAnswer {
-        var params: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
-        if let cwd { params["cwd"] = .string(cwd) }
+        var fields: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
+        if let cwd { fields["cwd"] = .string(cwd) }
+        let params = fields
         return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "workspace.agent_start.get", params: params, idempotencyKey: nil)
         }, as: AgentStartAnswer.self)
