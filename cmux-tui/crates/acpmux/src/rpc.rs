@@ -225,7 +225,8 @@ pub mod method {
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
     // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
-    // H2; harness_admin.rs). The unix socket and the local app only.
+    // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
+    // restore and registry: also the local app. Never Web or peer.
     pub const MUX_HARNESS_ADD: &str = "_acpmux/harness/add";
     pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
     pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";

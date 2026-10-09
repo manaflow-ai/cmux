@@ -3,10 +3,14 @@
 //! and check a user's own harness through the daemon. The work is
 //! `crate::harness_admin`, shared with the CLI.
 //!
-//! Only the unix socket and the local app may call them. A Web or peer
-//! connection is refused: adding a harness writes a file that runs a
-//! program, and doctor starts it. The daemon cannot see gestures; the app
-//! calls add and remove only from a user's action (AGENT-PANE-GESTURE-CREDITS).
+//! Who may call them (coordinator decision 2026-10-08): `add` writes a
+//! profile that runs a program and `doctor` starts a harness, so only the
+//! unix socket may call them; LocalApp, Web and peer are refused, keeping
+//! remote_guard's rule that LocalApp never makes this machine spawn a
+//! process. The local app may `remove`, `restore` (recoverable) and read the
+//! `registry`; Web and peer may call none of them. The daemon cannot see
+//! gestures; the app's host calls add and doctor over the unix socket only
+//! from a user's action.
 //! After a change the catalog reloads and `_acpmux/watch` connections get
 //! `_acpmux/harnesses_changed`.
 
@@ -44,9 +48,15 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    let spawns = matches!(m, method::MUX_HARNESS_ADD | method::MUX_HARNESS_DOCTOR);
+    if spawns && origin != Origin::Local {
+        return Err(RpcError::invalid_params(
+            "adding or checking a harness runs a program: only the unix socket may ask for it",
+        ));
+    }
     if origin.web_class() {
         return Err(RpcError::invalid_params(
-            "harness profiles are changed and checked only from the local app or the unix socket, never from a remote WebSocket connection or a peer",
+            "harness profiles are changed only from the local app or the unix socket, never from a remote WebSocket connection or a peer",
         ));
     }
     let sources = hub.config.read().await.profile_sources.clone();
