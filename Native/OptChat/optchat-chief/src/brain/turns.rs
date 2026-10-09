@@ -41,8 +41,9 @@ impl Brain {
             self.interrupt.clone(),
             self.marker_refused.clone(),
         );
-        let (ttl_refused, session_dir) = (
+        let (ttl_refused, ttl_stale, session_dir) = (
             self.ttl_refused.clone(),
+            self.ttl_stale.clone(),
             self.settings.session_dir.clone(),
         );
         let spawned = std::thread::Builder::new()
@@ -129,40 +130,63 @@ impl Brain {
                             .blocks
                             .iter()
                             .any(|b| b.get("cache_control").is_some());
-                        let one_hour = start.blocks.iter().any(|b| {
+                        // The TTL our marks carry in this request.
+                        let ours = if start.blocks.iter().any(|b| {
                             b.get("cache_control") == Some(&CacheTtl::OneHour.cache_control())
-                        });
-                        match &outcome.error {
-                            // The route takes no 1-hour TTL: the same turn
-                            // again at 5 minutes (Claude Code's own marks
-                            // too), and later turns go at 5 minutes.
-                            Some(e) if one_hour && is_ttl_refused_error(e) => {
-                                ttl_refused.store(true, Ordering::SeqCst);
+                        }) {
+                            Some(CacheTtl::OneHour)
+                        } else {
+                            marked.then_some(CacheTtl::FiveMinutes)
+                        };
+                        let stale = ttl_stale.load(Ordering::SeqCst);
+                        match (&outcome.error, ours) {
+                            // The API refused our TTL next to Claude Code's.
+                            // A pooled session started under the other TTL
+                            // (cache.ttl changed since the prewarm): the
+                            // same turn once at that TTL. Else the route
+                            // takes no 1-hour TTL: the same turn at 5
+                            // minutes, and later turns stay at 5 minutes.
+                            (Some(e), Some(ttl))
+                                if is_ttl_refused_error(e)
+                                    && (stale || ttl == CacheTtl::OneHour) =>
+                            {
+                                let retry = match ttl {
+                                    CacheTtl::OneHour => CacheTtl::FiveMinutes,
+                                    CacheTtl::FiveMinutes => CacheTtl::OneHour,
+                                };
+                                if !stale {
+                                    ttl_refused.store(true, Ordering::SeqCst);
+                                }
                                 trace.emit(
                                     "turn.ttl_refused",
-                                    serde_json::json!({"turn": start.key, "ttl": "5m"}),
+                                    serde_json::json!({"turn": start.key, "ttl": retry.as_str()}),
                                 );
                                 log(&format!(
-                                    "turn {}: the route refused the 1-hour cache TTL ({e}); running the turn again at 5 minutes, and later turns go at 5 minutes (set cache.ttl to try 1h again)",
-                                    start.key
+                                    "turn {}: the API refused the {} cache TTL ({e}); running the turn again at {}{}",
+                                    start.key,
+                                    ttl.as_str(),
+                                    retry.as_str(),
+                                    if stale {
+                                        " (its session started before cache.ttl changed)"
+                                    } else {
+                                        ", and later turns go at 5 minutes (set cache.ttl to try 1h again)"
+                                    }
                                 ));
-                                if let Err(e) = crate::session_dir::set_prompt_cache_ttl(
-                                    &session_dir,
-                                    CacheTtl::FiveMinutes,
-                                ) {
+                                if let Err(e) =
+                                    crate::session_dir::set_prompt_cache_ttl(&session_dir, retry)
+                                {
                                     log(&format!("updating the session's promptCacheTtl: {e}"));
                                 }
                                 let mut again = start.clone();
                                 for block in &mut again.blocks {
                                     if block.get("cache_control").is_some() {
-                                        block["cache_control"] =
-                                            CacheTtl::FiveMinutes.cache_control();
+                                        block["cache_control"] = retry.cache_control();
                                     }
                                 }
-                                again.prompt_id = format!("{}:5m", start.prompt_id);
+                                again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
                                 turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
                             }
-                            Some(e) if marked && is_marker_limit_error(e) => {
+                            (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.store(true, Ordering::SeqCst);
                                 // The inspector lays this turn out unmarked.
                                 trace.emit("turn.unmarked", serde_json::json!({"turn": start.key}));
@@ -341,7 +365,12 @@ impl Brain {
                     optchat_core::block_pieces(&view.text)[..=m.piece].concat()
                 });
                 // Claude Code's own marks take the same TTL: the API refuses
-                // a 1h mark after a 5m one.
+                // a 1h mark after a 5m one. A session the pool started
+                // before a cache.ttl change still has the old one.
+                self.ttl_stale.store(
+                    self.prewarm_ttl.is_some_and(|p| p != ttl),
+                    Ordering::SeqCst,
+                );
                 if let Err(e) =
                     crate::session_dir::set_prompt_cache_ttl(&self.settings.session_dir, ttl)
                 {
@@ -662,7 +691,7 @@ impl Brain {
     /// The cache TTL of this turn on the Claude Code path:
     /// `OPTCHAT_CACHE_TTL`, else the Chief's `cache.ttl`, else 1 hour; 5
     /// minutes once a route refused 1 hour.
-    fn turn_cache_ttl(&self) -> CacheTtl {
+    pub(super) fn turn_cache_ttl(&self) -> CacheTtl {
         if self.ttl_refused.load(Ordering::SeqCst) {
             return CacheTtl::FiveMinutes;
         }

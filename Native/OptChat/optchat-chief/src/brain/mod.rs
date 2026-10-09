@@ -334,6 +334,11 @@ pub struct Brain {
     /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
     /// host restarts or `cache.ttl` is set again.
     ttl_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// The TTL the session settings held when the pool was last hinted: a
+    /// pooled session runs Claude Code with it.
+    prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
+    ttl_stale: Arc<std::sync::atomic::AtomicBool>,
     /// The view up to and including the last turn's marked block
     /// (`optchat_core::mark_piece`): the next turn keeps its mark within the
     /// API's lookback of it.
@@ -422,6 +427,8 @@ impl Brain {
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            prewarm_ttl: None,
+            ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             last_mark: None,
             chief,
             turn_remote: false,
