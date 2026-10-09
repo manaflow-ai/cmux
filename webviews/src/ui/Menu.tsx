@@ -99,6 +99,7 @@ export interface MenuButtonProps {
   /** Optional trigger ref for callers that need to restore focus after an async action. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   className?: string;
+  "data-tool"?: string;
   /** The accessible name when the button shows only an icon. */
   label?: string;
   disabled?: boolean;
@@ -110,6 +111,7 @@ export interface MenuButtonProps {
 export function MenuButton({
   buttonRef,
   className,
+  "data-tool": dataTool,
   label,
   disabled,
   "aria-haspopup": ariaHasPopup,
@@ -121,6 +123,7 @@ export function MenuButton({
     <BaseMenu.Trigger
       ref={buttonRef}
       className={cx("ui-button", className)}
+      data-tool={dataTool}
       aria-label={label}
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
@@ -162,6 +165,7 @@ export interface MenuPopupProps {
    * field (a picker's search) returns focus there.
    */
   finalFocus?: RefObject<HTMLElement | null>;
+  "aria-label"?: string;
   children: ReactNode;
 }
 
@@ -171,6 +175,7 @@ export function MenuPopup({
   align = "start",
   anchor,
   finalFocus,
+  "aria-label": ariaLabel,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -183,7 +188,7 @@ export function MenuPopup({
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
-        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus}>
+        <BaseMenu.Popup className={cx("ui-popup ui-menu", className)} finalFocus={finalFocus} aria-label={ariaLabel}>
           {children}
         </BaseMenu.Popup>
       </BaseMenu.Positioner>

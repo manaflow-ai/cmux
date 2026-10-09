@@ -3,7 +3,6 @@
   "agent-session/acpmux/changeIcons.tsx": 1,
   "agent-session/acpmux/changes/ChangedFilesTree.tsx": 1,
   "agent-session/acpmux/changes/FileMenu.tsx": 5,
-  "agent-session/acpmux/changes/OptionsMenu.tsx": 5,
   "agent-session/acpmux/changes/RevertBar.tsx": 1,
   "agent-session/acpmux/changes/ScopeMenu.tsx": 6,
   "agent-session/acpmux/changes/useDiffKeys.ts": 1,

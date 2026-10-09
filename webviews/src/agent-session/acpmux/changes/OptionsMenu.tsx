@@ -23,10 +23,22 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
   return (
     <span className="acpmux-file-menu">
       <Menu>
-        <MenuButton buttonRef={button} className="acpmux-diff-tool" label={t("changes.options")} aria-haspopup="menu">
+        <MenuButton
+          buttonRef={button}
+          className="acpmux-diff-tool"
+          data-tool="options"
+          label={t("changes.options")}
+          aria-haspopup="menu"
+        >
           <More />
         </MenuButton>
-        <MenuPopup className="acpmux-file-menu-list" side="bottom" align="start" finalFocus={button}>
+        <MenuPopup
+          className="acpmux-file-menu-list"
+          side="bottom"
+          align="start"
+          finalFocus={button}
+          aria-label={t("changes.options")}
+        >
           {rows.map((row, index) =>
             row ? (
               <MenuItem

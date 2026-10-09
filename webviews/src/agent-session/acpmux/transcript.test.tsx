@@ -2456,12 +2456,14 @@ describe("acpmux turn diff", () => {
       );
       await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
       const panel = document.querySelector("section.acpmux-diff-panel")!;
-      const options = panel.querySelector<HTMLElement>('[data-tool="options"]')!;
+      const options = panel.querySelector<HTMLElement>('button[data-tool="options"]')!;
       expect(options?.getAttribute("aria-label")).toBe("Changes options");
       // Escape is the page's own key, not an app shortcut, so the tooltip shows no keycap.
       expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe("Back to transcript");
       const rows = () => [
-        ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
+        ...panel.querySelectorAll<HTMLElement>(
+          '.acpmux-file-menu-list[role="menu"][aria-label="Changes options"] [role="menuitem"]',
+        ),
       ];
       const row = (label: string) => rows().find((item) => item.textContent === label)!;
       const tool = (id: string) => panel.querySelector<HTMLElement>(`[data-tool="${id}"]`)!;
@@ -2618,6 +2620,10 @@ describe("acpmux turn diff", () => {
       );
       await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
       const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const options = panel.querySelector<HTMLElement>('button[data-tool="options"]')!;
+      const rows = () => [
+        ...panel.querySelectorAll<HTMLElement>('.acpmux-file-menu-list[role="menu"] [role="menuitem"]'),
+      ];
       const banner = () => panel.querySelector<HTMLElement>(".acpmux-changes-banner");
       const branch = () => panel.querySelector<HTMLElement>(".acpmux-branch-pill");
       const pick = async (label: string) => {
@@ -2660,24 +2666,18 @@ describe("acpmux turn diff", () => {
       expect(branch()?.textContent).toBe("feat-retry compared with origin/main");
       expect(statuses).toBe(1);
       // A refresh asks for the branch again too.
-      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
-      await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
-      );
+      await click(options);
+      await click(rows().find((item) => item.textContent === "Refresh")!);
       expect([diffs.length, statuses]).toEqual([4, 2]);
       // A status asked before a refresh never names the branch after it.
       const pending: ((branch: string) => void)[] = [];
       host.cmuxAcpmuxActions["git.status"] = () =>
         new Promise((resolve) => pending.push((name) => resolve({ branch: name, base: "origin/main" })));
-      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
-      await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
-      );
+      await click(options);
+      await click(rows().find((item) => item.textContent === "Refresh")!);
       expect([branch(), pending.length]).toEqual([null, 1]);
-      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
-      await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
-      );
+      await click(options);
+      await click(rows().find((item) => item.textContent === "Refresh")!);
       await act(async () => pending[1]!("feat-new"));
       await act(async () => pending[0]!("feat-old"));
       await settle();
