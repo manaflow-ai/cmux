@@ -722,6 +722,25 @@ extension CloudWelcomeMediaCarousel {
     }
 }
 
+/// Owns a one-shot fallback deadline and cancels it when the playback model is
+/// released, including when its actor-isolated owner is torn down.
+private final class CloudWelcomeAdvanceTimer {
+    let source: DispatchSourceTimer
+
+    init(source: DispatchSourceTimer) {
+        self.source = source
+    }
+
+    func cancel() {
+        source.cancel()
+    }
+
+    deinit {
+        source.setEventHandler {}
+        source.cancel()
+    }
+}
+
 extension CloudWelcomeMediaCarousel {
     /// The playing movie, shared between the player view (which owns it) and
     /// the pager (which reads its playhead and hears when it ends).
@@ -737,7 +756,7 @@ extension CloudWelcomeMediaCarousel {
         private(set) var movieFailed = false
         private var pausedElapsed: Double?
         private var startedAt: Date?
-        private var advanceTimer: DispatchSourceTimer?
+        private var advanceTimer: CloudWelcomeAdvanceTimer?
         private var advanceContinuation: AsyncStream<Void>.Continuation?
         private var advanceGeneration = 0
 
@@ -745,12 +764,7 @@ extension CloudWelcomeMediaCarousel {
             (loopCompletions, loopContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         }
 
-        deinit {
-            // `deinit` is nonisolated for this main-actor type. Releasing the
-            // owned dispatch source tears it down; its handler captures self
-            // weakly, so it cannot outlive this coordinator through a cycle.
-            loopContinuation.finish()
-        }
+        deinit { loopContinuation.finish() }
 
         /// Waits for a cancellable one-shot presentation deadline. A dispatch
         /// timer is used instead of task sleep so changing slides tears down the
@@ -774,7 +788,7 @@ extension CloudWelcomeMediaCarousel {
                     continuation.finish()
                 }
             }
-            advanceTimer = timer
+            advanceTimer = CloudWelcomeAdvanceTimer(source: timer)
             timer.resume()
 
             await withTaskCancellationHandler(operation: {
