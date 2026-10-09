@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 
@@ -32,22 +32,29 @@ export interface ContextMenuProps {
  * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
- * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf).
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
+ * the invoking control when it has one.
  */
 export function ContextMenu({ items, children, className, selection, onOpen }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
+  const returnFocus = useRef<HTMLElement | null>(null);
   const enabled = items.filter((item) => !item.disabled);
-  const close = () => setPoint(null);
+  const close = (restoreFocus = false) => {
+    setPoint(null);
+    const target = returnFocus.current;
+    returnFocus.current = null;
+    if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
+  };
   const run = (item: ContextMenuItem | undefined) => {
     if (!item || item.disabled) return;
     close();
     item.onSelect();
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, restoreFocus = false) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      close();
+      close(restoreFocus);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       if (enabled.length === 0) return;
       event.preventDefault();
@@ -65,13 +72,17 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
         event.preventDefault();
         onOpen?.();
         setActive(0);
+        const target = event.target instanceof Element ? event.target : null;
+        returnFocus.current =
+          target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
+          null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
       {children}
       {point
         ? createPortal(
-            <div className="ui-context-menu-backdrop" onPointerDown={close}>
+            <div className="ui-context-menu-backdrop" onPointerDown={() => close()}>
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
                 ref={(node) => node?.focus()}
@@ -80,7 +91,13 @@ export function ContextMenu({ items, children, className, selection, onOpen }: C
                 tabIndex={-1}
                 style={{ left: Math.max(4, Math.min(point.x, window.innerWidth - 244)), top: Math.max(4, point.y) }}
                 onPointerDown={(event) => event.stopPropagation()}
-                onKeyDown={onKeyDown}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    onKeyDown(event, true);
+                    return;
+                  }
+                  onKeyDown(event);
+                }}
               >
                 {items.map((item) => (
                   <div key={item.id} role="none">

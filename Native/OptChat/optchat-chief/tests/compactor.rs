@@ -830,9 +830,10 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
     let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
+    // One per slot: the active ones and the spares for warm sessions.
     assert_eq!(
         presets.len(),
-        COMPACTOR_SESSIONS,
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
         "one per slot: a slot's prompt never races another's"
     );
     let id = optchat_chief::paths::home_id(&home);
@@ -858,7 +859,10 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     assert_eq!(presets[0].args, COMPACTOR_ARGS);
     // Claude Code flags and system prompts mean nothing to another harness.
     let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(codex.len(), COMPACTOR_SESSIONS);
+    assert_eq!(
+        codex.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+    );
     assert!(
         codex
             .iter()
@@ -970,7 +974,10 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
     let paths = Paths::new(&home);
     let id = optchat_chief::paths::home_id(&home);
     let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
-    assert_eq!(presets.len(), COMPACTOR_SESSIONS);
+    assert_eq!(
+        presets.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS
+    );
     let mut homes = std::collections::BTreeSet::new();
     for (k, p) in presets.iter().enumerate() {
         assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
@@ -990,7 +997,11 @@ fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cac
         assert!(p.args.is_empty() && p.system_prompt.is_none());
         homes.insert(p.env["CODEX_HOME"].clone());
     }
-    assert_eq!(homes.len(), COMPACTOR_SESSIONS, "one CODEX_HOME per slot");
+    assert_eq!(
+        homes.len(),
+        COMPACTOR_SESSIONS + optchat_chief::compactor::WARM_SESSIONS,
+        "one CODEX_HOME per slot"
+    );
 }
 
 /// A slot's codex config.toml keeps where requests go and the model, and
@@ -2316,4 +2327,248 @@ fn a_node_trace_splits_its_time_by_slot_wait_session_start_and_prompt() {
     assert_eq!(timing["ttft_ms"].as_array().unwrap().len(), 2, "{timing}");
     assert!(timing["slot_wait_ms"].is_u64(), "{timing}");
     assert!(timing["session_start_ms"].is_u64(), "{timing}");
+}
+
+/// Soak at d6d36c6daf59: the first turn after a 2,020-message CLI import
+/// still waited 12 minutes (settle_ms 723,731), although settle no longer
+/// waits for imported lines: the brain checked again that no view line at
+/// all was unbuilt before it took the turn. A turn starts while imported
+/// lines are still being built.
+#[test]
+fn a_turn_starts_while_imported_lines_are_still_unbuilt() {
+    let dir = tempfile::tempdir().unwrap();
+    // Imported messages' nodes wait until the test ends.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(gate));
+    struct Blocking(Arc<Mutex<std::sync::mpsc::Receiver<()>>>);
+    impl CompactModel for Blocking {
+        fn call(
+            &self,
+            request: &CompactRequest,
+            _: &[optchat_host::Followup],
+        ) -> Result<optchat_host::Reply, optchat_host::ModelError> {
+            if request.step.contains("imported ") {
+                let _ = self.0.lock().unwrap().recv();
+            }
+            Ok(optchat_host::Reply::text(format!(
+                "summary of {}",
+                request.node.name()
+            )))
+        }
+    }
+    let config = Config {
+        reporter: Arc::new(|_| {}),
+        ..Config::default()
+    };
+    let chat = Arc::new(
+        OptChat::open_with(
+            dir.path().join("chat"),
+            config,
+            Arc::new(Blocking(gate.clone())),
+            Arc::new(SystemClock),
+        )
+        .unwrap(),
+    );
+    for k in 0..100u64 {
+        let text = format!("imported {k}: {}", "words ".repeat(120));
+        chat.append_imported(Kind::Note, &text, None).unwrap();
+    }
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let settings = settings(dir.path());
+    let mut h = Harness::over_chat(
+        dir,
+        default_script(),
+        owner,
+        settings,
+        Arc::new(|_: &str| {}),
+        chat,
+    );
+    h.connect();
+    h.say("user_local", "Hi, a short question.");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no turn started: {:?}",
+            h.chat.status()
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(
+        h.chat.status().unbuilt > 0,
+        "the import was built meanwhile"
+    );
+    h.chat.shutdown();
+    drop(release);
+}
+
+/// Import at 06a7b250b1fc, 16 sessions: an 8-message merge took 87 s
+/// (median), of which 77 s was waiting for a session slot, while its 3.9
+/// prompts took about 1.8 s each. A fresh size retry gave its slot back and
+/// queued again behind every waiting import node. A node's size retry is
+/// part of the same job: it keeps its slot.
+#[test]
+fn a_size_retry_keeps_its_session_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&format!("user: {}", "w".repeat(700)))
+        } else {
+            answer("user: a line")
+        }
+    }));
+    agents.hold(true);
+    let compactor = Arc::new(AcpmuxCompactor::new(
+        agents.clone(),
+        spec(dir.path()),
+        Slots::new(1),
+    ));
+    let spawn = |r: CompactRequest| {
+        let c = compactor.clone();
+        std::thread::spawn(move || run_node(&*c, &r))
+    };
+    let first = spawn(request(1));
+    agents.wait_prompts(1);
+    // Another node waits for the one slot.
+    let other = spawn(request(2));
+    std::thread::sleep(Duration::from_millis(300));
+    // The first node's reply is too long: it retries.
+    agents.release();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while agents.inner.lock().unwrap().specs.len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "no second session");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let second = agents.inner.lock().unwrap().specs[1].name.clone();
+    agents.hold(false);
+    agents.release();
+    assert!(first.join().unwrap().is_ok());
+    assert!(other.join().unwrap().is_ok());
+    assert_eq!(
+        second, "optchat-compact-test-1+1",
+        "the retry waited for the slot"
+    );
+}
+
+/// Import at 06a7b250b1fc: every compactor prompt started a new Claude
+/// Code process (about 3.7 s, against about 2 s of model time), and the
+/// warm sessions never helped during an import: they were started only
+/// when no node waited for a slot. With spares, a node that frees its slot
+/// starts the next session in the background, and a waiting node takes a
+/// ready one, so its prompt does not wait for a process start.
+#[test]
+fn with_spares_ready_a_waiting_node_does_not_wait_for_a_process_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().slow_session =
+        Some(("optchat-compact-test".into(), Duration::from_millis(400)));
+    let compactor = Arc::new(
+        AcpmuxCompactor::new(agents.clone(), spec(dir.path()), Slots::new(1))
+            .with_warm(1)
+            .with_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap()),
+    );
+    let workers: Vec<_> = (1..=4u64)
+        .map(|i| {
+            let c = compactor.clone();
+            std::thread::spawn(move || run_node(&*c, &request(i)))
+        })
+        .collect();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+    let mut starts = Vec::new();
+    for entry in std::fs::read_dir(&traces).unwrap().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        starts.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .filter(|e| e["ev"] == "node")
+                .map(|e| e["timing"]["session_start_ms"].as_u64().unwrap()),
+        );
+    }
+    assert_eq!(starts.len(), 4, "{starts:?}");
+    assert!(
+        starts.iter().any(|ms| *ms < 150),
+        "every node waited for a process start: {starts:?}"
+    );
+}
+
+/// Idle warm sessions: a few stay after compactor work (the next turn's
+/// nodes start fast), but a Chief with no compactor work for
+/// `warm_idle` (10 minutes by default) ends them, as the acpmux prewarm
+/// pool times out. Time here is a test timer: no sleeps.
+#[test]
+fn warm_sessions_end_after_the_compactor_is_idle_for_a_while() {
+    use optchat_chief::compactor::IdleTimer;
+    type Pending = Vec<(Duration, Box<dyn FnOnce() + Send>)>;
+    #[derive(Default)]
+    struct TestTimer {
+        now: Mutex<Duration>,
+        pending: Mutex<Pending>,
+    }
+    impl IdleTimer for TestTimer {
+        fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
+            let at = *self.now.lock().unwrap() + d;
+            self.pending.lock().unwrap().push((at, f));
+        }
+        fn stop(&self) {
+            self.pending.lock().unwrap().clear();
+        }
+    }
+    impl TestTimer {
+        fn advance(&self, d: Duration) {
+            let now = {
+                let mut now = self.now.lock().unwrap();
+                *now += d;
+                *now
+            };
+            let due: Vec<_> = {
+                let mut pending = self.pending.lock().unwrap();
+                let (due, rest) = std::mem::take(&mut *pending)
+                    .into_iter()
+                    .partition(|(at, _)| *at <= now);
+                *pending = rest;
+                due
+            };
+            for (_, f) in due {
+                f();
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    let timer = Arc::new(TestTimer::default());
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()), Slots::new(2))
+        .with_warm(1)
+        .with_idle_timer(timer.clone(), Duration::from_secs(600))
+        .shared();
+    // Waits (real time, briefly) until the background warm-up started
+    // `n` sessions in all and put the last one in the pool.
+    let warmed = |n: usize| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while agents.inner.lock().unwrap().specs.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no warm session");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let ended = |id: &str| agents.inner.lock().unwrap().ended.iter().any(|e| e == id);
+    run_node(&*compactor, &request(1)).unwrap();
+    warmed(2);
+    // Work again before the idle time is up: the first node's timer finds
+    // newer work and ends nothing.
+    timer.advance(Duration::from_secs(300));
+    run_node(&*compactor, &request(2)).unwrap();
+    warmed(3);
+    timer.advance(Duration::from_secs(400));
+    assert!(!ended("s3"), "a warm session ended while work was recent");
+    // 10 minutes after the last work: the warm session ends.
+    timer.advance(Duration::from_secs(300));
+    assert!(ended("s3"), "{:?}", agents.inner.lock().unwrap().ended);
 }

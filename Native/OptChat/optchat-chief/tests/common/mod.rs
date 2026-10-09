@@ -950,6 +950,18 @@ impl Harness {
         log: optchat_chief::brain::Log,
     ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
+        Harness::over_chat(dir, script, owner, settings, log, chat)
+    }
+
+    /// `configured` over a chat the test opened (its own compactor model).
+    pub fn over_chat(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+        chat: Arc<OptChat>,
+    ) -> Harness {
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(

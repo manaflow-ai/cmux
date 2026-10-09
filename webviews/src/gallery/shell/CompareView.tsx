@@ -35,6 +35,7 @@ type Cell = { iframe: HTMLIFrameElement; ready: boolean };
 function createCompareRun() {
   const cells = new Map<string, Cell>();
   const waiters = new Set<(arm: string, event: CompareFrameEvent) => void>();
+  const cancellations = new Set<() => void>();
   const stats = new Map<string, StepStats>();
   let status = "idle";
   let version = 0;
@@ -59,22 +60,42 @@ function createCompareRun() {
     new Promise<void>((resolve, reject) => {
       const pending = new Set(arms.filter((arm) => !already(arm)));
       if (!pending.size) return resolve();
+      let settled = false;
+      let cancel = () => {};
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        waiters.delete(waiter);
+        cancellations.delete(cancel);
+      };
       const waiter = (arm: string, event: CompareFrameEvent) => {
         if (event.event === "error") {
-          waiters.delete(waiter);
+          cleanup();
           reject(new Error(`${arm}: ${event.message}`));
         } else if (match(event)) {
           pending.delete(arm);
           if (!pending.size) {
-            waiters.delete(waiter);
+            cleanup();
             resolve();
           }
         }
       };
+      cancel = () => {
+        cleanup();
+        reject(new Error("compare run stopped"));
+      };
+      cancellations.add(cancel);
       waiters.add(waiter);
     });
   const hold = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   let token = 0;
+  const invalidate = () => {
+    token += 1;
+    for (const cancel of cancellations) cancel();
+    status = "idle";
+    stats.clear();
+    changed();
+  };
   return {
     subscribe(listener: () => void) {
       if (!listeners.size) addEventListener("message", receive);
@@ -91,7 +112,11 @@ function createCompareRun() {
     frame(arm: string, iframe: HTMLIFrameElement) {
       cells.set(arm, { iframe, ready: false });
       return () => {
-        if (cells.get(arm)?.iframe === iframe) cells.delete(arm);
+        if (cells.get(arm)?.iframe !== iframe) return;
+        cells.delete(arm);
+        // A control change replaces the iframe. Cancel any replay waiting on the old source so
+        // its status and latency samples cannot leak into the new preview.
+        invalidate();
       };
     },
     /** Every cell's frame reloaded: they report ready again. */
@@ -100,9 +125,7 @@ function createCompareRun() {
       stats.clear();
     },
     stop() {
-      token += 1;
-      status = "idle";
-      changed();
+      invalidate();
     },
     /** Runs steps `from` to `to - 1` in every listed cell, in lockstep. Returns false when stopped. */
     async run(arms: string[], from: number, to: number, speed: () => number, onStep: (done: number) => void) {
@@ -132,6 +155,7 @@ function createCompareRun() {
         }
         return mine === token;
       } catch (error) {
+        if (mine !== token) return false;
         status = `error: ${error instanceof Error ? error.message : String(error)}`;
         changed();
         return false;
@@ -356,21 +380,24 @@ export function CompareView({
         className={`gallery-compare-grid${compare.grid === "row" ? " gallery-compare-grid--row" : ""}`}
         style={{ gridTemplateColumns: columns }}
       >
-        {shown.map((arm) => (
-          <CompareCell
-            key={`${arm}-${generation}`}
-            run={run}
-            arm={arm}
-            experiment={experiment}
-            src={`frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`}
-            frame={frame}
-            scale={scale}
-            picked={compare.pick === arm}
-            focused={focused === arm}
-            onPick={() => set({ pick: compare.pick === arm ? "" : arm })}
-            onFocus={() => set({ focus: focused === arm ? "" : arm })}
-          />
-        ))}
+        {shown.map((arm) => {
+          const src = `frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`;
+          return (
+            <CompareCell
+              key={`${arm}-${generation}-${src}`}
+              run={run}
+              arm={arm}
+              experiment={experiment}
+              src={src}
+              frame={frame}
+              scale={scale}
+              picked={compare.pick === arm}
+              focused={focused === arm}
+              onPick={() => set({ pick: compare.pick === arm ? "" : arm })}
+              onFocus={() => set({ focus: focused === arm ? "" : arm })}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -404,8 +431,10 @@ function CompareCell({
   const settle = stats ? interactionStats(stats.interactionMs) : undefined;
   const measured = experiment.measurements?.[arm];
   const isDefault = experiment.definition.defaultArm === arm;
-  // The iframe's src is fixed for the cell's life: the cell is keyed by the reload generation.
-  const [fixedSrc] = useState(src);
+  // Keep the current environment in the frame URL. Replay progress only changes `baseStep`,
+  // which stays stable until the cell generation changes, while locale/theme/variant controls
+  // must reload the existing cell immediately instead of leaving a stale preview on screen.
+  const frameSrc = src;
   // Stable, so a re-render never re-registers the frame (and never forgets that it is ready).
   const frameRef = useCallback(
     (iframe: HTMLIFrameElement | null) => (iframe ? run.frame(arm, iframe) : undefined),
@@ -424,7 +453,7 @@ function CompareCell({
           <button type="button" aria-pressed={focused} onClick={onFocus}>
             {focused ? "Back to grid" : "Enlarge"}
           </button>
-          <a href={fixedSrc} target="_blank" rel="noreferrer">
+          <a href={frameSrc} target="_blank" rel="noreferrer">
             open
           </a>
         </div>
@@ -456,7 +485,7 @@ function CompareCell({
         <iframe
           ref={frameRef}
           title={`${experiment.definition.id} arm ${arm}`}
-          src={fixedSrc}
+          src={frameSrc}
           style={{ width: frame.width, height: frame.height, transform: `scale(${scale})`, border: 0 }}
         />
       </div>

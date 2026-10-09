@@ -94,9 +94,11 @@ fn consecutive_turns_send_the_same_bytes_up_to_the_last_mark_and_mark_within_the
     for pair in inner.prompts.windows(2) {
         let (a, b) = (&pair[0], &pair[1]);
         let (ma, mb) = (markers(a), markers(b));
-        assert_eq!(ma.len(), 1, "one mark of ours per request");
-        assert_eq!(mb.len(), 1, "one mark of ours per request");
-        let (ma, mb) = (ma[0], mb[0]);
+        // The header's mark (the system prompt's entry) and the view's.
+        assert_eq!(ma.len(), 2, "two marks of ours per request");
+        assert_eq!(mb.len(), 2, "two marks of ours per request");
+        assert_eq!((ma[0], mb[0]), (0, 0));
+        let (ma, mb) = (ma[1], mb[1]);
         // Every byte up to and including the earlier mark is unchanged...
         assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
         // ...and the later mark finds it within the API's 20 blocks.
@@ -118,8 +120,11 @@ fn a_claude_turn_marks_one_hour_and_pins_claude_codes_marks_to_one_hour() {
         let inner = h.agents.inner.lock().unwrap();
         let blocks = &inner.prompts[0];
         let m = markers(blocks);
-        assert_eq!(m.len(), 1);
-        assert_eq!(blocks[m[0]]["cache_control"], ONE_HOUR());
+        // The header's mark and the view's, both 1 hour.
+        assert_eq!(m.len(), 2);
+        for k in m {
+            assert_eq!(blocks[k]["cache_control"], ONE_HOUR());
+        }
     }
     for file in ["settings.json", "settings.local.json"] {
         assert_eq!(
@@ -141,8 +146,11 @@ fn the_chiefs_cache_ttl_setting_picks_five_minutes() {
         let inner = h.agents.inner.lock().unwrap();
         let blocks = &inner.prompts[0];
         let m = markers(blocks);
-        assert_eq!(m.len(), 1);
-        assert_eq!(blocks[m[0]]["cache_control"], json!({"type": "ephemeral"}));
+        // The header's mark and the view's, both 5 minutes.
+        assert_eq!(m.len(), 2);
+        for k in m {
+            assert_eq!(blocks[k]["cache_control"], json!({"type": "ephemeral"}));
+        }
     }
     assert_eq!(
         session_settings(&h, "settings.json")["promptCacheTtl"],
@@ -459,8 +467,8 @@ fn a_refused_marker_comes_back_after_ten_turns() {
     }
     assert_eq!(
         markers(&inner.prompts[12]).len(),
-        1,
-        "turn 11 tries the mark again"
+        2,
+        "turn 11 tries the marks again"
     );
 }
 
@@ -525,8 +533,9 @@ fn claude_code_marks(settings: &Value, later: bool) -> usize {
 fn every_turn_request_shape_stays_within_four_cache_marks() {
     use optchat_chief::prompt::CacheTtl;
     // A view with no whole block marks its header block: every turn
-    // carries our mark.
-    for (lines, marked) in [(0, true), (1_200, true)] {
+    // carries our mark; a longer view marks its header and its last whole
+    // block.
+    for (lines, marked) in [(0, 1), (1_200, 2)] {
         let mut h = claude_harness(None);
         fill(&h.chat, 0, lines);
         h.connect();
@@ -536,7 +545,7 @@ fn every_turn_request_shape_stays_within_four_cache_marks() {
             let inner = h.agents.inner.lock().unwrap();
             markers(&inner.prompts[0]).len()
         };
-        assert_eq!(ours, usize::from(marked), "view of {lines} lines");
+        assert_eq!(ours, marked, "view of {lines} lines");
         let settings = session_settings(&h, "settings.json");
         for later in [false, true] {
             let total = ours + claude_code_marks(&settings, later);
