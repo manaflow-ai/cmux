@@ -59,7 +59,7 @@ enum AgentCommand {
 fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [family] if family == "snapshot" => Ok(AgentCommand::Snapshot),
+        [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
         ["workspace", "select", target] => Ok(resource(
             "workspace.select",
             vec!["workspace".into(), (*target).into(), "focus".into()],
