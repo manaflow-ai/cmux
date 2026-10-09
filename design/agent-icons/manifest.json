@@ -963,7 +963,7 @@
       "brand": "copilot",
       "aliases": [
         "github-copilot",
-        "copilot-cli"
+        "copilot-cli", "github-copilot-cli"
       ]
     },
     {

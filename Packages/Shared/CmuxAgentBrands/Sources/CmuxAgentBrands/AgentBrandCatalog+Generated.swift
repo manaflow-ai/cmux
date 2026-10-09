@@ -415,6 +415,7 @@ extension AgentBrandCatalog {
         "gemini": .gemini,
         "gemini-cli": .gemini,
         "github-copilot": .copilot,
+        "github-copilot-cli": .copilot,
         "goose": .goose,
         "grok": .grok,
         "grok-cli": .grok,
