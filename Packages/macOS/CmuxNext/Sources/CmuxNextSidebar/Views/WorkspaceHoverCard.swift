@@ -100,7 +100,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
 /// card; the app's one `HoverCardPanel` hosts it.
 final class WorkspaceHoverCardView: NSView {
     private static var padding: CGFloat { Metrics.space4 }
+    /// The card sizes to its content between these widths (POLISH: no
+    /// blank band beside a short name); a long name wraps at the widest.
     static var cardWidth: CGFloat { 280 }
+    static var minCardWidth: CGFloat { 180 }
     private static var iconSize: CGFloat { 13 }
 
     private let titleLabel = NSTextField(labelWithString: "")
@@ -144,14 +147,13 @@ final class WorkspaceHoverCardView: NSView {
         content.addSubview(stack)
         let p = Self.padding
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: Self.cardWidth),
+            content.widthAnchor.constraint(lessThanOrEqualToConstant: Self.cardWidth),
+            content.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.minCardWidth),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            factsStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            resourceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
         ])
