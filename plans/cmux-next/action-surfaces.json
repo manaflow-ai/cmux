@@ -16471,6 +16471,38 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-switch-model",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "m",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.switchModel",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Switch Model…",
+      "title_key" : "action.agentPane.switchModel",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action agent-pane-create-checkpoint",
       "context_menu" : "guiOnly",
       "context_menus" : [

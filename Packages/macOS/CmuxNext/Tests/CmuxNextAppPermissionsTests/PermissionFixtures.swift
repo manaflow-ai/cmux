@@ -3,7 +3,7 @@ import CmuxNextApps
 import Foundation
 
 /// SplitMix64: a seeded generator so every property run is reproducible.
-struct SeededRandom: RandomNumberGenerator {
+nonisolated struct SeededRandom: RandomNumberGenerator {
     var state: UInt64
     init(seed: UInt64) { state = seed &+ 0x9E37_79B9_7F4A_7C15 }
     mutating func next() -> UInt64 {
@@ -15,7 +15,7 @@ struct SeededRandom: RandomNumberGenerator {
     }
 }
 
-enum Fixtures {
+nonisolated enum Fixtures {
     /// The bundled public table plus the proposed operations (fs, usage, CodeRouter).
     static let table = AppScopeTable.bundled.addingProposedOperations()
 
