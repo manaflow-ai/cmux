@@ -26,6 +26,9 @@ public final class WindowMaterialView: NSView {
     private let tintView = NSView()
     private let inactiveTintView = NSView()
     private var keyObservers: [NSObjectProtocol] = []
+    /// The window gave up the keyboard. Only then does glass go grey; a window
+    /// that was never key (opening, tests, snapshots) shows the glass alone.
+    private var resignedKey = false
     private let artView = NSView()
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
@@ -110,20 +113,24 @@ public final class WindowMaterialView: NSView {
         super.viewDidMoveToWindow()
         for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
         keyObservers = []
-        guard let window else { return }
+        resignedKey = false
+        guard let window else { return updateInactiveTint() }
         keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                let isKey = note.name == NSWindow.didBecomeKeyNotification
+                let resigned = note.name == NSWindow.didResignKeyNotification
                 // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.updateInactiveTint(isKeyWindow: isKey) }
+                MainActor.assumeIsolated {
+                    self?.resignedKey = resigned
+                    self?.updateInactiveTint()
+                }
             }
         }
-        updateInactiveTint(isKeyWindow: window.isKeyWindow)
+        updateInactiveTint()
     }
 
-    private func updateInactiveTint(isKeyWindow: Bool) {
+    private func updateInactiveTint() {
         let glass = materialView as? NSGlassEffectView
-        let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: isKeyWindow, tint: $0) } ?? 0
+        let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
         inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
         inactiveTintView.alphaValue = alpha
         inactiveTintView.isHidden = alpha == 0
@@ -180,7 +187,7 @@ public final class WindowMaterialView: NSView {
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
-        updateInactiveTint(isKeyWindow: window?.isKeyWindow ?? true)
+        updateInactiveTint()
     }
 
     private func showArt(_ source: NSImage?, id: String?, texture: BackdropTexture) {

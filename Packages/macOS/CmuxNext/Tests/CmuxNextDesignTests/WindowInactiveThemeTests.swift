@@ -42,6 +42,7 @@ import Testing
         let tint = lightTheme ? Self.light : Self.dark
         let (window, view) = Self.hosted(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: -1), tint: tint)
         defer { window.close() }
+        #expect(view.inactiveTintAlpha == 0, "a window that was never key shows the glass alone")
         Self.becomeKey(window)
         #expect(view.inactiveTintAlpha == 0, "a key window shows the glass as it is")
         Self.resignKey(window)
