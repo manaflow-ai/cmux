@@ -164,14 +164,12 @@
   },
   "unowned": {
    "CMUXMobileCore": 3,
-   "CmuxNextApp": 70,
-   "CmuxNextBrowser": 16,
-   "CmuxNextOnboarding": 1,
-   "CmuxNextPalette": 4,
+   "CmuxNextApp": 63,
+   "CmuxNextBrowser": 6,
+   "CmuxNextPalette": 1,
    "CmuxNextSidebar": 2,
    "CmuxNextTerminal": 1,
-   "CmuxNextWakeups": 1,
-   "MessagesLabHome": 12
+   "MessagesLabHome": 3
   }
  }
 }
