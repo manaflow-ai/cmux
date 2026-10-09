@@ -352,3 +352,25 @@ describe("design E (third review)", () => {
     expect((await lintTree(vm, { ...optionsFor(root), base: "0123456789abcdef0123456789abcdef01234567" })).errors.join()).toContain("does not resolve")
   })
 })
+
+describe("rails-hardening-1: the grandfathered set is fixed in the linter (P2-3)", () => {
+  it("a lock that moves grandfatheredThrough does not exempt a new file", async () => {
+    const root = tempRoot()
+    const { addMigration, addRequirement } = await import("./helpers.ts")
+    addMigration(root, "cmux-vm", "0010_drop.sql", "DROP TABLE cmux_vm.audit_log;\n")
+    addRequirement(root, '{ table: "cmux_vm.resources", migration: "0010" }')
+    const lock = readJson<Lock>(join(root, LOCK_PATH))
+    ;(lock.trees["cmux-vm"] as { grandfatheredThrough: string }).grandfatheredThrough = "0010"
+    expect((await lintTree(vm, { ...optionsFor(root), lock })).errors.join()).toContain("DROP TABLE")
+  })
+  it("a grandfathered name whose content changed is not grandfathered", async () => {
+    const root = tempRoot()
+    const file = join(root, "workers/cmux-vm/migrations/0004_cmux_vm_mesh.sql")
+    const { writeFileSync: write, readFileSync: read } = await import("node:fs")
+    write(file, read(file, "utf8") + "\nDROP TABLE cmux_vm.audit_log;\n")
+    const lock = readJson<Lock>(join(root, LOCK_PATH))
+    lock.trees["cmux-vm"].files["0004_cmux_vm_mesh.sql"] = (await import("../lint.ts")).sha256(read(file, "utf8"))
+    const errors = (await lintTree(vm, { ...optionsFor(root), lock })).errors.join("\n")
+    expect(errors).toContain("0004_cmux_vm_mesh.sql")
+  })
+})
