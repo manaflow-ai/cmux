@@ -9,8 +9,16 @@ export interface GridSection<T> {
   readonly items: readonly T[];
 }
 
+/** A section header row: its title and how many items the section has (shown beside it). */
+
 export type GridRow<T> =
-  | { readonly kind: "header"; readonly key: string; readonly title: string; readonly top: number }
+  | {
+      readonly kind: "header";
+      readonly key: string;
+      readonly title: string;
+      readonly count: number;
+      readonly top: number;
+    }
   | {
       readonly kind: "items";
       readonly key: string;
@@ -62,7 +70,7 @@ export function layoutGrid<T>(
     if (section.items.length === 0) continue;
     if (section.title) {
       anchors.push({ id: section.id, title: section.title, top, first: items.length });
-      rows.push({ kind: "header", key: `h:${section.id}`, title: section.title, top });
+      rows.push({ kind: "header", key: `h:${section.id}`, title: section.title, count: section.items.length, top });
       top += metrics.header;
     }
     for (let start = 0; start < section.items.length; start += cols) {

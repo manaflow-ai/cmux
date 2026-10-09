@@ -42,7 +42,7 @@
   "find/useFindKeyboard.ts": 1,
   "gallery/frame/liveErrors.ts": 1,
   "icon-picker/AssetTab.tsx": 1,
-  "icon-picker/IconPicker.tsx": 5,
+  "icon-picker/IconPicker.tsx": 1,
   "icon-picker/VirtualGrid.tsx": 1,
   "optchat-inspector/App.tsx": 2,
   "optchat-inspector/Term.tsx": 1,
