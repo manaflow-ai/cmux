@@ -3,7 +3,7 @@
   "env": "dev",
   "snapshot": "cmuxnp-dev-vmimg-hostrun5",
   "snapshot_id": "sh-05e11db6222747e9b75b3be37bf8de0c",
-  "freestyle_account": "cmux-next dev: the one dev key, FREESTYLE_API_KEY in ~/.secrets/cmux.env (scripts/lib/freestyle-dev-key.mjs); same account as the retired freestyle-cmux-next-dev-20261004 key (2026-10-09: both keys read this channel's snapshot_id and the same snapshot list)",
+  "freestyle_account": "cmux-next dev (freestyle-cmux-next-dev-20261004)",
   "source_sha": "9a69d6576a7a",
   "bake": "images/cmux-vm/bake.ts --agent-tools (local run, cmux-next dev key; bead cx-3bi.29): one boot unit cmux-host.service = cmux host run (bind agent, session host supervisor, Cloud agent role); /etc/cmux/host.json freestyle-edge carrier, no secret; CMUX_TUI_HOST_SCOPES=systemd; no Bun vm-agent, no cmux-devbox-boot",
   "cmux_tui": "8c3b646e7e4b0cd49ef0e636b69e3624cfb0bdaf (artifacts run 37857104843; contains 44bc73c2c592 the report window counts from the answer, eb9cd709a8a8, 3c15962b154c, 65477c3b1ce4, dba6445a8753 team VM account reconciler)",
