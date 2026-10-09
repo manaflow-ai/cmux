@@ -55,7 +55,13 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 #[test]
 fn args_select_pipe_text_timeout_and_history() {
-    assert_eq!(parse_args(&[]).unwrap(), Args { history: 20, ..Args::default() });
+    // Pipe mode never waits forever: 30 minutes unless --timeout says
+    // otherwise (0 waits without a limit).
+    assert_eq!(
+        parse_args(&[]).unwrap(),
+        Args { history: 20, timeout_secs: Some(1800), ..Args::default() }
+    );
+    assert_eq!(parse_args(&strings(&["--timeout", "0"])).unwrap().timeout_secs, None);
     let parsed = parse_args(&strings(&["-p", "hello", "--timeout=30", "--history", "5"])).unwrap();
     assert_eq!(parsed.prompt.as_deref(), Some("hello"));
     assert_eq!(parsed.timeout_secs, Some(30));
@@ -272,4 +278,33 @@ fn engine_and_stop_are_one_call_each() {
     assert!(parse_args(&strings(&["--model", "m"])).is_err(), "--model goes with engine");
     let report = json!({"engine": {"harness": "claude", "model": "", "effort": "high"}});
     assert_eq!(engine_line(&report), "claude · default · high");
+}
+
+#[test]
+fn a_dropped_typing_off_is_recovered_from_the_snapshot_after_a_gap() {
+    let mut watch = TurnWatch::new(10);
+    watch.on(&cursor(10));
+    watch.on(&typing(true));
+    watch.on(&UiEvent::Message(message(11, "agent_mux", "answer", "turn:optchat:10")));
+    // The stream ended with a gap; the typing-off was lost. The reopened
+    // stream's snapshot shows the Chief read the message and types no more.
+    let summary = json!({"id": CONV, "participants": [], "read_cursors": {"agent_mux": 11}});
+    let messages =
+        vec![message(10, "user_local", "q", "k"), message(11, "agent_mux", "answer", "t")];
+    watch.on(&UiEvent::Snapshot {
+        summary: summary.clone(),
+        messages: messages.clone(),
+        typing: vec![],
+    });
+    assert!(watch.done, "the turn ended while the stream was down");
+    assert_eq!(watch.replies.len(), 1, "a reply is printed once");
+
+    // Still typing in the snapshot: wait for the live typing-off.
+    let mut busy = TurnWatch::new(10);
+    busy.on(&cursor(10));
+    busy.on(&UiEvent::Snapshot { summary, messages, typing: vec!["agent_mux".into()] });
+    assert!(!busy.done);
+    assert_eq!(busy.replies.len(), 1, "a reply posted during the gap is kept");
+    busy.on(&typing(false));
+    assert!(busy.done);
 }

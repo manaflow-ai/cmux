@@ -425,3 +425,47 @@ fn another_agent_cannot_use_up_a_turns_draft_seqs() {
     assert_eq!(ok(&draft(&two, "a"))["value"]["published"], true);
     assert_eq!(ok(&draft(&chief, "b"))["value"]["published"], true, "the Chief's seq 1 is its own");
 }
+
+#[test]
+fn snapshots_say_who_is_typing() {
+    let (mux, user, mine, _) = setup("conv-v2-typing-state");
+    let chief = bound(&mux, &user, "agent_mux");
+    ok(&v2(
+        &mux,
+        &chief,
+        "conversation.typing",
+        json!({"conversation":mine,"on":true}),
+        Some("t1"),
+    ));
+    let page = ok(&v2(&mux, &user, "conversation.get", json!({"conversation":mine}), None));
+    assert_eq!(page["typing"], json!(["agent_mux"]), "{page}");
+    let watcher = conn(&mux);
+    ok(&v2(
+        &mux,
+        &watcher,
+        "conversation.events",
+        json!({"conversation":mine,"stream_id":"stream_77777777777777777777777777777777","tail":0}),
+        None,
+    ));
+    assert_eq!(stream_line(&watcher)["item"]["typing"], json!(["agent_mux"]));
+    ok(&v2(
+        &mux,
+        &chief,
+        "conversation.typing",
+        json!({"conversation":mine,"on":false}),
+        Some("t2"),
+    ));
+    let page = ok(&v2(&mux, &user, "conversation.get", json!({"conversation":mine}), None));
+    assert_eq!(page["typing"], json!([]));
+    // A bound connection that ends stops typing for its participant.
+    ok(&v2(
+        &mux,
+        &chief,
+        "conversation.typing",
+        json!({"conversation":mine,"on":true}),
+        Some("t3"),
+    ));
+    disconnect_client(&mux, chief.id, false);
+    let page = ok(&v2(&mux, &user, "conversation.get", json!({"conversation":mine}), None));
+    assert_eq!(page["typing"], json!([]));
+}
