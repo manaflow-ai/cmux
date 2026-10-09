@@ -51,6 +51,7 @@ fn hosted_terminal(mux: &Arc<Mux>, workspace_key: &str, index: u32) -> Arc<Surfa
 fn binding_a_created_terminal_scans_no_catalog() {
     let mux = Mux::new_for_test("catalog-index", SurfaceOptions::default());
     let workspace = mux.create_empty_workspace(None, Some(WORKSPACE.into()), None).unwrap();
+    // The counter is per thread: every bind below runs on this test thread.
     let scans = catalog_scans_for_test();
     for index in 1..=6 {
         let surface = hosted_terminal(&mux, &workspace.key, index);
@@ -77,4 +78,23 @@ fn a_closed_terminal_leaves_no_host_index_entry() {
         assert!(mux.catalog_terminal_by_host(state, &host).unwrap().is_none());
         assert!(state.terminal_catalog_by_host.is_empty(), "the host index kept a closed terminal");
     });
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_runtime_with_the_same_host_id_is_a_duplicate() {
+    let mux = Mux::new_for_test("catalog-index-duplicate", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, Some(WORKSPACE.into()), None).unwrap();
+    let first = hosted_terminal(&mux, &workspace.key, 1);
+    let identity = first.terminal_host_identity().unwrap();
+    let second = Surface::exited_terminal_placeholder(
+        mux.next_id(),
+        mux.surface_options.lock().unwrap().clone(),
+        Arc::downgrade(&mux),
+        identity,
+    )
+    .unwrap();
+    assert_ne!(second.terminal_public_id(), first.terminal_public_id());
+    let error = insert_surface_checked(&mut mux.state.lock().unwrap(), second).unwrap_err();
+    assert!(error.to_string().contains("duplicate_terminal_id"), "{error:#}");
 }
