@@ -9,7 +9,14 @@
 //! lived forever; a release build put the snapshot boundary ahead of the
 //! parsed bytes.
 
-use super::*;
+use std::sync::mpsc::sync_channel;
+
+use anyhow::Context;
+
+use super::super::*;
+use super::codec::*;
+use super::host_shared::HostShared;
+use super::host_state::*;
 
 impl HostShared {
     /// Waits until the parser has applied every command queued before this
@@ -23,7 +30,7 @@ impl HostShared {
         }
     }
 
-    pub(super) fn set_cell_pixel_size(
+    pub(crate) fn set_cell_pixel_size(
         &self,
         width_px: u16,
         height_px: u16,
@@ -137,7 +144,7 @@ impl HostShared {
         Ok(acknowledgement_queued)
     }
 
-    pub(super) fn set_kitty_graphics_limits(
+    pub(crate) fn set_kitty_graphics_limits(
         &self,
         limits: KittyGraphicsLimits,
         request_id: u64,
