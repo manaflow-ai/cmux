@@ -192,7 +192,15 @@ pub fn subagent_system_text(user: Option<&str>, tools: &Tools) -> String {
 /// Claude Code's own breakpoint at the message's end serves the subagent's
 /// later requests.
 pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
-    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+    let task = format!("Your task:\n\n{task}");
+    // An empty chat has no view to give: only the task.
+    let lines = view
+        .lines()
+        .filter(|l| !matches!(l.trim(), "" | "<chat>" | "</chat>"));
+    if lines.count() == 0 {
+        return vec![json!({"type": "text", "text": task})];
+    }
+    turn_blocks(view, &[task])
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
