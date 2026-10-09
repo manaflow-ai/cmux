@@ -83,6 +83,31 @@ struct BrowserReplFrameGatePolicyChangeTests {
         #expect(try await page.run("return typeof window.__cmuxDispatched", in: frame) as? String == "undefined", "the script ran after the policy blocked its frame")
     }
 
+    /// A screenshot or PDF taken while the session sets its policy again
+    /// (published at once to the board, put on the gate after its rules
+    /// compile) is not handed on: its frames were judged under the old one.
+    @Test func aCaptureTakenWhileThePolicyChangedIsNotHandedOn() async throws {
+        let gate = BrowserReplFrameGateTests.gate()
+        let board = WorkspaceBox(UUID())
+        var published = 1
+        let onGate = await BrowserReplFrameGateTests.error {
+            try await gate.capturing(policyGeneration: { published }) {
+                gate.policy = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://allowed.test").policy
+                return 1
+            }
+        }
+        #expect(onGate?.code == "stale", "a capture taken across a policy change on the gate was handed on: \(String(describing: onGate))")
+        let onBoard = await BrowserReplFrameGateTests.error {
+            try await gate.capturing(policyGeneration: { published }) {
+                published += 1
+                return 1
+            }
+        }
+        #expect(onBoard?.code == "stale", "a capture taken across a published policy was handed on: \(String(describing: onBoard))")
+        let unchanged = try await gate.capturing(policyGeneration: { published }) { board.id.uuidString }
+        #expect(unchanged == board.id.uuidString)
+    }
+
     @Test func anInputInFlightWhenThePolicyNarrowsSendsNoFurtherStep() async throws {
         let page = try await FramePage.load()
         let gate = BrowserReplFrameGateTests.gate(prohibiting: "cmux-test://other.test")
