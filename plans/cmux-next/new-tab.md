@@ -199,6 +199,13 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   any other text is a prompt for the chosen agent; a web search is only the explicit row under the
   field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
   argument are removed; only the last agent is remembered.
+- cx-e2aa (Lawrence, 2026-10-09): the project picker and the agent's model/effort/speed chip sit on
+  top of the page (the composer's `ProjectChooser` and chips, one implementation with the Start
+  Agent launcher); Enter on a prompt asks the agent on the chip in the picked project. The rows
+  under the field are only for addresses, open tabs and visited pages, and show only for an
+  address or a match (then a web search row last); a prompt shows none, and no row is selected
+  until Down or Ctrl-N (Ctrl-P, Up). A key typed anywhere on the page goes into the field.
+  Durable project storage: projects.md. Still open: the native omnibar on the page (Cmd-L).
 
 ### Status (2026-10-04)
 

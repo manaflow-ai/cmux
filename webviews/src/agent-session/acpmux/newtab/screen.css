@@ -63,3 +63,14 @@
   font-size: 15px;
   caret-color: var(--agent-ansi-5, #d670d6);
 }
+/* The pickers on top (cx-e2aa): the project, then the agent's model, effort and speed chip, in one
+   quiet row over the field. The chips keep the composer's own look. */
+.nt-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+}

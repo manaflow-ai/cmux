@@ -9512,127 +9512,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ابحث أو اكتب URL"
+            "value": "اسأل أي شيء أو اكتب URL"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pretraži ili upiši URL"
+            "value": "Pitaj bilo šta ili upiši URL"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søg eller skriv en URL"
+            "value": "Spørg om hvad som helst, eller skriv en URL"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Suchen oder URL eingeben"
+            "value": "Frag etwas oder gib eine URL ein"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search or type a URL"
+            "value": "Ask anything or type a URL"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Busca o escribe una URL"
+            "value": "Pregunta lo que quieras o escribe una URL"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rechercher ou saisir une URL"
+            "value": "Posez une question ou saisissez une URL"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerca o digita un URL"
+            "value": "Chiedi qualsiasi cosa o digita un URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索またはURLを入力"
+            "value": "何でも質問するか、URLを入力"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្វែងរក ឬវាយ URL"
+            "value": "សួរអ្វីក៏បាន ឬវាយ URL"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "검색하거나 URL 입력"
+            "value": "무엇이든 묻거나 URL 입력"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søk eller skriv en URL"
+            "value": "Spør om hva som helst, eller skriv en URL"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szukaj lub wpisz URL"
+            "value": "Zapytaj o cokolwiek lub wpisz URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pesquise ou digite uma URL"
+            "value": "Pergunte qualquer coisa ou digite uma URL"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введите запрос или URL"
+            "value": "Спросите что угодно или введите URL"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาหรือพิมพ์ URL"
+            "value": "ถามอะไรก็ได้หรือพิมพ์ URL"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ara veya URL yaz"
+            "value": "Bir şey sor veya URL yaz"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пошук або введіть URL"
+            "value": "Запитайте будь-що або введіть URL"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tìm kiếm hoặc nhập URL"
+            "value": "Hỏi bất cứ điều gì hoặc nhập URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索或输入 URL"
+            "value": "问任何问题或输入 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋或輸入 URL"
+            "value": "問任何問題或輸入 URL"
           }
         }
       }
