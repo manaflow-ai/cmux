@@ -75,6 +75,14 @@ interface StoredKey extends ApiKeyRecord {
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
   const keys: StoredKey[] = [];
+  /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
+  const serviceKeys: Array<{
+    readonly id: string;
+    readonly sha256: string;
+    readonly scopes: ReadonlyArray<Scope>;
+    readonly labels: Readonly<Record<string, string>>;
+    readonly teams: ReadonlyArray<string> | null;
+  }> = [];
   const members = new Map<string, Set<string>>();
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
@@ -282,7 +290,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */
     mesh,
     /** Records a VM owned by `tenant` and backed by a fake upstream VM. Returns its public id. */
-    addVm(tenant: string, state = "running"): { readonly vmId: VmId; readonly upstreamId: string } {
+    addVm(
+      tenant: string,
+      state = "running",
+      labels: Readonly<Record<string, string>> = {},
+    ): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
       const upstreamId = upstream.addVm(state).id;
       resources.push({
@@ -293,7 +305,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
         createdBy: "user:test",
         createdAt: nextCreatedAt(new Date()),
         displayName: null,
-        labels: {},
+        labels,
       });
       return { vmId, upstreamId };
     },
@@ -316,6 +328,29 @@ export async function makeHarness(options: HarnessOptions = {}) {
     /** Removes the upstream VM while keeping its ownership row. */
     dropUpstreamVm(upstreamId: string) {
       upstream.vms.delete(upstreamId);
+    },
+    /**
+     * Configures a service key (cx-b4h.13), as the CMUX_VM_SERVICE_KEYS Worker
+     * secret does: no tenant of its own, the given scopes, only resources that
+     * carry `labels`, and optionally only some teams. Returns the secret.
+     */
+    async addServiceKey(
+      options: {
+        readonly id?: string;
+        readonly scopes?: ReadonlyArray<Scope>;
+        readonly labels?: Readonly<Record<string, string>>;
+        readonly teams?: ReadonlyArray<string>;
+      } = {},
+    ): Promise<string> {
+      const secret = generateApiKey();
+      serviceKeys.push({
+        id: options.id ?? "cloud-chief",
+        sha256: await Effect.runPromise(hashApiKey(secret)),
+        scopes: options.scopes ?? ["vm:read", "vm:write", "vm:exec"],
+        labels: options.labels ?? { role: "chief" },
+        teams: options.teams ?? null,
+      });
+      return secret;
     },
     /** Issues an API key for `tenant` with `scopes`. Returns the secret, as a client would hold it. */
     async addKey(
