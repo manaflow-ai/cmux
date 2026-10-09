@@ -27,8 +27,10 @@ The dots render under every template (a radio group, one button per template, cu
 
 ## Terminal routing
 
-`newTab.sameKind` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
+`newTab.sameKind` (Cmd-T, the strip's +) resolves `tabs.newTabKind` to a kind. When that kind is the page and the template is `terminal`, `NewTabKind.resolve` returns a terminal instead, so every entrypoint that uses the shared action gets a terminal. A person's new workspace (Cmd-N, sidebar +) also starts on a terminal instead of the page (`WindowManager.createWorkspace`). The explicit `newTab.page` action and Focus Location Bar still open the page, which is the way back to the dots (plus Settings and cmux.json). The spare page pool does not prewarm while the template is `terminal`.
 
 ## Not in the prototype
 
 Per-template defaults for which agent or project is selected, user-defined templates, and preview thumbnails on the dots.
+
+Known limits: a dot shows its template on the current page even when the write fails (for example a managed key); later pages follow the saved setting. A Cmd-T pressed before cmux.json reloads shows the previous template.
