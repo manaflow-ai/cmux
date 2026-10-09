@@ -1793,7 +1793,7 @@ fn a_node_returns_before_its_slots_warm_session_starts() {
 /// with Claude Code's own marks off (DISABLE_PROMPT_CACHING), so its "Too
 /// long" retries in the same session read nothing from the cache (node
 /// 32+8: 5 prompts, 13,808 uncached input tokens, $0.17). Each retry now
-/// ends with our own mark at the node's TTL, so it reads the previous
+/// ends with our own 5-minute mark, so it reads the previous
 /// request from the cache; the session never holds more than the API's 4
 /// marks (the view mark and at most 3 retry marks; a 4th retry reads the
 /// 3rd's entry unmarked).
@@ -1834,14 +1834,13 @@ fn size_retries_of_a_marked_node_end_with_our_mark_and_stay_within_4() {
                 p.last().unwrap().get("cache_control").is_some(),
                 "on its last block"
             );
-            let ttl = &p.last().unwrap()["cache_control"];
+            // 5 minutes whatever the node's TTL: a retry chain lasts seconds,
+            // a 5m write costs 1.25x the input price against 2x for 1h, and
+            // the API takes a 5m mark after a 1h one (not the reverse).
             assert_eq!(
-                ttl,
-                &prompts[0]
-                    .iter()
-                    .find(|b| b.get("cache_control").is_some())
-                    .unwrap()["cache_control"],
-                "the node's TTL"
+                p.last().unwrap()["cache_control"],
+                json!({"type": "ephemeral"}),
+                "a 5m retry mark"
             );
         }
         total += m;
