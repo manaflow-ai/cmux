@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useLoad } from "../lib/hooks"
-import { read } from "../lib/server"
-import { setSignedIn, useSignedIn } from "../lib/session"
+import { mutate, read } from "../lib/server"
+import { newKey, setSignedIn, useSignedIn } from "../lib/session"
+import { roleOf } from "../lib/team-vm"
+import { TeamVmSection } from "./-team-vm"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -13,11 +15,16 @@ interface Directory {
 
 function Team() {
   const signedIn = useSignedIn()
-  const dir = useLoad<{ value: Directory; revision: string }>(signedIn ? "team" : null, async () => {
+  const dir = useLoad<{ value: Directory; revision: string; me: string }>(signedIn ? "team" : null, async () => {
+    // user.ensure is idempotent and names the caller, whose role decides the team VM actions.
+    const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
+    if (e.status === 401) setSignedIn(false)
+    if (e.status !== 200) throw new Error(`user.ensure failed: ${e.status}`)
+    const me = String((e.body.value as { id?: unknown } | undefined)?.id ?? "")
     const r = await read({ data: { op: "team.directory", params: {} } })
     if (r.status === 401) setSignedIn(false)
     if (r.status !== 200) throw new Error(`team.directory failed: ${r.status} (open Devices once to create your personal team)`)
-    return { value: r.body.value as unknown as Directory, revision: r.body.revision }
+    return { value: r.body.value as unknown as Directory, revision: r.body.revision, me }
   })
   if (signedIn === false)
     return (
@@ -26,6 +33,7 @@ function Team() {
       </p>
     )
   const d = dir.data?.value
+  const role = roleOf(d?.members.find((m) => m.user === dir.data?.me)?.role)
   return (
     <>
       <h2>Team</h2>
@@ -35,6 +43,7 @@ function Team() {
           <code>{d.team}</code> · revision {dir.data?.revision}
         </p>
       ) : null}
+      {d ? <TeamVmSection team={d.team} role={role} /> : null}
       <h3>Members</h3>
       <div className="card">
         <table>
