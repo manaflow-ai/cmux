@@ -39,6 +39,8 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
     }
 
     public var onOpen: ((String) -> Void)?
+    /// Open in Terminal from a row's right-click menu (the only way a chat opens in a terminal).
+    public var onOpenInTerminal: ((String) -> Void)?
     /// The header's right-click menu (Hide Section); the App builds it from the registry.
     public var headerMenu: (() -> NSMenu?)?
     public private(set) var rows: [Row] = []
@@ -373,6 +375,7 @@ public final class SidebarChatsView: NSView, NSTableViewDataSource, NSTableViewD
             view.identifier = identifier
             view.configure(SidebarItemInfo(title: row.title, symbol: "bubble.left", icon: .agentChat, brand: row.brand), style: .builtIn)
             view.onPress = { [weak self] in self?.onOpen?(row.id) }
+            view.onContextMenu = { [weak self] event, view in self?.showRowMenu(row.id, event: event, in: view) }
             view.setAccessibilityLabel(row.title)
             return view
         }
