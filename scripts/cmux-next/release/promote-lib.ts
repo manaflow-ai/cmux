@@ -195,9 +195,18 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
       deps.error(`${snapshotId} is named ${pointer.snapshot}; the ${env} Worker boots only ${CHANNEL_PREFIX[channel]}* Cloud snapshots (bake it for ${channel} and record names.${channel})`)
       return 1
     }
+    if (!pointer.snapshot_id) {
+      deps.error(`${pointer.snapshot} has no snapshot id recorded for ${channel}; record names.${channel}.snapshot_id first`)
+      return 1
+    }
     if (channel === "production") {
+      for (const name of ["CMUX_OLD_STAGING_ORIGIN", "CMUX_RELEASE_LATEST_STABLE"])
+        if (deps.env[name]) {
+          deps.error(`${name} is set; production takes no compat overrides`)
+          return 1
+        }
       // cmux-old shares the Freestyle production account: the compat gate runs here, for the production copy's id.
-      const change = { kind: "image" as const, variable: v, snapshotId: pointer.snapshot_id! }
+      const change = { kind: "image" as const, variable: v, snapshotId: pointer.snapshot_id }
       const compat = await (deps.compat ?? (async (c) => (await import("./compat.ts")).compatNow(deps.root, c, deps.env)))(change)
       if (compat.length) {
         for (const c of compat) deps.error(c)
@@ -211,7 +220,7 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     if (!(await resolves(pointer))) return 1
     const tag = `promote${deps.now().toISOString().replace(/[-:T]/g, "").slice(0, 12)}`
     deps.log(`smoke ${pointer.snapshot_id} (${pointer.snapshot}) on fresh cmuxnp-dev clones (tag ${tag})`)
-    const outcome = await deps.smoke(pointer.snapshot_id!, tag)
+    const outcome = await deps.smoke(pointer.snapshot_id, tag)
     const foreign = outcome.created.filter((c) => !c.name.startsWith("cmuxnp-dev-"))
     if (foreign.length) deps.error(`smoke created clones outside the cmuxnp-dev- prefix: ${foreign.map((c) => `${c.id} ${c.name}`).join(", ")}`)
     if (outcome.live.length) deps.error(`smoke left clones running: ${outcome.live.map((c) => `${c.id} ${c.name}`).join(", ")}; delete them by exact id`)
@@ -221,7 +230,7 @@ export const promote = async (argv: ReadonlyArray<string>, deps: PromoteDeps): P
     const devPath = channelPath(deps.root, "dev")
     const dev = readJson(devPath)
     dev.history = (dev.history as Array<HistoryEntry>).map((h) =>
-      h.snapshot_id === entry.snapshot_id ? { ...h, promotion_smokes: [...(h.promotion_smokes ?? []), { channel, snapshot_id: pointer.snapshot_id!, result: ok ? "PASSED" : "FAILED", at: deps.now().toISOString(), clones: outcome.created.map((c) => c.id) }] } : h,
+      h.snapshot_id === entry.snapshot_id ? { ...h, promotion_smokes: [...(h.promotion_smokes ?? []), { channel, snapshot_id: pointer.snapshot_id as string, result: ok ? "PASSED" : "FAILED", at: deps.now().toISOString(), clones: outcome.created.map((c) => c.id) }] } : h,
     )
     writeJson(devPath, dev)
     if (!ok) return 1

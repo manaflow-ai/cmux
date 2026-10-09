@@ -29,10 +29,12 @@
  * receipts, and staging to have every pending file with the same checksum.
  * Idempotent: nothing pending is a no-op pass.
  */
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pscaleProvider, REHEARSAL_BRANCH, type BranchProvider } from "./branches.ts"
-import { broadPrivileges, productionCheckout, Refused, requireOwner } from "./guards.ts"
+import { broadPrivileges, hasDatabaseCreate, productionCheckout, Refused, requireOwner } from "./guards.ts"
 import { CONTRACT_PATH, lintTree, LOCK_PATH, readJson, readMigrations, rollbackSection, type Lock, type MigrationFile, type RoleContract } from "./lint.ts"
 import { actor, receiptsDir, readReceipts, runIdOf, strandedBranches, summaryLine, withLocalLock, writeReceipt, type Receipt } from "./receipts.ts"
 import { describePlan, rehearsalReceipt, rehearseOnCopy, type RehearsalContext } from "./rehearsal.ts"
@@ -135,8 +137,8 @@ const asAdopted = (plan: Plan, files: ReadonlyArray<MigrationFile>, through: str
 }
 
 /** rehearse and apply refuse a tree the linter refuses (rules, numbering, lock; production also against the landed ref). */
-const lintOrRefuse = async (deps: Deps, tree: Tree, base?: string) => {
-  const report = await lintTree(tree, { root: deps.root, lock: readJson<Lock>(join(deps.root, LOCK_PATH)), contract: readJson<RoleContract>(join(deps.root, CONTRACT_PATH)), ...(base ? { base } : {}) })
+const lintOrRefuse = async (deps: Deps, tree: Tree, base?: string, repo?: string) => {
+  const report = await lintTree(tree, { root: deps.root, ...(repo ? { repo } : {}), lock: readJson<Lock>(join(deps.root, LOCK_PATH)), contract: readJson<RoleContract>(join(deps.root, CONTRACT_PATH)), ...(base ? { base } : {}) })
   for (const n of report.notes) deps.log(`note: ${n}`)
   if (report.errors.length) throw new Refused(`migration lint refuses this tree:\n  ${report.errors.join("\n  ")}`)
 }
@@ -151,6 +153,17 @@ const rollbackOf = (tree: Tree, target: Target, pending: ReadonlyArray<Migration
   ]
   for (const f of [...pending].reverse()) steps.push(`${f.name}: ${rollbackSection(f.sql) ?? "no Rollback section; an expand migration stays in place after a code rollback"}`)
   return steps
+}
+
+/** The files a production step reads, exported from git at HEAD (checked by productionCheckout) into a fresh directory. */
+const gitRoot = (root: string, tree: Tree): string => {
+  const out = mkdtempSync(join(tmpdir(), "cmux-release-git-"))
+  const paths = [tree.dir, LOCK_PATH, CONTRACT_PATH, "workers/cmux-vm/src/db/schema-requirements.ts"].filter((p) => spawnSync("git", ["-C", root, "cat-file", "-e", `HEAD:${p}`]).status === 0)
+  const archive = spawnSync("git", ["-C", root, "archive", "--format=tar", "HEAD", "--", ...paths], { maxBuffer: 256 << 20 })
+  if (archive.status !== 0) throw new Refused(`git archive HEAD failed: ${archive.stderr.toString().slice(0, 200)}`)
+  const untar = spawnSync("tar", ["-x", "-C", out], { input: archive.stdout })
+  if (untar.status !== 0) throw new Refused("could not unpack the files from git")
+  return out
 }
 
 const values = (argv: ReadonlyArray<string>, flag: string) => argv.flatMap((a, i) => (a === flag && argv[i + 1] ? [argv[i + 1]!] : []))
@@ -204,7 +217,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
       if (command === "apply" && target === "production") throw new Refused("--root is refused for production: apply from a clean checkout landed on feat-cmux-next")
       deps = { ...deps, root: value("--root")! }
     }
-    const files = readMigrations(deps.root, tree)
+    let files = readMigrations(deps.root, tree)
     const urlVar = value("--url-env")
     const allowContract = values(rest, "--allow-contract")
     const ownerPgRole = deps.ownerPgRole === undefined ? (tree.ownerPgRole ?? null) : deps.ownerPgRole
@@ -281,8 +294,18 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
 
       case "apply":
         return await withLocalLock(dir, `apply-${tree.name}-${target}`, async () => {
-          const base = target === "production" ? productionCheckout(deps.root, tree, deps.landedRemote) : undefined
-          await lintOrRefuse(deps, tree, base)
+          const realRoot = deps.root
+          let base: string | undefined
+          if (target === "production") {
+            for (const v of ["CMUX_OLD_STAGING_ORIGIN", "CMUX_RELEASE_LATEST_STABLE"]) if (deps.env[v]) throw new Refused(`${v} is set; production takes no compat overrides`)
+            base = productionCheckout(deps.root, tree, deps.landedRemote)
+          }
+          if (target === "production") {
+            // From here on the files come from git at the verified HEAD, never from the working tree.
+            deps = { ...deps, root: gitRoot(realRoot, tree) }
+            files = readMigrations(deps.root, tree)
+          }
+          await lintOrRefuse(deps, tree, base, realRoot)
           if (!urlVar) throw new Refused("apply needs --url-env with the owner's credentials for the target")
           const db = await open(deps, tree, target, urlVar, "admin")
           try {
@@ -307,9 +330,19 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
                 return 0
               }
               const setHash = await setHashOf(tree, plan)
+              if (tree.name === "cmux-vm" && (await hasDatabaseCreate(db.sql))) {
+                // Only a bootstrap (a pending file that creates the schema) needs CREATE on the database.
+                const bootstrap = plan.pending.some((f) => /\bCREATE\s+SCHEMA\b/i.test(f.sql)) && (await db.sql.query<{ n: string | null }>("SELECT to_regnamespace($1)::text AS n", [tree.schema]))[0]?.n == null
+                const line = `the owner role has CREATE on the database${bootstrap ? " (bootstrap of the schema)" : ""}`
+                if (target === "production" && !bootstrap) throw new Refused(`${line}; revoke it after the bootstrap (it lets the owner create schemas beside ${tree.schema})`)
+                if (!bootstrap) {
+                  deps.log(`warning: ${line}`)
+                  warnings.push(line)
+                }
+              }
               if (target === "production") {
                 // cmux-old shares cmux-prod: the compat gate runs here, in this step (no receipt from elsewhere counts).
-                const compat = await (deps.compat ?? (async (change) => (await import("./compat.ts")).compatNow(deps.root, change, deps.env)))({ kind: "migrations", tree })
+                const compat = await (deps.compat ?? (async (change) => (await import("./compat.ts")).compatNow(realRoot, change, deps.env)))({ kind: "migrations", tree })
                 if (compat.length) throw new Refused(`cmux-old compat gate:\n  ${compat.join("\n  ")}`)
                 const staging = await open(deps, tree, "staging", value("--staging-url-env"), "read")
                 try {
@@ -333,7 +366,7 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
               const afterPlan = await planOf(db.sql, tree, files)
               emit({
                 action: "apply",
-                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""} after rehearsal on ${outcome.branch}`,
+                what: `apply ${result.applied.join(", ")} to ${tree.database}/${tree.branches[target]} from ${target === "production" ? `git ${base?.slice(0, 12)} (HEAD ${gitSha({ ...deps, root: realRoot })?.slice(0, 12)})` : `${deps.root}${sha ? ` (HEAD ${sha.slice(0, 12)})` : ""}`} after rehearsal on ${outcome.branch}`,
                 tree: tree.name,
                 target,
                 before: [...plan.applied.keys()].sort(),
@@ -360,6 +393,11 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
         const through = value("--through")
         if (!through || !/^\d{4}$/.test(through)) throw new Refused("adopt needs --through NNNN")
         if (tree.name !== "cmux-vm") throw new Refused("only cmux-vm has untracked databases")
+        if (target === "production") {
+          productionCheckout(deps.root, tree, deps.landedRemote)
+          deps = { ...deps, root: gitRoot(deps.root, tree) }
+          files = readMigrations(deps.root, tree)
+        }
         const db = await open(deps, tree, target, urlVar, "admin")
         try {
           await requireOwner(deps.provider, tree, target, db.sql, deps.log, ownerPgRole)

@@ -32,13 +32,13 @@
  * lock's `grandfatheredThrough` predate these rules and are hash-checked only.
  */
 import { createHash } from "node:crypto"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { REPO_ROOT, TREE_NAMES, TREES, treeOf, type Tree, type TreeName } from "./trees.ts"
-import { alwaysProblems, confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
-export { alwaysProblems, confinementProblems, expandProblems, parseSql, type ParsedStatement } from "./lint-rules.ts"
+import { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
+export { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
 
 export const LOCK_PATH = "scripts/cmux-next/release/migrations.lock.json"
 export const CONTRACT_PATH = "scripts/cmux-next/release/role-contract.json"
@@ -57,9 +57,33 @@ export interface TreeLock {
   readonly grandfatheredThrough: string
   readonly files: Record<string, string>
 }
+export interface ParserPin {
+  readonly version: string
+  /** sha256 of each runtime file of node_modules/libpg-query, by path inside the package. */
+  readonly sha256: Record<string, string>
+}
 export interface Lock {
   readonly schema: 1
+  /** The SQL parser the rules depend on; a different install refuses to lint. */
+  readonly parser?: ParserPin & { readonly package: string }
   readonly trees: Record<TreeName, TreeLock>
+}
+
+const PARSER_DIR = join(import.meta.dirname, "node_modules", "libpg-query")
+
+/** Problems with the installed libpg-query against `pin` (default: this checkout's lock). */
+export const parserProblems = (pin: ParserPin | undefined = (readJson<Lock>(join(import.meta.dirname, "migrations.lock.json")).parser)): Array<string> => {
+  if (!pin) return ["migrations.lock.json has no parser pin"]
+  const problems: Array<string> = []
+  const pkg = join(PARSER_DIR, "package.json")
+  const version = existsSync(pkg) ? (JSON.parse(readFileSync(pkg, "utf8")) as { version?: string }).version : undefined
+  if (version !== pin.version) problems.push(`libpg-query ${version ?? "missing"} is installed, the lock pins ${pin.version}`)
+  for (const [file, hash] of Object.entries(pin.sha256)) {
+    const path = join(PARSER_DIR, file)
+    const got = existsSync(path) ? sha256(readFileSync(path)) : "missing"
+    if (got !== hash) problems.push(`libpg-query ${file} sha256 ${got.slice(0, 12)} is not the pinned ${hash.slice(0, 12)}`)
+  }
+  return problems
 }
 
 export interface TreeRoleContract {
@@ -77,7 +101,7 @@ export interface RoleContract {
   readonly trees: Record<TreeName, TreeRoleContract>
 }
 
-export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
+export const sha256 = (text: string | Buffer) => createHash("sha256").update(text).digest("hex")
 
 export const readMigrations = (root: string, tree: Tree): Array<MigrationFile> => {
   const dir = join(root, tree.dir)
@@ -156,9 +180,10 @@ export const lintFile = async (tree: Tree, name: string, sql: string, contract: 
   if (tree.name === "cmux-vm") {
     for (const problem of confinementProblems(stmts, tree.schema)) errors.push(`${name}: ${problem}; cmux-vm migrations touch only schema ${tree.schema} (cmux-old shares this database), even with a contract header`)
   }
-  for (const problem of alwaysProblems(stmts, contract, tree.name)) errors.push(`${name}: ${problem}; never allowed in a migration, even with a contract header`)
+  const { never, liftable } = statementProblems(stmts, tree.name, tree.schema, contract)
+  for (const problem of never) errors.push(`${name}: ${problem}; never allowed in a migration, even with a contract header`)
   if (reason === undefined) {
-    for (const problem of expandProblems(stmts, tree.name)) errors.push(`${name}: ${problem}; this is a contract change: add "-- contract: <reason>" and ship it in a later release`)
+    for (const problem of liftable) errors.push(`${name}: ${problem}; this is a contract change: add "-- contract: <reason>" and ship it in a later release`)
   }
   return { name, errors, ...(reason !== undefined ? { contract: reason } : {}), concurrent }
 }
@@ -198,6 +223,8 @@ export const requiredMigrationAt = async (root: string): Promise<string | undefi
 
 export interface LintOptions {
   readonly root: string
+  /** The git checkout for --base comparisons when `root` holds files exported from git (production). Default: root. */
+  readonly repo?: string
   readonly lock: Lock
   readonly contract: RoleContract
   /** A git revision whose files and lock this tree must keep (for example the previous head of the pushed branch). */
@@ -234,19 +261,24 @@ export const lintTree = async (tree: Tree, options: LintOptions): Promise<TreeRe
   }
   for (const f of files) if (!(f.name in lock.files)) errors.push(`${tree.name}: ${f.name} is not in ${LOCK_PATH}; after it passes, run: bun scripts/cmux-next/release/lint.ts --update-lock`)
 
+  for (const p of parserProblems(options.lock.parser)) errors.push(`${tree.name}: ${p}; reinstall with bun install --frozen-lockfile`)
+
   // Against the base revision: its files and lock entries are unchanged, new files number above it.
-  if (options.base) {
-    const baseFiles = gitList(options.root, options.base, tree.dir)
+  const repo = options.repo ?? options.root
+  if (options.base && spawnSync("git", ["-C", repo, "cat-file", "-e", `${options.base}^{commit}`]).status !== 0) {
+    errors.push(`${tree.name}: --base ${options.base} does not resolve to a commit; refusing to lint without it`)
+  } else if (options.base) {
+    const baseFiles = gitList(repo, options.base, tree.dir)
     let baseMax = 0
     for (const name of baseFiles) {
       baseMax = Math.max(baseMax, Number(name.slice(0, 4)) || 0)
-      const baseSql = gitShow(options.root, options.base, `${tree.dir}/${name}`)
+      const baseSql = gitShow(repo, options.base, `${tree.dir}/${name}`)
       const f = present.get(name)
       if (!f) errors.push(`${tree.name}: ${name} exists at ${options.base.slice(0, 12)} and is gone; a landed migration is never removed or renamed`)
       else if (baseSql !== undefined && sha256(baseSql) !== f.checksum) errors.push(`${tree.name}: ${name} differs from ${options.base.slice(0, 12)}; a landed migration never changes`)
     }
     for (const f of files) if (!baseFiles.includes(f.name) && f.number <= baseMax) errors.push(`${tree.name}: new ${f.name} must be numbered above ${String(baseMax).padStart(4, "0")} (the base's highest)`)
-    const baseLockText = gitShow(options.root, options.base, LOCK_PATH)
+    const baseLockText = gitShow(repo, options.base, LOCK_PATH)
     if (baseLockText) {
       const baseLock = (JSON.parse(baseLockText) as Lock).trees[tree.name]
       for (const [name, hash] of Object.entries(baseLock?.files ?? {})) {
@@ -281,7 +313,7 @@ export const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, "u
 
 /** Adds files that are not in the lock yet, after they pass; never changes an existing entry. */
 export const updateLock = async (trees: ReadonlyArray<Tree>, options: LintOptions): Promise<{ lock: Lock; added: Array<string>; errors: Array<string> }> => {
-  const next: Lock = { schema: 1, trees: { ...options.lock.trees } }
+  const next: Lock = { schema: 1, ...(options.lock.parser ? { parser: options.lock.parser } : {}), trees: { ...options.lock.trees } }
   const added: Array<string> = []
   const errors: Array<string> = []
   for (const tree of trees) {

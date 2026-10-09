@@ -58,7 +58,7 @@ const world = async (): Promise<World> => {
   const receipts = mkdtempSync(join(tmpdir(), "rails-receipts-"))
   const logs: Array<string> = []
   const errors: Array<string> = []
-  const env: Record<string, string | undefined> = { CMUX_RELEASE_RECEIPTS_DIR: receipts, STAGING_URL: provider.ownerUrl(staging), PROD_URL: provider.ownerUrl(production), CMUX_RELEASE_LANDED_REF: "landed", CMUX_RELEASE_LATEST_STABLE: "v0.65.0" }
+  const env: Record<string, string | undefined> = { CMUX_RELEASE_RECEIPTS_DIR: receipts, STAGING_URL: provider.ownerUrl(staging), PROD_URL: provider.ownerUrl(production), CMUX_RELEASE_LANDED_REF: "landed" }
   const w: World = {
     root,
     receipts,
