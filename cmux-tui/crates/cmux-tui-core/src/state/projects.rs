@@ -66,10 +66,9 @@ pub(crate) struct Project {
 impl Project {
     /// The display name: the user's rename, else the folder's last component.
     pub(crate) fn name(&self) -> &str {
-        self.overlay
-            .rename
-            .as_deref()
-            .unwrap_or_else(|| self.path.rsplit('/').find(|part| !part.is_empty()).unwrap_or(&self.path))
+        self.overlay.rename.as_deref().unwrap_or_else(|| {
+            self.path.rsplit('/').find(|part| !part.is_empty()).unwrap_or(&self.path)
+        })
     }
 
     pub(crate) fn last_used_ms(&self) -> i64 {
@@ -131,10 +130,14 @@ pub(crate) struct Refusals {
 impl Refusals {
     fn check(&self, path: &str) -> Result<(), ProjectReject> {
         if path.is_empty() || path.len() > MAX_PATH_BYTES || path.contains('\0') {
-            return Err(ProjectReject::InvalidPath("path must be 1 to 4096 bytes without NUL".into()));
+            return Err(ProjectReject::InvalidPath(
+                "path must be 1 to 4096 bytes without NUL".into(),
+            ));
         }
         if !path.starts_with('/') || (path.len() > 1 && path.ends_with('/')) {
-            return Err(ProjectReject::InvalidPath("path must be absolute without a trailing slash".into()));
+            return Err(ProjectReject::InvalidPath(
+                "path must be absolute without a trailing slash".into(),
+            ));
         }
         if path.split('/').any(|part| part == "." || part == "..") {
             return Err(ProjectReject::InvalidPath("path must be canonical (no . or ..)".into()));
@@ -142,8 +145,12 @@ impl Refusals {
         let home = self.home.trim_end_matches('/');
         let refused = path == "/"
             || path == home
-            || (!home.is_empty() && home.starts_with(path) && home.as_bytes().get(path.len()) == Some(&b'/'))
-            || ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"].iter().any(|root| is_within(path, root))
+            || (!home.is_empty()
+                && home.starts_with(path)
+                && home.as_bytes().get(path.len()) == Some(&b'/'))
+            || ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
+                .iter()
+                .any(|root| is_within(path, root))
             || self.roots.iter().any(|root| is_within(path, root));
         if refused {
             return Err(ProjectReject::RefusedPath(format!("{path} is never a project")));
@@ -155,14 +162,22 @@ impl Refusals {
 /// `path` is `root` or inside it.
 fn is_within(path: &str, root: &str) -> bool {
     let root = root.trim_end_matches('/');
-    !root.is_empty() && (path == root || (path.starts_with(root) && path.as_bytes().get(root.len()) == Some(&b'/')))
+    !root.is_empty()
+        && (path == root
+            || (path.starts_with(root) && path.as_bytes().get(root.len()) == Some(&b'/')))
 }
 
 fn check_source(source: &str) -> Result<(), ProjectReject> {
     let valid = !source.is_empty()
         && source.len() <= MAX_NAME_BYTES
-        && source.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
-    if valid { Ok(()) } else { Err(ProjectReject::InvalidName(format!("bad source id {source:?}"))) }
+        && source
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    if valid {
+        Ok(())
+    } else {
+        Err(ProjectReject::InvalidName(format!("bad source id {source:?}")))
+    }
 }
 
 /// The project list. Keyed by canonical path.
@@ -173,7 +188,9 @@ pub(crate) struct Projects {
 
 impl Projects {
     pub(crate) fn from_projects(projects: impl IntoIterator<Item = Project>) -> Self {
-        Self { by_path: projects.into_iter().map(|project| (project.path.clone(), project)).collect() }
+        Self {
+            by_path: projects.into_iter().map(|project| (project.path.clone(), project)).collect(),
+        }
     }
 
     pub(crate) fn get(&self, path: &str) -> Option<&Project> {
@@ -183,8 +200,11 @@ impl Projects {
     /// Every project, the way readers show them: pinned first (by `order`,
     /// then name), then the most recently used. Hidden ones only when asked.
     pub(crate) fn list(&self, include_hidden: bool) -> Vec<&Project> {
-        let mut projects: Vec<&Project> =
-            self.by_path.values().filter(|project| include_hidden || !project.overlay.hidden).collect();
+        let mut projects: Vec<&Project> = self
+            .by_path
+            .values()
+            .filter(|project| include_hidden || !project.overlay.hidden)
+            .collect();
         projects.sort_by(|a, b| {
             b.overlay
                 .pinned
@@ -216,7 +236,9 @@ impl Projects {
     ) -> Result<Vec<String>, ProjectReject> {
         check_source(source)?;
         if source == USER_SOURCE {
-            return Err(ProjectReject::InvalidName("the user source is added with project.add".into()));
+            return Err(ProjectReject::InvalidName(
+                "the user source is added with project.add".into(),
+            ));
         }
         let mut changed = Vec::new();
         let mut reported = std::collections::BTreeSet::new();
@@ -258,7 +280,12 @@ impl Projects {
     }
 
     /// The user adds a folder (source `user`, rule 5). Unhides it.
-    pub(crate) fn add(&mut self, path: &str, now_ms: i64, refusals: &Refusals) -> Result<(), ProjectReject> {
+    pub(crate) fn add(
+        &mut self,
+        path: &str,
+        now_ms: i64,
+        refusals: &Refusals,
+    ) -> Result<(), ProjectReject> {
         refusals.check(path)?;
         let project = self.by_path.entry(path.to_string()).or_insert_with(|| Project {
             path: path.to_string(),
@@ -285,7 +312,10 @@ impl Projects {
                 return Err(ProjectReject::InvalidName("name must be 1 to 256 bytes".into()));
             }
         }
-        let project = self.by_path.get_mut(path).ok_or_else(|| ProjectReject::UnknownProject(path.to_string()))?;
+        let project = self
+            .by_path
+            .get_mut(path)
+            .ok_or_else(|| ProjectReject::UnknownProject(path.to_string()))?;
         if let Some(rename) = &edit.rename {
             project.overlay.rename = rename.clone();
         }
@@ -304,7 +334,10 @@ impl Projects {
     /// The user removes a project. One a source still reports is hidden, so
     /// the next resync does not bring it back; any other one is deleted.
     pub(crate) fn remove(&mut self, path: &str) -> Result<(), ProjectReject> {
-        let project = self.by_path.get_mut(path).ok_or_else(|| ProjectReject::UnknownProject(path.to_string()))?;
+        let project = self
+            .by_path
+            .get_mut(path)
+            .ok_or_else(|| ProjectReject::UnknownProject(path.to_string()))?;
         project.sources.remove(USER_SOURCE);
         if project.sources.is_empty() {
             self.by_path.remove(path);
@@ -322,7 +355,9 @@ impl Projects {
             if project.sources.remove(source).is_some() {
                 changed.push(path.clone());
             }
-            !(project.sources.is_empty() && project.overlay.is_empty() && changed.last() == Some(path))
+            !(project.sources.is_empty()
+                && project.overlay.is_empty()
+                && changed.last() == Some(path))
         });
         changed
     }
