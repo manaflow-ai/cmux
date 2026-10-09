@@ -179,6 +179,10 @@ fn a_new_change_during_publication_stays_pending_after_the_claimed_commit() {
     records.apply(report("", ProgramStatusState::Working), 0);
     let first = records.claim_pending_change().unwrap().0;
     records.apply(report("", ProgramStatusState::Done), 1);
+    assert!(
+        records.claim_pending_change().is_none(),
+        "a newer revision must wait for the in-flight publication"
+    );
     records.finish_change_publication(first, true);
     let second = records.claim_pending_change().unwrap();
     assert_ne!(second.0, first);
