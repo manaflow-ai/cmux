@@ -2506,10 +2506,11 @@ fn with_spares_ready_a_waiting_node_does_not_wait_for_a_process_start() {
 #[test]
 fn warm_sessions_end_after_the_compactor_is_idle_for_a_while() {
     use optchat_chief::compactor::IdleTimer;
+    type Pending = Vec<(Duration, Box<dyn FnOnce() + Send>)>;
     #[derive(Default)]
     struct TestTimer {
         now: Mutex<Duration>,
-        pending: Mutex<Vec<(Duration, Box<dyn FnOnce() + Send>)>>,
+        pending: Mutex<Pending>,
     }
     impl IdleTimer for TestTimer {
         fn after(&self, d: Duration, f: Box<dyn FnOnce() + Send>) {
