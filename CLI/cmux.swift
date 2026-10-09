@@ -16799,121 +16799,81 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
+    /// Parses options-free browser arguments through the shared, privacy-safe parser.
     func browserCommandArguments(
         _ values: [String],
         allowedFlags: Set<String> = [],
         commandName: String
     ) throws -> (positionals: [String], flags: Set<String>) {
-        var positionals: [String] = []
-        var flags: Set<String> = []
-        var pastTerminator = false
-
-        for value in values {
-            if pastTerminator {
-                positionals.append(value)
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                continue
-            }
-            if allowedFlags.contains(value) {
-                flags.insert(value)
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            positionals.append(value)
+        do {
+            let result = try BrowserCommandArgumentParser(
+                allowedFlags: allowedFlags
+            ).parse(values)
+            return (result.positionals, result.flags)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
         }
-        return (positionals, flags)
     }
 
+    /// Rejects leftover browser positionals without echoing their contents.
     func rejectBrowserCommandExtras(_ values: ArraySlice<String>, commandName: String) throws {
-        guard !values.isEmpty else { return }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.readSelection.error.unexpectedArguments",
-                defaultValue: "%@: unexpected arguments: %@"
-            ),
-            commandName,
-            values.joined(separator: " ")
-        ))
+        do {
+            try BrowserCommandArgumentParser.requireNoExtraPositionals(values.count)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
     }
 
+    /// Validates raw browser arguments through the shared, privacy-safe parser.
     func validateBrowserCommandArguments(
         _ values: [String],
         valueOptions: Set<String> = [],
         allowedFlags: Set<String> = [],
         commandName: String
     ) throws {
-        var index = 0
-        var pastTerminator = false
-        while index < values.count {
-            let value = values[index]
-            if pastTerminator {
-                index += 1
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                index += 1
-                continue
-            }
-            if allowedFlags.contains(value) {
-                index += 1
-                continue
-            }
-            if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
-                let option = String(value[..<equal])
-                let optionValue = String(value[value.index(after: equal)...])
-                if valueOptions.contains(option) {
-                    guard !optionValue.isEmpty else {
-                        throw CLIError(message: String(
-                            format: String(
-                                localized: "cli.arguments.error.missingValue",
-                                defaultValue: "%1$@: %2$@ requires a value"
-                            ),
-                            commandName,
-                            option
-                        ))
-                    }
-                    index += 1
-                    continue
-                }
-            }
-            if valueOptions.contains(value) {
-                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: String(
-                        format: String(
-                            localized: "cli.arguments.error.missingValue",
-                            defaultValue: "%1$@: %2$@ requires a value"
-                        ),
-                        commandName,
-                        value
-                    ))
-                }
-                index += 2
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            index += 1
+        do {
+            _ = try BrowserCommandArgumentParser(
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags
+            ).parse(values)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
+    }
+
+    /// Maps parser failures to localized CLI errors without including option values or positionals.
+    private func browserCommandArgumentError(
+        _ error: BrowserCommandArgumentParser.ParseError,
+        commandName: String
+    ) -> CLIError {
+        switch error {
+        case .missingValue(let option):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.arguments.error.missingValue",
+                    defaultValue: "%1$@: %2$@ requires a value"
+                ),
+                commandName,
+                option
+            ))
+        case .unknownOption(let name):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                name
+            ))
+        case .unexpectedPositionals:
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                "..."
+            ))
         }
     }
 
