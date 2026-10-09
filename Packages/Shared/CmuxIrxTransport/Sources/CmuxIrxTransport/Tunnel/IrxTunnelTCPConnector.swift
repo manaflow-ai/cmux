@@ -34,8 +34,10 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
     /// Waits out the connect deadline; injected so tests control time.
     private let sleep: @Sendable (Duration) async throws -> Void
 
-    public init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
-        self.sleep = sleep
+    /// - Parameter sleep: Defaults to `Task.sleep(for:)`. Not a closure-literal
+    ///   default: see IrxPeerEngine.init (cx-bsue).
+    public init(sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
+        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
     }
 
     public func resolve(host: String) async -> [IrxTunnelIPAddress] {
