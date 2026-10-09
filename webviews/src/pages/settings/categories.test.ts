@@ -5,6 +5,7 @@ import "./testCatalog";
 import { categories, categoryOf, homes } from "./categories";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
+import exported from "../../../../schemas/settings/settings-schema.json";
 import { schema, sections } from "./schema";
 
 test("every page row has exactly one home", () => {
@@ -49,4 +50,23 @@ test("every category and group title is in all locales", () => {
     keys.filter((key) => !table[key]).map((key) => `${locale}:${key}`),
   );
   expect(missing).toEqual([]);
+});
+
+// Parity: the page draws the layout the Swift schema exports (`page`), nothing it copied by hand.
+test("the page renders the exported layout", () => {
+  const page = (exported as { page?: { categories: unknown[]; default_category: string } }).page;
+  expect(page).toBeDefined();
+  expect(
+    categories.map((category) => ({
+      id: category.id,
+      title: category.title,
+      symbol: category.symbol,
+      lead: category.lead,
+      trail: category.trail,
+      actions: category.actions,
+      groups: category.groups.map((group) => ({ key: group.key, title: group.title, rows: group.rows.map((row) => row.key) })),
+    })),
+  ).toEqual(
+    (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, ...category }) => category) as never,
+  );
 });
