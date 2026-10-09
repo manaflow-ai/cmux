@@ -20,10 +20,12 @@ private final class OffMainNotices: @unchecked Sendable {
 @Suite struct BrowserPopupPanelThreadTests {
     @Test func anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain() async {
         _ = NSApplication.shared
-        // The shared center must never carry this off-main notice: other
-        // suites in the same process leave main-actor observers of every
-        // window's close on it (PointerHover's key window observer), and one
-        // of those called off main traps the whole test process (signal 5).
+        // The notice goes through a private center. The shared one must never
+        // carry it off main: other suites in the same process leave
+        // main-actor observers of every window's close there (PointerHover's
+        // key window observer), and one of those called off main traps the
+        // whole test process (signal 5).
+        let center = NotificationCenter()
         let leaked = OffMainNotices()
         let watch = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: nil
@@ -31,7 +33,7 @@ private final class OffMainNotices: @unchecked Sendable {
             if !Thread.isMainThread { leaked.add() }
         }
         defer { NotificationCenter.default.removeObserver(watch) }
-        let panels = BrowserPopupPanels()
+        let panels = BrowserPopupPanels(center: center)
         panels.ordersPanelsIn = false
         let parent = NSWindow(contentRect: CGRect(x: 200, y: 100, width: 1000, height: 700), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
@@ -41,7 +43,7 @@ private final class OffMainNotices: @unchecked Sendable {
         #expect(panels.owns(page))
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             Thread.detachNewThread {
-                NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: parent)
+                center.post(name: NSWindow.willCloseNotification, object: parent)
                 DispatchQueue.main.async { done.resume() }
             }
         }
