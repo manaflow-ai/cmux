@@ -261,6 +261,25 @@ mod tests {
         assert_eq!(blocks[9]["text"], "STEP");
     }
 
+    /// hq-6d: a size retry is a fresh call: the first request's content and
+    /// the retry note, no earlier reply (the reference client's way).
+    #[test]
+    fn a_size_retry_body_is_the_first_request_and_the_note() {
+        let model = AnthropicModel::new(&Config::default());
+        let followups = vec![Followup {
+            reply: Reply::text("long"),
+            retry: "Too long: your last line for this <input> was 600 bytes".into(),
+        }];
+        let first = model.body(&request(), &[]);
+        let body = model.body(&request(), &followups);
+        let m = body["messages"].as_array().unwrap();
+        assert_eq!(m.len(), 1, "{m:?}");
+        let content = m[0]["content"].as_array().unwrap();
+        let before = first["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(&content[..before.len()], &before[..]);
+        assert_eq!(content[before.len()]["text"], "Too long: your last line for this <input> was 600 bytes");
+    }
+
     /// Audit round 2: the key was the constant "subrouter", so any other
     /// base URL answered every compactor call with a 401, forever.
     #[test]

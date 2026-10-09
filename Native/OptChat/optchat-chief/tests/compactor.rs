@@ -2033,3 +2033,28 @@ fn a_fast_compactor_starts_fast_sessions() {
     run_node(&compactor, &request(1)).unwrap();
     assert!(agents.inner.lock().unwrap().specs.iter().all(|s| s.fast));
 }
+
+/// hq-6d: a size retry is a fresh call, as the reference client makes it:
+/// a new session with the node's first prompt and the retry note, so the
+/// model does not see (and anchor on) its long line; the first prompt's
+/// cached prefix is read again.
+#[test]
+fn a_size_retry_is_a_fresh_call_with_the_first_prompt_and_the_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| {
+        if turn == 0 {
+            answer(&"long".repeat(175))
+        } else {
+            answer("user: short now")
+        }
+    }));
+    let compactor = compactor(&agents, dir.path());
+    assert_eq!(run_node(&compactor, &request(3)).unwrap(), "user: short now");
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.specs.len(), 2, "a new session for the retry");
+    let (first, retry) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(&retry[..first.len()], &first[..], "the first prompt again");
+    assert_eq!(retry.len(), first.len() + 1);
+    assert!(retry[first.len()].starts_with("Too long: your last line"), "{retry:?}");
+    assert_eq!(inner.ended, vec!["s1", "s2"]);
+}
