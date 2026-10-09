@@ -25,7 +25,7 @@ extension PaletteController {
             providers.append(PaletteScopeListProvider(graph: model.navigation.graph, config: model.navigation.config, from: .root,
                                                       showsItemsForEmptyQuery: entry.listsScopesWhenEmpty))
         }
-        return PalettePageSpec(
+        var page = PalettePageSpec(
             id: "commands",
             title: PaletteStrings.commandsTitle,
             placeholder: PaletteStrings.searchPlaceholder,
@@ -34,6 +34,8 @@ extension PaletteController {
             showsRecent: true,
             scope: .root
         )
+        page.mergesSectionsWhenTyping = true
+        return page
     }
 
     /// Scope `commands` (`>`): catalog actions only.

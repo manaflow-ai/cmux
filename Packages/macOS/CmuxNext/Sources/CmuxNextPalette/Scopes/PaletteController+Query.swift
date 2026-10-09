@@ -46,7 +46,7 @@ extension PaletteController {
             ranked = await searcher.search(entries: state.entries, version: state.version,
                                            query: text, generation: 0, sectionOrders: state.sectionOrders, frecency: model.frecency,
                                            now: model.now(), showsRecent: page.showsRecent,
-                                           keepsSectionOrder: page.keepsSectionOrder).sections
+                                           keepsSectionOrder: page.keepsSectionOrder, ranksPrefixFirst: page.ranksPrefixFirst).sections
         }
         return state.resolve(ranked).flatMap { section in
             section.rows.map { row in
