@@ -79,6 +79,9 @@ final class AgentTurnStateFeed {
         guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
         if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
             backoff.reset()
+            for settled in AgentTurnStates.settledTurns(result) {
+                ProgramStatusSeenStore.shared.markTurnSeen(session: settled.session, turn: settled.turn)
+            }
             turns.states.reset(result)
         } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any] {
             turns.states.apply(changed: params)

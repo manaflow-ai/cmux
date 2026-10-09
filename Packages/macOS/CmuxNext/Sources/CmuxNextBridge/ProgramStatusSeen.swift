@@ -54,6 +54,28 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
         return true
     }
 
+    /// The key of an agent chat's completed turn (acpmux session and turn).
+    static func turnKey(session: String, turn: String) -> Key {
+        Key(terminal: "acp:\(session)", record: turn, updatedSeq: 0)
+    }
+
+    public func isTurnSeen(session: String, turn: String) -> Bool {
+        keys.contains(Self.turnKey(session: session, turn: turn))
+    }
+
+    /// Marks a chat's completed turn seen; the session keeps only its latest
+    /// turn's key. Returns whether the set changed.
+    @discardableResult
+    public mutating func markTurnSeen(session: String, turn: String) -> Bool {
+        let key = Self.turnKey(session: session, turn: turn)
+        guard !keys.contains(key) else { return false }
+        var next = keys.filter { $0.terminal != key.terminal }
+        next.append(key)
+        if next.count > Self.limit { next.removeFirst(next.count - Self.limit) }
+        keys = next
+        return true
+    }
+
     static func holdsUntilSeen(_ record: ProgramStatusRecord) -> Bool {
         record.state == .done || record.state == .error
     }
@@ -107,6 +129,26 @@ public final class ProgramStatusSeenStore {
         guard next.markSeen(records, terminal: terminal) else { return }
         seen = next
         save()
+    }
+
+    public func isTurnSeen(session: String, turn: String) -> Bool {
+        seen.isTurnSeen(session: session, turn: turn)
+    }
+
+    public func markTurnSeen(session: String, turn: String) {
+        var next = seen
+        guard next.markTurnSeen(session: session, turn: turn) else { return }
+        seen = next
+        save()
+    }
+
+    /// The user looked at `tab`: its OSC 7501 `done` and `error` records and,
+    /// for an agent chat, its completed turn are seen.
+    public func markSeen(_ tab: TabModel, turns: AgentTurnStateStore) {
+        if let ref = tab.agentSession, let session = ref.session, case .done(let turn)? = turns.state(for: ref) {
+            markTurnSeen(session: session, turn: turn)
+        }
+        markSeen(tab)
     }
 
     /// The user looked at `tab`: its `done` and `error` records are seen.
