@@ -1507,9 +1507,8 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
-/// The effort of a Claude compactor session: high, with Claude Haiku 5.5
-/// (`optchat_host::DEFAULT_EFFORT`, as the reference client runs it; at low
-/// effort the compactor overshot the size limit much more). acpmux maps
+/// The effort of a Claude compactor session: medium, with Claude Haiku 5.5
+/// (`optchat_host::DEFAULT_EFFORT`, chosen by measurement). acpmux maps
 /// `effort` onto Claude Code's `--effort`.
 pub const COMPACTOR_EFFORT: &str = optchat_host::DEFAULT_EFFORT;
 

@@ -664,7 +664,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
         Family::Claude,
         Some("claude-sonnet-5-5"),
     );
-    assert_eq!(spec.effort.as_deref(), Some("high"));
+    assert_eq!(spec.effort.as_deref(), Some("medium"));
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
@@ -1277,18 +1277,20 @@ fn the_probe_fails_when_a_codex_session_offers_skills() {
     assert!(error.message.contains("$imagegen"), "{error:?}");
 }
 
-/// hq-6d gap 3b: a Claude compactor runs Claude Haiku 5.5 at high effort,
-/// as the reference client does (Haiku overshoots the size limit more often;
-/// the ruler and the "Too long" retry handle it). acpmux maps `effort` onto
-/// Claude Code's `--effort` and codex's `reasoning_effort` (codex keeps
-/// medium: it is not Haiku); a harness of another family keeps its own.
+/// hq-6d (measured 2026-10-09, 33 node inputs on a subscription, Claude
+/// Code 2.1.287): Haiku 5.5 at medium effort costs 20% less per node and
+/// takes 36% less time (p50 4.2 s vs 6.6 s) than at high, with lines of
+/// the same quality; at low, 3 of 12 lines carried leaked reasoning and 2
+/// stayed over the size limit. acpmux maps `effort` onto Claude Code's
+/// `--effort` and codex's `reasoning_effort`; a harness of another family
+/// keeps its own. `OPTCHAT_COMPACTOR_EFFORT` picks another.
 #[test]
-fn a_claude_compactor_runs_haiku_at_high_effort() {
+fn a_claude_compactor_runs_haiku_at_medium_effort() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let paths = Paths::new(&home);
     for (harness, family, effort) in [
-        ("claude-sr", Family::Claude, Some("high")),
+        ("claude-sr", Family::Claude, Some("medium")),
         ("codex", Family::Codex, Some("medium")),
         ("opencode", Family::Other, None),
     ] {
@@ -1296,7 +1298,7 @@ fn a_claude_compactor_runs_haiku_at_high_effort() {
         assert_eq!(spec.effort.as_deref(), effort, "{harness}");
     }
     assert_eq!(Config::default().model, "claude-haiku-5-5");
-    assert_eq!(Config::default().effort.as_deref(), Some("high"));
+    assert_eq!(Config::default().effort.as_deref(), Some("medium"));
 }
 
 /// What Claude Code answers when the account cannot use the model.
