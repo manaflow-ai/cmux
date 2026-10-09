@@ -1,4 +1,4 @@
-import CmuxMobileHost
+public import CmuxMobileHost
 import Foundation
 
 /// Owns the Mac process assertion used by the phone's Keep Mac Awake control.
