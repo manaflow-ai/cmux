@@ -245,6 +245,10 @@ pub struct Settings {
     /// The monitoring trace's directory, where approvals are recorded
     /// (None: not recorded).
     pub trace_dir: Option<PathBuf>,
+    /// `OPTCHAT_CACHE_TTL` at host start: the turns' cache TTL over the
+    /// Chief's `cache.ttl` setting. None: the setting, else 1 hour on the
+    /// Claude Code path.
+    pub cache_ttl: Option<crate::prompt::CacheTtl>,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -359,6 +363,18 @@ pub struct Brain {
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
     marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// A route refused a 1-hour cache mark: turns go at 5 minutes until the
+    /// host restarts or `cache.ttl` is set again.
+    ttl_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// The TTL the session settings held when the pool was last hinted: a
+    /// pooled session runs Claude Code with it.
+    prewarm_ttl: Option<crate::prompt::CacheTtl>,
+    /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
+    ttl_stale: Arc<std::sync::atomic::AtomicBool>,
+    /// The view up to and including the last turn's marked block
+    /// (`optchat_core::mark_piece`): the next turn keeps its mark within the
+    /// API's lookback of it.
+    last_mark: Option<String>,
     /// The monitoring trace (`trace.rs`).
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
@@ -445,6 +461,10 @@ impl Brain {
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            prewarm_ttl: None,
+            ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_mark: None,
             chief,
             turn_remote: false,
             turn_ask: false,
@@ -712,10 +732,22 @@ impl Brain {
     /// (an approved shell command reaches the host the same way). Turning
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
-        use crate::chief_settings::{REMOTE_AUTO_APPROVE, parse_bool};
+        use crate::chief_settings::{CACHE_TTL, REMOTE_AUTO_APPROVE, parse_bool, parse_ttl};
+        if key == CACHE_TTL {
+            // From the next turn on (the native engine: the next host start).
+            let ttl = parse_ttl(value)?;
+            let mut next = self.chief;
+            next.cache_ttl = Some(ttl);
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.ttl_refused.store(false, std::sync::atomic::Ordering::SeqCst);
+            (self.log)(&format!("setting {key} = {}", ttl.as_str()));
+            return Ok(format!("{key} = {}", ttl.as_str()));
+        }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL})"
             ));
         }
         let on = parse_bool(value)?;

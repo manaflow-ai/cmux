@@ -1426,3 +1426,44 @@ fn the_next_node_takes_a_warm_session_started_when_the_last_one_ended() {
     assert_eq!(inner.prompts.len(), 2);
     assert_eq!(inner.ended, ["s1", "s2"]);
 }
+
+/// Codex reads user skills from `$HOME/.agents/skills` whatever CODEX_HOME
+/// and the slot config say (codex ext/skills host_roots.rs), so a slot on a
+/// host with user skills offered them and the isolation check refused every
+/// node (cmux-lawrence 2026-10-08: "it offers skills [$aside-browser, …]").
+/// Each codex slot runs with HOME at a private empty directory.
+#[test]
+fn codex_compactor_sessions_run_with_a_private_home_without_user_skills() {
+    use optchat_chief::compactor::prepare_codex_homes;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
+    let user_home = dir.path().join("user-codex");
+    std::fs::create_dir_all(&user_home).unwrap();
+    prepare_codex_homes(&paths, &user_home).unwrap();
+    for p in compactor_presets(&paths, &home, "codex", Family::Codex) {
+        let private = std::path::PathBuf::from(
+            p.env
+                .get("HOME")
+                .unwrap_or_else(|| panic!("{} sets no HOME", p.name)),
+        );
+        assert!(
+            private.starts_with(&paths.compactor_codex),
+            "{}",
+            private.display()
+        );
+        let meta = std::fs::metadata(&private).expect("the private home exists");
+        assert!(meta.is_dir());
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700);
+        assert!(
+            !private.join(".agents").exists(),
+            "no user skills under the private home"
+        );
+    }
+    // Claude slots keep the user's HOME (CLAUDE_CONFIG_DIR isolates them).
+    for p in compactor_presets(&paths, &home, "claude-sr", Family::Claude) {
+        assert!(!p.env.contains_key("HOME"), "{}", p.name);
+    }
+}
