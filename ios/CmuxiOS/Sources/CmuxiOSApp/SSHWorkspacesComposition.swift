@@ -36,8 +36,11 @@ struct SSHWorkspacesComposition: Sendable {
                                               { NIOSSHCommandRunner(dialer: try await composition.dialer(for: host)) }
                                           }, lifecycles: { host, makeRunner in
                                               let runner = try await makeRunner()
-                                              let root = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                                                  in: .userDomainMask).first!
+                                              guard let applicationSupport = FileManager.default.urls(
+                                                  for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                                                  throw SSHSessionFailure.network
+                                              }
+                                              let root = applicationSupport
                                                   .appendingPathComponent("Cmux/SSH-Lifecycle", isDirectory: true)
                                               // Host IDs may come from a synced store. Encode the bytes so a
                                               // malformed remote id can never escape this ledger directory.
