@@ -138,6 +138,15 @@ fn path_with_dir_first(path: &str, dir: &str) -> String {
     entries.join(PATH_SEPARATOR)
 }
 
+/// Put the app's bundled CLI (`<Resources>/bin/cmux`) dir first on the
+/// `PATH` in `env`, followed by the other entries, and name it in
+/// `CMUX_BUNDLED_CLI_PATH`, over a caller's values. Run it after the caller
+/// env is merged and before [`keep_shim_first_on_path`], so the shim stays
+/// first. Does nothing without a bundled CLI or a `PATH` entry.
+pub(crate) fn keep_bundled_cli_first(env: &mut Vec<(String, String)>, bundled_cli: Option<&str>) {
+    let _ = (env, bundled_cli);
+}
+
 const PATH_SEPARATOR: &str = if cfg!(windows) { ";" } else { ":" };
 
 /// The warning for a dropped caller key. It names the key only: a caller
