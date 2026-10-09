@@ -264,13 +264,13 @@ function AddPanel({
       <Tabs.List className="mb-2 flex items-center gap-1">
         <Tabs.Tab
           value="registry"
-          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-[13px] text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
+          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
         >
           {t("settingsPage.agents.tabRegistry")}
         </Tabs.Tab>
         <Tabs.Tab
           value="custom"
-          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-[13px] text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
+          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
         >
           {t("settingsPage.agents.tabCustom")}
         </Tabs.Tab>
