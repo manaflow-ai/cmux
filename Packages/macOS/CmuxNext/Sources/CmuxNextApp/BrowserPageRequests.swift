@@ -200,7 +200,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
         let browserTabs = services.cache.browserTabs
         let daemon = services.machines.daemon(forTab: tab)
-        guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
+        guard browserTabs.isAvailable(on: daemon), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
             if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
@@ -211,7 +211,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
         WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { [weak self] connection, terminal in
             guard let pane = terminal.pane else { return }
-            let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+            let surface = try await browserTabs.open(choice, in: pane, on: daemon, url: address, profile: profile)
             if let child { await self?.adopt(child, surface: surface) }
             if let terminal = terminal.surface { try await connection.closeTab(terminal) }
         }
@@ -239,13 +239,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
         // The opener's pane is not on screen (its page is kept alive).
         let browserTabs = services.cache.browserTabs
-        guard browserTabs.isAvailable() else { child?.close(); return }
+        guard browserTabs.isAvailable(in: pane) else { child?.close(); return }
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
-        let handle = pane.handle, address = url?.absoluteString ?? "about:blank", openers = openers
+        let address = url?.absoluteString ?? "about:blank", openers = openers
         services.registry.track(Task { [weak self] in
             do {
                 let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
-                    try await browserTabs.open(choice, in: handle, url: address, profile: profile, after: after)
+                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, after: after)
                 }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
