@@ -37,6 +37,8 @@ pub struct Interrupt {
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
+    /// Wakes [`Interrupt::wait`] on a request.
+    waiting: (Mutex<()>, std::sync::Condvar),
 }
 
 impl Interrupt {
@@ -46,6 +48,14 @@ impl Interrupt {
 
     pub fn request(&self) {
         self.wanted.store(true, Ordering::SeqCst);
+        {
+            let _held = self
+                .waiting
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.waiting.1.notify_all();
+        }
         if let Some(tx) = self
             .wake
             .lock()
@@ -58,6 +68,30 @@ impl Interrupt {
 
     pub fn is_set(&self) -> bool {
         self.wanted.load(Ordering::SeqCst)
+    }
+
+    /// Waits up to `limit` for a request (a bounded wait, woken by
+    /// [`Interrupt::request`], never polled); whether one came.
+    pub fn wait(&self, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        let mut held = self
+            .waiting
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !self.is_set() {
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            held = self
+                .waiting
+                .1
+                .wait_timeout(held, deadline - now)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 
     /// Sets whether the turn's local effects need an approval.
@@ -619,4 +653,78 @@ pub fn adopt_orphan(
         ));
     }
     Ok(())
+}
+
+/// The wait before a capacity refusal names no retry-after.
+pub const CAPACITY_DEFAULT_WAIT: Duration = Duration::from_secs(60);
+/// The longest a turn waits for capacity in all (the turn limit still
+/// applies); past it the refusal is the turn's error.
+pub const CAPACITY_MAX_WAIT: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// How long to wait before a turn that the model route refused for want of
+/// capacity runs again: the subrouter's "no non-exhausted ... accounts"
+/// (503) and the API's overload (529), at their "retry after Ns", else
+/// [`CAPACITY_DEFAULT_WAIT`]. None for any other error.
+pub fn capacity_retry_after(error: &str) -> Option<Duration> {
+    let lower = error.to_ascii_lowercase();
+    // An overload without a retry-after stays the turn's error (the shared
+    // corpus, cmux-chief-corpus/1, pins "(turn failed: ...)" for it).
+    let capacity = lower.contains("no non-exhausted")
+        || ((lower.contains("overloaded")
+            || lower.contains("api error: 529")
+            || lower.contains("api error: 503"))
+            && lower.contains("retry after"));
+    if !capacity {
+        return None;
+    }
+    let seconds = lower.find("retry after ").and_then(|at| {
+        let digits: String = lower[at + 12..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse::<u64>().ok()
+    });
+    Some(seconds.map_or(CAPACITY_DEFAULT_WAIT, Duration::from_secs))
+}
+
+/// Runs `outcome`'s turn again while its route refuses it for want of
+/// capacity: each time it waits the retry-after (a newer message ends the
+/// wait, and the turn then stops as for that message), with one log line
+/// and one trace event, and never posts the refusal. Past
+/// [`CAPACITY_MAX_WAIT`] in all, the refusal stays the turn's error.
+pub fn run_after_capacity_waits(
+    mut outcome: TurnOutcome,
+    start: &TurnStart,
+    interrupt: &Interrupt,
+    log: &dyn Fn(&str),
+    trace: &Trace,
+    mut again: impl FnMut(&TurnStart) -> TurnOutcome,
+) -> TurnOutcome {
+    let mut waited = Duration::ZERO;
+    let mut attempt = 0u32;
+    loop {
+        let Some(wait) = outcome.error.as_deref().and_then(capacity_retry_after) else {
+            return outcome;
+        };
+        if outcome.reply.is_some() || waited + wait > CAPACITY_MAX_WAIT || interrupt.is_set() {
+            return outcome;
+        }
+        attempt += 1;
+        log(&format!(
+            "turn {}: the model route has no capacity now; running the turn again in {} s (attempt {attempt})",
+            start.key,
+            wait.as_secs()
+        ));
+        trace.emit(
+            "turn.capacity_wait",
+            serde_json::json!({"turn": start.key, "seconds": wait.as_secs(), "attempt": attempt}),
+        );
+        if interrupt.wait(wait) {
+            return outcome;
+        }
+        waited += wait;
+        let mut next = start.clone();
+        next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
+        outcome = again(&next);
+    }
 }

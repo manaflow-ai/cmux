@@ -460,6 +460,105 @@
     },
     {
       "accepts" : [
+        "default",
+        "composer",
+        "threads",
+        "console",
+        "classic",
+        "terminal"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateDefault",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateComposer",
+            "text" : "Composer"
+          },
+          "value" : "composer"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateThreads",
+            "text" : "Threads"
+          },
+          "value" : "threads"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateConsole",
+            "text" : "Console"
+          },
+          "value" : "console"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateClassic",
+            "text" : "Classic"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateTerminal",
+            "text" : "Terminal"
+          },
+          "value" : "terminal"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabTemplate.help",
+        "text" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabTemplate",
+      "keywords" : [
+        "new tab",
+        "template",
+        "layout",
+        "page",
+        "terminal",
+        "classic",
+        "composer",
+        "threads",
+        "console"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabTemplate"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.newTabTemplate",
+        "text" : "New Tab Template"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "hover",
         "always"
       ],
@@ -16284,7 +16383,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "836693f2821a78a3d4981ac2d24f404663db91324e6164e6bea133d044bba02c",
+  "schema_hash" : "2874a612e33588d56c05061af3e85b4a404143b0ef2d2f34fcd7df4ea8c3a994",
   "sections" : [
     {
       "id" : "general",

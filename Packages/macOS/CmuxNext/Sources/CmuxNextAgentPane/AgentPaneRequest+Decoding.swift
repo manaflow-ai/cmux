@@ -123,6 +123,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.setTemplate":
+            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
+                self = .setNewTabTemplate(template)
+            } else {
+                self = .unsupported(method)
+            }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "project.list":
