@@ -115,23 +115,25 @@ One set of font sizes for every page and the agent pane, defined in `pages/share
 first everywhere). Use the token, never a size: `font-size: var(--text-body)` (and
 `line-height: var(--text-body--line-height)`) in CSS, `text-body` in Tailwind (sets both).
 
-| token            | size                               | line height        | for                                                                |
-| ---------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------------ |
-| `--text-caption` | 11px                               | 14px               | keyboard shortcuts, group labels, badges, tiny counters            |
-| `--text-detail`  | 12px                               | 16px               | descriptions, secondary lines, metadata, section headers, tooltips |
-| `--text-body`    | 13px                               | 18px               | chrome text: labels, settings rows, page text (macOS system font)  |
-| `--text-control` | 14px                               | 18px               | menu and picker rows, menu search fields, composer controls        |
-| `--text-title`   | 15px                               | 20px               | card and panel titles, glyph buttons                               |
-| `--text-heading` | 17px                               | 22px               | page headings                                                      |
-| `--text-content` | the user's `--cv-font-size` (14px) | `--cv-line-height` | reading content: transcript, markdown, composer prompt             |
+| token            | size                               | line height        | for                                                                                              |
+| ---------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
+| `--text-caption` | 11px                               | 14px               | keyboard shortcuts, group labels, badges, tiny counters, tooltips (NSFont.toolTipsFont is 11 pt) |
+| `--text-detail`  | 12px                               | 16px               | descriptions, secondary lines, metadata, section headers                                         |
+| `--text-body`    | 13px                               | 18px               | chrome text: labels, settings rows, page text (macOS system font)                                |
+| `--text-control` | 13px                               | 18px               | menu and picker rows, menu search fields, composer controls                                      |
+| `--text-title`   | 15px                               | 20px               | card and panel titles, glyph buttons                                                             |
+| `--text-heading` | 17px                               | 22px               | page headings                                                                                    |
+| `--text-content` | the user's `--cv-font-size` (14px) | `--cv-line-height` | reading content: transcript, markdown, composer prompt                                           |
 
 Rules:
 
 - Chrome uses the UI steps (caption to heading); it does not grow with the user's content size, as
   macOS chrome does not. Reading content uses `--text-content`, so the agent pane font setting
   (theme.css / AgentPaneTheme) changes the transcript and prompt, not the menus.
-- `--text-body` is macOS's system font size (`NSFont.systemFontSize`, 13); `--text-control` is its
-  menu font size (14), so every menu, popover list and picker row in the app is the same size.
+- The steps follow macOS (measured on macOS 26 with AppKit, 2026-10-09): `--text-body` is
+  `NSFont.systemFontSize` (13); `--text-control` is `NSFont.menuFont(ofSize: 0)` (13), so web menus,
+  popover lists and picker rows match the native NSMenus next to them; `--text-caption` is
+  `NSFont.smallSystemFontSize` and `NSFont.toolTipsFont(ofSize: 0)` (11), so tooltips match native ones.
 - Relative sizes (`em`, `%`) are fine for parts that scale with their parent (a superscript).
 - `scripts/cmux-next/check-type-scale.py` (run by `bun run check`) fails on a new literal size
   (`font-size: 12px`, a `font:` shorthand with a size, `fontSize: 12`, Tailwind `text-[12px]`); the old

@@ -557,10 +557,15 @@ impl FakeAgents {
     /// Adds events to a running turn and tells its runner, as acpmux's
     /// notifications do.
     pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        let from_agent = events.iter().any(|e| e["dir"] == "in");
         self.append_events(session, events);
         let signals = self.inner.lock().unwrap().signals.get(session).cloned();
         if let Some(tx) = signals {
-            let _ = tx.send(TurnSignal::Changed);
+            let _ = tx.send(if from_agent {
+                TurnSignal::Changed
+            } else {
+                TurnSignal::Noted
+            });
         }
     }
 
@@ -788,6 +793,13 @@ impl AgentPort for FakeAgents {
         inner.steers.push((session.to_owned(), blocks));
         let at_end = inner.steer_at_end;
         let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
         drop(inner);
         self.changed.notify_all();
         let me = self.me.upgrade().expect("alive");
