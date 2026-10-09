@@ -33,7 +33,8 @@ test and push guard, and before every rehearse and apply). Three layers on the p
    file), and on an existing table only ADD COLUMN (nullable or NOT NULL with a stable
    DEFAULT: constants, casts, CURRENT_*, now(); no IDENTITY, GENERATED, UNIQUE or PRIMARY
    KEY), SET DEFAULT, DROP NOT NULL, ADD CONSTRAINT CHECK/FOREIGN KEY NOT VALID, VALIDATE.
-   A table created in the same file may be shaped freely (except layer 1).
+   A table created in the same file may be shaped freely (except layer 1); `CREATE TABLE IF NOT EXISTS`
+   never counts as created (it may meet a live table).
 3. *cmux-vm confinement*, even with a header: every name (any node with a relname: tables,
    views, CTAS targets, sequences, policy tables, composite types; qualified types and
    functions; created types and domains, which must be qualified; COMMENT targets) is in schema `cmux_vm`
@@ -44,8 +45,8 @@ Every tree: `NNNN_lower_snake.sql`, numbered from 0001 without gaps; every file 
 entries are append-only; `--base <previous head>` also compares that revision's files and
 lock and requires new numbers above its highest. cmux-vm: `REQUIRED_SCHEMA` in
 `workers/cmux-vm/src/db/schema-requirements.ts` must name the newest file's number (add the
-table, column or index it creates). Files up to `grandfatheredThrough` (cmux-vm 0008,
-backend 0006) predate the rules and are hash-checked only. backend files keep
+table, column or index it creates). Only the files in lint.ts `GRANDFATHERED` (exact name and hash: cmux-vm 0001-0008, backend
+0001-0006) skip the statement rules; no lock edit or intermediate push can move that boundary. backend files keep
 `-- phase: contract` and `-- contract:` together.
 
 **Runner guards** (`runner.ts`, independent of the lint). Each file runs in its own
@@ -168,6 +169,18 @@ inherited roles; verify the old owner owns only cmux_vm objects (the read-only c
 change's notes); `pscale role reassign <old id> --successor <new pg role>` (pscale_admin moves the
 objects); never `--successor postgres`; verify as above; set `ownerPgRole`/`ownerRole` in trees.ts.
 
+## Hardening 1 (after the fourth review)
+
+No migration may name the tracking table; CREATE/DROP INDEX CONCURRENTLY is alone in its file and
+runs outside a transaction (CREATE names its index); serial columns and an inline CHECK on an
+existing table are refused (the CHECK needs a header); CREATE SCHEMA has no AUTHORIZATION;
+sequences are permanent with no OWNED BY; COMMENT names an exact table, column, index, sequence,
+type or the schema. The owner check also refuses CREATEDB, CREATE on another schema and column
+grants outside cmux_vm. A production step exports the files from git at the verified commit,
+re-checks HEAD right before it writes, and refuses NODE_OPTIONS, BUN_OPTIONS, BUN_CONFIG_*,
+NODE_PATH, LD_PRELOAD, DYLD_INSERT_LIBRARIES and a bunfig.toml preload. migrations.lock.json
+also pins libpg-query's package.json.
+
 ## First live run of the deploy rails
 
 The deploy steps (cmux-vm.yml deploy-staging: ordering gate, record version, smoke and rollback;
@@ -177,6 +190,12 @@ with a fake wrangler and a fake Worker. The first feat-cmux-next push after they
 steps "Deploy ordering gate", "Record the serving version", "Smoke health and changed routes" (or
 "Smoke the API Worker") ran and logged `gate ok`, `previous version of ...` and `smoke green`, and
 reports the run id in the landing report. A red step there is that pusher's P0.
+
+Done 2026-10-09 on the rails' own trunk push d21f7844e1ba: cmux VM run 37882089972 (deploy-staging
+logged `gate ok: cmux-vm/staging has every migration this commit needs (9 files)`, `previous
+version of cmux-vm-staging: 64b76a0d-...`, 7 routes PASS, `smoke green`) and backend run 37882089907
+(deploy-staging logged `all 6 migrations applied`, `previous version of cmux-api-staging:
+5167083a-...`, `smoke green: cmux-api-staging`).
 
 ## Backend label apply (parked)
 

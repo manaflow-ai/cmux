@@ -4,32 +4,17 @@
  *   bun lint.ts [--tree cmux-vm|backend]... [--base <git rev>] [--root <repo>]
  *   bun lint.ts --update-lock [--tree ...]      add new, passing files to migrations.lock.json
  *
- * A file may only expand the schema (changes the deployed code survives) unless
- * its leading comment block carries `-- contract: <reason>` (at least 10
- * characters), which a later release may apply. Refused without that header,
- * on the parsed SQL (libpg_query):
- *   DROP of anything; ALTER TABLE ... DROP COLUMN / DROP CONSTRAINT / ALTER TYPE /
- *   SET NOT NULL / DROP DEFAULT; ADD COLUMN ... NOT NULL without DEFAULT; a
- *   validated ADD CONSTRAINT (CHECK or FOREIGN KEY without NOT VALID, UNIQUE,
- *   PRIMARY KEY, EXCLUDE) on an existing table; RENAME of anything; ALTER TYPE
- *   ... RENAME VALUE; CREATE INDEX on an existing table without CONCURRENTLY,
- *   and any UNIQUE index on an existing table; UPDATE or DELETE without WHERE;
- *   TRUNCATE; DO blocks, functions and procedures (they hide statements);
- *   REVOKE; GRANT beyond role-contract.json (ALL, PUBLIC, WITH GRANT OPTION,
- *   role membership, default privileges, roles, or a grantee, privilege or
- *   schema the contract does not list); BEGIN/COMMIT (the runner owns the
- *   transaction).
- * cmux-vm files also touch only schema cmux_vm, even with a contract header
- * (cmux-old's web/ shares database cmux-prod in schema public).
- * CREATE INDEX CONCURRENTLY must be the only statement in its file (the runner
- * applies that file outside a transaction and checks the index is valid).
+ * Statement rules (lint-rules.ts): a strict allowlist of exact expand shapes; a
+ * `-- contract: <reason>` header (10+ characters, leading comment block) lifts only a named list
+ * of non-expand operations; everything else is refused always. cmux-vm names stay in schema
+ * cmux_vm (cmux-old shares cmux-prod). CREATE/DROP INDEX CONCURRENTLY is alone in its file.
  *
- * Every tree also must: name files NNNN_lower_snake.sql, numbered 0001.. with no
- * gap or duplicate; list every file in migrations.lock.json with its sha256 (a
- * landed file never changes: a changed hash, a removed file or an edited lock
- * entry is refused, and with --base the files and lock of that revision are
- * compared too); number a new file above every file of --base. Files up to the
- * lock's `grandfatheredThrough` predate these rules and are hash-checked only.
+ * Tree rules: NNNN_lower_snake.sql numbered 0001.. without gaps; every file in
+ * migrations.lock.json with its sha256 (a landed file never changes or disappears, lock entries
+ * are append-only, and with --base that revision's files and lock are compared and new files
+ * number above it; a --base that does not resolve fails); cmux-vm REQUIRED_SCHEMA names the
+ * newest file; the installed libpg-query matches the pinned version and hashes. Only the files in
+ * GRANDFATHERED (exact name and hash) skip the statement rules.
  */
 import { createHash } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
@@ -39,6 +24,31 @@ import { join } from "node:path"
 import { REPO_ROOT, TREE_NAMES, TREES, treeOf, type Tree, type TreeName } from "./trees.ts"
 import { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
 export { confinementProblems, parseSql, statementProblems, type ParsedStatement } from "./lint-rules.ts"
+
+/**
+ * Files that predate the rules (P2-3): exempt from the statement rules only by exact name AND
+ * hash, fixed here in the linter so no lock edit or intermediate push can move the boundary.
+ */
+export const GRANDFATHERED: Readonly<Record<TreeName, Readonly<Record<string, string>>>> = {
+  "cmux-vm": {
+    "0001_cmux_vm_ownership.sql": "efaa9268d47ee6bfbf3ab6e596c982c4f9b6f870c9cec78c7433eb3abc2bd9ee",
+    "0002_cmux_vm_display_name_audit.sql": "61d4d0089eb559be47943c5549fa7958a0aa0d3ca5ed8a9eb178a915a65b7451",
+    "0003_cmux_vm_snapshot_parent.sql": "cadb388568905531912fdc73080246074b65b7c1f09121b70ba936f5b9a28053",
+    "0004_cmux_vm_mesh.sql": "b5fc967440bc82ac34c97cda0be3e99609b0537e8094814820b666afa2bd219e",
+    "0005_cmux_vm_mesh_m2.sql": "12a58159148dc116cdf55a1d087dff2d5437b7185257ccef996a67e99c523b75",
+    "0006_cmux_vm_mesh_m3.sql": "7657e3f456366ceb8423eaec40810f2024359a9b2a67130e82b773178f2621ee",
+    "0007_cmux_vm_mesh_m4.sql": "a3525bda461b9c19f2cdf74ff3a457e90ace177b7b517e187ea5b1173b734fe7",
+    "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8",
+  },
+  "backend": {
+    "0001_init.sql": "93519f97b4a6296e55da59327368c97c721d9a9eb5e568f323d202ad4a2a16fa",
+    "0002_comment_projection_tables.sql": "6ff36cfc138278f903d505dad7f65b437516037b3b895309ff9526bb40ea0fbf",
+    "0003_automations.sql": "0a210f8ec4171fb820311e4be8b9739c886bdf3a07220cfc1b5fdc428aaf192a",
+    "0004_connections.sql": "9459fb9706ccd0907aa46e07c8a4eb6457b363c0f1a825cc6b9c089beefa0b4c",
+    "0005_audit_events.sql": "6414026f95b4a0496c02bd20e554b3954a0515460b2a4f464798ff8c8b38964c",
+    "0006_home.sql": "faa8bb121be718eab407dc687836f121e679312f9f5cafc3f9e37226536ad858",
+  },
+}
 
 export const LOCK_PATH = "scripts/cmux-next/release/migrations.lock.json"
 export const CONTRACT_PATH = "scripts/cmux-next/release/role-contract.json"
@@ -175,8 +185,8 @@ export const lintFile = async (tree: Tree, name: string, sql: string, contract: 
   }
   if (stmts.length === 0) errors.push(`${name}: no statements`)
   if (stmts.some((s) => s.kind === "TransactionStmt")) errors.push(`${name}: no BEGIN/COMMIT; the runner wraps each file in a transaction`)
-  const concurrent = stmts.some((s) => s.kind === "IndexStmt" && s.node.concurrent === true)
-  if (concurrent && stmts.length !== 1) errors.push(`${name}: CREATE INDEX CONCURRENTLY must be the only statement in its file (it runs outside a transaction)`)
+  const concurrent = stmts.some((s) => (s.kind === "IndexStmt" || s.kind === "DropStmt") && s.node.concurrent === true)
+  if (concurrent && stmts.length !== 1) errors.push(`${name}: CREATE/DROP INDEX CONCURRENTLY must be the only statement in its file (it runs outside a transaction)`)
   if (tree.name === "cmux-vm") {
     for (const problem of confinementProblems(stmts, tree.schema)) errors.push(`${name}: ${problem}; cmux-vm migrations touch only schema ${tree.schema} (cmux-old shares this database), even with a contract header`)
   }
@@ -300,7 +310,7 @@ export const lintTree = async (tree: Tree, options: LintOptions): Promise<TreeRe
   // Rules for every file after the grandfathered ones.
   if (contract) {
     for (const f of files) {
-      if (f.name.slice(0, 4) <= lock.grandfatheredThrough && f.name in lock.files) continue
+      if (GRANDFATHERED[tree.name][f.name] === f.checksum) continue
       const report = await lintFile(tree, f.name, f.sql, contract)
       errors.push(...report.errors.map((e) => `${tree.name}: ${e}`))
       if (report.contract !== undefined) notes.push(`${tree.name}: ${f.name} is a contract migration: ${report.contract}`)

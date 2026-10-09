@@ -175,6 +175,13 @@ const OUTSIDE_SQL = `WITH me AS (SELECT (txid_current() % 4294967296)::text AS x
    WHERE e.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
   UNION ALL SELECT 'catalog: comment on ' || n.nspname || '.' || c.relname FROM pg_catalog.pg_description d JOIN pg_catalog.pg_class c ON d.classoid = 'pg_catalog.pg_class'::regclass AND c.oid = d.objoid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace, me
    WHERE d.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: comment on schema ' || n.nspname FROM pg_catalog.pg_description d JOIN pg_catalog.pg_namespace n ON d.classoid = 'pg_catalog.pg_namespace'::regclass AND n.oid = d.objoid, me
+   WHERE d.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: comment on type ' || n.nspname || '.' || t.typname FROM pg_catalog.pg_description d JOIN pg_catalog.pg_type t ON d.classoid = 'pg_catalog.pg_type'::regclass AND t.oid = d.objoid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace, me
+   WHERE d.xmin::text = me.xid AND n.nspname NOT IN (SELECT nspname FROM allowed)
+  UNION ALL SELECT 'catalog: a comment on another kind of object' FROM pg_catalog.pg_description d, me
+   WHERE d.xmin::text = me.xid AND d.classoid NOT IN ('pg_catalog.pg_class'::regclass, 'pg_catalog.pg_namespace'::regclass, 'pg_catalog.pg_type'::regclass, 'pg_catalog.pg_constraint'::regclass)
+  UNION ALL SELECT 'shared catalog: a comment on a database, role or tablespace' FROM pg_catalog.pg_shdescription d, me WHERE d.xmin::text = me.xid
   UNION ALL SELECT 'catalog: default privileges' FROM pg_catalog.pg_default_acl a, me WHERE a.xmin::text = me.xid
   UNION ALL SELECT 'catalog: a cast' FROM pg_catalog.pg_cast k, me WHERE k.xmin::text = me.xid
   UNION ALL SELECT 'catalog: a large object' FROM pg_catalog.pg_largeobject_metadata l, me WHERE l.xmin::text = me.xid
@@ -188,6 +195,14 @@ export const outsideProblems = async (sql: Sql, schema: string, writesBefore: Ma
   const problems = (await sql.query<{ problem: string }>(OUTSIDE_SQL, [schema])).map((r) => r.problem)
   for (const [relid, after] of await writesOutside(sql, schema)) if (after.n > (writesBefore.get(relid)?.n ?? 0)) problems.push(`rows written in ${after.name}`)
   return [...new Set(problems)]
+}
+
+/** The index a DROP INDEX CONCURRENTLY file drops (schema.name), or undefined. */
+const droppedIndexOf = async (f: MigrationFile): Promise<string | undefined> => {
+  const [stmt] = await parseSql(f.sql)
+  if (stmt?.kind !== "DropStmt" || !stmt.node.concurrent || stmt.node.removeType !== "OBJECT_INDEX") return undefined
+  const parts = ((stmt.node.objects?.[0]?.List?.items ?? []) as Array<{ String?: { sval: string } }>).map((i) => i.String?.sval)
+  return parts.join(".")
 }
 
 const indexNameOf = async (f: MigrationFile): Promise<string | undefined> => {
@@ -224,6 +239,22 @@ export const applyPending = async (
     if (plan.tracking === "fresh") await ensureTrackingTable(sql, tree)
     const applied: Array<string> = []
     for (const f of plan.pending) {
+      const dropped = await droppedIndexOf(f)
+      if (dropped) {
+        // DROP INDEX CONCURRENTLY cannot run in a transaction either (alone in its file, by the lint).
+        if (tree.name === "cmux-vm" && !dropped.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: DROP INDEX CONCURRENTLY outside schema ${tree.schema}; refused before it ran`)
+        for (const q of sessionSettings(tree, "SESSION")) await sql.query(q)
+        try {
+          await sql.query(f.sql)
+        } finally {
+          await sql.query("RESET lock_timeout; RESET statement_timeout; RESET search_path")
+        }
+        const left = (await sql.query<{ v: string | null }>("SELECT to_regclass($1)::text AS v", [dropped]))[0]?.v
+        if (left) throw new Error(`${f.name}: index ${dropped} still exists after DROP INDEX CONCURRENTLY`)
+        await record(sql, tree, f, options.by)
+        applied.push(f.name)
+        continue
+      }
       const index = await indexNameOf(f)
       if (index) {
         if (tree.name === "cmux-vm" && !index.startsWith(`${tree.schema}.`)) throw new Error(`${f.name}: CREATE INDEX CONCURRENTLY on a table outside schema ${tree.schema}; refused before it ran`)
