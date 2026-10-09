@@ -498,6 +498,37 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             for call in calls[1:]:
                 self.assertNotIn("--ignore-lock", call)
 
+    def test_a_locked_build_database_is_retried_not_reported(self) -> None:
+        """Fleet run 19bb98813274 (aws-m4pro-7): with --ignore-lock, two suites at once
+        still open .build/build.db; SwiftPM refused one with "database is locked" before
+        any test ran, and the suite failed as "no tests found"."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            attempts = temp / "attempts.txt"
+            self._write_fake_swift(
+                temp,
+                "count = int(open(os.environ['FAKE_ATTEMPTS']).read() or 0) if os.path.exists(os.environ['FAKE_ATTEMPTS']) else 0\n"
+                "open(os.environ['FAKE_ATTEMPTS'], 'w').write(str(count + 1))\n"
+                "if suite == 'LockedSuite' and count < 2:\n"
+                "    print('error: unable to attach DB: error: accessing build database \"/x/.build/build.db\": '\n"
+                "          'database is locked Possibly there are two concurrent builds running in the same filesystem location.')\n"
+                "    print(\"error: no tests found; create a target in the 'Tests' directory\")\n"
+                "    event('end')\n"
+                "    raise SystemExit(1)\n"
+                "print('Test run with 1 test passed after 0.001 seconds.')\n",
+            )
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, ["LockedSuite"], "2")
+            env["FAKE_ATTEMPTS"] = str(attempts)
+
+            completed = run_runner(package, env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertEqual(attempts.read_text(encoding="utf-8"), "3")
+            self.assertIn("build database was locked", completed.stdout)
+            self.assertIn("PASS ^ExampleTests\\.LockedSuite/", completed.stdout)
+
     def test_invalid_job_count_is_refused(self) -> None:
         for jobs in ("0", "two", "-3"):
             with self.subTest(jobs=jobs), tempfile.TemporaryDirectory() as temp_dir:

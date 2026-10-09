@@ -9,6 +9,11 @@ Append-only. One line per landing: date, SHA, lane, what moved where, old -> new
 - 2026-10-09 1fcf1f23a7a9..999d5b6a4d70 refactor-swift-ts: webviews/src/App.tsx -> webviews/src/diff-viewer/{Toolbar,FileHeader,FilesSidebar,Loading,WorkerRenderOptionsSync}.tsx, useSyncedRef.ts, useRenderDiff.ts, useDiffComments.ts, bootstrap.ts, page-effects.ts; App.tsx 2649 -> 697; nx-remote web gate (332 test files) 3.5 min.
 - 2026-10-09 e6c55a6eab8d refactor-swift-ts: HomeStore.swift -> HomeStore+{Cache,Paging,Writing,Attachments,Uploads,Backoff,BlobCache,Events,Hooks}.swift (phase 1, extension split); file 1427 -> 285, type unchanged; cmux-ci CmuxHomeCoreTests 120/120, about 5 min.
 
+- 2026-10-09 cdde5b4d3a34 refactor-swift-ts: MobileCoreRPCSession.swift -> MobileCoreRPCSession+{TearDown,Connect,ReadWrite,PendingRequests,CancelledWrites,ControlStreamRepair,TransportClose}.swift (phase 1); 1741 -> 430; cmux-ci CmuxMobileRPCTests 221/223 (2 named reds, bead filed), about 6 min.
+- 2026-10-09 3a3629c3d9b6 refactor-swift-ts: MobilePairedMacStore.swift -> MobilePairedMacStore+{Migrations,Upsert,RouteAuthority}.swift (phase 1); 1616 -> 362; cmux-ci CmuxMobilePairedMacTests 45/45, about 5 min.
+- 2026-10-09 0b8109dc0e0c refactor-swift-ts: test-only fix of the RPCStackTokenGate reset tests (helper raced a 1 ns timeout against the released provider); suite 10/10 x10 green, step 16763635.
+- 2026-10-09 6963cf9ff635 refactor-swift-ts: HomeStore phase 2 step 1, HomeConversationHookRegistry owns the conversation hooks (owner split); CmuxHomeCoreTests 122/122, CmuxHomeRenderTests 115/115, about 6 min.
+
 ## Phase 2 designs
 
 ### HomeStore owner split (proposed, needs hq-6d agreement)
@@ -21,7 +26,7 @@ Phase 1 only spread HomeStore over extension files; the type still owns about 30
 4. `HomeBlobCache` (`@MainActor` final class with `@concurrent` statics): owns `blobCacheDirectory`, `localFiles`, `pruneLoop`, `pruning`, `preparing`, `createdAt`; prepare, prune, local stand-ins, fetch. It reads the pinned hashes from a closure that the store supplies (pending sends and the session's attachments).
 5. `HomeSendPipeline` (`@MainActor` final class): owns `uploads`, `sendQueue`, `turnWaiters`, `backoffTasks`, `backoffAttempts`, and `UploadJob`; the upload passes, the per-conversation send order, and backoff. It talks to the store through a narrow protocol (submit an intent, bump a row, report a refusal or an unanswered op). It is the largest and riskiest step, so it goes last, after 1-4 show the pattern.
 
-Open question for hq-6d: whether `HomeSendPipeline` should instead move into the Rust conversation owner (lane rule "Swift paper cuts go to Rust"), which would make step 5 a deletion, not a move.
+Decided (hq-6d, 2026-10-09): steps 1-4 stay in Swift as above. Step 5 moves to the Rust conversation owner instead, so the app, `cmux chief` and the JS runtime share one send queue and retry rule. Step 5 needs the CORE token and v2 upload ops; design it with hq-6d before any code. HomeSendPipeline is not built in Swift.
 
 ### Same rule for the other phase-1 splits
 

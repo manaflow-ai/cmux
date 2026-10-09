@@ -68,7 +68,7 @@ final class HomeVideo {
             mask.frame = CGRect(origin: .zero, size: body.size)
             layer.mask = mask
             let badge = badges[key] ?? Self.makeBadge()
-            badges[key] = badge
+            badges.updateValue(badge, forKey: key) // // crash program: dictionary write
             if badge.superlayer !== cell.layer { cell.layer.addSublayer(badge) }
             badge.position = CGPoint(x: body.midX, y: body.midY)
             let state = playback.state(key)

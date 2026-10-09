@@ -59,6 +59,7 @@ fn setup(workspaces: Option<Arc<FakeWorkspaces>>) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
@@ -189,14 +190,16 @@ fn spawn_takes_an_optional_directory_from_every_surface() {
         Call::parse("spawn", &json!({"tasks": ["x"], "cwd": "~/fun/repo"})),
         Ok(Call::Spawn {
             tasks: vec!["x".into()],
-            cwd: Some("~/fun/repo".into())
+            cwd: Some("~/fun/repo".into()),
+            effort: None,
         })
     );
     assert_eq!(
         command("spawn", &["--cwd", "~/fun/repo", "x"]),
         Ok(Command::Call(Call::Spawn {
             tasks: vec!["x".into()],
-            cwd: Some("~/fun/repo".into())
+            cwd: Some("~/fun/repo".into()),
+            effort: None,
         }))
     );
     let tools = optchat_chief::mcp::tools_for(false);

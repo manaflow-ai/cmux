@@ -68,6 +68,26 @@ fn script() -> Script {
                 json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
             ];
         }
+        if last.contains("keep working") {
+            // A turn still at work (its end is pushed by the test).
+            return vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "agent_message_chunk",
+                    json!({"content": {"type": "text", "text": "Working."}}),
+                ),
+            ];
+        }
+        if last.ends_with("long work") {
+            // A turn whose tool call runs until the test ends it.
+            return vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "tool_call",
+                    json!({"toolCallId": "lw", "title": "Bash", "status": "in_progress", "rawInput": {"command": "make"}, "_meta": {"claude": {"tool": "Bash"}}}),
+                ),
+            ];
+        }
         if last.starts_with("more:") {
             return vec![
                 json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": "optchat-tell:x", "text": last}}),
@@ -148,6 +168,7 @@ fn setup_with(f: impl FnOnce(Spawner) -> Spawner) -> Setup {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
             preset: Some("optchat-sub-h0me".into()),
             cwd: h.dir.path().join("subagent"),
             prefix: "optchat-sub-h0me".into(),
@@ -244,8 +265,12 @@ fn spawn_starts_one_tagged_session_per_task_with_the_view_then_the_task() {
     }
     // The first message: the view (it holds the earlier turn), then the task.
     let first = &agents.prompts[1];
-    assert!(first[0]["text"].as_str().unwrap().starts_with("<chat>"));
-    assert!(first[0]["text"].as_str().unwrap().contains("hello"));
+    let view: String = first[..first.len() - 1]
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect();
+    assert!(view.starts_with("<chat>\n"), "{view}");
+    assert!(view.contains("hello"), "{view}");
     assert_eq!(
         first.last().unwrap()["text"],
         "Your task:\n\nlist the files in ~/"
@@ -820,4 +845,194 @@ fn a_claude_spawn_in_the_users_directory_takes_no_mark() {
         !theirs.path().join(".claude").exists(),
         "nothing written there"
     );
+}
+
+/// Decision 2026-10-09 (hq-6d): a report never stops the running turn.
+/// When the turn cannot be steered (here: the session does not steer), the
+/// report waits and the next turn answers it; no cancel. A human message
+/// in that case still stops the turn (audit2.rs, 2026-10-04 rule).
+#[test]
+fn a_report_during_a_turn_that_cannot_steer_queues_without_a_cancel() {
+    let mut s = setup();
+    spawn(&mut s, &["count the files"]).unwrap();
+    s.h.agents.hold(true);
+    s.h.say("user_local", "keep working");
+    s.h.step(); // settled: the turn starts
+    s.h.step(); // the turn's session exists
+    s.h.agents.wait_prompts(2);
+    finish(&mut s, "s1", "s1", "a1");
+    // A stop would leave off the brain thread at once.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        s.h.agents.inner.lock().unwrap().cancels.is_empty(),
+        "the report does not stop the turn"
+    );
+    s.h.agents.push_events(
+        "s2",
+        vec![json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}})],
+    );
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    s.h.agents.release();
+    s.h.settle();
+    assert!(s.h.agents.inner.lock().unwrap().cancels.is_empty());
+    let prompts = s.h.agents.inner.lock().unwrap().prompts.clone();
+    assert_eq!(
+        prompts.len(),
+        3,
+        "the subagent, the turn, then the next turn"
+    );
+    let last = prompts[2].last().unwrap()["text"].as_str().unwrap();
+    assert!(last.starts_with("[a1] done: count the files"), "{last}");
+}
+
+/// Live proof subp5: a report steered into the running turn left the queue
+/// before it was logged, so the next subagent's finish queued it again and
+/// the Chief read `[a2] 5` twice. A report on its way is never queued again.
+#[test]
+fn a_report_steered_into_a_running_turn_is_logged_once() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().steering = true;
+    spawn(&mut s, &["one", "two"]).unwrap();
+    s.h.agents.hold(true);
+    s.h.say("user_local", "long work");
+    s.h.step(); // settled: the turn starts
+    s.h.step(); // the turn's session exists
+    s.h.agents.wait_prompts(3);
+    // a1 finishes: its report is steered into the running turn.
+    finish(&mut s, "s1", "s1", "a1");
+    s.h.agents.wait_steers(1);
+    // a2 finishes before the brain hears that the steer was read.
+    finish(&mut s, "s2", "s1", "a2");
+    s.h.agents.push_events(
+        "s3",
+        vec![
+            update(
+                "tool_call_update",
+                json!({"toolCallId": "lw", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "ok"}}]}),
+            ),
+            update("agent_message_chunk", json!({"content": {"type": "text", "text": "answer long"}})),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    s.h.agents.hold(false);
+    s.h.agents.release();
+    s.h.settle();
+    let log = s.h.log();
+    let count = |id: &str| {
+        log.iter()
+            .filter(|(k, t)| k == "user" && t.starts_with(&format!("[{id}] ")))
+            .count()
+    };
+    assert_eq!(count("a1"), 1, "{log:?}");
+    assert_eq!(count("a2"), 1, "{log:?}");
+}
+
+/// Reference parity S4: a tell to a RUNNING subagent is steered into its
+/// session, read between its tool calls (one run answers both), not queued
+/// as a second turn.
+#[test]
+fn a_tell_to_a_running_subagent_is_steered_into_its_session() {
+    let mut s = setup();
+    s.h.agents.inner.lock().unwrap().steering = true;
+    spawn(&mut s, &["one"]).unwrap();
+    let prompts = s.h.agents.inner.lock().unwrap().prompts.len();
+    let answer = call(&mut s, |sp| sp.tell("a1", "also check the tests")).unwrap();
+    assert!(answer.contains("between its tool calls"), "{answer}");
+    s.h.agents.wait_steers(1);
+    let inner = s.h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), prompts, "no second prompt");
+    assert_eq!(inner.steers.len(), 1);
+    assert_eq!(inner.steers[0].0, "s1");
+    assert_eq!(inner.steers[0].1[0]["text"], "also check the tests");
+}
+
+/// A running session that cannot steer (a harness without it) takes the
+/// tell as its next prompt, as before.
+#[test]
+fn a_tell_that_cannot_steer_is_queued_as_its_next_prompt() {
+    let mut s = setup();
+    spawn(&mut s, &["one"]).unwrap();
+    call(&mut s, |sp| sp.tell("a1", "more: please")).unwrap();
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        let sent =
+            s.h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .prompt_ids
+                .iter()
+                .any(|p| p.starts_with("optchat-tell:a1:"));
+        if sent {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the tell never became a prompt"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(s.h.agents.inner.lock().unwrap().steers.is_empty());
+}
+
+/// Reference parity S11: stop ONE subagent by name (`chief.stop {name}`):
+/// only its session is cancelled; the turn and the other subagents go on.
+#[test]
+fn chief_stop_with_a_name_stops_only_that_subagent() {
+    let mut s = setup();
+    spawn(&mut s, &["one", "two", "three"]).unwrap();
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a2".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": true, "subagents": ["a2"], "note": "Stopped by the user: a2."})
+    );
+    assert_eq!(
+        s.h.agents.inner.lock().unwrap().cancels,
+        vec!["s2".to_owned()]
+    );
+    let (reply, answer) = std::sync::mpsc::channel();
+    s.h.brain.step(optchat_chief::brain::Input::StopSubagent {
+        name: "a9".into(),
+        reply,
+    });
+    assert_eq!(
+        answer.recv().unwrap(),
+        json!({"stopped": false, "error": "no subagent a9 at work"})
+    );
+}
+
+/// Reference parity S2: `spawn(tasks, effort?)`: how hard the subagents
+/// think; by default as hard as the Chief's turn.
+#[test]
+fn a_spawn_takes_an_effort_and_defaults_to_the_turns() {
+    assert_eq!(
+        Call::parse("spawn", &json!({"tasks": ["x"], "effort": "high"})).unwrap(),
+        Call::Spawn {
+            tasks: vec!["x".into()],
+            cwd: None,
+            effort: Some("high".into())
+        }
+    );
+    assert!(Call::parse("spawn", &json!({"tasks": ["x"], "effort": "harder"})).is_err());
+    let mut s = setup();
+    s.h.say("user_local", "hello");
+    s.h.settle();
+    call(&mut s, |sp| {
+        sp.spawn_with_effort(vec!["one".into()], None, Some("high".into()))
+    })
+    .unwrap();
+    spawn(&mut s, &["two"]).unwrap();
+    let specs = s.h.agents.inner.lock().unwrap().specs.clone();
+    let turn = specs[0].effort.clone();
+    let subs: Vec<_> = specs
+        .iter()
+        .filter(|sp| sp.name.starts_with("optchat-sub-h0me-"))
+        .collect();
+    assert_eq!(subs[0].effort.as_deref(), Some("high"));
+    assert_eq!(subs[1].effort, turn, "as hard as the turn");
 }

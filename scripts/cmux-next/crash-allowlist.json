@@ -4,6 +4,13 @@
   "swift.as_bang",
   "swift.assume_isolated",
   "swift.fatal_error",
+  "swift.force_unwrap",
+  "swift.index_subscript@CmuxHomeRender",
+  "swift.index_subscript@CmuxTerminalSizing",
+  "swift.index_subscript@MessagesLabSidebar",
+  "swift.int_conversion@CmuxHomeRender",
+  "swift.int_conversion@CmuxTerminalSizing",
+  "swift.int_conversion@MessagesLabSidebar",
   "swift.iuo",
   "swift.objc_selector",
   "swift.precondition",
@@ -548,6 +555,34 @@
    "count": 1,
    "reason": "owned child, nested lifetime: the surface view owns its copy mode, which ends with it (TerminalCopyModeLifetimeTests)",
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+  },
+  {
+   "path": "Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Support/CrashGuard.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "The checked accessor itself: startIndex <= index < endIndex is checked on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/CrashGuard.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "The checked accessor itself: startIndex <= index < endIndex is checked on the line above.",
+   "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/SidebarPinDragging.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "array.indices.contains(index) is checked on the same line.",
+   "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/catalyst/ConversationList.swift",
+   "class": "swift.index_subscript",
+   "count": 4,
+   "reason": "Fixture seeding: a and b come from firstIndex on the same items array in the enclosing if-let, with no mutation of items between.",
+   "reviewer": "crash-lead 2026-10-09 (per-module ban of index_subscript; moved from inline crash-allow)"
   }
  ]
 }
