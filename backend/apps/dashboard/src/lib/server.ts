@@ -146,6 +146,20 @@ export const mutate = createServerFn({ method: "POST" })
     return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" })
   })
 
+/**
+ * team_vm.retired.export (cx-lyvg): sends the op with the session, then answers the absolute
+ * download URL on the API origin (single use, 5 minutes) for the browser to open; null on failure.
+ */
+export const exportTeamFiles = createServerFn({ method: "POST" })
+  .validator((d: { vm: string; idempotency_key: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    const r = await post<OpResponse>("/v1/ops", { op: "team_vm.retired.export", params: { vm: data.vm }, idempotency_key: data.idempotency_key, origin: "user" })
+    const value = r.body.ok && r.body.value && typeof r.body.value === "object" && !Array.isArray(r.body.value) ? r.body.value : null
+    const path = value && typeof value.path === "string" && value.path.startsWith("/v1/team-vm/export/") ? value.path : null
+    return { ...r, url: path ? `${apiUrl()}${path}` : null }
+  })
+
 export const read = createServerFn({ method: "POST" })
   .validator((d: { op: string; params: Record<string, unknown> }) => d)
   .handler(async ({ data }) => {
