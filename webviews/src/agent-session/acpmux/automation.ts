@@ -24,6 +24,9 @@ export type AutomationHost = {
   pickFolder?(cwd: string): void;
 };
 
+const TRANSCRIPT_ROWS = 30;
+const TRANSCRIPT_CHARS = 500;
+
 /// What a script needs to decide its next step, as plain JSON.
 export function automationState(host: AutomationHost) {
   const snapshot = host.snapshot();
@@ -35,6 +38,14 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
+    missingSession: snapshot.missingSession ?? null,
+    /// The chat as the pane shows it: the last TRANSCRIPT_ROWS user and assistant rows, each cut
+    /// at TRANSCRIPT_CHARS, so a live proof checks the real text, not only a row count.
+    transcript: snapshot.rows
+      .filter((row) => (row.kind === "user" || row.kind === "assistant") && typeof row.text === "string")
+      .slice(-TRANSCRIPT_ROWS)
+      .map((row) => ({ kind: row.kind, text: (row.text ?? "").slice(0, TRANSCRIPT_CHARS) })),
     lastAssistant: assistant ? { text: assistant.text ?? "", streaming: assistant.streaming === true } : null,
     sessions: snapshot.sessions.map((session) => ({
       sessionId: session.sessionId,

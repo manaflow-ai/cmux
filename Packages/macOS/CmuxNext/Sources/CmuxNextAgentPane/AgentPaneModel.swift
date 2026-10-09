@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextSettings
 public import Foundation
 public import Observation
 
@@ -77,10 +78,6 @@ public final class AgentPaneModel {
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
-    /// Set for a tab a `cmux://session/<id>` link opened: the handshake asks
-    /// the page to refuse a session the daemon does not have rather than
-    /// show the most recent one. Cleared once the page reports a session.
-    @ObservationIgnored public var sessionMustExist = false
     /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
@@ -129,6 +126,8 @@ public final class AgentPaneModel {
     /// the user picks; true when saved, false when the user cancelled. Nil
     /// leaves the page to copy the log instead.
     @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
+    @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
+    @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -231,7 +230,10 @@ public final class AgentPaneModel {
                 if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
                 handshake.linkScheme = linkScheme
                 handshake.machineName = await Self.localMachineName?.value
-                if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                // A pane attaches only to the exact session its tab recorded: a session the
+                // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
+                // available", never another chat (P1 2026-10-09).
+                if sessionId != nil { handshake.sessionMustExist = true }
                 let filled = await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
                 handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 handshake.revealTurn = pendingRevealTurn
@@ -249,7 +251,6 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
-            sessionMustExist = false
             if id != sessionId {
                 sessionId = id
                 newTab = nil
@@ -378,14 +379,11 @@ public final class AgentPaneModel {
             guard let intent else { return Self.transportFailure(.intentInvalid) }
             guard let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
             return AgentPaneReply.success(["ticket": ticket])
-        case .transportGestureRelease:
-            transport.gestures.clearTickets()
-            return AgentPaneReply.success()
-        case .transportClose(let connection):
-            transport.close(connection: connection)
-            return AgentPaneReply.success()
+        case .transportGestureRelease: return endTransport(closing: nil)
+        case .transportClose(let connection): return endTransport(closing: connection)
         case .reply(let reply): return await respond(to: reply)
         case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
+        case .showContextUsage(let show): return await showContextUsage(show)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

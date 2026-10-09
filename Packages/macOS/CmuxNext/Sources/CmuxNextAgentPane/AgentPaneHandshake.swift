@@ -60,10 +60,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// the links the page copies (`links.ts` `sessionLink`). Pages that
     /// predate it ignore it.
     public var linkScheme: String?
-    /// True for a tab a `cmux://session/<id>` link opened: `sessionId`
-    /// must exist. When the daemon has no such session the page says so
-    /// instead of falling back to the most recent one, and marks nothing
-    /// seen. Pages that predate it fall back as before.
+    /// True whenever `sessionId` is set (a tab's recorded session): it must
+    /// exist. When the daemon has no such session, or it goes away, the page
+    /// says so instead of showing another session, and marks nothing seen.
+    /// Pages that predate it fall back as before.
     public var sessionMustExist: Bool?
     /// The turn a `cmux://session/<id>#turn-<turnId>` link names: the page
     /// scrolls to it once its row renders, and gives up quietly after a few

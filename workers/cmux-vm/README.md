@@ -83,6 +83,13 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## Operations
 
+Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
+production every tenant may create; in production a tenant may create when it is
+listed in `DEV_TEST_TENANT_IDS` (dev/test: idle timeout at most 300 s) or in
+`MANAFLOW_TEAM_TENANT_IDS` (the manaflow-team flag, cx-b4h.16: product tenant,
+no idle cap). Every other team gets 402. Both lists are Worker vars in
+`wrangler.jsonc`; change them in a reviewed commit.
+
 API key management (`/v1/api-keys`) writes `cmux_vm.api_keys`. Besides
 SELECT, the Worker's database role needs, applied by an operator:
 

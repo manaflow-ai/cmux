@@ -135,6 +135,9 @@ Each action is one step, and the stage measures it:
 - anchors: the entry's `anchors` (targets). An anchor the step did not target must not move or
   resize (0 px).
 - layout shift: the step's CLS sum and each shift with its source node (0 allowed).
+- action-to-settled latency: wall time from dispatching the gesture until the page settles; the
+  matrix reports p50 / p95 / max, and an entry may gate each step with `settleMaxMs` when the
+  interaction has a user-facing responsiveness budget.
 - long frames: Long Animation Frames (Chromium), else rAF intervals. A frame over 16.7 ms is
   reported (warn). A frame over 33 ms fails only from Chromium's Long Animation Frames data:
   headless WebKit on a CPU-only VM renders in software, and its rAF timing measures the VM. So
@@ -146,6 +149,15 @@ checks override the entry defaults, and `validateEntries` refuses a check withou
 
 ```ts
 checks: { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } },
+```
+
+For an interaction with a responsiveness budget, combine the frame checks with a measured settle
+budget. The report still records every sample and the matrix shows its p50 / p95 / max values:
+
+```ts
+checks: {
+  settleMaxMs: { value: 250, reason: "Image viewer actions should settle within a quarter second." },
+},
 ```
 
 The report is `window.cmuxGalleryPlayReport` (and `data-gallery-play` on the stage's root). The
