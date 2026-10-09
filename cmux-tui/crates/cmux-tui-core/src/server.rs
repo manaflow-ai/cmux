@@ -146,6 +146,7 @@ mod remote_entry;
 mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
+mod cmd_tabs;
 mod cmd_workspaces;
 mod responses;
 mod rows;
@@ -2212,21 +2213,6 @@ fn resolve_tab_refs(mux: &Mux, refs: &[TabRef]) -> anyhow::Result<Vec<SurfaceId>
     })
 }
 
-fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
-    match reference {
-        PaneRef::Id(pane) => Ok(*pane),
-        PaneRef::Public(id) => mux
-            .with_state(|state| {
-                state
-                    .resource_indexes
-                    .panes
-                    .iter()
-                    .find_map(|(pane, slot)| (pane.as_str() == id).then_some(*slot))
-            })
-            .ok_or_else(|| anyhow::anyhow!("unknown pane {id}")),
-    }
-}
-
 /// Upper bound on one `close-tabs` request; larger sets split into several.
 const MAX_CLOSE_TABS_SURFACES: usize = 4096;
 
@@ -2256,16 +2242,6 @@ fn validate_client_transaction(transaction: Option<&str>) -> anyhow::Result<()> 
         );
     }
     Ok(())
-}
-
-fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
-    mux.with_state(|state| {
-        let pane = state.pane_of(surface);
-        let workspace = pane
-            .and_then(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id);
-        (workspace, pane)
-    })
 }
 
 /// The pane that anchors a column drop: the given pane, or the active pane of the given screen.
@@ -6198,37 +6174,34 @@ fn handle_command_with_cancellation(
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            let spawn = placement_spawn_options(
+            cmd_tabs::new_tab(
+                mux,
+                client,
+                actor,
+                pane,
                 cwd,
-                env.as_ref(),
+                env,
+                cols,
+                rows,
+                keep,
                 terminal_id,
                 shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface = mux.new_tab_with_options_as(
-                &actor,
-                pane,
-                spawn,
-                optional_surface_size(cols, rows),
-            )?;
-            placed_terminal_result(mux, &surface, keep)
+            )
         }
-        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, client, params),
+        Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
-            conversation_tabs_wire::bind(mux, &actor, params)
+            cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
         Command::NewFrontendBrowserTab(params) => {
-            frontend_browser_history::create(mux, client, params)
+            cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }
         Command::UpdateFrontendBrowserTab(params) => {
-            frontend_browser_history::update(mux, &actor, params)
+            cmd_tabs::update_frontend_browser_tab(mux, actor, params)
         }
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {
-            let surface =
-                mux.new_browser_tab_as(&actor, url, pane, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+            cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
         Command::GetCellPixels => {
             let (width_px, height_px) = mux.cell_pixel_creation_size();
@@ -6748,211 +6721,92 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::MoveTabToWorkspace { surface, workspace, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            mux.move_tab_to_workspace_as(&actor, surface, workspace)?;
-            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
-            let (workspace, pane) = surface_placement(mux, surface);
-            Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
+            cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
         }
         Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = split_tab(mux, client, surface, pane, edge, ratio, respawn, transaction)?;
-            Ok(tab_drag_outcome_json(&outcome))
+            cmd_tabs::move_tab_to_split(
+                mux,
+                client,
+                surface,
+                pane,
+                edge,
+                ratio,
+                respawn,
+                transaction,
+            )
         }
-        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, client, params),
+        Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => rows::new_row(mux, client, params),
         Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let workspace =
-                mux.move_tab_to_new_workspace_as(&actor, surface, group.clone(), index, name)?;
-            mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
-            let (key, workspace_index) = mux
-                .with_state(|state| {
-                    let index = state.workspace_index(workspace)?;
-                    Some((state.workspaces[index].key.clone(), index))
-                })
-                .ok_or_else(|| anyhow::anyhow!("new workspace disappeared"))?;
-            let (_, pane) = surface_placement(mux, surface);
-            Ok(json!({
-                "surface": surface,
-                "workspace": workspace,
-                "key": key,
-                "index": workspace_index,
-                "group": group,
-                "pane": pane,
-                "undoable": false,
-            }))
+            cmd_tabs::move_tab_to_new_workspace(
+                mux,
+                actor,
+                surface,
+                group,
+                index,
+                name,
+                transaction,
+            )
         }
         Command::MoveTab { surface, pane, index, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let valid = mux.with_state(|state| {
-                state.surfaces.contains_key(&surface)
-                    && state.panes.contains_key(&pane)
-                    && state.pane_of(surface).is_some()
-            });
-            if !valid {
-                anyhow::bail!("unknown surface/pane");
-            }
-            let index = mux.pinned_tab_move_index(surface, pane, index);
-            let (moved, undoable) =
-                mux.move_tab_with_undo_as(&actor, surface, pane, index, transaction);
-            Ok(json!({"moved": moved, "undoable": undoable}))
+            cmd_tabs::move_tab(mux, actor, surface, pane, index, transaction)
         }
-        Command::ListTabGroups => {
-            let presentation = mux.presentation_snapshot();
-            let groups = mux.with_state(|state| {
-                let mut groups = Vec::new();
-                for pane in state.panes.keys() {
-                    for run in crate::mux::pane_tab_groups(state, &presentation, *pane) {
-                        groups.push(pane_tab_group_json(&run, Some(*pane)));
-                    }
-                }
-                groups
-            });
-            Ok(json!({ "groups": groups }))
-        }
+        Command::ListTabGroups => cmd_tabs::list_tab_groups(mux),
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome = mux.create_tab_group_as(
-                &actor,
-                &surfaces,
-                name,
-                color,
-                group,
-                transaction.as_deref(),
-            )?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::create_tab_group(mux, actor, surfaces, name, color, group, transaction)
         }
-        Command::UpdateTabGroup { group, name, color, collapsed } => Ok(tab_group_outcome_json(
-            &mux.update_tab_group_as(&actor, &group, name, color, collapsed)?,
-        )),
+        Command::UpdateTabGroup { group, name, color, collapsed } => {
+            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed)
+        }
         Command::AddTabsToTabGroup { group, surfaces, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let outcome =
-                mux.add_tabs_to_tab_group_as(&actor, &group, &surfaces, transaction.as_deref())?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::add_tabs_to_tab_group(mux, actor, group, surfaces, transaction)
         }
         Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let surfaces = resolve_tab_refs(mux, &surfaces)?;
-            let groups =
-                mux.remove_tabs_from_tab_group_as(&actor, &surfaces, transaction.as_deref())?;
-            Ok(json!({ "surfaces": surfaces, "groups": groups }))
+            cmd_tabs::remove_tabs_from_tab_group(mux, actor, surfaces, transaction)
         }
         Command::MoveTabGroup { group, pane, index, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let pane =
-                match pane {
-                    Some(pane) => resolve_pane_ref(mux, &pane)?,
-                    None => mux
-                        .with_state(|state| {
-                            let presentation = mux.presentation_snapshot();
-                            let record = presentation.tab_groups.groups.get(&group)?;
-                            state.resource_indexes.panes.iter().find_map(|(id, slot)| {
-                                (id.as_str() == record.pane_id).then_some(*slot)
-                            })
-                        })
-                        .ok_or_else(|| anyhow::anyhow!("unknown tab group {group}"))?,
-                };
-            let outcome = mux.move_tab_group_as(
-                &actor,
-                &group,
-                crate::TabGroupDestination::Strip { pane, index },
-                transaction.as_deref(),
-            )?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::move_tab_group(mux, actor, group, pane, index, transaction)
         }
         Command::MoveTabGroupToSplit { group, pane, edge, ratio, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let pane = resolve_pane_ref(mux, &pane)?;
-            if let Some(ratio) = ratio {
-                anyhow::ensure!(
-                    ratio.is_finite() && (0.05..=0.95).contains(&ratio),
-                    "bad request: ratio must be between 0.05 and 0.95"
-                );
-            }
-            let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = mux.move_tab_group_as(
-                &actor,
-                &group,
-                crate::TabGroupDestination::Split { pane, edge, ratio },
-                transaction.as_deref(),
-            )?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::move_tab_group_to_split(mux, actor, group, pane, edge, ratio, transaction)
         }
         Command::MoveTabGroupToColumn { group, pane, screen, after_column, width, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let pane = pane.map(|pane| resolve_pane_ref(mux, &pane)).transpose()?;
-            let pane = column_anchor(mux, pane, screen)?;
-            let outcome = mux.move_tab_group_as(
-                &actor,
-                &group,
-                crate::TabGroupDestination::Column { pane, after_column, width },
-                transaction.as_deref(),
-            )?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::move_tab_group_to_column(
+                mux,
+                actor,
+                group,
+                pane,
+                screen,
+                after_column,
+                width,
+                transaction,
+            )
         }
         Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let outcome = mux.move_tab_group_as(
-                &actor,
-                &group,
-                crate::TabGroupDestination::NewWorkspace { group: workspace_group, index },
-                transaction.as_deref(),
-            )?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::move_tab_group_to_new_workspace(
+                mux,
+                actor,
+                group,
+                workspace_group,
+                index,
+                transaction,
+            )
         }
-        Command::UngroupTabGroup { group } => {
-            let members = mux.ungroup_tab_group_as(&actor, &group)?;
-            Ok(json!({ "group": group, "surfaces": members }))
-        }
+        Command::UngroupTabGroup { group } => cmd_tabs::ungroup_tab_group(mux, actor, group),
         Command::CloseTabGroup { group, end_terminals } => {
-            if !end_terminals {
-                let closed = mux.close_tab_group_as(&actor, &group)?;
-                return Ok(json!({ "group": group, "closed": closed }));
-            }
-            let outcome = mux.close_container_ending_terminals_as(
-                &actor,
-                crate::BatchCloseTarget::TabGroup(group.clone()),
-            )?;
-            Ok(json!({
-                "group": group,
-                "closed": outcome.closed(),
-                "terminals": batch_close_terminals_json(&outcome),
-            }))
+            cmd_tabs::close_tab_group(mux, actor, group, end_terminals)
         }
-        Command::ListSavedTabGroups => Ok(json!({ "saved_groups": mux.saved_tab_groups() })),
-        Command::SaveTabGroup { group } => {
-            let saved = mux.save_tab_group_as(&actor, &group)?;
-            Ok(json!({ "group": group, "saved": saved }))
-        }
-        Command::UnsaveTabGroup { group } => {
-            Ok(json!({ "group": group, "unsaved": mux.unsave_tab_group_as(&actor, &group)? }))
-        }
+        Command::ListSavedTabGroups => cmd_tabs::list_saved_tab_groups(mux),
+        Command::SaveTabGroup { group } => cmd_tabs::save_tab_group(mux, actor, group),
+        Command::UnsaveTabGroup { group } => cmd_tabs::unsave_tab_group(mux, actor, group),
         Command::DeleteSavedTabGroup { saved } => {
-            Ok(json!({ "saved": saved, "deleted": mux.delete_saved_tab_group_as(&actor, &saved)? }))
+            cmd_tabs::delete_saved_tab_group(mux, actor, saved)
         }
         Command::ReopenSavedTabGroup { saved, pane, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            let pane = resolve_pane_ref(mux, &pane)?;
-            let outcome =
-                mux.reopen_saved_tab_group_as(&actor, &saved, pane, transaction.as_deref())?;
-            Ok(tab_group_outcome_json(&outcome))
+            cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
-        Command::AckTabNotifications { surface } => {
-            let ack = mux.acknowledge_tab_notifications(surface)?;
-            Ok(json!({
-                "surface": surface,
-                "cleared": ack.cleared,
-                "acknowledged": ack.acknowledged,
-            }))
-        }
+        Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
         Command::ListNotifications { limit } => {
             let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
             Ok(json!({
@@ -6976,14 +6830,7 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::SetTabPinned { surface, pinned } => {
-            get_surface(mux, surface)?;
-            let change = mux.set_tab_pinned_as(&actor, surface, pinned)?;
-            Ok(json!({
-                "surface": surface,
-                "pinned": pinned,
-                "index": change.index,
-                "changed": change.changed,
-            }))
+            cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }
         Command::MoveWorkspace { workspace, key, index, mutation } => {
             cmd_workspaces::move_workspace(mux, client, workspace, key, index, mutation)
@@ -7259,30 +7106,18 @@ fn handle_command_with_cancellation(
             mux.set_default_colors(colors);
             Ok(json!({}))
         }
-        Command::CloseSurface { surface } => {
-            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
-            // runtime surface after a restart but is still a placed tab.
-            if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
-                anyhow::bail!("unknown surface {surface}");
-            }
-            if !mux.close_surface_as(&actor, surface)? {
-                anyhow::bail!("unknown surface {surface}");
-            }
-            Ok(json!({}))
-        }
+        Command::CloseSurface { surface } => cmd_tabs::close_surface(mux, actor, surface),
         Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
-            close_tabs_command::run(
+            cmd_tabs::close_tabs(
                 mux,
                 client,
-                &surfaces,
+                surfaces,
                 end_terminals,
                 transaction,
                 reason,
-                &mutation,
+                mutation,
             )
         }
-        // With `end_terminals` the result shapes stay those of the plain
-        // closes; the ended terminals show in the terminal and resource streams.
         Command::ClosePane { pane, end_terminals } => {
             if end_terminals {
                 mux.close_container_ending_terminals_as(
@@ -7321,10 +7156,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::RenameSurface { surface, name } => {
-            if !mux.rename_surface_as(&actor, surface, name) {
-                anyhow::bail!("unknown surface {surface}");
-            }
-            Ok(json!({}))
+            cmd_tabs::rename_surface(mux, actor, surface, name)
         }
         Command::RenameScreen { screen, name } => {
             if !mux.rename_screen_as(&actor, screen, name) {
@@ -7576,8 +7408,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::SelectTab { pane, index, delta } => {
-            mux.select_tab_as(&actor, pane, index, delta);
-            Ok(json!({}))
+            cmd_tabs::select_tab(mux, actor, pane, index, delta)
         }
         Command::SelectScreen { index, delta } => {
             mux.select_screen_as(&actor, index, delta);
