@@ -230,3 +230,40 @@ Next steps (in order):
 
 Windows VM leftovers for these tests: `C:\build-wb\wd-dist` (release dist with
 the tree's cmux-tui.exe), `wd-dist-nobin`, `wd-tui` (test script).
+
+## Progress (2026-10-09, continuation agent, branch `gpui-windows-terminal-hosts-2`)
+
+Rebased on feat-cmux-next with B2b (bcb887e23aa5). New commits:
+
+- Breakaway notice, wire: tab JSON `terminal_host_fallback` (null, or
+  `"breakaway_denied"`). It is set on the surface before publication
+  (`Surface::mark_terminal_host_fallback`), so every tree and every later
+  client shows it. A string in sdk-schema (not an enum), so old SDKs read new
+  reasons; no capability (the field is informative and nullable).
+  `surface/host_state.rs` holds it (with `TerminalHostConnectionState`, moved
+  out of surface.rs for the god-file ratchet); `server/raw_tab.rs`
+  `merge_surface_fields` emits it (server.rs net 0 lines).
+- Red tests: `server/tests/wire_commands.rs`
+  `tab_json_reports_why_a_terminal_has_no_host_of_its_own` (portable);
+  `tests/windows_terminal_hosts.rs`
+  `a_terminal_without_breakaway_runs_in_process_and_says_so` (daemon started
+  suspended in a Job Object without BREAKAWAY_OK; red until the host spawn
+  lands) and `a_hosted_terminal_reports_no_fallback`.
+- String: `terminal.link.inProcess` in CmuxNextTerminal Localizable.xcstrings
+  (en translated, 20 languages needs_review; check-l10n passes). macOS does
+  not show it (only Windows sets the field).
+- `windows/standby.rs`: `spawn_host_process` (CreateProcessW, handle list,
+  no window, own group, breakaway), `HostSpawnError::BreakawayDenied`,
+  `in_job`, `breakaway_allowed`; tests (pipes, drop ends the process, a
+  helper test process in a job without breakaway gets BreakawayDenied).
+
+Open:
+
+- God-file ratchet: `terminal_host_runtime.rs` is +4 lines over its baseline
+  because of our `pub mod windows;`. Only the split lane writes that file:
+  request R1 in cmuxterm-hq `.cmux-scratch/cx-ko2e-split-items.md`.
+- Wiring the fallback (mark the surface when the spawn says BreakawayDenied)
+  waits for the host runtime on Windows (`serve_terminal_host_stdio`, the
+  B rows of the split). Until then Windows hosts are off and nothing sets it.
+- GPUI banner: after the cmux change lands and cmux-shared.pin includes the
+  string.
