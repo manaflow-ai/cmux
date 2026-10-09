@@ -10,6 +10,8 @@ export type ProviderState = "starting" | "running" | "pausing" | "paused" | "sto
 
 export interface TeamVmLease {
   readonly holder: string
+  /** The person behind the holder, so their removal from the team ends the lease (cx-3bi.43). */
+  readonly user?: string
   readonly reason: string
   readonly expires_at: number
 }
@@ -99,7 +101,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
           team: state.team ?? p.team!,
           status,
           pending,
-          leases: { ...state.leases, [lease]: { holder: p.identity, reason: d.value.reason, expires_at } },
+          leases: { ...state.leases, [lease]: { holder: p.identity, ...(p.user ? { user: p.user } : {}), reason: d.value.reason, expires_at } },
           updated_at: ctx.now
         }
         return { ok: true, state: next, value: { lease, expires_at, status, vm: state.vm, epoch: state.epoch } }
