@@ -87,6 +87,28 @@ clients are refused. Policy tests: `agent_session_attach_tests.rs`.
   (`agent_session.unknown_permission` otherwise). The daemon never answers by itself, and the
   app's transport still requires a fresh user gesture for an allow.
 
+### Landing review (2026-10-08)
+
+Checked against the relay rules before landing on feat-cmux-next:
+
+- Default deny holds. `handle_connection_frame` sends every `ClientTransport::Remote` or
+  remote-relay frame to `remote_relay::handle_frame` before `agent_session_attach::try_handle`
+  runs, and the relay gate names no `agent-session-*` verb. `try_handle` also refuses a non-Unix
+  or remote client itself (`agent_session.not_trusted`), so a later dispatch reorder stays safe.
+- Owner only. The verbs need a trusted Unix connection to the daemon socket; the server reach
+  gets one only through the SSH carrier's sidecar under the owner's uid.
+- Scoped to the session's objects. The only ID param is `surface`; it must name an
+  `agent_session` tab of this store, the session comes from that record, the attach refuses an
+  acpmux prefix match, and every later call re-reads the record (a rebound tab ends with
+  `detached`). Permission answers must name an id announced on that attachment.
+- Command-bearing params are denied: each params struct is `deny_unknown_fields`, and no struct
+  has a command, cwd, agent, MCP server or session field.
+- App side: a remote tab gets no git reads, no session rebind, no seed, no New Tab page and no
+  tab conversion; `RemoteAcpmuxWire` answers every method outside its list `remote.unsupported`.
+  Residual: records from the other machine render in this Mac's page with the same trust as a
+  local agent's records, and page actions a user clicks (open tab, app actions) act on this Mac
+  as they do for a local chat.
+
 ## Daemon config
 
 The daemon resolves its acpmux socket at start like `cmux acp`: `ACPMUX_SOCKET`, else
