@@ -1,8 +1,8 @@
 // The agent pane's native context menu (CmuxNextAgentPane AgentPaneContextMenu) acts on the
 // message under the pointer: on `contextmenu`, before WebKit asks the host for its menu, the page
-// reports that message (its text, an agent reply's Markdown, and its turn's fork point) to the
-// host's `cmuxAgentContextMenu` handler, or null when the pointer is not on a message. The host
-// uses one report for one menu.
+// reports that message (its text, an agent reply's Markdown, its turn's fork point, Retry and its
+// links) and the selected transcript text under the pointer to the host's `cmuxAgentContextMenu`
+// handler, or null when there is neither. The host uses one report for one menu.
 import { lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
@@ -18,6 +18,10 @@ export type MessageMenuTarget = {
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
+
+/// What the page reports on `contextmenu`: the message under the pointer, and the selected
+/// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string };
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
@@ -150,8 +154,23 @@ export function installMessageMenuReporter(
   const report = (event: Event) => {
     const target = event.target as Element | null;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
-    handler()?.postMessage((rowId && source?.(rowId)) || null);
+    const message = (rowId && source?.(rowId)) || undefined;
+    const selection = selectionAt(doc, target);
+    const body: MessageMenuReport | null =
+      message || selection ? { ...message, ...(selection ? { selection } : {}) } : null;
+    handler()?.postMessage(body);
   };
   doc.addEventListener("contextmenu", report, true);
   return () => doc.removeEventListener("contextmenu", report, true);
+}
+
+/// The selected transcript text when the right-click is inside the selection; nothing for a
+/// collapsed or blank selection, a right-click elsewhere, or text in the composer (an editable
+/// field, whose own Cut, Copy and Paste the menu keeps).
+function selectionAt(doc: Document, target: Element | null): string | undefined {
+  const selection = doc.getSelection();
+  if (!target || !selection || selection.isCollapsed || selection.rangeCount === 0) return undefined;
+  if (target.closest?.('[contenteditable]:not([contenteditable="false"]), textarea, input')) return undefined;
+  if (!selection.getRangeAt(0).intersectsNode(target)) return undefined;
+  return selection.toString().trim() || undefined;
 }

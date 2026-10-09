@@ -48,12 +48,15 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 /// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
 /// reply's Markdown) and Copy as Plain Text, Retry on a prompt that was not sent, Edit and Resend
 /// on a prompt, Fork from Here when its turn can be forked, and Open Link for its links and images;
-/// the chat's menu (Change Background, zoom...) on empty space; and Inspect Element in builds with
-/// developer tools.
+/// the chat's menu (Change Background, zoom...) on empty space; on selected text Copy, Quote in
+/// Reply, Ask About This, Search the Web and Look Up; and Inspect Element in builds with developer
+/// tools.
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
     static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"]
+    /// WebKit's Look Up, kept on selected text: it shows the definition at the selection.
+    static let lookUpItem = "WKMenuItemIdentifierLookUp"
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
 
     struct Actions {
@@ -62,14 +65,40 @@ enum AgentPaneContextMenu {
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
+        var search: (String) -> Void = { _ in }
+    }
+
+    /// The selected transcript text the page reported with the menu (it reports a selection only
+    /// when the pointer is inside it, never the composer's); nil without one.
+    static func selection(report body: Any?) -> String? {
+        guard let text = (body as? [String: Any])?["selection"] as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
+    /// `text` as a Markdown quote, with a blank line after it for the reply.
+    static func quote(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
     }
 
     /// Replaces WebKit's items in `menu` with the pane's, in groups split by separators.
-    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, devTools: Bool, chatMenu: [NSMenuItem] = [],
-                        actions: Actions) {
+    static func rebuild(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String? = nil, devTools: Bool,
+                        chatMenu: [NSMenuItem] = [], actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
+        let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         menu.removeAllItems()
+        if let selection {
+            // Selected text gets the selection menu alone (macOS adds Services last).
+            let quote = Self.quote(selection)
+            let selected = edits + [
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply) { actions.edit(quote) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis) { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
+            ]
+            let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb) { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])
+            add([selected, find, inspect.map { [$0] } ?? []], to: menu)
+            return
+        }
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -93,7 +122,11 @@ enum AgentPaneContextMenu {
         }
         // Empty space (no message, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        let groups: [[NSMenuItem]] = [copies, message, links, chat, inspect.map { [$0] } ?? []]
+        add([copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
+    }
+
+    /// Adds the non-empty groups, split by separators.
+    private static func add(_ groups: [[NSMenuItem]], to menu: NSMenu) {
         for group in groups where !group.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             group.forEach(menu.addItem)
@@ -138,6 +171,23 @@ enum AgentPaneMenuStrings {
 
     static var openLinks: String {
         String(localized: "agentPane.menu.openLinks", defaultValue: "Open Links", bundle: .module)
+    }
+
+    static var quoteInReply: String {
+        String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
+    }
+
+    static var askAboutThis: String {
+        String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .module)
+    }
+
+    /// What Ask About This writes under the quote, for the person to send or change.
+    static var askAboutThisPrompt: String {
+        String(localized: "agentPane.menu.askAboutThis.prompt", defaultValue: "Explain this.", bundle: .module)
+    }
+
+    static var searchTheWeb: String {
+        String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
     }
 
     static var forkFromHere: String {
