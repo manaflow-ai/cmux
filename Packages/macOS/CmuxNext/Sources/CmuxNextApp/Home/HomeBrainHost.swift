@@ -128,6 +128,11 @@ nonisolated struct HomeBrainHost: Sendable {
             shell.executableURL = URL(fileURLWithPath: "/bin/sh")
             shell.arguments = arguments
             shell.environment = childEnvironment
+            // LAUNCH-NO-TCC-PROMPTS: the host and what it starts without a
+            // folder of its own (its acpmux daemon) run in the Chief home,
+            // never the app's folder (`/`) or the home folder, where an
+            // agent reads Downloads, Documents and Desktop at once.
+            shell.currentDirectoryURL = muxHome
             shell.standardInput = FileHandle.nullDevice
             shell.standardOutput = FileHandle.nullDevice
             shell.standardError = FileHandle.nullDevice
