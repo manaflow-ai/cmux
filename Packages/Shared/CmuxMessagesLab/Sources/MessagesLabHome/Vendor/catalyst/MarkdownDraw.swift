@@ -169,6 +169,14 @@ enum MarkdownDraw {
             case .quoteBar:
                 ctx.setFillColor(pal.bar.cgColor)
                 ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)); ctx.fillPath()
+            case let .image(img):
+                // Host-provided only (MarkdownImageProvider). The context is y-down: flip locally.
+                ctx.saveGState()
+                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.clip()
+                ctx.translateBy(x: b.rect.minX, y: b.rect.maxY); ctx.scaleBy(x: 1, y: -1)
+                ctx.interpolationQuality = .high
+                ctx.draw(img, in: CGRect(origin: .zero, size: b.rect.size))
+                ctx.restoreGState()
             default: break
             }
         }

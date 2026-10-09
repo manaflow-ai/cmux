@@ -37,10 +37,9 @@ public struct TerminalSizingEngine: Sendable {
         var participant = participant
         // A decoded participant bypasses the clamping initializer.
         participant.viewport = participant.viewport?.clamped
-        if let i = index(participant.id) {
-            entries[i] = Entry(participant: participant, activity: activityClock)
-        } else {
-            entries.append(Entry(participant: participant, activity: activityClock))
+        let entry = Entry(participant: participant, activity: activityClock)
+        if !updateEntry(participant.id, { $0 = entry }) {
+            entries.append(entry)
         }
         return publish()
     }
@@ -54,8 +53,7 @@ public struct TerminalSizingEngine: Sendable {
 
     @discardableResult
     public mutating func report(_ id: String, viewport: TerminalGridSize) -> Bool {
-        guard let i = index(id) else { return false }
-        entries[i].participant.viewport = viewport.clamped
+        guard updateEntry(id, { $0.participant.viewport = viewport.clamped }) else { return false }
         return publish()
     }
 
@@ -65,24 +63,23 @@ public struct TerminalSizingEngine: Sendable {
     /// `clear_viewport`; fixture op `clear_viewport`.
     @discardableResult
     public mutating func clearViewport(_ id: String) -> Bool {
-        guard let i = index(id) else { return false }
-        entries[i].participant.viewport = nil
+        guard updateEntry(id, { $0.participant.viewport = nil }) else { return false }
         return publish()
     }
 
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
     @discardableResult
     public mutating func noteActivity(_ id: String) -> Bool {
-        guard let i = index(id) else { return false }
+        guard index(id) != nil else { return false }
         activityClock += 1
-        entries[i].activity = activityClock
+        let clock = activityClock
+        updateEntry(id) { $0.activity = clock }
         return publish()
     }
 
     @discardableResult
     public mutating func setCountsOverride(_ id: String, _ value: Bool?) -> Bool {
-        guard let i = index(id) else { return false }
-        entries[i].participant.countsOverride = value
+        guard updateEntry(id, { $0.participant.countsOverride = value }) else { return false }
         return publish()
     }
 
@@ -102,6 +99,20 @@ public struct TerminalSizingEngine: Sendable {
     public var participantIDs: [String] { entries.map(\.participant.id) }
 
     // MARK: Rules
+
+    /// Applies `body` to the entry for `id`; false when there is none.
+    @discardableResult
+    private mutating func updateEntry(_ id: String, _ body: (inout Entry) -> Void) -> Bool {
+        var found = false
+        entries = entries.map { entry in
+            guard !found, entry.participant.id == id else { return entry }
+            found = true
+            var entry = entry
+            body(&entry)
+            return entry
+        }
+        return found
+    }
 
     private func index(_ id: String) -> Int? {
         entries.firstIndex { $0.participant.id == id }

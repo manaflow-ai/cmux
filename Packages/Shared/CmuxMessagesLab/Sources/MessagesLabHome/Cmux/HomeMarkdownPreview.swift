@@ -9,6 +9,7 @@ public struct HomeMarkdownPreview: Sendable {
     public let text: String
 
     public init(_ source: String, author: ParticipantID, in summary: ConversationSummary?) {
+        HomeMarkdownPolicy.install()
         text = HomeMapping.isAgent(author, summary) ? HomeMarkdown.render(source).text : source
     }
 }

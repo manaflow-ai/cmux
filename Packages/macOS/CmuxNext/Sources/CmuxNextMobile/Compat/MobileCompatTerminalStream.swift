@@ -87,14 +87,14 @@ actor MobileCompatTerminalStream {
         case .output(let data, _):
             guard replay != nil, !data.isEmpty else { return }
             let seq = nextSeq
-            nextSeq += UInt64(data.count)
+            nextSeq += UInt64(clamping: data.count)
             await emit(surfaceID, seq, data)
         case .resized(let snapshot):
             if CellSize(cols: snapshot.cols, rows: snapshot.rows) != viewport { holdsGeometry = false }
             replay = snapshot
             let bytes = MobileCompatReplayBytes.replacement(snapshot)
             let seq = nextSeq
-            nextSeq += UInt64(bytes.count)
+            nextSeq += UInt64(clamping: bytes.count)
             await emit(surfaceID, seq, bytes)
         case .colorsChanged, .scrollChanged:
             break

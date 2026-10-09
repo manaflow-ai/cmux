@@ -50,22 +50,33 @@
   },
   "index_subscript": {
    "CMUXMobileCore": 15,
-   "CmuxIrohTransport": 59,
+   "CmuxIrohTransport": 40,
    "CmuxIrxTransport": 30,
-   "CmuxNextControl": 22,
-   "CmuxNextDaemon": 88,
-   "CmuxNextMobile": 5,
-   "CmuxTerminalSizing": 5,
-   "MessagesLabHome": 270
+   "CmuxNextControl": 18,
+   "CmuxNextDaemon": 54,
+   "CmuxNextMobile": 1,
+   "MessagesLabHome": 148
   },
   "int_conversion": {
    "CMUXMobileCore": 18,
-   "CmuxIrohTransport": 72,
+   "CmuxIrohTransport": 16,
    "CmuxIrxTransport": 43,
-   "CmuxNextControl": 45,
-   "CmuxNextDaemon": 8,
-   "CmuxNextMobile": 5,
-   "MessagesLabHome": 48
+   "CmuxNextControl": 5,
+   "CmuxNextDaemon": 3,
+   "CmuxNextMobile": 1,
+   "MessagesLabHome": 45
+  },
+  "objc_observer": {
+   "CmuxNextApp": 3,
+   "CmuxNextBrowser": 1,
+   "CmuxNextDesign": 3,
+   "CmuxNextLayout": 1,
+   "CmuxNextPages": 1,
+   "CmuxNextPalette": 1,
+   "CmuxNextSidebar": 4,
+   "CmuxNextTerminal": 1,
+   "MessagesLabHome": 3,
+   "MessagesLabSidebar": 2
   },
   "render_font": {
    "CmuxHomeRender": 4,

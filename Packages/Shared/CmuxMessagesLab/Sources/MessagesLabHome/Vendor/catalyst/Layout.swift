@@ -190,12 +190,29 @@ struct RowSpec: Hashable {
 /// one-line field is 31 pt tall [30] with its bottom unchanged, so the transcript ends 1 pt
 /// higher (983 [984]); 2 and 3 lines are 47 and 63 pt; the text stays centered (first
 /// baseline 20.25 pt below the field top [19.75]).
+/// The Mac apps pick the values of the OS they run on (a run-time check: one build runs on
+/// both); macOS 26 values come from the macOS 26 recording (catalyst/TRANSITIONS.md). iOS keeps
+/// the macOS 27 values.
 enum ComposeMetrics {
-    static func height(lines: Int, chips: Bool) -> CGFloat { 31 + 16 * CGFloat(lines - 1) + (chips ? 30 : 0) }
-    static let oneLine: CGFloat = 31
-    static let anchorBase: CGFloat = 983
+    /// Running on macOS 26 (before 27). `MESSAGESLAB_OS_FIT=26|27` overrides it (A/B checks only).
+    static let macOS26: Bool = {
+        #if os(macOS) || targetEnvironment(macCatalyst)
+        switch ProcessInfo.processInfo.environment["MESSAGESLAB_OS_FIT"] {
+        case "26": return true
+        case "27": return false
+        default: return ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27
+        }
+        #else
+        return false
+        #endif
+    }()
+    static func height(lines: Int, chips: Bool) -> CGFloat {
+        (lines == 1 ? oneLine : 31 + 16 * CGFloat(lines - 1)) + (chips ? 30 : 0)
+    }
+    static let oneLine: CGFloat = macOS26 ? 30 : 31
+    static let anchorBase: CGFloat = macOS26 ? 984 : 983
     static let fieldBottom: CGFloat = 1030.25
-    static let firstBaseline: CGFloat = 20.25
+    static let firstBaseline: CGFloat = macOS26 ? 19.75 : 20.25
 }
 
 struct ThreadPreview: Hashable {
@@ -277,6 +294,11 @@ struct PartRow: Hashable {
     /// Markdown text (MarkdownLayout.swift): drawn and hit-tested from this; `text` is then a
     /// one-line proxy of the display string.
     var markdown: MarkdownLayout? = nil
+    /// The message is marked markdown (Message.format): a long text part takes the markdown
+    /// tiles only then (LongTextStore.layout).
+    var markdownFormat: Bool = false
+    /// The message format of this row (Message.format).
+    var format: MessageFormat? { markdownFormat ? .markdown : nil }
     /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
     /// body is shorter than its 16 pt-per-line slot and sits at the slot top
     /// (measured on the sent 3-line bubble: top matches, bottom 1 pt higher).
@@ -490,8 +512,10 @@ enum VectorAsset {
 /// Filled off the main thread when pages load; the main thread only reads.
 final class MeasureCache: @unchecked Sendable {
     static let shared = MeasureCache()
-    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat }
-    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int }
+    /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
+    /// id and text (a host marking a message later, a local echo) is a new measurement.
+    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool }
+    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
     /// The latest exact measurement of each part at any width (estimates).
@@ -528,7 +552,7 @@ final class MeasureCache: @unchecked Sendable {
         guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
         if case let .text(t, _) = part, LongText.isLong(t) { // cmux: checked part
-            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
+            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown), text: nil, width: width)
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
         if case let .custom(c) = part { // cmux
@@ -536,10 +560,11 @@ final class MeasureCache: @unchecked Sendable {
             return Value(size: s, text: tl, width: width, estimated: est)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-        let k = Key(id: m.id, part: pi, version: version, width: width)
+        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown)
+        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
-        if estimate, let old = latest[PartKey(id: m.id, part: pi, version: version)] {
+        if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
             return MeasureCache.scale(old, to: width, part: part) // cmux
@@ -547,7 +572,7 @@ final class MeasureCache: @unchecked Sendable {
         misses += 1
         lock.unlock()
         var v: Value
-        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, width: width) {
+        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
             v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
         } else {
             let (size, tl) = Sizing.size(of: part, width: width) // cmux
@@ -555,7 +580,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         lock.lock()
         store.updateValue(v, forKey: k) // cmux: dictionary writes
-        latest.updateValue(v, forKey: PartKey(id: m.id, part: pi, version: version))
+        latest.updateValue(v, forKey: pk)
         lock.unlock()
         return v
     }
@@ -700,7 +725,8 @@ enum RowBuilder {
                     if case .failed = m.status { failed = true }
                     let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: CustomRows.outgoing(part, sender: outgoing),
                                       tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions, failed: failed,
-                                      size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown)
+                                      size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
+                                      markdownFormat: m.isMarkdown)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
@@ -813,58 +839,80 @@ enum Format {
     static func duration(_ s: Double) -> String { let t = CrashGuard.int(s); return String(format: "%d:%02d", t / 60, t % 60) } // cmux: no trap on NaN
 }
 
-/// cmux: `bundle: .module` (the catalog is the package's, not the app's).
-enum Strings {
-    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
-    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
-    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
-    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered", bundle: .module) }
-    static var edited: String { String(localized: "label.edited", defaultValue: "Edited", bundle: .module) }
-    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
-    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
-    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
-    static func replies(_ n: Int) -> String {
-        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
+/// Where every user-facing string of the MessagesLab code comes from (catalyst/Sources and
+/// appkit-native/Sources, which cmux-next vendors). One injectable bundle for all catalogs:
+/// `Localizable` (catalyst/Resources), `AppKitNative` and `SidebarLocalizable`
+/// (appkit-native/Resources). A host copies those .xcstrings into its resources and sets
+/// `bundle` (a Swift package: `Bundle.module`). Default: the bundle that contains this code,
+/// not `Bundle.main` (in a host app they differ, and Bundle.main has no MessagesLab catalog).
+/// `String(localized:)` without a bundle reads Bundle.main, so the code never uses it.
+enum MessagesLabLocalization {
+    private final class Token {}
+    private static let lock = NSLock()
+    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
+    private static var current = Bundle.module
+    static var bundle: Bundle {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
     }
-    static var location: String { String(localized: "preview.location", defaultValue: "Location", bundle: .module) }
+    /// The string for `key` in the user's preferred language (of `bundle`); `english` when the
+    /// catalog has no entry. `table`: nil is `Localizable`.
+    static func string(_ key: String, _ english: String, table: String? = nil) -> String {
+        bundle.localizedString(forKey: key, value: english, table: table)
+    }
+}
+
+enum Strings {
+    static var today: String { MessagesLabLocalization.string("separator.today", "Today") }
+    static var yesterday: String { MessagesLabLocalization.string("separator.yesterday", "Yesterday") }
+    static var read: String { MessagesLabLocalization.string("receipt.read", "Read") }
+    static var delivered: String { MessagesLabLocalization.string("receipt.delivered", "Delivered") }
+    static var edited: String { MessagesLabLocalization.string("label.edited", "Edited") }
+    static var notDelivered: String { MessagesLabLocalization.string("label.notDelivered", "Not Delivered") }
+    static var unsentMine: String { MessagesLabLocalization.string("row.unsent.mine", "You unsent a message") }
+    static var unsentTheirs: String { MessagesLabLocalization.string("row.unsent.theirs", "A message was unsent") }
+    static func replies(_ n: Int) -> String {
+        String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
+    }
+    static var location: String { MessagesLabLocalization.string("preview.location", "Location") }
     static func fileKind(_ a: Attachment) -> String {
         switch (a.fileName as NSString).pathExtension.lowercased() {
-        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document", bundle: .module)
-        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive", bundle: .module)
-        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording", bundle: .module)
-        default: return String(localized: "file.kind.document", defaultValue: "Document", bundle: .module)
+        case "pdf": return MessagesLabLocalization.string("file.kind.pdf", "PDF Document")
+        case "zip": return MessagesLabLocalization.string("file.kind.zip", "ZIP Archive")
+        case "m4a", "mp3", "wav", "aac": return MessagesLabLocalization.string("file.kind.audio", "Audio Recording")
+        default: return MessagesLabLocalization.string("file.kind.document", "Document")
         }
     }
     // cmux: not "iMessage" (Apple's service name).
-    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
-    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply", bundle: .module) }
-    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply", bundle: .module) }
-    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
-    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
-    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
-    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…", bundle: .module) }
-    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…", bundle: .module) }
-    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…", bundle: .module) }
-    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…", bundle: .module) }
-    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…", bundle: .module) }
-    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks", bundle: .module) }
-    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks", bundle: .module) }
-    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?", bundle: .module) }
-    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.", bundle: .module) }
-    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete", bundle: .module) }
-    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel", bundle: .module) }
-    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
+    static var placeholder: String { MessagesLabLocalization.string("compose.placeholder", "Message") }
+    static var replyPlaceholder: String { MessagesLabLocalization.string("compose.placeholder.reply", "Reply") }
+    static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
+    static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }
+    static var menuEdit: String { MessagesLabLocalization.string("menu.edit", "Edit") }
+    static var menuUndoSend: String { MessagesLabLocalization.string("menu.undoSend", "Undo Send") }
+    static var menuReplyEllipsis: String { MessagesLabLocalization.string("menu.replyEllipsis", "Reply…") }
+    static var menuTapbackDetails: String { MessagesLabLocalization.string("menu.tapbackDetails", "Tapback Details…") }
+    static var menuAttachSticker: String { MessagesLabLocalization.string("menu.attachSticker", "Attach Sticker…") }
+    static var menuShare: String { MessagesLabLocalization.string("menu.share", "Share…") }
+    static var menuDelete: String { MessagesLabLocalization.string("menu.delete", "Delete…") }
+    static var tapbackDetailsTitle: String { MessagesLabLocalization.string("tapback.details.title", "Tapbacks") }
+    static var tapbackDetailsNone: String { MessagesLabLocalization.string("tapback.details.none", "No Tapbacks") }
+    static var deleteConfirmTitle: String { MessagesLabLocalization.string("delete.confirm.title", "Delete this message?") }
+    static var deleteConfirmInfo: String { MessagesLabLocalization.string("delete.confirm.info", "It is deleted from this Mac.") }
+    static var deleteConfirmButton: String { MessagesLabLocalization.string("delete.confirm.button", "Delete") }
+    static var deleteConfirmCancel: String { MessagesLabLocalization.string("delete.confirm.cancel", "Cancel") }
+    static var menuTapback: String { MessagesLabLocalization.string("menu.tapback", "Tapback") }
     static func tapbackName(_ t: String) -> String {
         switch t {
-        case "love": return String(localized: "tapback.love", defaultValue: "Love", bundle: .module)
-        case "like": return String(localized: "tapback.like", defaultValue: "Like", bundle: .module)
-        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike", bundle: .module)
-        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh", bundle: .module)
-        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize", bundle: .module)
-        default: return String(localized: "tapback.question", defaultValue: "Question", bundle: .module)
+        case "love": return MessagesLabLocalization.string("tapback.love", "Love")
+        case "like": return MessagesLabLocalization.string("tapback.like", "Like")
+        case "dislike": return MessagesLabLocalization.string("tapback.dislike", "Dislike")
+        case "laugh": return MessagesLabLocalization.string("tapback.laugh", "Laugh")
+        case "emphasize": return MessagesLabLocalization.string("tapback.emphasize", "Emphasize")
+        default: return MessagesLabLocalization.string("tapback.question", "Question")
         }
     }
-    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA", bundle: .module) }
+    static var laughGlyph: String { MessagesLabLocalization.string("tapback.laugh.glyph", "HA\nHA") }
 }
 
 extension CGSize: @retroactive Hashable {
