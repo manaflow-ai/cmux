@@ -29,7 +29,8 @@
     "closed",
     "window_record",
     "sidebar_layout",
-    "git_checkpoint"
+    "git_checkpoint",
+    "conversation"
   ],
   "types": {
     "RequestOrigin": {
@@ -8204,6 +8205,792 @@
         }
       },
       "extra": false
+    },
+    "ConversationPartRef": {
+      "kind": "object",
+      "fields": {
+        "message_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "part_index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationOrigin": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "remote"
+            ]
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationParticipant": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "user_local, user_<id>, agent_<name> or remote_<install>."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "human",
+              "agent"
+            ]
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "agent_class": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "mux",
+              "agent"
+            ]
+          },
+          "description": "mux marks the Chief."
+        },
+        "acp_session": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "person": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The person a remote_<install> device belongs to."
+        }
+      },
+      "extra": false
+    },
+    "ConversationMessage": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          },
+          "description": "1-based and dense per conversation."
+        },
+        "client_msg_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "parts": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The parts as commands.md conversation-list defines Part: text, work, attachment or question."
+        },
+        "reply_to": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationPartRef"
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "edited_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "retracted_at": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "reactions": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          }
+        },
+        "origin": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationOrigin"
+          },
+          "description": "Set for a message a paired device sent."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "local"
+            ]
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "participants": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationParticipant"
+            }
+          }
+        },
+        "last_seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Increases by exactly one per committed op."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "last_message": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "read_cursors": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationPage": {
+      "kind": "object",
+      "fields": {
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "messages": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            }
+          },
+          "description": "Ascending seq."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSearchHit": {
+      "kind": "object",
+      "fields": {
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "message_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "author": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "snippet": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationSendResult": {
+      "kind": "object",
+      "fields": {
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationPublishResult": {
+      "kind": "object",
+      "fields": {
+        "published": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "false for a replay: nothing was published again."
+        }
+      },
+      "extra": false
+    },
+    "ConversationSnapshotItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "snapshot"
+            ]
+          }
+        },
+        "reset_reason": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "initial",
+              "cursor_expired"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        },
+        "messages": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ConversationMessage"
+            }
+          },
+          "description": "The last tail messages, ascending seq."
+        }
+      },
+      "extra": false
+    },
+    "ConversationMessageItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "message",
+              "message_updated"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationMessage"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationReadCursorItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "read_cursor"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationChangedItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "conversation"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConversationSummary"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationTypingItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "typing"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "on": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationDraftItem": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "draft"
+            ]
+          }
+        },
+        "conversation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "participant": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "turn": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "segment": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "seq": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "talk",
+              "thought"
+            ]
+          }
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "fresh": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "done": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "truncated": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "harness": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 64
+          }
+        }
+      },
+      "extra": false
+    },
+    "ConversationEventItem": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "ConversationSnapshotItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationMessageItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationReadCursorItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationChangedItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationTypingItem"
+        },
+        {
+          "kind": "ref",
+          "name": "ConversationDraftItem"
+        }
+      ],
+      "discriminator": "type",
+      "unknown_variant": {
+        "sdk_name": "Unknown",
+        "when": "unrecognized_discriminator",
+        "preserve_discriminator": true,
+        "preserve_raw_object": true
+      },
+      "constraints": [
+        "Unknown is used only for an unrecognized type and retains that type plus the complete raw object.",
+        "Committed items (message, message_updated, read_cursor, conversation) carry the conversation rev they produced; typing and draft items are ephemeral, carry no rev and are never replayed."
+      ]
     }
   },
   "generics": {
@@ -8588,7 +9375,8 @@
                 "screen_group",
                 "closed",
                 "window_record",
-                "git_checkpoint"
+                "git_checkpoint",
+                "conversation"
               ]
             }
           },
@@ -10571,6 +11359,575 @@
         "width is finite, at least 0.1, and at most 1.",
         "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
+      ]
+    },
+    "conversation.draft": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "turn": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The idempotency key of the reply message the turn will post."
+          },
+          "segment": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "0-based segment of the turn; a new segment starts after each tool call."
+          },
+          "seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "1-based, one more per draft event of the turn, across segments."
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "talk",
+                "thought"
+              ]
+            }
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 65536
+            }
+          },
+          "fresh": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: text is the whole segment so far (or its last 64 KiB with truncated) and replaces it; false: text is a delta appended to the segment."
+          },
+          "done": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The turn ended: clients drop the draft."
+          },
+          "truncated": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationPublishResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Only an agent participant (a connection bound with conversation-bind) publishes drafts, for itself: details.reason not_agent otherwise.",
+        "Ephemeral: never stored, no rev change, never replayed to a resumed stream. The posted message with client_msg_id equal to turn, a done draft, or typing off ends the draft.",
+        "A seq at or below the last published seq of the turn is a replay: published false, nothing sent.",
+        "At most 10 draft events per second per (conversation, turn): rate_limited. A delta above 16 KiB or a fresh text above 64 KiB: text_too_large.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
+      ]
+    },
+    "conversation.events": {
+      "class": "stream_open",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "stream_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "stream"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "Cursor"
+            }
+          },
+          "tail": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "default": 50,
+            "description": "Messages in the snapshot item."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "StreamOpened"
+      },
+      "stream": {
+        "item": {
+          "kind": "ref",
+          "name": "ConversationEventItem"
+        },
+        "end": {
+          "kind": "ref",
+          "name": "StreamEnd"
+        },
+        "cursor": true,
+        "initial_snapshot": true
+      },
+      "errors": [
+        "cursor.invalid",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "transport.closed",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "For this operation Cursor.generation is the conversation id and Cursor.revision is the conversation rev.",
+        "Without a cursor the first item is a snapshot (reset_reason initial) of the summary and the last tail messages, then every later change in commit order. A cursor at the current rev resumes with no snapshot; an older cursor starts with a snapshot (reset_reason cursor_expired).",
+        "A cursor of another conversation or ahead of the conversation is refused with cursor.invalid.",
+        "When the stream falls behind (its queue overflows or a rev is missed) it ends with reason gap and the last delivered cursor; reopen with that cursor.",
+        "Typing and draft items are delivered live only."
+      ]
+    },
+    "conversation.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "tail": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "default": 50,
+            "description": "How many of the newest messages to return."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ConversationPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found."
+      ]
+    },
+    "conversation.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "before_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            }
+          },
+          "limit": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationMessage"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Returns up to limit messages with seq below before_seq, the newest of them, ascending seq."
+      ]
+    },
+    "conversation.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationSummary"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Lists the conversations the caller takes part in, newest updated_at first."
+      ]
+    },
+    "conversation.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "default": 20
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ConversationSearchHit"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Searches only the conversations the caller's principal takes part in, with the read model of commands.md conversation-search."
+      ]
+    },
+    "conversation.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 65536
+            }
+          },
+          "parts": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              },
+              "min_items": 1,
+              "max_items": 16
+            }
+          },
+          "reply_to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationPartRef"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationSendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Exactly one of text and parts. text sends one text part.",
+        "The idempotency key is the message's client_msg_id: 1 to 128 printable ASCII characters. A retry with the same key and request returns the stored message with replayed true; the same key with another request is idempotency.conflict.",
+        "The message is published to every conversation.events stream and subscriber of the conversation.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
+      ]
+    },
+    "conversation.typing": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The conversation id (conv_ then 26 Crockford base32 characters)."
+          },
+          "on": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ConversationPublishResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Trusted local connections only (a Unix socket of this machine). The owner stamps the caller's conversation principal: user_local, or the agent participant the connection bound with conversation-bind. A conversation the principal does not take part in is refused with operation.failed details.reason not_participant; an unknown one with resource.not_found.",
+        "Publishes a typing item for the caller's own principal, which must take part in the conversation. Never stored; the conversation rev does not change.",
+        "operation.failed details.reason is the owner's reason (commands.md conversation-op reject codes, for example not_participant, invalid_parts, human_only), or for drafts not_agent, rate_limited or text_too_large; extra.message explains it."
       ]
     },
     "frontend_projection.get": {

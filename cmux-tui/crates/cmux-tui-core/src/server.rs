@@ -122,6 +122,7 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_resource;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -7304,7 +7305,7 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
             | ResourceOperation::OriginConfirmationIssue
-    )
+    ) || conversation_resource::handles(operation)
 }
 
 fn trusted_local_resource_client(
@@ -7404,6 +7405,9 @@ fn handle_resource_connection_message(
         crate::resource_router::requires_connection_context(operation)
     );
     match operation {
+        operation if conversation_resource::handles(operation) => {
+            conversation_resource::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }
@@ -15068,6 +15072,7 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
+                        MuxEvent::Conversation(event) if event.is_draft() => continue,
                         MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
                             if !trusted_pairing_client =>
                         {
@@ -20054,7 +20059,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 33);
+        assert_eq!(connection_operations, 41);
     }
 
     #[test]

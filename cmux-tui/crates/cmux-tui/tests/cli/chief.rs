@@ -49,10 +49,12 @@ impl Conn {
     }
 
     fn event(&mut self) -> Value {
-        self.events.pop_front().unwrap_or_else(|| loop {
-            let value = self.line();
-            if value.get("event").is_some() {
-                break value;
+        self.events.pop_front().unwrap_or_else(|| {
+            loop {
+                let value = self.line();
+                if value.get("event").is_some() {
+                    break value;
+                }
             }
         })
     }
@@ -110,12 +112,15 @@ fn fake_brain(
                 typing(&mut brain, false);
             }
             let op = |kind: Value, key: String| json!({"conversation": conversation, "idempotency_key": key, "op": kind});
-            brain.request("conversation-op", op(json!({"kind": "read_cursor.set", "seq": seq}), format!("cursor:{seq}")));
+            brain.request(
+                "conversation-op",
+                op(json!({"kind": "read_cursor.set", "seq": seq}), format!("cursor:{seq}")),
+            );
             typing(&mut brain, true);
             let key = format!("turn:optchat:{seq}");
             brain.request(
                 "conversation-op",
-                op(json!({"kind": "message.send", "client_msg_id": key, "parts": [{"type": "text", "text": format!("echo: {text}")}]}), key.clone()),
+                op(json!({"kind": "message.send", "client_msg_id": key, "parts": [{"type": "text", "text": format!("echo: {text}")}]}), key),
             );
             typing(&mut brain, false);
             return;
@@ -150,12 +155,13 @@ fn run_turn(busy: bool, args: &[&str], stdin: &str) -> (Output, Vec<Value>) {
     let server = HeadlessServer::start("chief-pipe");
     let mut home = Conn::open(&server.socket);
     let conversation = chief_conversation(&mut home);
-    let token = home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     home.request("subscribe", json!({}));
-    let brain = fake_brain(server.socket.clone(), conversation.clone(), token, busy);
+    let brain = fake_brain(server.socket.clone(), conversation, token, busy);
     let output = chief_cli(&server, args, stdin);
     brain.join().unwrap();
     // What Home saw, in order: every message of the conversation.
