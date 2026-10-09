@@ -54,3 +54,13 @@ export function modelEffort(model: QueryModel, effort: string | undefined): stri
   if (!effort) return undefined;
   return model.efforts?.find((value) => value.toLowerCase() === effort) ?? effort;
 }
+
+/// How well `model` matches the query's words, lower is better (stub; ranking lands next).
+export function matchRank(_model: QueryModel, _harnessName: string, _query: ParsedQuery): number {
+  return 0;
+}
+
+/// A context window as a compact count ("200K", "1M") (stub; lands next).
+export function compactContext(_tokens: number | undefined, _language: string): string | undefined {
+  return undefined;
+}

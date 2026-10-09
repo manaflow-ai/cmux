@@ -369,6 +369,38 @@ describe("T3 model picker", () => {
     expect(calls).toEqual(["harness codex", "model gpt-6-astra", "config effort medium"]);
   });
 
+  // Round 1 brief: a failed catalog refresh says so in the menu with a retry, not only in a tooltip.
+  test("a failed catalog refresh shows an inline row whose Retry refreshes again", async () => {
+    let refreshes = 0;
+    await act(async () =>
+      root.render(
+        createElement(ComposerPickers, {
+          snapshot: snapshot(),
+          onModel: () => {},
+          onMode: () => {},
+          onEffort: () => {},
+          catalogRefresh: { status: "error", refresh: () => void (refreshes += 1) },
+        }),
+      ),
+    );
+    await act(async () => modelButton().click());
+    const row = menu()!.querySelector<HTMLElement>(".acpmux-mp-refresh-error");
+    expect(row?.textContent).toContain("Couldn’t refresh models");
+    await act(async () => row!.querySelector<HTMLButtonElement>("button")!.click());
+    expect(refreshes).toBe(1);
+  });
+
+  test("a model's context window shows as a compact badge", async () => {
+    const value = snapshot();
+    value.catalog[0]!.models = value.catalog[0]!.models.map((model) =>
+      model.id === "claude-opus-5-5" ? { ...model, contextWindow: 1_000_000 } : model,
+    );
+    await render(value);
+    await act(async () => modelButton().click());
+    const opus = modelRows().find((row) => row.textContent?.includes("Opus 5.5"))!;
+    expect(opus.querySelector(".acpmux-mp-context")?.textContent).toBe("1M");
+  });
+
   test("Cmd-Ctrl-M opens the picker", async () => {
     await render();
     await act(async () =>
